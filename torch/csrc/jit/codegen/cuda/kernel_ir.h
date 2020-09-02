@@ -514,6 +514,28 @@ class TORCH_CUDA_API Allocate : public Expr {
   bool zero_init_ = false;
 };
 
+// Deallocate is a lower level Node that indicates when to release
+// a shared memory buffer within a kernel
+class TORCH_CUDA_API Deallocate : public Expr {
+ public:
+  explicit Deallocate(Allocate* buffer);
+
+  Allocate* buffer() const {
+    return buffer_;
+  }
+
+  Val* size() const {
+    return buffer_->size();
+  }
+
+  DataType buffer_type() const {
+    return buffer_->buffer_type();
+  }
+
+ private:
+  Allocate* buffer_ = nullptr;
+};
+
 // Sync represents __syncthreads barrier for block level coordination.
 class TORCH_CUDA_API Sync : public Expr {
  public:

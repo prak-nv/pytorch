@@ -399,6 +399,15 @@ void IrPrinter::handle(const kir::Allocate* a) {
   os_ << "kir::Allocate";
 }
 
+void IrPrinter::handle(const kir::Deallocate* a) {
+  indent();
+  os_ << "offset -= (";
+  print_inline(a->size());
+  os_ << " * sizeof(";
+  os_ << a->buffer_type();
+  os_ << "));\n";
+}
+
 void IrPrinter::handle(const kir::Sync* a) {
   os_ << "kir::Sync";
 }

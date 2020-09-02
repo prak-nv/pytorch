@@ -167,6 +167,9 @@ void Expr::dispatch(T handler, Expr* expr) {
     case ExprType::Allocate:
       ptr(handler)->handle(expr->as<kir::Allocate>());
       return;
+    case ExprType::Deallocate:
+      ptr(handler)->handle(expr->as<kir::Deallocate>());
+      return;
     case ExprType::Sync:
       ptr(handler)->handle(expr->as<kir::Sync>());
       return;
@@ -314,6 +317,9 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     case ExprType::Allocate:
       ptr(handler)->handle(expr->as<kir::Allocate>());
       return;
+    case ExprType::Deallocate:
+      ptr(handler)->handle(expr->as<kir::Deallocate>());
+      return;
     case ExprType::Sync:
       ptr(handler)->handle(expr->as<kir::Sync>());
       return;
@@ -402,6 +408,8 @@ Statement* Expr::mutatorDispatch(T mutator, Expr* expr) {
       return ptr(mutator)->mutate(expr->as<kir::IfThenElse>());
     case ExprType::Allocate:
       return ptr(mutator)->mutate(expr->as<kir::Allocate>());
+    case ExprType::Deallocate:
+      return ptr(mutator)->mutate(expr->as<kir::Deallocate>());
     case ExprType::Sync:
       return ptr(mutator)->mutate(expr->as<kir::Sync>());
     default:

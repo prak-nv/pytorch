@@ -233,13 +233,13 @@ void LoopNestGenerator::handle(Expr* expr) {
     return;
   }
 
-  //  0) Apply SyncThreads if any shared memory inputs are modified
+  //  Apply SyncThreads if any shared memory inputs are modified
   bool shared_memory_sync = false;
   for (auto in : expr->inputs()) {
     shared_memory_sync |= isModifiedSharedMemory(in);
   }
   if (shared_memory_sync) {
-    // push Sync to the back of the last for loop
+    // push Sync to the back of the latest for loop
     scope_utils::pushBack(for_loops.back(), new kir::Sync());
     cleanSharedMemory();
   }
@@ -254,7 +254,7 @@ void LoopNestGenerator::handle(Expr* expr) {
   // Check where in the previous view our last axis was in that view
   int64_t last_ca_view_ind = 0;
 
-  // Look at each axis individually in out's domain
+  // Look at each axis individually in OUT's domain
   for (int64_t out_i = 0; out_i < (int64_t)out->getThisComputeAtAxis();
        out_i++) {
     // Grab the axis information
@@ -263,7 +263,7 @@ void LoopNestGenerator::handle(Expr* expr) {
     auto ca_id = ca_point.first;
 
     // Figure out if there are axes in the compute at tensor view that aren't
-    // in out, make sure to also open them. Check where to start looking for
+    // in OUT, make sure to also open them. Check where to start looking for
     // them in the compute at view.
     size_t start = 0;
     if (last_ca_view == nullptr) {
@@ -314,9 +314,9 @@ void LoopNestGenerator::handle(Expr* expr) {
     loop_structure.push_back(out->getComputeAtAxis(out_i));
   }
 
-  // At this point loop_structure contains our overal target loop nest structure
-  // Lets get a copy of the loop structure, and figure out which loops we need
-  // to open.
+  // At this point loop_structure contains our overall target loop nest
+  // structure Lets get a copy of the loop structure, and figure out which loops
+  // we need to open.
   decltype(loop_structure) loops_to_open(loop_structure);
   // Pop out loops already opened
   for (const auto& existing_loop : for_loops) {
@@ -330,7 +330,7 @@ void LoopNestGenerator::handle(Expr* expr) {
     }
   }
 
-  // At this point for_loops + loops_to_open contains our overal target loop
+  // At this point for_loops + loops_to_open contains our overall target loop
   // nest structure. Open loops in "loops_to_open".
   while (!loops_to_open.empty()) {
     openFor(loops_to_open.front());

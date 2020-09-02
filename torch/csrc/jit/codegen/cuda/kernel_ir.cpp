@@ -419,6 +419,12 @@ Allocate::Allocate(
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
 }
 
+Deallocate::Deallocate(Allocate* buffer)
+    : Expr(ExprType::Deallocate), buffer_(buffer) {
+  addInput(buffer_->size());
+  name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
+}
+
 GridReduction::GridReduction(ReductionOp* reduction_op)
     : Expr(ExprType::GridReduction), reduction_op_(reduction_op) {
   TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");

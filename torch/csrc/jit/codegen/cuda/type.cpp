@@ -101,6 +101,8 @@ static const char* expr_type2string(ExprType t) {
       return "IfThenElse";
     case ExprType::Allocate:
       return "Allocate";
+    case ExprType::Deallocate:
+      return "Deallocate";
     case ExprType::Sync:
       return "SyncThreads";
     case ExprType::Split:

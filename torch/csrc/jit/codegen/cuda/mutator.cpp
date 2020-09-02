@@ -109,6 +109,10 @@ Statement* OptOutMutator::mutate(kir::Allocate* a) {
   return a;
 }
 
+Statement* OptOutMutator::mutate(kir::Deallocate* a) {
+  return a;
+}
+
 Statement* OptOutMutator::mutate(kir::Sync* a) {
   return a;
 }
