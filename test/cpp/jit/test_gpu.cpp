@@ -5000,7 +5000,7 @@ void testGPU_FusionReductionScheduler() {
   const at::ArrayRef<c10::IValue> inputs({input});
 
   TORCH_CHECK(
-      cuda::scheduleReduction(&fusion, inputs, tv1),
+      cuda::scheduleReduction(&fusion, inputs, tv1, {}),
       "Reduction schedule was not generated!");
 
   cuda::FusionExecutor fe;
@@ -5093,7 +5093,7 @@ void testGPU_FusionReductionSchedulerMultiDimNonFastest() {
   const at::ArrayRef<c10::IValue> inputs({input});
 
   TORCH_CHECK(
-      cuda::scheduleReduction(&fusion, inputs, tv1),
+      cuda::scheduleReduction(&fusion, inputs, tv1, {}),
       "Reduction schedule was not generated!");
 
   torch::jit::fuser::cuda::FusionExecutor fe;
@@ -5131,7 +5131,7 @@ void testGPU_FusionReductionSchedulerMultiDimFastest() {
   at::Tensor input = at::randn(tensor_dims_in, options);
 
   TORCH_CHECK(
-      cuda::scheduleReduction(&fusion, {input}, tv1),
+      cuda::scheduleReduction(&fusion, {input}, tv1, {}),
       "Reduction schedule was not generated!");
 
   torch::jit::fuser::cuda::FusionExecutor fe;
@@ -5195,9 +5195,12 @@ void testGPU_FusionReductionSchedulerDimShmoo() {
                     : at::randn({rdim, odim}, options));
 
           const at::ArrayRef<c10::IValue> inputs({input});
-
+          std::vector<TensorView*> outputs_of_red;
+          if (fp16) {
+            outputs_of_red.push_back(tv1_cast);
+          }
           c10::optional<cuda::ReductionParams> rparams =
-              cuda::scheduleReduction(&fusion, inputs, tv1);
+              cuda::scheduleReduction(&fusion, inputs, tv1, outputs_of_red);
           TORCH_CHECK(rparams != c10::nullopt, "Reduction is not found!");
           if (fp16) {
             if (axis == 0) {
@@ -6707,7 +6710,7 @@ void testGPU_FusionComputeAtMultiBCast() {
   ASSERT_ANY_THROW(tv1->computeAt(tv3, -1));
 }
 
-void testGPU_FusionReductionHalfRepro() {
+void testGPU_FusionReductionHalf() {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -6726,36 +6729,24 @@ void testGPU_FusionReductionHalfRepro() {
       at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor input = at::randn({8, 8, 16}, options);
 
-  // Apply reduction heuristic
-  const at::ArrayRef<c10::IValue> inputs({input});
-
   TORCH_CHECK(
-      cuda::scheduleReduction(&fusion, inputs, tv3),
+      cuda::scheduleReduction(&fusion, {input}, tv3, {tv4}),
       "Reduction schedule was not generated!");
 
-  std::cout << " === fusion math ===" << std::endl;
-  fusion.printMath();
-
-  GpuLower gpulw(&fusion);
-  std::stringstream kernel;
-  gpulw.printKernel(kernel);
-
-  std::cout << " === generated code ===" << std::endl;
-  std::cout << kernel.str() << std::endl;
-
-  /* put this back once it's fixed
   cuda::FusionExecutor fe;
   fe.compileFusion(&fusion);
   // no broadcasting needed, omitting the last optional argument;
-  auto outputs = fe.runFusion(inputs);
+  auto outputs = fe.runFusion({input});
 
-  auto aten_output = input.add(1.0).sum({2});
+  auto aten_output = input.to(c10::ScalarType::Float)
+                         .add(1.0)
+                         .sum({2})
+                         .to(c10::ScalarType::Half);
 
   TORCH_CHECK(
       aten_output.allclose(outputs[0], 1e-04, 1e-04),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-   */
 }
 
 } // namespace jit

@@ -355,7 +355,41 @@ struct Dependencies : public IterVisitor {
   }
 };
 
-// Looks for and returns
+// Looks for and returns all values in between dependencies and vals, including
+// them.
+struct FindOutputs : public IterVisitor {
+  const std::unordered_set<Val*>& of_;
+  std::unordered_set<Val*> outs;
+
+  void handle(Val* val) override {
+    if (of_.find(val) != of_.end()) {
+      Statement* out_stmt = stmt_stack.front().back();
+      if (out_stmt->isVal()) {
+        auto out_val = out_stmt->as<Val>();
+        if (of_.find(out_val) == of_.end()) {
+          outs.emplace(out_val);
+        }
+      }
+    }
+  }
+
+  FindOutputs(const std::unordered_set<Val*>& _of) : of_(_of) {
+    auto fusion = (*of_.begin())->fusion();
+    traverseFrom(fusion, fusion->outputs(), false);
+  };
+
+ public:
+  static std::unordered_set<Val*> getAllOutputsOf(
+      const std::unordered_set<Val*>& of) {
+    if (of.empty()) {
+      return std::unordered_set<Val*>();
+    }
+
+    FindOutputs finder(of);
+    return finder.outs;
+  }
+};
+
 class DependencyChains : public IterVisitor {
  public:
   std::deque<std::deque<Val*>> dep_chains;
@@ -468,6 +502,15 @@ std::unordered_set<Val*> DependencyCheck::getAllValsBetween(
     const std::unordered_set<Val*>& dependencies,
     const std::vector<Val*>& of) {
   return Dependencies::getAllVals(dependencies, of);
+}
+
+std::unordered_set<Val*> DependencyCheck::getAllOutputsOf(
+    const std::unordered_set<Val*>& of) {
+  if (of.empty()) {
+    return std::unordered_set<Val*>();
+  }
+  FusionGuard fg((*of.begin())->fusion());
+  return FindOutputs::getAllOutputsOf(of);
 }
 
 void ExprSort::handle(Expr* expr) {

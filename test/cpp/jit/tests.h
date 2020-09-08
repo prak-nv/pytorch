@@ -228,7 +228,7 @@ namespace jit {
   _(GPU_FusionThreadPredicate)                      \
   _(GPU_FusionLSTMCell)                             \
   _(GPU_FusionComputeAtMultiBCast)                  \
-  _(GPU_FusionReductionHalfRepro)
+  _(GPU_FusionReductionHalf)
 #else
 #define TH_FORALL_TESTS_CUDA(_) \
   _(ArgumentSpec)               \
