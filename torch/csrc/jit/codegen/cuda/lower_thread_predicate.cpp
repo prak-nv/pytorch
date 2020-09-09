@@ -243,9 +243,25 @@ void ThreadPredicateMap::duplicate(
   }
 }
 
-kir::Bool* ThreadPredicateMap::getExpr(const TensorView* tv) const {
-  TORCH_INTERNAL_ASSERT(find(tv) != end(), "Couldn't find ", tv);
-  return getPredicate(at(tv).first, at(tv).second);
+kir::Bool* ThreadPredicateMap::getExpr(const TensorView* out_tv) const {
+  TORCH_INTERNAL_ASSERT(find(out_tv) != end(), "Couldn't find ", out_tv);
+  auto it = at(out_tv);
+  auto bitmap = it.first;
+  auto source_map = it.second;
+  // A bit of a hack for now for GEMM tiling so we don't fetch tiles multiple
+  // times. It's safe to do, there may simply be a better place to do it.
+  if (out_tv->getMemoryType() == MemoryType::Shared) {
+    for (auto id : out_tv->domain()->domain()) {
+      if (id->isBroadcast() && id->isThreadDim()) {
+        auto p_type = id->getParallelType();
+        if (!bitmap.get(p_type)) {
+          bitmap.set(p_type, true);
+          source_map[p_type] = {out_tv};
+        }
+      }
+    }
+  }
+  return getPredicate(bitmap, source_map);
 }
 
 } // namespace fuser
