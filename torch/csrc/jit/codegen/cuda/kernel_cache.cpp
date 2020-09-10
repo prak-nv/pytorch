@@ -248,17 +248,20 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
     // caching strategy is different for pw-fusion and reduction-fusion.
     if (has_reduction_) {
+      // SETUP AND CHECK HEURISTIC ON ORIG FUSION
+
       // copy the fusion, since each FusionExecutor needs to manipulate the
       // fusion in order to generate kernel.
-      Fusion fusion = *fusion_;
-
-      FusionGuard fg(&fusion);
+      FusionGuard fg(fusion_.get());
 
       TensorView* reduction_tv = nullptr;
       // Use dependency check to find the reduction tv as it returns used values
       // instead of exprs.
+
+      // Heavy weight call
       auto used_vals = DependencyCheck::getAllValsBetween(
-          {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+          {fusion_->inputs().begin(), fusion_->inputs().end()},
+          fusion_->outputs());
 
       for (auto val : used_vals) {
         if (val->getValType().value() == ValType::TensorView) {
@@ -276,18 +279,58 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
           reduction_tv != nullptr,
           "Could not find the reduction tensor view in the fusion.");
 
+      // Heavy weight call
       auto outputsOfReduction =
           DependencyCheck::getAllOutputsOf({reduction_tv});
+
       auto tv_entries = ir_utils::filterByType<TensorView>(outputsOfReduction);
+
       std::vector<TensorView*> tvOutputsOfReduction(
           tv_entries.begin(), tv_entries.end());
 
       auto reduction_params = getReductionHeuristics(
-          &fusion, inputs, reduction_tv, tvOutputsOfReduction);
+          fusion_.get(), inputs, reduction_tv, tvOutputsOfReduction);
 
       auto fusion_executor = &red_fusion_executor_cache_[reduction_params];
 
       if (!fusion_executor->compiled()) {
+        // HEURISTIC NOT COMPILED, COMPILE A KERNEL
+        Fusion fusion = *fusion_;
+
+        FusionGuard fg(&fusion);
+
+        // Heavy weight call
+        auto used_vals = DependencyCheck::getAllValsBetween(
+            {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+
+        TensorView* reduction_tv = nullptr;
+
+        for (auto val : used_vals) {
+          if (val->getValType().value() == ValType::TensorView) {
+            auto tv = val->as<TensorView>();
+            if (tv->hasReduction()) {
+              TORCH_INTERNAL_ASSERT(
+                  reduction_tv == nullptr,
+                  "Already found a reduction tensorview, cannot handle fusion of multiple reductions.");
+              reduction_tv = tv;
+            }
+          }
+        }
+
+        TORCH_INTERNAL_ASSERT(
+            reduction_tv != nullptr,
+            "Could not find the reduction tensor view in the fusion.");
+
+        // Heavy weight call
+        auto outputsOfReduction =
+            DependencyCheck::getAllOutputsOf({reduction_tv});
+
+        auto tv_entries =
+            ir_utils::filterByType<TensorView>(outputsOfReduction);
+
+        std::vector<TensorView*> tvOutputsOfReduction(
+            tv_entries.begin(), tv_entries.end());
+
         auto schedule = scheduleReduction(
             &fusion, inputs, reduction_tv, tvOutputsOfReduction);
 
@@ -315,6 +358,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       code_to_fe_lookup_[unique_id] = pw_fusion_executor_cache_.get();
     }
   }
+
   return code_to_fe_lookup_[unique_id]->runFusion(
       inputs, LaunchParams(), unique_id);
 }
