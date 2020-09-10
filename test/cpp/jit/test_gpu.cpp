@@ -5881,11 +5881,11 @@ void testGPU_FusionSmemDynamicPwiseMulSymbolicArg() {
   FusionGuard fg(&fusion);
 
   // Symbolic integers we will use for runtime tiling
-  Int* symbolic_m_tile_dim = new Int();
-  Int* symbolic_split_k_tile_dim = new Int();
-  Int* symbolic_block_k_tile_dim = new Int();
+  Int* symbolic_m_tile_dim = new Int(); // bound to threadIdx.z
+  Int* symbolic_split_k_tile_dim = new Int(); // bound to blockIdx.x
+  Int* symbolic_block_k_tile_dim = new Int(); // bound to threadIdx.x
   // Compile-time integer for tiling
-  int n_smem_tile = 32;
+  int n_smem_tile = 8; // bound to threadIdx.y
 
   // Symbolic 2D tensors TV0[M, K], TV1[K, N]
   TensorView* tv0 = makeDummyTensor(2);
@@ -5899,7 +5899,7 @@ void testGPU_FusionSmemDynamicPwiseMulSymbolicArg() {
   // Pointwise multiplication resulting in tv3[M, K, N]
   TensorView* tv4 = mul(tv2, tv3);
 
-  // Sum the K-dim
+  // Turn the K-dimension of tv4 into a reduction dimension
   TensorView* tv5 = sum(tv4, {1});
 
   // Register inputs and outputs
@@ -5929,6 +5929,7 @@ void testGPU_FusionSmemDynamicPwiseMulSymbolicArg() {
   // Scope computations
   tv6->computeAt(tv5, 2);
 
+  // RFactor moves reduction axes around, reorder to match ordering of tv5
   tv6->reorder({
       {2, -2},
       {3, -1},
@@ -5941,6 +5942,12 @@ void testGPU_FusionSmemDynamicPwiseMulSymbolicArg() {
   tv0->computeAt(tv6, 3);
   tv1->computeAt(tv6, 3);
   tv4->computeAt(tv6, -1);
+  //
+  // T2[Mo,  bNo, Koo, Koi,  Kii,  Mi, bNi] CA(4, 3)
+  // T3[bMo,  No, Koo, Koi,  Kii, bMi,  Ni] CA(4, 3)
+  // T4[ Mo,  No, Koo, Koi,  Kii,  Mi,  Ni]
+  // T6[ Mo,  No, rKoo, Koi, Kii,  Mi,  Ni]
+  // T5[ Mo,  No,      rKoi, rKii, Mi,  Ni]
 
   // Cache smem tiles
   tv2->setMemoryType(MemoryType::Shared);
@@ -5971,26 +5978,30 @@ void testGPU_FusionSmemDynamicPwiseMulSymbolicArg() {
   fusion.printMath();
   fusion.printKernel();
 
-  // Changing N to > 32 (the compile_time tile dim breaks the code still)
-  constexpr int M = 31, K = 65, N = 32;
+  constexpr int M = 31, K = 65, N = 33;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({M, K}, options);
-  at::Tensor t1 = at::randn({K, N}, options);
+  at::Tensor A = at::randn({M, K}, options);
+  at::Tensor B = at::randn({K, N}, options);
 
   torch::jit::fuser::cuda::FusionExecutor fe;
+  // Generate CUDA and compile with nvRTC
   fe.compileFusion(&fusion);
-  // A, B, m_tile_dim, split_k, intra_cta_tile
-  auto outputs = fe.runFusion(
-      {t0, t1, 3, 4, 5},
-      torch::jit::fuser::cuda::LaunchParams(-1, -1, -1, -1, -1, -1));
 
-  at::Tensor aten_output = mul(t0.unsqueeze(2), t1.unsqueeze(0)).sum(1);
+  // Runtime tiling
+  int m_tile = 4; // bound to threadIdx.z
+  int split_k = 7; // bound to blockIdx.x
+  int intra_cta = 8; // bound to threadIdx.x
+
+  auto fuser_outputs = fe.runFusion({A, B, m_tile, split_k, intra_cta});
+  auto C_fuser = fuser_outputs[0];
+
+  at::Tensor aten_C = mul(A.unsqueeze(2), B.unsqueeze(0)).sum(1);
 
   TORCH_CHECK(
-      aten_output.allclose(outputs[0], 1e-5, 1e-5),
+      aten_C.allclose(C_fuser, 1e-5, 1e-5),
       "Error of: ",
-      aten_output.sub(outputs[0]).abs().max());
+      aten_C.sub(C_fuser).abs().max());
 }
 
 void testGPU_FusionGlobalIntermediate() {
