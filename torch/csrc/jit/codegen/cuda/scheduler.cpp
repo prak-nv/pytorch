@@ -318,6 +318,49 @@ ReductionParams reductionHeuristic(
 }
 } // anonymous namespace
 
+TORCH_CUDA_API ReductionParams getReductionHeuristics(
+    Fusion* fusion,
+    const at::ArrayRef<c10::IValue>& fusion_inputs,
+    TensorView* red_tv,
+    std::vector<TensorView*> outs_of_red) {
+  FusionGuard fg(fusion);
+
+  auto red_root_dom = red_tv->getRootDomain();
+  const bool red_on_fastest_dim =
+      red_root_dom[red_root_dom.size() - 1]->isReduction();
+
+  TORCH_INTERNAL_ASSERT(
+      red_tv != nullptr, "Reduction TensorView wasn't found.");
+
+  TORCH_INTERNAL_ASSERT(
+      red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  const auto red_expr = fusion->origin(red_tv);
+
+  TORCH_INTERNAL_ASSERT(
+      red_expr->getExprType() != c10::nullopt &&
+          red_expr->getExprType().value() == ExprType::ReductionOp,
+      "TensorView doesn't have a reduction.");
+
+  StatefulExpressionEvaluator evaluator(
+      executor_utils::statefulBindInputs(fusion_inputs, fusion));
+
+  int64_t red_outputs = 1;
+  int64_t red_elements = 1;
+
+  for (auto id : red_tv->getRootDomain()) {
+    auto inferred_val = evaluator.inferValue(id->rawExtent());
+    TORCH_INTERNAL_ASSERT(
+        inferred_val.has_value(), "Error inferring reduction size.");
+    if (id->isReduction()) {
+      red_elements *= inferred_val.value();
+    } else {
+      red_outputs *= inferred_val.value();
+    }
+  }
+
+  return reductionHeuristic(red_elements, red_outputs, red_on_fastest_dim);
+}
+
 // fusion is the input IR that will be modified by this function
 c10::optional<ReductionParams> scheduleReduction(
     Fusion* fusion,

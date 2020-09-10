@@ -271,6 +271,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
           }
         }
       }
+
       TORCH_INTERNAL_ASSERT(
           reduction_tv != nullptr,
           "Could not find the reduction tensor view in the fusion.");
@@ -281,14 +282,17 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
       std::vector<TensorView*> tvOutputsOfReduction(
           tv_entries.begin(), tv_entries.end());
 
-      auto reduction_params = scheduleReduction(
+      auto reduction_params = getReductionHeuristics(
           &fusion, inputs, reduction_tv, tvOutputsOfReduction);
-      TORCH_INTERNAL_ASSERT(
-          reduction_params.has_value(),
-          "reduction schedule failed in `scheduleReduction`");
-      auto fusion_executor =
-          &red_fusion_executor_cache_[reduction_params.value()];
+
+      auto fusion_executor = &red_fusion_executor_cache_[reduction_params];
+
       if (!fusion_executor->compiled()) {
+        auto schedule = scheduleReduction(
+            &fusion, inputs, reduction_tv, tvOutputsOfReduction);
+
+        TORCH_INTERNAL_ASSERT(
+            schedule.has_value(), "Failure scheudling reduction");
         // This means we have not found a previously generated kernel that's
         // compatible with the new reduction params. We need to finish codegen.
         CompileOptions options;
