@@ -456,6 +456,9 @@ c10::optional<ReductionParams> scheduleReduction(
       // Reduction Output Tensor:
       //      [Out-Leftover, Out-PerBlock, X-Warp]
       // Idx:       0              1       2(-1)
+      if (!outs_of_red.empty()) {
+        red_tv->computeAt(outs_of_red[0], -1);
+      }
 
       red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
 
@@ -474,9 +477,6 @@ c10::optional<ReductionParams> scheduleReduction(
         if (input->getValType().value() == ValType::TensorView) {
           input->as<TensorView>()->computeAt(red_tv_rf, -1);
         }
-      }
-      if (!outs_of_red.empty()) {
-        red_tv->computeAt(outs_of_red[0], -1);
       }
       // Do a cross-warp reduction per block
     } else {
@@ -629,6 +629,7 @@ c10::optional<ReductionParams> scheduleReduction(
         red_tv->axis(0)->parallelize(ParallelType::BIDx);
         for (auto iter_tv : outs_of_red) {
           iter_tv->axis(0)->parallelize(ParallelType::BIDx);
+          iter_tv->axis(1)->parallelize(ParallelType::TIDx);
         }
 
         red_tv->axis(-3)->parallelize(ParallelType::TIDx);
@@ -694,6 +695,7 @@ c10::optional<ReductionParams> scheduleReduction(
         red_tv->axis(0)->parallelize(ParallelType::BIDx);
         for (auto iter_tv : outs_of_red) {
           iter_tv->axis(0)->parallelize(ParallelType::BIDx);
+          iter_tv->axis(1)->parallelize(ParallelType::TIDx);
         }
         red_tv->axis(-2)->parallelize(ParallelType::TIDx);
         red_tv->axis(-1)->parallelize(ParallelType::TIDy);
@@ -715,11 +717,11 @@ c10::optional<ReductionParams> scheduleReduction(
         red_tv->computeAt(outs_of_red[0], -1);
       }
 
-      red_tv->axis(0)->parallelize(ParallelType::TIDx);
-      red_tv->axis(1)->parallelize(ParallelType::BIDx);
+      red_tv->axis(0)->parallelize(ParallelType::BIDx);
+      red_tv->axis(1)->parallelize(ParallelType::TIDx);
       for (auto iter_tv : outs_of_red) {
-        iter_tv->axis(0)->parallelize(ParallelType::TIDx);
-        iter_tv->axis(1)->parallelize(ParallelType::BIDx);
+        iter_tv->axis(0)->parallelize(ParallelType::BIDx);
+        iter_tv->axis(1)->parallelize(ParallelType::TIDx);
       }
 
       for (auto input : fusion->inputsOf(red_tv)) {
