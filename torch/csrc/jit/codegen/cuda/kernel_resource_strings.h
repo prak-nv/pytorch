@@ -200,7 +200,7 @@ template<bool X_REDUCE, bool Y_REDUCE, bool Z_REDUCE, typename T, typename Func>
 __inline__ __device__
 void blockReduce(T& out, const T inp_val, Func reduction_op, const dim3& thread_idx, const dim3& block_dim, T* shared_mem, bool read_write_pred, T init_val) {
 
-  unsigned int reduction_size 
+  unsigned int reduction_size
     = (X_REDUCE ? block_dim.x : 1)
     * (Y_REDUCE ? block_dim.y : 1)
     * (Z_REDUCE ? block_dim.z : 1);
@@ -226,8 +226,8 @@ void blockReduce(T& out, const T inp_val, Func reduction_op, const dim3& thread_
     reduction_tid = threadIdx.z * blockDim.x + threadIdx.x;
   } else {
     // Normal reduction in order
-    reduction_stride 
-    = (X_REDUCE ? 1 
+    reduction_stride
+    = (X_REDUCE ? 1
     : (Y_REDUCE ? block_dim.x
     : (Z_REDUCE ? block_dim.x * block_dim.y : 0)));
 
@@ -263,10 +263,10 @@ void blockReduce(T& out, const T inp_val, Func reduction_op, const dim3& thread_
     }
     __syncthreads();
   }
-  
+
   if(should_write && read_write_pred)
     out = shared_mem[linear_tid];
-  
+
 }
 )";
 
@@ -540,7 +540,7 @@ __device__ bool gridReduce(T& out, T inp_val, Func reduction_op,
   // Number of values to reduce in the grid dimensions
   const auto seg_size =
       size_of_reduction_segment<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
-  
+
   // Index of the reduction we're performing out of the seg_size
   const auto seg_idx =
       index_of_reduction_segment<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
