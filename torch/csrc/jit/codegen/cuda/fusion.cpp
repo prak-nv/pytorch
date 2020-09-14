@@ -1,5 +1,6 @@
 
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+#include <torch/csrc/jit/codegen/cuda/codegen.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
 #include <torch/csrc/jit/codegen/cuda/ir_printer.h>
@@ -228,7 +229,7 @@ void Fusion::removeVal(Val* val) {
   delete val;
 }
 
-void Fusion::addInput(Val* const input) {
+void Fusion::addInput(Val* input) {
   assertInFusion(input, "Cannot register input ");
 
   if (input->getValType().value() == ValType::TensorView) {
@@ -251,7 +252,7 @@ void Fusion::addInput(Val* const input) {
   inputs_.push_back(input);
 }
 
-void Fusion::addOutput(Val* const output) {
+void Fusion::addOutput(Val* output) {
   assertInFusion(output, "Cannot register output ");
   if (output->getValType().value() == ValType::TensorView) {
     auto tv = output->as<TensorView>();
@@ -337,16 +338,15 @@ void Fusion::validateInputs() {
 void Fusion::print() {
   FusionGuard fg(this);
   std::cout << "%kernel {\n";
-  IRMathPrinter op_exprs(std::cout);
+  IrMathPrinter op_exprs(std::cout);
   op_exprs.handle(this);
-  IRTransformPrinter t_exprs(std::cout);
+  IrTransformPrinter t_exprs(std::cout);
   t_exprs.handle(this);
   std::cout << "}\n";
 }
 
 void Fusion::printKernel() {
-  GpuLower lower(this);
-  lower.printKernel(std::cout);
+  std::cout << codegen::generateCudaKernel(GpuLower(this).kernel());
 }
 
 void Fusion::printMath() {
@@ -357,7 +357,7 @@ void Fusion::printMath() {
 
 void Fusion::printTransforms() {
   FusionGuard fg(this);
-  IRTransformPrinter t_exprs(std::cout);
+  IrTransformPrinter t_exprs(std::cout);
   t_exprs.handle(this);
 }
 

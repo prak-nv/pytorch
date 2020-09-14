@@ -3,6 +3,7 @@
 #include <test/cpp/jit/test_base.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
+#include <torch/csrc/jit/codegen/cuda/codegen.h>
 #include <torch/csrc/jit/codegen/cuda/executor.h>
 #include <torch/csrc/jit/codegen/cuda/executor_launch_params.h>
 #include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
@@ -11,6 +12,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_graphviz.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_cache.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/mutator.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
@@ -360,8 +362,6 @@ void testGPU_FusionExprEvalPostLower() {
 
   // Lower
   GpuLower gpulw(&fusion);
-  std::stringstream kernel;
-  gpulw.printKernel(kernel);
 
   // 1. Create an evaluation context
   StatefulExpressionEvaluator evaluator(&fusion);
@@ -505,10 +505,12 @@ void testGPU_FusionCopy() {
   ASSERT_EQ(original_ir.str(), clone_ir.str());
 
   // Lower original fusion
-  std::stringstream original_kernel;
+  std::string original_kernel;
   {
-    GpuLower lower(&original_fusion);
-    lower.printKernel(original_kernel);
+    // TODO(kir): remove this guard once we implement the cuda codegen visitor
+    FusionGuard fg(&original_fusion);
+    original_kernel =
+        codegen::generateCudaKernel(GpuLower(&original_fusion).kernel());
   }
 
   // Make sure the "before lowering" clone was not mutated
@@ -529,12 +531,14 @@ void testGPU_FusionCopy() {
   ASSERT_EQ(original_lowered_ir.str(), clone_lowered_ir.str());
 
   // Lower the "before lowering" and compare kernels
-  std::stringstream clone_kernel;
+  std::string clone_kernel;
   {
-    GpuLower lower(&before_lowering);
-    lower.printKernel(clone_kernel);
+    // TODO(kir): remove this guard once we implement the cuda codegen visitor
+    FusionGuard fg(&before_lowering);
+    clone_kernel =
+        codegen::generateCudaKernel(GpuLower(&before_lowering).kernel());
   }
-  ASSERT_EQ(original_kernel.str(), clone_kernel.str());
+  ASSERT_EQ(original_kernel, clone_kernel);
 }
 
 void testGPU_FusionMove() {
@@ -593,9 +597,7 @@ void testGPU_FusionMove() {
   ASSERT_EQ(original_ir.str(), another_ir.str());
 
   // Lower the fusion IR
-  std::stringstream kernel;
   GpuLower lower(&another_fusion);
-  lower.printKernel(kernel);
 
   std::stringstream lowered_ir;
   lowered_ir << another_fusion;
@@ -1142,8 +1144,8 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Te
 }
 )";
 
-  std::string actual_kernel = GpuLower(fusion.get()).getKernel();
-  actual_kernel = "\n" + actual_kernel;
+  const std::string actual_kernel =
+      "\n" + codegen::generateCudaKernel(GpuLower(fusion.get()).kernel());
   if (expected_kernel.size() != actual_kernel.size() ||
       expected_kernel.compare(actual_kernel) != 0) {
     std::cerr
@@ -1527,11 +1529,7 @@ void testGPU_FusionAdvancedComputeAt() {
     fe.compileFusion(&fusion);
     auto outputs = fe.runFusion({t0});
 
-    GpuLower gpulw(&fusion);
-    std::stringstream actual_kernel;
-    gpulw.printKernel(actual_kernel);
-
-    TORCH_CHECK(at::allclose(outputs[0], t5), actual_kernel.str());
+    TORCH_CHECK(at::allclose(outputs[0], t5));
     TORCH_CHECK(at::allclose(outputs[1], t6));
   }
 
@@ -1587,11 +1585,7 @@ void testGPU_FusionAdvancedComputeAt() {
     fe.compileFusion(&fusion);
     fe.runFusion({t0, t1}, {kernel_tv3});
 
-    GpuLower gpulw(&fusion);
-    std::stringstream actual_kernel;
-    gpulw.printKernel(actual_kernel);
-
-    TORCH_CHECK(at::allclose(kernel_tv3, t3), actual_kernel.str());
+    TORCH_CHECK(at::allclose(kernel_tv3, t3));
   }
 
   // Case 4
@@ -1657,11 +1651,7 @@ void testGPU_FusionAdvancedComputeAt() {
     fe.compileFusion(&fusion);
     auto outputs = fe.runFusion({t0, t1, t2, t3});
 
-    GpuLower gpulw(&fusion);
-    std::stringstream actual_kernel;
-    gpulw.printKernel(actual_kernel);
-
-    TORCH_CHECK(at::allclose(outputs[0], t6), actual_kernel.str());
+    TORCH_CHECK(at::allclose(outputs[0], t6));
   }
 
   // Case 5
@@ -2177,11 +2167,7 @@ void testGPU_FusionScalarInputs() {
        at::Scalar(fl3)},
       {kernel_tv4});
 
-  GpuLower gpulw(&fusion);
-  std::stringstream actual_kernel;
-  gpulw.printKernel(actual_kernel);
-
-  TORCH_CHECK(at::allclose(kernel_tv4, t4), actual_kernel.str());
+  TORCH_CHECK(at::allclose(kernel_tv4, t4));
 }
 
 void testGPU_FusionLoopUnroll() {
@@ -6775,6 +6761,44 @@ void testGPU_FusionComputeAtMultiBCast() {
 
   // This is not supported and should throw an exception.
   ASSERT_ANY_THROW(tv1->computeAt(tv3, -1));
+}
+
+void testGPU_FusionInputsIdLookup() {
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({16, 8, 8}, options);
+  at::Tensor t1 = at::randn({8, 8}, options);
+  at::Tensor t2 = at::randn({6, 4}, options);
+
+  // create a cache with max size 2;
+  auto inputs_id_lookup = torch::jit::fuser::cuda::InputsIdLookup(2);
+
+  // testing basic function, same encoding for identical inputs
+  auto id_0 = inputs_id_lookup.lookupId({t0, t1, 5.0});
+  auto id_0_lookup = inputs_id_lookup.lookupId({t0, t1, 2.5});
+  TORCH_CHECK(id_0.id == id_0_lookup.id);
+  TORCH_CHECK(inputs_id_lookup.size() == 1);
+  TORCH_CHECK(id_0.eviction == false);
+
+  // new input (even tho same shape, but we have different signature because of
+  // missing scalar input
+  auto id_1 = inputs_id_lookup.lookupId({t0, t1});
+  auto id_1_lookup = inputs_id_lookup.lookupId({t0, t1});
+  TORCH_CHECK(id_1.id == id_1_lookup.id);
+  TORCH_CHECK(inputs_id_lookup.size() == 2);
+  TORCH_CHECK(id_1.eviction == false);
+
+  // eviction should happen at this point
+  auto id_2 = inputs_id_lookup.lookupId({t2, t1});
+  TORCH_CHECK(id_2.id != id_0.id);
+  TORCH_CHECK(id_2.id != id_1.id);
+  TORCH_CHECK(inputs_id_lookup.size() == 2);
+  TORCH_CHECK(id_2.eviction == true);
+  TORCH_CHECK(id_2.evict_id == id_0.id);
+
+  // look at input 1 again
+  auto id_1_relook = inputs_id_lookup.lookupId({t0, t1});
+  TORCH_CHECK(id_1_relook.id == id_1.id);
+  TORCH_CHECK(id_1_relook.eviction == false);
 }
 
 } // namespace jit

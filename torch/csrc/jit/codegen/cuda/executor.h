@@ -31,6 +31,7 @@ class TORCH_CUDA_API FusionExecutor : public NonCopyable {
       const std::string& name,
       int id,
       CompileOptions options = CompileOptions());
+
   void compileFusion(Fusion* fusion, CompileOptions options = CompileOptions());
 
   std::vector<at::Tensor> runFusion(
@@ -51,6 +52,10 @@ class TORCH_CUDA_API FusionExecutor : public NonCopyable {
   bool compiled() const {
     return fusion_id_ != -1;
   };
+
+  void evictCache(size_t cache_id) {
+    executor_entry_lookup_.erase(cache_id);
+  }
 
   // TODO: strides would also be important when we handle permutations in
   //       codegen.
