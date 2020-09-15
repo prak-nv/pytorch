@@ -24,7 +24,7 @@ void SyncInserter::handle(kir::ForLoop* fl) {
 }
 
 void SyncInserter::handle(kir::IfThenElse* ite) {
-  for (auto expr : ite->body().exprs()) {
+  for (auto expr : ite->thenBody().exprs()) {
     handle(expr);
   }
 
