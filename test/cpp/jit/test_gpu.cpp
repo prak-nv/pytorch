@@ -5983,6 +5983,7 @@ void testGPU_FusionSmemDynamicPwiseMulSymbolicArg() {
   auto C_fuser = fuser_outputs[0];
 
   at::Tensor aten_C = mul(A.unsqueeze(2), B.unsqueeze(0)).sum(1);
+  // TODO: re-enable after fixing #380
 #if 0
   TORCH_CHECK(
       aten_C.allclose(C_fuser, 1e-5, 1e-5),
