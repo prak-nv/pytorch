@@ -73,10 +73,8 @@ class KernelIrScanner : private OptOutDispatch {
 } // namespace
 
 // TODO(kir): Kernel IR validation
-Kernel::Kernel(
-    const std::vector<Expr*>& exprs,
-    const ThreadPredicateMap& predicate_map)
-    : exprs_(exprs), predicate_map_(predicate_map) {
+Kernel::Kernel(std::vector<Expr*> exprs, ThreadPredicateMap predicate_map)
+    : exprs_(std::move(exprs)), predicate_map_(std::move(predicate_map)) {
   analyze();
 }
 

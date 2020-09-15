@@ -52,9 +52,7 @@ struct KernelSummary {
 //!
 class TORCH_CUDA_API Kernel final : public NonCopyable {
  public:
-  Kernel(
-      const std::vector<Expr*>& exprs,
-      const ThreadPredicateMap& predicate_map);
+  Kernel(std::vector<Expr*> exprs, ThreadPredicateMap predicate_map);
 
   // Register input as an input of the kernel
   void addInput(Val* input) {
