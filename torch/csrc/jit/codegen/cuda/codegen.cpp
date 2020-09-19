@@ -532,6 +532,7 @@ class CudaKernelGenerator : private OptInConstDispatch {
   }
 
   void handle(const kir::ForLoop* node) final {
+    // TODO(kir): handle this during lowering
     if (node->iter_domain()->isThread() || node->iter_domain()->isBroadcast()) {
       handle(node->body());
       return;
