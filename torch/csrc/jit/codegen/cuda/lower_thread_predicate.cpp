@@ -89,6 +89,21 @@ void maskSouceMap(
   }
 }
 
+// A bit of a hack for now for GEMM tiling so we don't fetch tiles multiple
+// times. It's safe to do, there may simply be a better place to do it.
+void avoidRedundantWritesToSmem(
+    TensorView* out_tv,
+    ir_utils::ParallelTypeBitmap& pred) {
+  if (out_tv->getMemoryType() == MemoryType::Shared) {
+    for (size_t i = 0; i < out_tv->nDims(); i++) {
+      auto id = out_tv->getComputeAtAxis(i).first;
+      if (out_tv->axis(i)->isBroadcast() && id->isThreadDim()) {
+        pred.set(id->getParallelType(), true);
+      }
+    }
+  }
+}
+
 } // namespace
 
 // Update the reduction_deps bitset based on provided Expr
@@ -173,15 +188,17 @@ void ThreadPredicateMap::updateBitSet(Expr* expr) {
 
   // Get rid of any reductions which are bcasted
   output_preds &= bcast_reset_map;
-  // Similarly, drop non-relevant source tensos
+  // Similarly, drop non-relevant source tensors
   maskSouceMap(src_map, bcast_reset_map);
 
   // Run through outputs and set bitset predicates
-  for (const auto* out : expr->outputs()) {
+  for (auto* out : expr->outputs()) {
     if (!ir_utils::isTV(out))
       continue;
     TORCH_INTERNAL_ASSERT(find(ir_utils::asConstTV(out)) == end());
-    insert(ir_utils::asConstTV(out), output_preds, src_map);
+    auto pred_for_this_out = output_preds;
+    avoidRedundantWritesToSmem(ir_utils::asTV(out), pred_for_this_out);
+    insert(ir_utils::asConstTV(out), pred_for_this_out, src_map);
   }
 }
 
@@ -248,25 +265,9 @@ void ThreadPredicateMap::duplicate(
   }
 }
 
-kir::Bool* ThreadPredicateMap::getExpr(TensorView* out_tv) const {
+kir::Bool* ThreadPredicateMap::getExpr(const TensorView* out_tv) const {
   TORCH_INTERNAL_ASSERT(find(out_tv) != end(), "Couldn't find ", out_tv);
-  auto it = at(out_tv);
-  auto bitmap = it.first;
-  auto source_map = it.second;
-  // A bit of a hack for now for GEMM tiling so we don't fetch tiles multiple
-  // times. It's safe to do, there may simply be a better place to do it.
-  if (out_tv->getMemoryType() == MemoryType::Shared) {
-    for (size_t i = 0; i < out_tv->nDims(); i++) {
-      auto id = out_tv->getComputeAtAxis(i).first;
-      if (out_tv->axis(i)->isBroadcast() && id->isThreadDim()) {
-        auto p_type = id->getParallelType();
-        if (!bitmap.get(p_type)) {
-          bitmap.set(p_type, true);
-        }
-      }
-    }
-  }
-  return getPredicate(bitmap, source_map);
+  return getPredicate(at(out_tv).first, at(out_tv).second);
 }
 
 } // namespace fuser
