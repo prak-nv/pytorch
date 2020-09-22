@@ -132,7 +132,7 @@ class CudaKernelGenerator : private OptInConstDispatch {
   }
 
   void genBody() {
-    for (auto expr : kernel_->exprs()) {
+    for (auto expr : kernel_->topLevelExprs()) {
       OptInConstDispatch::handle(expr);
     }
   }

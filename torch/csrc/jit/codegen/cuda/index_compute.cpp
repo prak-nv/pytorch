@@ -256,7 +256,7 @@ void IndexCompute::handle(Split* split) {
     zero_merged_in_.emplace(in_id);
     extent_map_[in_id] = getExtent(outer_id);
   } else {
-    index_map_[in_id] = kir::addExpr(
+    index_map_[in_id] = ir_builder.addExpr(
         ir_builder.mulExpr(outer_ind, getExtent(inner_id)), inner_ind);
     if (extent_map_.find(outer_id) != extent_map_.end() ||
         extent_map_.find(inner_id) != extent_map_.end()) {
@@ -329,8 +329,8 @@ void IndexCompute::handle(Merge* merge) {
   } else {
     Val* I = inner_extent;
 
-    Val* outer_ind = kir::divExpr(out_ind, I);
-    Val* inner_ind = kir::modExpr(out_ind, I);
+    Val* outer_ind = ir_builder.divExpr(out_ind, I);
+    Val* inner_ind = ir_builder.modExpr(out_ind, I);
 
     index_map_[outer_id] = outer_ind;
     index_map_[inner_id] = inner_ind;
@@ -1222,7 +1222,7 @@ std::pair<std::vector<Val*>, bool> Index::getConsumerRootPredIndices(
 
       if (within_unroll && !loop->iter_domain()->isThread()) {
         loop_to_ind_map[loop] =
-            kir::subExpr(loop->iter_domain()->extent(), one);
+            ir_builder.subExpr(loop->iter_domain()->extent(), one);
       }
     }
   }

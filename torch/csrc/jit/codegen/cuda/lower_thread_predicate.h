@@ -44,9 +44,6 @@ class TORCH_CUDA_API ThreadPredicateMap {
   kir::Bool* getExpr(const TensorView* tv) const;
 
  private:
-  Fusion* fusion_;
-  MapType thread_predicates_;
-
   // Update the thread_predicates bitset based on provided Expr
   void updateBitSet(Expr*);
 
@@ -55,6 +52,10 @@ class TORCH_CUDA_API ThreadPredicateMap {
       const ir_utils::ParallelTypeBitmap& pred,
       const SourceMapType& src_map);
   void insert(const TensorView* tv, const MapType::mapped_type& pred_and_src);
+
+ private:
+  Fusion* fusion_ = nullptr;
+  MapType thread_predicates_;
 };
 
 } // namespace fuser

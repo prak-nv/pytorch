@@ -55,7 +55,16 @@ struct KernelSummary {
 //!
 class TORCH_CUDA_API Kernel final : public NonCopyable {
  public:
-  Kernel(std::vector<Expr*> exprs, ThreadPredicateMap predicate_map);
+  Kernel() = default;
+
+  //! Finalize a kernel definition
+  //!
+  //! At this point we have a complete kernel definition and we can
+  //! run analysis passes to build a KernelSummary
+  //!
+  void finalize(
+      std::vector<Expr*> top_level_exprs,
+      ThreadPredicateMap predicate_map);
 
   //! Register input as an input of the kernel
   void addInput(Val* input) {
@@ -75,8 +84,8 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
     return outputs_;
   }
 
-  const auto& exprs() const {
-    return exprs_;
+  const auto& topLevelExprs() const {
+    return top_level_exprs_;
   }
 
   const KernelSummary& summary() const {
@@ -84,7 +93,7 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
   }
 
   const ThreadPredicateMap& predicateMap() const {
-    return predicate_map_;
+    return *predicate_map_;
   }
 
   //! Allocates a new Kernel IR node
@@ -110,8 +119,8 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
   // Map from value to its definition expression
   std::unordered_map<const Val*, Expr*> definitions_;
 
-  // Lowered expressions (top level only)
-  std::vector<Expr*> exprs_;
+  // Top level expressions
+  std::vector<Expr*> top_level_exprs_;
 
   // Kernel inputs and outputs
   std::vector<Val*> inputs_;
@@ -122,7 +131,7 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
 
   // Predicate map
   // TODO(kir): consider a simpler, kernel IR based version
-  ThreadPredicateMap predicate_map_;
+  std::unique_ptr<ThreadPredicateMap> predicate_map_;
 };
 
 } // namespace fuser

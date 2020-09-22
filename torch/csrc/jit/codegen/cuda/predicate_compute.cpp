@@ -66,7 +66,7 @@ std::vector<kir::Bool*> PredicateCompute::computePredicates(
       if (extent != nullptr) {
         local_extent = ir_builder.mulExpr(extent, local_extent);
       }
-      auto pred = kir::ltExpr(indices[i], local_extent);
+      auto pred = ir_builder.ltExpr(indices[i], local_extent);
       extent = nullptr;
       TORCH_INTERNAL_ASSERT(
           pred->getValType().value() == ValType::KirScalar &&
@@ -164,7 +164,7 @@ kir::Bool* PredicateCompute::getInlinePredicate(
   Val* cond = preds[0];
 
   for (decltype(preds.size()) i{1}; i < preds.size(); i++) {
-    cond = kir::andExpr(cond, preds[i]);
+    cond = ir_builder.andExpr(cond, preds[i]);
   }
 
   TORCH_INTERNAL_ASSERT(
@@ -200,7 +200,7 @@ kir::Bool* UnrollPredicate::get(
     if (unroll_pred == nullptr) {
       unroll_pred = pred;
     } else {
-      unroll_pred = kir::andExpr(unroll_pred, pred);
+      unroll_pred = ir_builder.andExpr(unroll_pred, pred);
     }
   }
   TORCH_INTERNAL_ASSERT(

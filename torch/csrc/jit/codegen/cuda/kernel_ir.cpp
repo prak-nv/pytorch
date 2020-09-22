@@ -380,10 +380,11 @@ Allocate::Allocate(
         buffer_->getValType().value() == ValType::KirTensorView);
     TORCH_INTERNAL_ASSERT(
         buffer_->as<TensorView>()->memoryType() == memory_type_);
+    kir::IrBuilder ir_builder(GpuLower::current()->kernel());
     const auto domain = buffer_->as<TensorView>()->domain();
     size_ = domain->nDims() == 0 ? new Int(1) : domain->axis(0)->extent();
     for (size_t i = 1; i < domain->nDims(); i++) {
-      size_ = mulExpr(size_, domain->axis(i)->extent());
+      size_ = ir_builder.mulExpr(size_, domain->axis(i)->extent());
     }
   }
 
@@ -456,9 +457,7 @@ bool isLoweredVal(const Val* val) {
   }
 }
 
-namespace {
-
-Val* newResult(const Val* lhs, const Val* rhs) {
+Val* IrBuilder::newResult(const Val* lhs, const Val* rhs) {
   TORCH_CHECK(isLoweredScalar(lhs));
   TORCH_CHECK(isLoweredScalar(rhs));
   TORCH_CHECK(lhs->getDataType() == rhs->getDataType());
@@ -478,53 +477,51 @@ Val* newResult(const Val* lhs, const Val* rhs) {
   }
 }
 
-Val* newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
+Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   auto result = newResult(lhs, rhs);
   new BinaryOp(op_type, result, lhs, rhs);
   return result;
 }
 
-Val* newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
+Val* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   auto result = new Bool(c10::nullopt);
   new BinaryOp(op_type, result, lhs, rhs);
   return result;
 }
 
-} // namespace
-
-Val* andExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::andExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::And, lhs, rhs);
 }
 
-Val* eqExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::Eq, lhs, rhs);
 }
 
-Val* ltExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::ltExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::LT, lhs, rhs);
 }
 
-Val* addExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::addExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Add, lhs, rhs);
 }
 
-Val* subExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::subExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Sub, lhs, rhs);
 }
 
-Val* mulExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::mulExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Mul, lhs, rhs);
 }
 
-Val* divExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::divExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Div, lhs, rhs);
 }
 
-Val* ceilDivExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::CeilDiv, lhs, rhs);
 }
 
-Val* modExpr(Val* lhs, Val* rhs) {
+Val* IrBuilder::modExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Mod, lhs, rhs);
 }
 

@@ -50,10 +50,9 @@ void GpuLower::replaceSymbolicSizes() {
 
     size_t dim = 0;
     for (auto id : root_td) {
+      const Val* orig_size = id->extent();
+
       // Output sizes could have reduction axes, which isn't what gets output.
-
-      Val* orig_size = id->extent();
-
       if (id->isReduction()) {
         continue;
       } else if (id->getIterType() == IterType::BroadcastWithoutStride) {
@@ -66,12 +65,13 @@ void GpuLower::replaceSymbolicSizes() {
         continue;
       }
 
+      // TODO(kir): consider a different implementation which doesn't
+      //  hijack the kir_map_
       if (kir_map_.find(orig_size) == kir_map_.end()) {
         std::stringstream ss;
         ss << "T" << tv->name() << ".size[" << dim++ << "]";
-        auto new_size = ir_builder.create<kir::NamedScalar>(
+        kir_map_[orig_size] = ir_builder.create<kir::NamedScalar>(
             ss.str(), orig_size->getDataType().value());
-        kir_map_[orig_size] = new_size;
       }
     }
   }
@@ -96,6 +96,9 @@ void GpuLower::lower() {
 
   FusionGuard fg(fusion_);
 
+  // Start with a fresh kernel
+  kernel_ = std::make_unique<Kernel>();
+
   // prepare for lowering
   validateIr(fusion_);
   replaceSymbolicSizes();
@@ -116,8 +119,8 @@ void GpuLower::lower() {
   const auto indexed_loops =
       IndexLowering::getIndexedExprs(fusion_, sync_exprs);
 
-  // We now have the lowered expressions, store the final lowered Kernel IR
-  kernel_ = std::make_unique<Kernel>(indexed_loops, preds);
+  // We now have the lowered expressions, finalize the kernel IR
+  kernel_->finalize(indexed_loops, preds);
 
   // Set the kernel inputs & outputs
   for (auto input : fusion_->inputs()) {

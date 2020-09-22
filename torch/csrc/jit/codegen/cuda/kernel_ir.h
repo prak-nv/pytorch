@@ -714,25 +714,18 @@ class TORCH_CUDA_API GridReduction : public Expr {
 bool isLoweredScalar(const Val* val);
 bool isLoweredVal(const Val* val);
 
-// A minimal builder interface
-Val* andExpr(Val* lhs, Val* rhs);
-Val* eqExpr(Val* lhs, Val* rhs);
-Val* ltExpr(Val* lhs, Val* rhs);
-Val* addExpr(Val* lhs, Val* rhs);
-Val* subExpr(Val* lhs, Val* rhs);
-Val* mulExpr(Val* lhs, Val* rhs);
-Val* divExpr(Val* lhs, Val* rhs);
-Val* ceilDivExpr(Val* lhs, Val* rhs);
-Val* modExpr(Val* lhs, Val* rhs);
-
+//! Kernel IR builder interface
+//!
+//! TODO $$$
+//!
 class IrBuilder {
  public:
-  explicit IrBuilder(Kernel* kernel);
+  explicit IrBuilder(Kernel* kernel) : kernel_(kernel) {}
 
   // Allocate a new IR node
   template <class T, class... Args>
   T* create(Args&&... args) {
-    // TODO
+    // TODO $$$
     return new T(std::forward<Args>(args)...);
   }
 
@@ -746,6 +739,11 @@ class IrBuilder {
   Val* divExpr(Val* lhs, Val* rhs);
   Val* ceilDivExpr(Val* lhs, Val* rhs);
   Val* modExpr(Val* lhs, Val* rhs);
+
+ private:
+  Val* newResult(const Val* lhs, const Val* rhs);
+  Val* newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs);
+  Val* newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs);
 
  private:
   // Non-owning pointer to the kernel to be modified
