@@ -12,12 +12,14 @@ namespace kir {
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
   std::string parallel_dim = stringifyThreadSize(p_type);
-  return new NamedScalar(parallel_dim, DataType::Int);
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+  return ir_builder.create<NamedScalar>(parallel_dim, DataType::Int);
 }
 
 NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
   std::string parallel_ind = stringifyThread(p_type);
-  return new NamedScalar(parallel_ind, DataType::Int);
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+  return ir_builder.create<NamedScalar>(parallel_ind, DataType::Int);
 }
 
 c10::optional<ParallelType> NamedScalar::getParallelDim() const {
@@ -383,7 +385,8 @@ Allocate::Allocate(
         buffer_->as<TensorView>()->memoryType() == memory_type_);
     kir::IrBuilder ir_builder(GpuLower::current()->kernel());
     const auto domain = buffer_->as<TensorView>()->domain();
-    size_ = domain->nDims() == 0 ? new Int(1) : domain->axis(0)->extent();
+    size_ = domain->nDims() == 0 ? ir_builder.create<Int>(1)
+                                 : domain->axis(0)->extent();
     for (size_t i = 1; i < domain->nDims(); i++) {
       size_ = ir_builder.mulExpr(size_, domain->axis(i)->extent());
     }

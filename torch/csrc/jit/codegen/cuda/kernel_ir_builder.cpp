@@ -17,13 +17,13 @@ Val* IrBuilder::newResult(const Val* lhs, const Val* rhs) {
   // Allocate a compatible result value
   switch (lhs->getDataType().value()) {
     case DataType::Bool:
-      return new Bool(c10::nullopt);
+      return create<Bool>(c10::nullopt);
     case DataType::Float:
-      return new Float(c10::nullopt);
+      return create<Float>(c10::nullopt);
     case DataType::Half:
-      return new Half(c10::nullopt);
+      return create<Half>(c10::nullopt);
     case DataType::Int:
-      return new Int(c10::nullopt);
+      return create<Int>(c10::nullopt);
     default:
       TORCH_CHECK(false, "Unexpected data type");
   }
@@ -31,13 +31,13 @@ Val* IrBuilder::newResult(const Val* lhs, const Val* rhs) {
 
 Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   auto result = newResult(lhs, rhs);
-  new BinaryOp(op_type, result, lhs, rhs);
+  create<BinaryOp>(op_type, result, lhs, rhs);
   return result;
 }
 
 Val* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
-  auto result = new Bool(c10::nullopt);
-  new BinaryOp(op_type, result, lhs, rhs);
+  auto result = create<Bool>(c10::nullopt);
+  create<BinaryOp>(op_type, result, lhs, rhs);
   return result;
 }
 
