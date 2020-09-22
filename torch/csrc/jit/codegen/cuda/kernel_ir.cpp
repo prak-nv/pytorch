@@ -56,12 +56,12 @@ c10::optional<ParallelType> NamedScalar::getParallelIndex() const {
   return c10::nullopt;
 }
 
-IterDomain::IterDomain(Val* start, Val* extent)
+IterDomain::IterDomain(Passkey, Val* start, Val* extent)
     : Val(ValType::KirIterDomain, DataType::Int, true, true),
       start_(start),
       extent_(extent) {}
 
-IterDomain::IterDomain(const fuser::IterDomain* iter_domain)
+IterDomain::IterDomain(Passkey, const fuser::IterDomain* iter_domain)
     : Val(iter_domain),
       start_(GpuLower::lowerValue(iter_domain->start())),
       extent_(GpuLower::lowerValue(iter_domain->rawExtent())),
@@ -82,13 +82,13 @@ Val* IterDomain::extent() const {
   return extent_;
 }
 
-TensorDomain::TensorDomain(std::vector<IterDomain*> domain)
+TensorDomain::TensorDomain(Passkey, std::vector<IterDomain*> domain)
     : Val(ValType::KirTensorDomain), root_domain_(std::move(domain)) {
   domain_ = root_domain_;
   resetDomains();
 }
 
-TensorDomain::TensorDomain(const fuser::TensorDomain* tensor_domain)
+TensorDomain::TensorDomain(Passkey, const fuser::TensorDomain* tensor_domain)
     : Val(tensor_domain), contiguity_(tensor_domain->contiguity()) {
   const auto lowerIterDomains =
       [](const std::vector<fuser::IterDomain*>& domains) {
@@ -165,19 +165,20 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return no_broadcast_domains;
 }
 
-TensorView::TensorView(const fuser::TensorView* tv) : Val(tv), fuser_tv_(tv) {
+TensorView::TensorView(Passkey, const fuser::TensorView* tv)
+    : Val(tv), fuser_tv_(tv) {
   domain_ = GpuLower::lowerValue(tv->domain())->as<TensorDomain>();
   memory_type_ = tv->getMemoryType();
 }
 
-UnaryOp::UnaryOp(UnaryOpType type, Val* out, Val* in)
+UnaryOp::UnaryOp(Passkey, UnaryOpType type, Val* out, Val* in)
     : Expr(ExprType::KirUnaryOp), unary_op_type_{type}, out_{out}, in_{in} {
   addOutput(out);
   addInput(in);
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
 }
 
-BinaryOp::BinaryOp(BinaryOpType type, Val* out, Val* lhs, Val* rhs)
+BinaryOp::BinaryOp(Passkey, BinaryOpType type, Val* out, Val* lhs, Val* rhs)
     : Expr(ExprType::KirBinaryOp),
       binary_op_type_{type},
       out_{out},
@@ -189,7 +190,13 @@ BinaryOp::BinaryOp(BinaryOpType type, Val* out, Val* lhs, Val* rhs)
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
 }
 
-TernaryOp::TernaryOp(TernaryOpType type, Val* out, Val* in1, Val* in2, Val* in3)
+TernaryOp::TernaryOp(
+    Passkey,
+    TernaryOpType type,
+    Val* out,
+    Val* in1,
+    Val* in2,
+    Val* in3)
     : Expr(ExprType::KirTernaryOp),
       ternary_op_type_{type},
       out_{out},
@@ -204,6 +211,7 @@ TernaryOp::TernaryOp(TernaryOpType type, Val* out, Val* in1, Val* in2, Val* in3)
 }
 
 ReductionOp::ReductionOp(
+    Passkey,
     BinaryOpType reduction_op_type,
     Val* init,
     Val* out,
@@ -246,7 +254,7 @@ std::unordered_map<ParallelType, IterDomain*, TypeHash> ReductionOp::
   return parallel_domains;
 }
 
-BroadcastOp::BroadcastOp(Val* out, Val* in)
+BroadcastOp::BroadcastOp(Passkey, Val* out, Val* in)
     : Expr(ExprType::KirBroadcastOp), out_(out), in_(in) {
   TORCH_CHECK(in->getValType().value() == ValType::TensorIndex);
   TORCH_CHECK(out->getValType().value() == ValType::TensorIndex);
@@ -256,6 +264,7 @@ BroadcastOp::BroadcastOp(Val* out, Val* in)
 }
 
 TensorIndex::TensorIndex(
+    Passkey,
     const fuser::TensorView* view,
     std::vector<Val*> indices)
     : Val(ValType::TensorIndex, view->getDataType().value(), true, true),
@@ -273,7 +282,7 @@ TensorIndex::TensorIndex(
       "Cannot index with a value other than an int.");
 }
 
-Sync::Sync(bool war_sync) : Expr(ExprType::Sync), war_sync_(war_sync) {
+Sync::Sync(Passkey, bool war_sync) : Expr(ExprType::Sync), war_sync_(war_sync) {
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
 }
 
@@ -321,7 +330,11 @@ void Scope::clear() {
   exprs_ = std::vector<Expr*>();
 }
 
-ForLoop::ForLoop(Val* index, IterDomain* iter_domain, Expr* parent_scope)
+ForLoop::ForLoop(
+    Passkey,
+    Val* index,
+    IterDomain* iter_domain,
+    Expr* parent_scope)
     : Expr(ExprType::ForLoop),
       index_{index},
       iter_domain_{iter_domain},
@@ -340,7 +353,7 @@ void ForLoop::setParentScope(Expr* scope) {
   parent_scope_ = scope;
 }
 
-IfThenElse::IfThenElse(Bool* cond, Expr* parent_scope)
+IfThenElse::IfThenElse(Passkey, Bool* cond, Expr* parent_scope)
     : Expr(ExprType::IfThenElse), cond_{cond}, parent_scope_(parent_scope) {
   addInput(cond);
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
@@ -363,6 +376,7 @@ Val* TensorIndex::index(int i) const {
 }
 
 Allocate::Allocate(
+    Passkey,
     Val* buffer,
     MemoryType memory_type,
     Val* size,
@@ -408,12 +422,13 @@ Allocate::Allocate(
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
 }
 
-GridReduction::GridReduction(ReductionOp* reduction_op)
+GridReduction::GridReduction(Passkey, ReductionOp* reduction_op)
     : Expr(ExprType::GridReduction), reduction_op_(reduction_op) {
   TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
 }
 
 GridReduction::GridReduction(
+    Passkey,
     ReductionOp* reduction_op,
     Allocate* reduction_buffer,
     Allocate* sync_buffer,

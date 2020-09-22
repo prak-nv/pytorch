@@ -24,7 +24,7 @@ class IrBuilder {
   template <class T, class... Args>
   T* create(Args&&... args) {
     // TODO $$$
-    return new T(std::forward<Args>(args)...);
+    return new T(kir::Passkey(), std::forward<Args>(args)...);
   }
 
   // Binary expressions
