@@ -388,16 +388,16 @@ void scheduleReduction(
       //                --------------------------------
       //                Reduction Dimensions
       red_tv->split(1, rparams.loop_unroll);
-      red_tv->split(1, rparams.lparams.bdimx());
+      red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
 
       // Output Splits
       //      [|Out-Leftover, Out-PerBlock|, <Reduction Dims>]
       // Idx:  |     0             1      |   2(-2) -- 3(-1)
       //       ----------------------------
       //       Output Dimensions
-      red_tv->split(0, rparams.lparams.bdimy());
+      red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDy));
       for (auto iter_tv : outs_of_red) {
-        iter_tv->split(0, rparams.lparams.bdimy());
+        iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDy));
       }
 
       auto red_tv_rf = red_tv->rFactor({-3, -1});
@@ -445,9 +445,9 @@ void scheduleReduction(
         //                -------------------------------------------------
         //                Reduction Dimensions
         red_tv->split(1, rparams.loop_unroll);
-        red_tv->split(1, rparams.lparams.bdimx());
-        red_tv->split(1, rparams.lparams.bdimy());
-        red_tv->split(1, rparams.lparams.gdimy());
+        red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
+        red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
+        red_tv->split(1, NamedScalar::getParallelDim(ParallelType::BIDy));
 
         auto red_tv_rf = red_tv->rFactor(
             {-5, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
@@ -492,8 +492,8 @@ void scheduleReduction(
         //                -----------------------------------------
         //                Reduction Dimensions
         red_tv->split(1, rparams.loop_unroll);
-        red_tv->split(1, rparams.lparams.bdimx());
-        red_tv->split(1, rparams.lparams.bdimy());
+        red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
+        red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
 
         auto red_tv_rf = red_tv->rFactor({-4, -1});
 
@@ -539,8 +539,8 @@ void scheduleReduction(
         // Idx:     0     |   1(-4)       2(-3)     3(-2)   4(-1) |
         //                -----------------------------------------
         //                Reduction Dimensions
-        red_tv->split(1, rparams.lparams.bdimy());
-        red_tv->split(1, rparams.lparams.gdimy());
+        red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
+        red_tv->split(1, NamedScalar::getParallelDim(ParallelType::BIDy));
         red_tv->split(1, kLoopUnrollSplit);
 
         // Reordering the Unroll dimension eases applying computeAt()
@@ -558,9 +558,9 @@ void scheduleReduction(
         // Idx:  |     0             1      |   2(-4) -- 5(-1)
         //       ----------------------------
         //       Output Dimensions
-        red_tv->split(0, rparams.lparams.bdimx());
+        red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
         for (auto iter_tv : outs_of_red) {
-          iter_tv->split(0, rparams.lparams.bdimx());
+          iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
         }
 
         auto red_tv_rf = red_tv->rFactor({-4, -1});
@@ -606,7 +606,7 @@ void scheduleReduction(
         // Idx:     0     |   1(-3)       2(-2)     3(-1) |
         //                ---------------------------------
         //                Reduction Dimensions
-        red_tv->split(1, rparams.lparams.bdimy());
+        red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
         red_tv->split(1, kLoopUnrollSplit);
 
         // Reordering the Unroll dimension eases applying computeAt()
@@ -624,9 +624,9 @@ void scheduleReduction(
         // Idx:  |     0             1      |   2(-3) -- 4(-1)
         //       ----------------------------
         //       Output Dimensions
-        red_tv->split(0, rparams.lparams.bdimx());
+        red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
         for (auto iter_tv : outs_of_red) {
-          iter_tv->split(0, rparams.lparams.bdimx());
+          iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
         }
 
         auto red_tv_rf = red_tv->rFactor({-3, -1});
@@ -666,9 +666,9 @@ void scheduleReduction(
         }
       }
     } else {
-      red_tv->split(0, rparams.lparams.bdimx());
+      red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
       for (auto iter_tv : outs_of_red) {
-        iter_tv->split(0, rparams.lparams.bdimx());
+        iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
       }
 
       if (!outs_of_red.empty()) {
