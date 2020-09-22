@@ -476,8 +476,8 @@ void scheduleReduction(
           iter_tv->axis(0)->parallelize(ParallelType::BIDx);
         }
         red_tv->axis(-1)->parallelize(ParallelType::TIDx);
-        red_tv->axis(-2)->parallelize(ParallelType::BIDy);
-        red_tv->axis(-3)->parallelize(ParallelType::TIDy);
+        red_tv->axis(-2)->parallelize(ParallelType::TIDy);
+        red_tv->axis(-3)->parallelize(ParallelType::BIDy);
 
         // Bind Inputs to Reduction
         for (auto input : fusion->inputsOf(red_tv_rf)) {
