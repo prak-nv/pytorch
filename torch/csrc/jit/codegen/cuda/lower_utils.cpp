@@ -4,9 +4,9 @@
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 
 #include <algorithm>
 
@@ -334,7 +334,9 @@ kir::ForLoop* openFor(Expr* scope, IterDomain* id) {
     std::stringstream ss;
     ss << id->getParallelType();
     new_scope = ir_builder.create<kir::ForLoop>(
-        ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int), kir_id, scope);
+        ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
+        kir_id,
+        scope);
   } else {
     new_scope = ir_builder.create<kir::ForLoop>(
         ir_builder.create<kir::Int>(c10::nullopt), kir_id, scope);

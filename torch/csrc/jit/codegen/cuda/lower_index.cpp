@@ -1,8 +1,8 @@
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/index_compute.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/predicate_compute.h>
@@ -186,7 +186,11 @@ void IndexLowering::handle(ReductionOp* rop) {
         PredicateCompute::getInlinePredicate(rop, loops, nullptr, false);
 
     block_reduction_op = ir_builder_.create<kir::ReductionOp>(
-        rop->getReductionOpType(), GpuLower::lowerValue(rop->init()), out, in, pred);
+        rop->getReductionOpType(),
+        GpuLower::lowerValue(rop->init()),
+        out,
+        in,
+        pred);
     pushBack(block_reduction_op);
   }
 
@@ -237,7 +241,8 @@ void IndexLowering::handle(ReductionOp* rop) {
         new TensorDomain({sync_id}), DataType::Int, MemoryType::Global);
 
     const auto reduce_buffer = ir_builder_.create<kir::Allocate>(
-        GpuLower::lowerValue(reduce_buffer_tv), reduce_sync_tv->getMemoryType());
+        GpuLower::lowerValue(reduce_buffer_tv),
+        reduce_sync_tv->getMemoryType());
     const auto sync_buffer = ir_builder_.create<kir::Allocate>(
         GpuLower::lowerValue(reduce_sync_tv),
         reduce_sync_tv->getMemoryType(),
@@ -246,7 +251,10 @@ void IndexLowering::handle(ReductionOp* rop) {
 
     const auto grid_reduction_op = block_reduction_op == nullptr
         ? ir_builder_.create<kir::ReductionOp>(
-              rop->getReductionOpType(), GpuLower::lowerValue(rop->init()), out, in)
+              rop->getReductionOpType(),
+              GpuLower::lowerValue(rop->init()),
+              out,
+              in)
         : block_reduction_op;
     auto pred =
         PredicateCompute::getInlinePredicate(rop, loops, nullptr, false);
@@ -259,7 +267,8 @@ void IndexLowering::handle(ReductionOp* rop) {
   }
 
   if (!is_block_reduce && !is_grid_reduce) {
-    pushBack(ir_builder_.create<kir::BinaryOp>(rop->getReductionOpType(), out, out, in));
+    pushBack(ir_builder_.create<kir::BinaryOp>(
+        rop->getReductionOpType(), out, out, in));
   }
 }
 

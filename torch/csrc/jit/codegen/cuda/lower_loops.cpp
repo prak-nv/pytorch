@@ -242,7 +242,9 @@ void LoopNestGenerator::handle(Expr* expr) {
           out->getValType().value());
 
       pushBack(ir_builder_.create<kir::Allocate>(
-          GpuLower::lowerValue(out), MemoryType::Local, ir_builder_.create<kir::Int>(1)));
+          GpuLower::lowerValue(out),
+          MemoryType::Local,
+          ir_builder_.create<kir::Int>(1)));
     }
     pushBack(expr);
     return;
@@ -339,8 +341,8 @@ void LoopNestGenerator::handle(Expr* expr) {
       // Nothing to open
       break;
     }
-    if (GpuLower::lowerValue(loops_to_open.front().first)->as<kir::IterDomain>() ==
-        existing_loop->iter_domain()) {
+    if (GpuLower::lowerValue(loops_to_open.front().first)
+            ->as<kir::IterDomain>() == existing_loop->iter_domain()) {
       loops_to_open.pop_front();
     }
   }

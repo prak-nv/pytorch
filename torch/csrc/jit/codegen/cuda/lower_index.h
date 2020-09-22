@@ -27,7 +27,7 @@ class TORCH_CUDA_API IndexLowering : public OptInDispatch {
 
  private:
   IndexLowering();
-  
+
   // Wrap pushBack, if active_scope is null we want it to go
   // straight to lower_exprs
   void pushBack(Expr*);
