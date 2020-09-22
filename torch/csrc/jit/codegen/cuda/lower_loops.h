@@ -3,6 +3,7 @@
 
 #include <torch/csrc/jit/codegen/cuda/dispatch.h>
 
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>

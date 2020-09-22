@@ -9,6 +9,7 @@
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 
 namespace torch {
 namespace jit {
