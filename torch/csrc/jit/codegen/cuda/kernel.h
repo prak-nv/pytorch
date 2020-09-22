@@ -96,16 +96,13 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
     return *predicate_map_;
   }
 
-  //! Allocates a new Kernel IR node
+  //! Register a new Kernel IR node
   //!
-  //! \note The new node is owned by the Kernel object
-  //!     (and will be freed with when the Kernel object is destroyed)
+  //! \note This is a specialized helper for kir::IrBuilder, not 
+  //!   intendted for general use
   //!
-  template <class T, class... Args>
-  T* create(Args&&... args) {
-    auto node = new T(std::forward<Args>(args)...);
-    ir_nodes_.push_back(node);
-    return node;
+  void registerIrNode(std::unique_ptr<Statement> node) {
+    ir_nodes_.push_back(std::move(node));
   }
 
  private:

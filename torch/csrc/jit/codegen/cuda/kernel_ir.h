@@ -726,10 +726,6 @@ class TORCH_CUDA_API GridReduction : public Expr {
   Bool* pred_ = nullptr;
 };
 
-// Simple classification helpers
-bool isLoweredScalar(const Val* val);
-bool isLoweredVal(const Val* val);
-
 } // namespace kir
 } // namespace fuser
 } // namespace jit

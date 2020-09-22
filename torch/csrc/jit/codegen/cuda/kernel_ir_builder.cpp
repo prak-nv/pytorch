@@ -1,13 +1,34 @@
 
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
-#include <torch/csrc/jit/codegen/cuda/lower2device.h>
-#include <torch/csrc/jit/codegen/cuda/lower_utils.h>
-#include <torch/csrc/jit/codegen/cuda/type.h>
 
 namespace torch {
 namespace jit {
 namespace fuser {
 namespace kir {
+
+bool isLoweredScalar(const Val* val) {
+  switch (val->getValType().value()) {
+    case ValType::KirNamedScalar:
+    case ValType::KirScalar:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool isLoweredVal(const Val* val) {
+  switch (val->getValType().value()) {
+    case ValType::TensorIndex:
+    case ValType::KirNamedScalar:
+    case ValType::KirScalar:
+    case ValType::KirTensorDomain:
+    case ValType::KirIterDomain:
+    case ValType::KirTensorView:
+      return true;
+    default:
+      return false;
+  }
+}
 
 Val* IrBuilder::newResult(const Val* lhs, const Val* rhs) {
   TORCH_CHECK(isLoweredScalar(lhs));

@@ -452,30 +452,6 @@ std::string GridReduction::getPredicateFlagName(const fuser::TensorView* val) {
   return ss.str();
 }
 
-bool isLoweredScalar(const Val* val) {
-  switch (val->getValType().value()) {
-    case ValType::KirNamedScalar:
-    case ValType::KirScalar:
-      return true;
-    default:
-      return false;
-  }
-}
-
-bool isLoweredVal(const Val* val) {
-  switch (val->getValType().value()) {
-    case ValType::TensorIndex:
-    case ValType::KirNamedScalar:
-    case ValType::KirScalar:
-    case ValType::KirTensorDomain:
-    case ValType::KirIterDomain:
-    case ValType::KirTensorView:
-      return true;
-    default:
-      return false;
-  }
-}
-
 } // namespace kir
 } // namespace fuser
 } // namespace jit

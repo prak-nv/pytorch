@@ -2,15 +2,19 @@
 #pragma once
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
+#include <torch/csrc/jit/codegen/cuda/kernel.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
+
+#include <memory>
 
 namespace torch {
 namespace jit {
 namespace fuser {
-
-class Kernel;
-
 namespace kir {
+
+// Simple classification helpers
+bool isLoweredScalar(const Val* val);
+bool isLoweredVal(const Val* val);
 
 //! Kernel IR builder interface
 //!
