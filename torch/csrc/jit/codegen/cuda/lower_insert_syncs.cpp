@@ -1,7 +1,9 @@
+
 #include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
+#include <torch/csrc/jit/codegen/cuda/lower2device.h>
 
 namespace torch {
 namespace jit {
@@ -139,7 +141,8 @@ class LocalSyncInserter final : private OptOutDispatch {
           !is_last_op_sync_) {
         // std::cout << "WAR race detected; Add Sync" << std::endl;
         has_war_hazard_sync_ = true;
-        fl->body().push_back(new kir::Sync(true));
+        kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+        fl->body().push_back(ir_builder.create<kir::Sync>(true));
       }
     }
   }

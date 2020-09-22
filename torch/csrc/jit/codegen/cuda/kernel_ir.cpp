@@ -60,8 +60,8 @@ IterDomain::IterDomain(Val* start, Val* extent)
 
 IterDomain::IterDomain(const fuser::IterDomain* iter_domain)
     : Val(iter_domain),
-      start_(lowerValue(iter_domain->start())),
-      extent_(lowerValue(iter_domain->rawExtent())),
+      start_(GpuLower::lowerValue(iter_domain->start())),
+      extent_(GpuLower::lowerValue(iter_domain->rawExtent())),
       parallel_type_(iter_domain->getParallelType()),
       iter_type_(iter_domain->getIterType()),
       is_rfactor_domain_(iter_domain->isRFactorProduct()) {}
@@ -92,7 +92,8 @@ TensorDomain::TensorDomain(const fuser::TensorDomain* tensor_domain)
         std::vector<IterDomain*> lowered_domains;
         lowered_domains.reserve(domains.size());
         for (const auto iter_domain : domains) {
-          lowered_domains.push_back(lowerValue(iter_domain)->as<IterDomain>());
+          lowered_domains.push_back(
+              GpuLower::lowerValue(iter_domain)->as<IterDomain>());
         }
         return lowered_domains;
       };
@@ -162,7 +163,7 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
 }
 
 TensorView::TensorView(const fuser::TensorView* tv) : Val(tv), fuser_tv_(tv) {
-  domain_ = lowerValue(tv->domain())->as<TensorDomain>();
+  domain_ = GpuLower::lowerValue(tv->domain())->as<TensorDomain>();
   memory_type_ = tv->getMemoryType();
 }
 
@@ -255,7 +256,7 @@ TensorIndex::TensorIndex(
     const fuser::TensorView* view,
     std::vector<Val*> indices)
     : Val(ValType::TensorIndex, view->getDataType().value(), true, true),
-      view_(lowerValue(view)->as<TensorView>()),
+      view_(GpuLower::lowerValue(view)->as<TensorView>()),
       indices_(indices) {
   TORCH_INTERNAL_ASSERT(
       std::all_of(
@@ -317,11 +318,7 @@ void Scope::clear() {
   exprs_ = std::vector<Expr*>();
 }
 
-ForLoop::ForLoop(
-    Val* index,
-    IterDomain* iter_domain,
-    const std::vector<Expr*>& body,
-    Expr* parent_scope)
+ForLoop::ForLoop(Val* index, IterDomain* iter_domain, Expr* parent_scope)
     : Expr(ExprType::ForLoop),
       index_{index},
       iter_domain_{iter_domain},
@@ -331,9 +328,6 @@ ForLoop::ForLoop(
   addInput(index);
   addInput(iter_domain);
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
-  for (Expr* expr : body) {
-    body_.push_back(expr);
-  }
 }
 
 void ForLoop::setParentScope(Expr* scope) {
@@ -343,20 +337,10 @@ void ForLoop::setParentScope(Expr* scope) {
   parent_scope_ = scope;
 }
 
-IfThenElse::IfThenElse(
-    Bool* cond,
-    const std::vector<Expr*>& then_body,
-    const std::vector<Expr*>& else_body,
-    Expr* parent_scope)
+IfThenElse::IfThenElse(Bool* cond, Expr* parent_scope)
     : Expr(ExprType::IfThenElse), cond_{cond}, parent_scope_(parent_scope) {
   addInput(cond);
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
-
-  for (auto* expr : then_body)
-    then_body_.push_back(expr);
-
-  for (auto* expr : else_body)
-    else_body_.push_back(expr);
 }
 
 void IfThenElse::setParentScope(Expr* scope) {
@@ -507,11 +491,6 @@ Val* newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
 }
 
 } // namespace
-
-Val* lowerValue(const Val* val) {
-  TORCH_INTERNAL_ASSERT(!isLoweredVal(val), val, " is already lowered.");
-  return GpuLower::lowerValue(val);
-}
 
 Val* andExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::And, lhs, rhs);

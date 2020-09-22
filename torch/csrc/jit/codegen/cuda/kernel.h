@@ -15,8 +15,9 @@ namespace jit {
 namespace fuser {
 
 //! Summary of interesting facts about the kernel
-// TODO(kir): const node ptrs
-//
+//!
+//! TODO(kir): const node ptrs
+//!
 struct KernelSummary {
   //! List of Write-After-Read (WAR) synchronization barriers
   std::unordered_map<size_t, kir::Sync*> war_hazard_syncs;
@@ -56,12 +57,12 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
  public:
   Kernel(std::vector<Expr*> exprs, ThreadPredicateMap predicate_map);
 
-  // Register input as an input of the kernel
+  //! Register input as an input of the kernel
   void addInput(Val* input) {
     inputs_.push_back(input);
   }
 
-  // Register output as an output of the kernel
+  //! Register output as an output of the kernel
   void addOutput(Val* output) {
     outputs_.push_back(output);
   }
@@ -86,12 +87,30 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
     return predicate_map_;
   }
 
+  //! Allocates a new Kernel IR node
+  //!
+  //! \note The new node is owned by the Kernel object
+  //!     (and will be freed with when the Kernel object is destroyed)
+  //!
+  template <class T, class... Args>
+  T* create(Args&&... args) {
+    auto node = new T(std::forward<Args>(args)...);
+    ir_nodes_.push_back(node);
+    return node;
+  }
+
  private:
   // Analyze the kernel IR and caches the summary of interesting data
   void analyze();
 
  private:
-  // Lowered expressions
+  // Kernel IR nodes
+  std::vector<std::unique_ptr<Statement>> ir_nodes_;
+
+  // Map from value to its definition expression
+  std::unordered_map<const Val*, Expr*> definitions_;
+
+  // Lowered expressions (top level only)
   std::vector<Expr*> exprs_;
 
   // Kernel inputs and outputs

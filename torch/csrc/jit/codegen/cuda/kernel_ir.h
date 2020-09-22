@@ -20,39 +20,10 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+
+class Kernel;
+
 namespace kir {
-
-#if 0 // $$$
-
-// Base class for Kernel IR nodes
-class TORCH_CUDA_API Node : public NonCopyable, public PolymorphicBase {};
-
-// A generic value (scalar or tensor)
-class TORCH_CUDA_API Val : public Node {
- public:
-  explicit Val(ValType vtype, DataType dtype = DataType::Null)
-      : vtype_(vtype), dtype_(dtype) {}
-
- private:
-  const ValType vtype_;
-  const DataType dtype_;
-};
-
-// A computation, with inputs and outputs
-//
-// TODO: rename to Statement/Operation?
-//
-class TORCH_CUDA_API Expr : public Node {
- public:
-  explicit Expr(ExprType type) : type_(type) {}
-
- private:
-  ExprType type_ = ExprType::Invalid;
-  std::vector<Val*> inputs_;
-  std::vector<Val*> outputs_;
-};
-
-#endif
 
 class TORCH_CUDA_API NamedScalar : public Val {
  public:
@@ -621,11 +592,7 @@ class TORCH_CUDA_API Scope {
 //
 class TORCH_CUDA_API ForLoop : public Expr {
  public:
-  explicit ForLoop(
-      Val* index,
-      IterDomain* iter_domain,
-      const std::vector<Expr*>& body = {},
-      Expr* parent_scope = nullptr);
+  ForLoop(Val* index, IterDomain* iter_domain, Expr* parent_scope);
 
   Val* index() const {
     return index_;
@@ -665,11 +632,7 @@ class TORCH_CUDA_API ForLoop : public Expr {
 //
 class TORCH_CUDA_API IfThenElse : public Expr {
  public:
-  explicit IfThenElse(
-      Bool* cond,
-      const std::vector<Expr*>& then_body = {},
-      const std::vector<Expr*>& else_body = {},
-      Expr* parent_scope = nullptr);
+  explicit IfThenElse(Bool* cond, Expr* parent_scope);
 
   Bool* cond() const {
     return cond_;
@@ -751,9 +714,6 @@ class TORCH_CUDA_API GridReduction : public Expr {
 bool isLoweredScalar(const Val* val);
 bool isLoweredVal(const Val* val);
 
-// Converts a Fusion IR value into the Kernel IR equivalent
-Val* lowerValue(const Val* val);
-
 // A minimal builder interface
 Val* andExpr(Val* lhs, Val* rhs);
 Val* eqExpr(Val* lhs, Val* rhs);
@@ -764,6 +724,33 @@ Val* mulExpr(Val* lhs, Val* rhs);
 Val* divExpr(Val* lhs, Val* rhs);
 Val* ceilDivExpr(Val* lhs, Val* rhs);
 Val* modExpr(Val* lhs, Val* rhs);
+
+class IrBuilder {
+ public:
+  explicit IrBuilder(Kernel* kernel);
+
+  // Allocate a new IR node
+  template <class T, class... Args>
+  T* create(Args&&... args) {
+    // TODO
+    return new T(std::forward<Args>(args)...);
+  }
+
+  // Binary expressions
+  Val* andExpr(Val* lhs, Val* rhs);
+  Val* eqExpr(Val* lhs, Val* rhs);
+  Val* ltExpr(Val* lhs, Val* rhs);
+  Val* addExpr(Val* lhs, Val* rhs);
+  Val* subExpr(Val* lhs, Val* rhs);
+  Val* mulExpr(Val* lhs, Val* rhs);
+  Val* divExpr(Val* lhs, Val* rhs);
+  Val* ceilDivExpr(Val* lhs, Val* rhs);
+  Val* modExpr(Val* lhs, Val* rhs);
+
+ private:
+  // Non-owning pointer to the kernel to be modified
+  Kernel* kernel_ = nullptr;
+};
 
 } // namespace kir
 } // namespace fuser

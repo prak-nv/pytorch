@@ -1,6 +1,8 @@
+
 #include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
+#include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
@@ -14,23 +16,27 @@ namespace {
 Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::SourceMapType::mapped_type& sources) {
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   if (pt == ParallelType::BIDx || pt == ParallelType::BIDy ||
       pt == ParallelType::BIDz) {
     TORCH_INTERNAL_ASSERT(!sources.empty(), "No predicate source found");
     TORCH_INTERNAL_ASSERT(sources.size() == 1, "Multiple sources detected");
     auto src = *sources.begin();
     auto flag_name = kir::GridReduction::getPredicateFlagName(src);
-    return new kir::NamedScalar(flag_name, DataType::Bool);
+    return ir_builder.create<kir::NamedScalar>(flag_name, DataType::Bool);
   } else {
-    return kir::eqExpr(kir::NamedScalar::getParallelIndex(pt), new kir::Int(0));
+    return ir_builder.eqExpr(
+        kir::NamedScalar::getParallelIndex(pt), ir_builder.create<kir::Int>(0));
   }
 }
 
 kir::Bool* getPredicate(
     const ir_utils::ParallelTypeBitmap& bits,
     const ThreadPredicateMap::SourceMapType& sources) {
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+
   if (bits.none()) {
-    return new kir::Bool(true);
+    return ir_builder.create<kir::Bool>(true);
   }
 
   Val* pred = nullptr;
@@ -39,7 +45,7 @@ kir::Bool* getPredicate(
     if (pt_bool.second) {
       auto tp =
           getPredicatePerParallelType(pt_bool.first, sources.at(pt_bool.first));
-      pred = (pred == nullptr) ? tp : kir::andExpr(pred, tp);
+      pred = (pred == nullptr) ? tp : ir_builder.andExpr(pred, tp);
     }
   }
 

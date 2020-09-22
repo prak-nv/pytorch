@@ -25,6 +25,8 @@ class TORCH_CUDA_API IndexLowering : public OptInDispatch {
   }
 
  private:
+  IndexLowering();
+  
   // Wrap pushBack, if active_scope is null we want it to go
   // straight to lower_exprs
   void pushBack(Expr*);
@@ -60,6 +62,8 @@ class TORCH_CUDA_API IndexLowering : public OptInDispatch {
   // to understand the nesting of IfThenElse/ForLoop nodes.
   kir::Scope* active_scope = nullptr;
   Expr* active_scope_expr = nullptr;
+
+  kir::IrBuilder ir_builder_;
 };
 
 } // namespace fuser
