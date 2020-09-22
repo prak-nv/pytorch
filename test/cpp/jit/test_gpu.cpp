@@ -1,4 +1,4 @@
-// #if defined(USE_CUDA)
+#if defined(USE_CUDA)
 
 #include <test/cpp/jit/test_base.h>
 
@@ -5063,7 +5063,6 @@ void testGPU_FusionReductionSchedulerMultiDimNonFastest() {
   at::Tensor cg_output = at::empty(tensor_dims_out, options);
 
   // Apply reduction heuristic
-  const at::ArrayRef<c10::IValue> inputs({input});
   auto reduction_params = cuda::getReductionHeuristics(&fusion, {input}, tv1);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
   cuda::scheduleReduction(&fusion, reduction_params.value(), tv1, {});
@@ -5102,7 +5101,6 @@ void testGPU_FusionReductionSchedulerMultiDimFastest() {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn(tensor_dims_in, options);
 
-  const at::ArrayRef<c10::IValue> inputs({input});
   auto reduction_params = cuda::getReductionHeuristics(&fusion, {input}, tv1);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
   cuda::scheduleReduction(&fusion, reduction_params.value(), tv1, {});
@@ -6901,4 +6899,4 @@ void testGPU_FusionInputsIdLookup() {
 } // namespace jit
 } // namespace torch
 
-// #endif // #if defined(USE_CUDA)
+#endif // #if defined(USE_CUDA)
