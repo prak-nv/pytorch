@@ -18,16 +18,31 @@ bool isLoweredVal(const Val* val);
 
 //! Kernel IR builder interface
 //!
-//! TODO $$$
+//! The only way to create new Kernel IR nodes is through the
+//! kir::IrBuilder interface. An IrBuilder instance is attached to a 
+//! particular Kernel instance and it provides methods for creating
+//! single nodes (kir::IrBuilder::create()) or basic composite expressions
+//! (ex. kir::IrBuilder::addExpr()).
+//!
+//! If the Kernel object is readily available, an IrBuilder can be "wrapped"
+//! around it directly:
+//!
+//!   kir::IrBuilder ir_builder(kernel);
+//!
+//! During lowering, another option is to create an IrBuilder for the
+//! kernel that is being created:
+//!
+//!   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 //!
 class IrBuilder {
  public:
   explicit IrBuilder(Kernel* kernel) : kernel_(kernel) {}
 
-  // Allocate a new IR node
+  //! Allocate a new Kernel IR node, forwarding the arguments
+  //! to the appropriate constructor
   template <class T, class... Args>
   T* create(Args&&... args) {
-    // TODO $$$
+    // TODO(kir): switch this to Kernel registration
     return new T(kir::Passkey(), std::forward<Args>(args)...);
   }
 
