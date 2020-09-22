@@ -19,7 +19,7 @@ bool isLoweredVal(const Val* val);
 //! Kernel IR builder interface
 //!
 //! The only way to create new Kernel IR nodes is through the
-//! kir::IrBuilder interface. An IrBuilder instance is attached to a 
+//! kir::IrBuilder interface. An IrBuilder instance is attached to a
 //! particular Kernel instance and it provides methods for creating
 //! single nodes (kir::IrBuilder::create()) or basic composite expressions
 //! (ex. kir::IrBuilder::addExpr()).

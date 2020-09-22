@@ -98,7 +98,7 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
 
   //! Register a new Kernel IR node
   //!
-  //! \note This is a specialized helper for kir::IrBuilder, not 
+  //! \note This is a specialized helper for kir::IrBuilder, not
   //!   intendted for general use
   //!
   void registerIrNode(std::unique_ptr<Statement> node) {

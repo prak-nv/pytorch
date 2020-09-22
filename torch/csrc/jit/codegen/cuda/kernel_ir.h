@@ -26,8 +26,8 @@ class IrBuilder;
 //! Token used to restrict the access to Kernel IR constructors
 //!
 //! Granular "friendship" token, used to implement the "passkey" idiom:
-//! - https://www.spiria.com/en/blog/desktop-software/passkey-idiom-and-better-friendship-c
-//! - https://arne-mertz.de/2016/10/passkey-idiom
+//! https://www.spiria.com/en/blog/desktop-software/passkey-idiom-and-better-friendship-c
+//! https://arne-mertz.de/2016/10/passkey-idiom
 //!
 class Passkey {
   friend class IrBuilder;
@@ -371,7 +371,13 @@ class TORCH_CUDA_API BinaryOp : public Expr {
 
 class TORCH_CUDA_API TernaryOp : public Expr {
  public:
-  TernaryOp(Passkey, TernaryOpType type, Val* out, Val* in1, Val* in2, Val* in3);
+  TernaryOp(
+      Passkey,
+      TernaryOpType type,
+      Val* out,
+      Val* in1,
+      Val* in2,
+      Val* in3);
 
   Val* out() const {
     return out_;
