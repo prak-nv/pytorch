@@ -34,6 +34,11 @@ bool isLoweredVal(const Val* val);
 //!
 //!   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 //!
+//! Once we have an IR builder instance, creating nodes looks like:
+//!
+//!   auto new_node = ir_builder.create<kir::Int>(1));
+//!   auto result = ir_builder.mulExpr(lhs, rhs);
+//!
 class IrBuilder {
  public:
   explicit IrBuilder(Kernel* kernel) : kernel_(kernel) {}
