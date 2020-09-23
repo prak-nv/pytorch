@@ -637,7 +637,8 @@ void reorderExprsForComputeAt(std::vector<Expr*>& exprs) {
   for (auto& group : computed_at_exprs) {
     sortGroup(group.first, group.second, scores);
     // Reorder expressions in a breadth-first order
-    reorderGroupBreadthFirst(group.second, scores);
+    // Investigate: Disabled for Persistent BatchNorm Kernel
+    // reorderGroupBreadthFirst(group.second, scores);
   }
 
   // 3. Merge non-root loop-nests into root loop-nests

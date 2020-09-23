@@ -207,6 +207,7 @@ namespace jit {
   _(GPU_FusionSmemBlockGemm)                        \
   _(GPU_FusionSmemBlockGemmCache)                   \
   _(GPU_FusionSmemDynamicPersistentSoftmax2D)       \
+  _(GPU_FusionSmemDynamicPersistentBatchNorm)       \
   _(GPU_FusionSmemDynamicReductionSymbolic)         \
   _(GPU_FusionSmemDynamicReductionSymbolicArg)      \
   _(GPU_FusionSmemDynamicPwiseMulSymbolicArgWAR)    \

@@ -5756,8 +5756,6 @@ void testGPU_FusionSmemDynamicPersistentSoftmax2D() {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  const size_t tidx = 128;
-
   // Set up your input tensor views
   TensorView* input_tv0 = makeDummyTensor(2);
   fusion.addInput(input_tv0);
@@ -5777,6 +5775,7 @@ void testGPU_FusionSmemDynamicPersistentSoftmax2D() {
   fusion.addOutput(output_tv6);
 
   // M, N/128, 128
+  const size_t tidx = 128;
   exp_tv1->split(-1, tidx);
   sum_exp_tv2->split(-1, tidx);
   bcast_sum_tv3->split(-1, tidx);
@@ -5786,9 +5785,13 @@ void testGPU_FusionSmemDynamicPersistentSoftmax2D() {
 
   TensorView* sum_exp_rf_tv6 = sum_exp_tv2->rFactor({1});
 
+  // cache_before first pwise
   cache_tv4->computeAt(exp_tv1, 1);
+  // first pwise to first rfactor
   exp_tv1->computeAt(sum_exp_rf_tv6, -1);
+  // first rfactor to second rfactor
   sum_exp_rf_tv6->computeAt(sum_exp_tv2, 1);
+  // manual read before final pwise
   cache_tv5->computeAt(output_tv6, -1);
 
   TensorView* tensors_to_parallelize[] = {exp_tv1,
@@ -5798,6 +5801,7 @@ void testGPU_FusionSmemDynamicPersistentSoftmax2D() {
                                           cache_tv5,
                                           output_tv6,
                                           sum_exp_rf_tv6};
+
   for (auto tv : tensors_to_parallelize) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(-1)->parallelize(ParallelType::TIDx);
@@ -5805,20 +5809,152 @@ void testGPU_FusionSmemDynamicPersistentSoftmax2D() {
 
   const size_t dimx = 1024;
   const size_t dimy = 4096;
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dimx, dimy}, options);
-  at::Tensor t3_output = at::empty({dimx, dimy}, options);
 
   torch::jit::fuser::cuda::FusionExecutor fe;
   fe.compileFusion(&fusion);
   auto outputs = fe.runFusion({t0});
 
-  auto t2 = at::_softmax(t0, -1, false);
+  auto t1 = at::_softmax(t0, -1, false);
   TORCH_CHECK(
-      t2.allclose(outputs[0], 1e-5, 1e-5),
+      t1.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
-      t2.sub(outputs[0]).abs().max());
+      t1.sub(outputs[0]).abs().max());
+}
+
+void testGPU_FusionSmemDynamicPersistentBatchNorm() {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Set up your input tensor views
+  auto x = makeDummyTensor(2);
+  Float* gamma = new Float();
+  Float* beta = new Float();
+  Float* eps = new Float();
+  Int* N = new Int();
+  fusion.addInput(x);
+  fusion.addInput(gamma);
+  fusion.addInput(beta);
+  fusion.addInput(eps);
+  fusion.addInput(N);
+
+  // Read Input into Shared Memory
+  auto cache_x = x->cache_after();
+  cache_x->setMemoryType(MemoryType::Shared);
+
+  // Reduction
+  auto x_sum = sum(cache_x, {-1}); // (M, R)
+  // Broadcast
+  auto x_sum_bcast = broadcast(x_sum, {false, true}); // (M, B)
+
+  // Pwise
+  // Direct read input from shared memory cache
+  auto cache_x1 = unaryOp(UnaryOpType::Set, cache_x);
+  auto x_mean = div(x_sum_bcast, N); // (M, B)
+  auto x_mean_sub = sub(cache_x1, x_mean); // (M, N)
+  auto x_mean_sub_pow =
+      binaryOp(BinaryOpType::Pow, x_mean_sub, new Float(2.0f)); // (M, N)
+
+  // Reduction
+  auto var_sum = sum(x_mean_sub_pow, {-1}); // (M, R)
+  // Broadcast
+  auto var_sum_bcast = broadcast(var_sum, {false, true}); // (M, B)
+
+  // Pwise - Share outer for-loop
+  auto var = div(var_sum_bcast, N); // (M, B)
+  auto var_eps = add(var, eps); // (M, B)
+  auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps); // (M, B)
+
+  // Direct read input from shared memory cache
+  auto cache_x2 = unaryOp(UnaryOpType::Set, cache_x);
+  auto x_mean_sub_dup = sub(cache_x2, x_mean); // (M, N)
+
+  auto norm = mul(x_mean_sub_dup, rvar);
+  auto norm_gamma = mul(norm, gamma);
+  auto norm_gamma_beta = add(norm_gamma, beta);
+  fusion.addOutput(norm_gamma_beta);
+
+  TensorView* tensors[] = {x_sum,
+                           x_mean,
+                           cache_x,
+                           cache_x1,
+                           x_sum_bcast,
+                           x_mean_sub,
+                           x_mean_sub_pow,
+                           var_sum,
+                           var_sum_bcast,
+                           var,
+                           var_eps,
+                           rvar,
+                           cache_x2,
+                           x_mean_sub_dup,
+                           norm,
+                           norm_gamma,
+                           norm_gamma_beta};
+
+  const size_t tidx = 128;
+  for (auto tv : tensors) {
+    tv->split(-1, tidx);
+  }
+
+  // Local Sum => Block Broadcast
+  TensorView* x_sum_rf = x_sum->rFactor({1});
+  TensorView* var_sum_rf = var_sum->rFactor({1});
+
+  // ComputeAt
+  cache_x->computeAt(x_sum_rf, 1);
+  x_sum_rf->computeAt(x_sum, 1);
+  cache_x1->computeAt(var_sum_rf, 2);
+  var_sum_rf->computeAt(var_sum, 1);
+  cache_x2->computeAt(norm_gamma_beta, -1);
+
+  TensorView* tensors_to_parallelize[] = {x_sum,
+                                          x_mean,
+                                          cache_x,
+                                          cache_x1,
+                                          x_sum_bcast,
+                                          x_mean_sub,
+                                          x_mean_sub_pow,
+                                          var_sum,
+                                          var_sum_bcast,
+                                          var,
+                                          var_eps,
+                                          rvar,
+                                          cache_x2,
+                                          x_mean_sub_dup,
+                                          norm,
+                                          norm_gamma,
+                                          norm_gamma_beta,
+                                          x_sum_rf,
+                                          var_sum_rf};
+  for (auto tv : tensors_to_parallelize) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+
+  const int dimx = 128;
+  const int dimy = 2048;
+  const float GAMMA = 1.0f;
+  const float BETA = 0.0f;
+  const float EPS = 1e-5;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dimx, dimy}, options);
+
+  torch::jit::fuser::cuda::FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t0, GAMMA, BETA, EPS, dimy});
+
+  auto at_mu = at::mean(t0, -1).unsqueeze(1);
+  auto at_var = at::var(t0, -1).unsqueeze(1);
+  auto at_rvar = at::rsqrt(at::add(at_var, EPS));
+  auto at_norm = at::mul(at::sub(t0, at_mu), at_rvar);
+  auto at_norm_gamma_beta = at::add(at::mul(at_norm, GAMMA), BETA);
+  TORCH_CHECK(
+      at_norm_gamma_beta.allclose(outputs[0], 2e-3, 1e-3),
+      "Error of: ",
+      at_norm_gamma_beta.sub(outputs[0]).abs().max());
 }
 
 void testGPU_FusionSmemDynamicReductionSymbolic() {
