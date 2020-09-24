@@ -525,7 +525,7 @@ class CudaKernelGenerator : private OptInConstDispatch {
     indent() << kTab << genInline(node->reduction_op()->init()) << ");\n";
   }
 
-  void handle(const kir::Scope& scope) {
+  void handleScope(const kir::Scope& scope) {
     for (auto expr : scope.exprs()) {
       handle(expr);
     }
@@ -534,7 +534,7 @@ class CudaKernelGenerator : private OptInConstDispatch {
   void handle(const kir::ForLoop* node) final {
     // TODO(kir): handle this during lowering
     if (node->iter_domain()->isThread() || node->iter_domain()->isBroadcast()) {
-      handle(node->body());
+      handleScope(node->body());
       return;
     }
 
@@ -545,7 +545,7 @@ class CudaKernelGenerator : private OptInConstDispatch {
              << gen_index << " < " << gen_extent << "; ++" << gen_index << ") ";
 
     startBlock(true);
-    handle(node->body());
+    handleScope(node->body());
     endBlock();
   }
 
@@ -554,13 +554,13 @@ class CudaKernelGenerator : private OptInConstDispatch {
 
     // "then" block
     startBlock(true);
-    handle(node->thenBody());
+    handleScope(node->thenBody());
 
     // "else" block (optional)
     if (node->hasElse()) {
       endBlock(" else ");
       startBlock(true);
-      handle(node->elseBody());
+      handleScope(node->elseBody());
     }
 
     endBlock();
