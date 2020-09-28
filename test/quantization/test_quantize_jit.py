@@ -23,6 +23,7 @@ from torch.quantization import (
     fuse_modules,
     quantize_jit,
     quantize_dynamic_jit,
+    PlaceholderObserver,
 )
 
 # torch.quantization.quantize_jit
@@ -73,6 +74,7 @@ from torch.jit._recursive import wrap_cpp_module
 # Standard library
 import itertools
 import unittest
+import io
 
 class TestQuantizeJitPasses(QuantizationTestCase):
     """ Test graph mode quantization passes used by quantize_jit
@@ -1291,6 +1293,121 @@ class TestQuantizeJitPasses(QuantizationTestCase):
         FileCheck().check("quantized::mul(") \
                    .check_not("aten::mul") \
                    .run(m.graph)
+
+    def test_interface_with_fork(self):
+        class SubModule(torch.nn.Module):
+            def __init__(self):
+                super(SubModule, self).__init__()
+                self.embedding1 = torch.nn.EmbeddingBag(num_embeddings=10,
+                                                        embedding_dim=12,
+                                                        include_last_offset=True,
+                                                        sparse=False,
+                                                        mode='sum')
+
+            def forward(self, x, y):
+                return self.embedding1(x, y)
+
+        class OrigMod(torch.nn.Module):
+            def __init__(self):
+                super(OrigMod, self).__init__()
+                self.embedding1 = torch.nn.EmbeddingBag(num_embeddings=10,
+                                                        embedding_dim=12,
+                                                        include_last_offset=True,
+                                                        sparse=False,
+                                                        mode='sum')
+
+            def forward(self, x, y):
+                return self.embedding1(x, y)
+
+        @torch.jit.interface
+        class ModInterface(torch.nn.Module):
+            def forward(self, x, y):
+                # type:  (Tensor, Tensor) -> Tensor
+                pass
+
+        class TestModule(torch.nn.Module):
+            proxy_mod : ModInterface
+
+            def __init__(self):
+                super(TestModule, self).__init__()
+                self.proxy_mod = OrigMod()
+                self.sub = SubModule()
+
+            def forward(self, x, y):
+                a = self.proxy_mod(x, y)
+                b = self.sub(x, y)
+                return b
+
+        class MainModule(torch.nn.Module):
+            def __init__(self):
+                super(MainModule, self).__init__()
+                self.test = TestModule()
+
+            def forward(self, x, y):
+                fut = torch.jit._fork(self.test.forward, x, y)
+                z = torch.jit._wait(fut)
+                return z
+
+        indices = torch.tensor([9, 6, 5, 7, 8, 8, 9, 2, 8, 6, 6, 9, 1, 6, 8, 8, 3, 2, 3, 6, 3, 6, 5, 7, 0, 8, 4, 6, 5, 8, 2, 3])
+        offsets = torch.tensor([0, 19, 20, 28, 28, 32])
+        m = torch.jit.trace(MainModule(), (indices, offsets))
+        m.eval()
+
+        int8_qconfig = QConfig(activation=PlaceholderObserver.with_args(dtype=torch.float,
+                                                                        custom_op_name="embedding_bag_byte"),
+                               weight=PlaceholderObserver.with_args(custom_op_name="embedding_bag_byte"))
+
+        m = prepare_jit(m, {'' : int8_qconfig})
+        m = convert_jit(m)
+        FileCheck().check("quantized::embedding_bag_byte_rowwise_offsets") \
+                   .run(m.graph)
+
+    @skipIfNoFBGEMM
+    def test_quantize_fork_wait(self):
+        """ Tests the case where fork and wait calls are in different subgraphs
+        Calling inline fork-wait only removes the fork call and leaves aten::wait
+        calls in the graph, with Tensor as input (instead of Future[Tensor])
+        """
+        class MainModule(nn.Module):
+            def __init__(self):
+                super(MainModule, self).__init__()
+                self.fork_ops = ForkModule()
+
+            def init_values(self, x):
+                shared_module = self.fork_ops(x)
+                self.fork_dict = shared_module
+
+            def forward(self, x):
+                val = torch.jit._wait(self.fork_ops(x))
+                return val
+
+        class TestModule(torch.nn.Module):
+            def __init__(self):
+                super(TestModule, self).__init__()
+
+            def forward(self, x):
+                w = torch.ones(5, 5)
+                b = torch.zeros(5)
+                return torch.nn.functional.linear(x, w, b)
+
+        class ForkModule(nn.Module):
+            def __init__(self):
+                super(ForkModule, self).__init__()
+                self.test = TestModule()
+
+            def forward(self, x):
+                fut = torch.jit._fork(self.test.forward, x)
+                return fut
+
+        model = MainModule().eval()
+        traced = torch.jit.trace(model, (torch.randn(5, 5),))
+        model = prepare_dynamic_jit(traced, {'' : default_qconfig})
+        model = convert_dynamic_jit(model)
+        FileCheck().check("quantized::linear_dynamic") \
+                   .run(model.graph)
+        # Make sure model save works
+        b = io.BytesIO()
+        torch.jit.save(model, b)
 
 class TestQuantizeJitOps(QuantizationTestCase):
     """ Test graph mode post training static quantization works
@@ -2570,6 +2687,25 @@ class TestQuantizeJitOps(QuantizationTestCase):
                    .check("aten::dequantize(") \
                    .run(m2.graph)
 
+    @override_qengines
+    def test_conv_with_benchmark_flag(self):
+        r"""Verifies that convolutions get quantized when
+        torch.backends.cudnn.benchmark is enabled
+        """
+        if not qengine_is_qnnpack():
+            return
+        with torch.backends.cudnn.flags(enabled=True):
+            m = torch.nn.Sequential(torch.nn.Conv2d(1, 1, 1))
+            m.eval()
+            m = torch.jit.trace(m, torch.rand(4, 1, 4, 4))
+            qconfig = torch.quantization.get_default_qconfig('qnnpack')
+            prepared_model = torch.quantization.prepare_jit(m, {'': qconfig})
+            prepared_model(torch.rand(4, 1, 4, 4))
+            converted_model = torch.quantization.convert_jit(prepared_model)
+            FileCheck().check("quantized::conv2d") \
+                       .run(converted_model.graph)
+
+
 class TestQuantizeDynamicJitPasses(QuantizationTestCase):
     def test_prepare_dynamic(self):
         class M(torch.nn.Module):
@@ -2901,12 +3037,14 @@ class TestQuantizeDynamicJitOps(QuantizationTestCase):
                 self.embedding1 = torch.nn.EmbeddingBag(num_embeddings=10,
                                                         embedding_dim=12,
                                                         include_last_offset=True,
+                                                        sparse=False,
                                                         _weight=weights,
                                                         mode='sum')
 
                 self.embedding2 = torch.nn.EmbeddingBag(num_embeddings=10,
                                                         embedding_dim=12,
                                                         include_last_offset=True,
+                                                        sparse=False,
                                                         _weight=weights,
                                                         mode='sum')
 
@@ -2917,21 +3055,28 @@ class TestQuantizeDynamicJitOps(QuantizationTestCase):
 
         weights = torch.randn(10, 12, dtype=torch.float32)
         module = M(weights)
-        m = torch.jit.script(module)
+
         indices = torch.tensor([9, 6, 5, 7, 8, 8, 9, 2, 8, 6, 6, 9, 1, 6, 8, 8, 3, 2, 3, 6, 3, 6, 5, 7, 0, 8, 4, 6, 5, 8, 2, 3])
         offsets = torch.tensor([0, 19, 20, 28, 28, 32])
+        dummy_inputs = (indices, offsets, indices, offsets)
+        for trace in [True, False]:
+            if trace:
+                m = torch.jit.trace(module, dummy_inputs)
+            else:
+                m = torch.jit.script(module)
+            int4_qconfig = QConfig(activation=PlaceholderObserver.with_args(dtype=torch.float,
+                                                                            custom_op_name="embedding_bag_4bit"),
+                                   weight=PlaceholderObserver.with_args(custom_op_name="embedding_bag_4bit"))
+            int8_qconfig = QConfig(activation=PlaceholderObserver.with_args(dtype=torch.float,
+                                                                            custom_op_name="embedding_bag_byte"),
+                                   weight=PlaceholderObserver.with_args(custom_op_name="embedding_bag_byte"))
+            m = prepare_jit(m, {'embedding1' : int4_qconfig, 'embedding2' : int8_qconfig})
+            m = convert_jit(m)
+            FileCheck().check("quantized::embedding_bag_4bit_rowwise_offsets") \
+                       .check_next("quantized::embedding_bag_byte_rowwise_offsets") \
+                       .run(m.graph)
 
-        from torch.quantization import QConfigDynamic, PlaceholderObserver
-        int4_dynamic_qconfig = QConfigDynamic(activation=PlaceholderObserver.with_args(dtype=torch.float,
-                                                                                       custom_op_name="embedding_bag_4bit"),
-                                              weight=PlaceholderObserver.with_args(custom_op_name="embedding_bag_4bit"))
-        int8_dynamic_qconfig = QConfigDynamic(activation=PlaceholderObserver.with_args(dtype=torch.float,
-                                                                                       custom_op_name="embedding_bag_byte"),
-                                              weight=PlaceholderObserver.with_args(custom_op_name="embedding_bag_byte"))
-        m = quantize_dynamic_jit(m, {'embedding1' : int4_dynamic_qconfig, 'embedding2' : int8_dynamic_qconfig})
-        FileCheck().check("quantized::embedding_bag_4bit_rowwise_offsets") \
-                   .check_next("quantized::embedding_bag_byte_rowwise_offsets") \
-                   .run(m.graph)
+
 
 class TestQuantizeJit(QuantizationTestCase):
     @override_qengines

@@ -48,20 +48,6 @@ namespace cuda {
 
 namespace {
 
-c10::Device getDevice(const at::ArrayRef<IValue>& inputs) {
-  // find device in inputs.
-  for (const auto& input : inputs) {
-    if (input.isTensor()) {
-      auto dev = input.toTensor().device();
-      TORCH_INTERNAL_ASSERT(
-          dev.is_cuda(), "Could only fuser operations on cuda device");
-      return dev;
-    }
-  }
-  TORCH_INTERNAL_ASSERT(
-      false, "Could not detect device of inputs to a fusion.");
-}
-
 // CudaFusionManager is not thread safe!
 // TODO: we should make the tradeoff here to use thread_local instead of global
 // singleton;
@@ -92,7 +78,7 @@ class CudaFusionManager {
       int32_t kernel_id = getNextUniqueID();
       graph_cache_ids_[repr] = kernel_id;
       TORCH_CHECK(
-          graph_cache_.insert({kernel_id, std::make_unique<GraphCache>(graph)})
+          graph_cache_.emplace(kernel_id, std::make_unique<GraphCache>(graph))
               .second);
     }
     return graph_cache_ids_[repr];
