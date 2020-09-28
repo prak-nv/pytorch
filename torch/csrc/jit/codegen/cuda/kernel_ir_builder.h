@@ -47,8 +47,9 @@ class IrBuilder {
   //! to the appropriate constructor
   template <class T, class... Args>
   T* create(Args&&... args) {
-    // TODO(kir): switch this to Kernel registration
-    return new T(kir::Passkey(), std::forward<Args>(args)...);
+    const auto node = new T(kir::Passkey(), std::forward<Args>(args)...);
+    kernel_->registerIrNode(std::unique_ptr<T>(node));
+    return node;
   }
 
   // Binary expressions

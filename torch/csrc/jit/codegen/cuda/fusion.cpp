@@ -178,12 +178,6 @@ void Fusion::clear() noexcept {
   outputs_.clear();
 
   // Lowered IR nodes
-  for (auto ptr : lowered_val_set_) {
-    delete ptr;
-  }
-  for (auto ptr : lowered_expr_set_) {
-    delete ptr;
-  }
   lowered_val_set_.clear();
   lowered_expr_set_.clear();
   lowered_origin_.clear();
