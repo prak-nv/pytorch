@@ -198,11 +198,7 @@ c10::optional<DataType> Val::getDataType() const {
   return dtype_;
 }
 
-Expr* Val::getOrigin() {
-  return fusion_->origin(this);
-}
-
-const Expr* Val::getOrigin() const {
+Expr* Val::getOrigin() const {
   return fusion_->origin(this);
 }
 
