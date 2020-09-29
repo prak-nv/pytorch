@@ -5788,8 +5788,6 @@ void testGPU_FusionSmemDynamicPersistentSoftmax2D() {
     tensor->axis(-1)->parallelize(ParallelType::TIDx);
   }
   exp_tv1->setMemoryType(MemoryType::Shared);
-  fusion.printMath();
-  fusion.printKernel();
 
   const size_t dimx = 1024;
   const size_t dimy = 4096;
@@ -5798,7 +5796,7 @@ void testGPU_FusionSmemDynamicPersistentSoftmax2D() {
 
   torch::jit::fuser::cuda::FusionExecutor fe;
   fe.compileFusion(&fusion);
-  auto outputs = fe.runFusion({t0});
+  auto outputs = fe.runFusion({t0, 128});
 
   auto t1 = at::_softmax(t0, -1, false);
   TORCH_CHECK(
