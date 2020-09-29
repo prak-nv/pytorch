@@ -5763,49 +5763,33 @@ void testGPU_FusionSmemDynamicPersistentSoftmax2D() {
   TensorView* sum_exp_tv2 = sum(exp_tv1, {-1}); // (M, R)
   TensorView* bcast_sum_tv3 = broadcast(sum_exp_tv2, {false, true}); // (M, B)
 
-  // Read Input into Shared Memory
-  TensorView* cache_tv4 = exp_tv1->cache_before();
-  cache_tv4->setMemoryType(MemoryType::Shared);
+  TensorView* output_tv4 =
+      div(exp_tv1, bcast_sum_tv3); // (M, N) = (M, N) / (M, B)
+  fusion.addOutput(output_tv4);
 
-  // Direct read from shared memory cache
-  TensorView* cache_tv5 = unaryOp(UnaryOpType::Set, cache_tv4);
+  auto tidx = new Int();
+  fusion.addInput(tidx);
 
-  TensorView* output_tv6 =
-      div(cache_tv5, bcast_sum_tv3); // (M, N) = (M, N) / (M, B)
-  fusion.addOutput(output_tv6);
+  std::vector<TensorView*> all_tensors(
+      {input_tv0, exp_tv1, sum_exp_tv2, bcast_sum_tv3, output_tv4});
 
-  // M, N/128, 128
-  const size_t tidx = 128;
-  exp_tv1->split(-1, tidx);
-  sum_exp_tv2->split(-1, tidx);
-  bcast_sum_tv3->split(-1, tidx);
-  cache_tv4->split(-1, tidx);
-  cache_tv5->split(-1, tidx);
-  output_tv6->split(-1, tidx);
-
-  TensorView* sum_exp_rf_tv6 = sum_exp_tv2->rFactor({1});
-
-  // cache_before first pwise
-  cache_tv4->computeAt(exp_tv1, 1);
-  // first pwise to first rfactor
-  exp_tv1->computeAt(sum_exp_rf_tv6, -1);
-  // first rfactor to second rfactor
-  sum_exp_rf_tv6->computeAt(sum_exp_tv2, 1);
-  // manual read before final pwise
-  cache_tv5->computeAt(output_tv6, -1);
-
-  TensorView* tensors_to_parallelize[] = {exp_tv1,
-                                          cache_tv4,
-                                          sum_exp_tv2,
-                                          bcast_sum_tv3,
-                                          cache_tv5,
-                                          output_tv6,
-                                          sum_exp_rf_tv6};
-
-  for (auto tv : tensors_to_parallelize) {
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  for (auto tensor : all_tensors) {
+    tensor->split(-1, tidx);
   }
+
+  auto tv5_rfactor_tv2 = sum_exp_tv2->rFactor({1});
+  all_tensors.push_back(tv5_rfactor_tv2);
+
+  input_tv0->computeAt(output_tv4, 1);
+
+  output_tv4->axis(0)->parallelize(ParallelType::BIDx);
+
+  for (auto tensor : all_tensors) {
+    tensor->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+  exp_tv1->setMemoryType(MemoryType::Shared);
+  fusion.printMath();
+  fusion.printKernel();
 
   const size_t dimx = 1024;
   const size_t dimy = 4096;
