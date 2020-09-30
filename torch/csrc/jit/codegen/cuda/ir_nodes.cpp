@@ -273,11 +273,6 @@ ReductionOp::ReductionOp(
                 .size() == _out->as<TensorView>()->getRootDomain().size(),
         "Reduction operation created with mismatched domains.");
 
-  } else {
-    TORCH_INTERNAL_ASSERT(
-        _in->getValType() == ValType::TensorIndex &&
-            _out->getValType() == ValType::TensorIndex,
-        "Reduction operation was created that does not have tensor inputs and outputs.");
   }
   TORCH_INTERNAL_ASSERT(
       _init->isConstScalar(),
@@ -343,8 +338,6 @@ IterDomain::IterDomain(
       "Cannot create an iter domain with a extent that is zero but received ",
       _extent,
       " .");
-
-  // TORCH_INTERNAL_ASSERT(!kir::isLoweredVal(_extent));
 
   name_ = fusion_->registerVal(this);
 }

@@ -73,7 +73,7 @@ class TORCH_CUDA_API FusionExecutor : public NonCopyable {
     uint64_t rand_offset;
   };
 
-  Kernel* kernel() const {
+  kir::Kernel* kernel() const {
     return lowered_.kernel();
   }
 
@@ -102,7 +102,7 @@ class TORCH_CUDA_API FusionExecutor : public NonCopyable {
 
   uint64_t computeSharedMemory(
       StatefulExpressionEvaluator& see,
-      const std::vector<kir::Allocate*>& buffers,
+      const std::vector<const kir::Allocate*>& buffers,
       bool align_padding = false,
       uint64_t total = 0);
 

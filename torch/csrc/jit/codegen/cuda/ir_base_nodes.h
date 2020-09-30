@@ -37,7 +37,7 @@ namespace fuser {
 
 using StmtNameType = unsigned int;
 
-constexpr StmtNameType UNINITIALIZED_STMTNAMETYPE =
+constexpr StmtNameType kInvalidStmName =
     std::numeric_limits<unsigned int>::max();
 
 class Fusion;
@@ -131,7 +131,7 @@ class TORCH_CUDA_API Statement : public NonCopyable, public PolymorphicBase {
   void print() const;
 
  protected:
-  StmtNameType name_ = UNINITIALIZED_STMTNAMETYPE;
+  StmtNameType name_ = kInvalidStmName;
   Fusion* fusion_ = nullptr;
 };
 
@@ -199,8 +199,7 @@ class TORCH_CUDA_API Val : public Statement {
   c10::optional<DataType> getDataType() const override;
 
   bool isScalar() const {
-    return vtype_ == ValType::Scalar || vtype_ == ValType::NamedScalar ||
-        vtype_ == ValType::KirScalar || vtype_ == ValType::KirNamedScalar;
+    return vtype_ == ValType::Scalar || vtype_ == ValType::NamedScalar;
   }
 
   bool isConstScalar() const;

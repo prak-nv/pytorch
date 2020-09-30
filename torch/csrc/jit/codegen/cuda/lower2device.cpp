@@ -153,7 +153,6 @@ class TORCH_CUDA_API GpuLower::KernelIrMapper : private OptInConstDispatch {
       handle(value);
       const auto lowered_node = gpu_lower_->kir_map_[value];
       TORCH_CHECK(lowered_node != nullptr);
-      TORCH_CHECK(kir::isLoweredVal(lowered_node));
 
       // Lower the arithmetic expression defining the value, if any
       if (value->isScalar()) {
@@ -258,14 +257,7 @@ class TORCH_CUDA_API GpuLower::KernelIrMapper : private OptInConstDispatch {
   kir::IrBuilder ir_builder_;
 };
 
-Val* GpuLower::lowerValue(const Val* val) {
-  TORCH_INTERNAL_ASSERT(!kir::isLoweredVal(val));
-  TORCH_INTERNAL_ASSERT(active_gpu_lower != nullptr);
-  KernelIrMapper kir_mapper(active_gpu_lower);
-  return kir_mapper.lower(val);
-}
-
-Val* GpuLower::getLowerValue(const Val* val) {
+kir::Val* GpuLower::lowerValue(const Val* val) {
   KernelIrMapper kir_mapper(this);
   return kir_mapper.lower(val);
 }

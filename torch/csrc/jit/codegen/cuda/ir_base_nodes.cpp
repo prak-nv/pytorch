@@ -57,27 +57,7 @@ Val::Val(ValType _vtype, DataType _dtype, bool register_val, bool lowered)
   }
 }
 
-namespace {
-
-// TODO(kir): remove this
-ValType lowerValType(ValType vtype) {
-  switch (vtype) {
-    case ValType::Scalar:
-      return ValType::KirScalar;
-    case ValType::NamedScalar:
-      return ValType::KirNamedScalar;
-    case ValType::TensorDomain:
-      return ValType::KirTensorDomain;
-    case ValType::IterDomain:
-      return ValType::KirIterDomain;
-    case ValType::TensorView:
-      return ValType::KirTensorView;
-    default:
-      TORCH_CHECK(false, "Unexpected");
-  }
-}
-
-} // namespace
+/* $$$
 
 // TODO(kir): remove this
 Val::Val(const Val* fusion_ir_node)
@@ -88,6 +68,8 @@ Val::Val(const Val* fusion_ir_node)
   fusion_ = fusion_ir_node->fusion_;
   fusion_->registerLoweredVal(this);
 }
+
+*/
 
 Val::Val(const Val* src, IrCloner* ir_cloner)
     : Statement(src, ir_cloner), vtype_(src->vtype_), dtype_(src->dtype_) {}
@@ -118,26 +100,6 @@ class ConstCheck : OptOutConstDispatch {
   }
 
   void handle(const NamedScalar* ns) override {
-    is_const_ = is_const_ && false;
-  }
-
-  void handle(const kir::Bool* b) override {
-    is_const_ = is_const_ && b->isConst();
-  }
-
-  void handle(const kir::Float* f) override {
-    is_const_ = is_const_ && f->isConst();
-  }
-
-  void handle(const kir::Half* h) override {
-    is_const_ = is_const_ && h->isConst();
-  }
-
-  void handle(const kir::Int* i) override {
-    is_const_ = is_const_ && i->isConst();
-  }
-
-  void handle(const kir::NamedScalar* ns) override {
     is_const_ = is_const_ && false;
   }
 
@@ -175,8 +137,6 @@ c10::optional<int64_t> Val::getInt() const {
   if (isConstScalar() && isAnInt()) {
     if (this->getValType() == ValType::Scalar) {
       return this->as<Int>()->value();
-    } else if (this->getValType() == ValType::KirScalar) {
-      return this->as<kir::Int>()->value();
     }
   }
   return c10::optional<int64_t>();

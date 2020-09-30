@@ -159,11 +159,12 @@ at::Tensor inferAndAlloc(
 
 uint64_t FusionExecutor::computeSharedMemory(
     StatefulExpressionEvaluator& see,
-    const std::vector<kir::Allocate*>& buffers,
+    const std::vector<const kir::Allocate*>& buffers,
     bool align_padding,
     uint64_t total) {
   FUSER_PERF_SCOPE("computeSharedMemory");
   for (auto smem_alloc : buffers) {
+    //$$$ kir ee
     auto inferred_val = see.inferValue(smem_alloc->size());
     if (inferred_val.has_value()) {
       const uint64_t data_size = dataTypeSize(smem_alloc->buffer_type());
@@ -294,7 +295,7 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
   const auto& kernel_summary = lowered_.kernel()->summary();
   for (auto alloc : kernel_summary.global_allocations) {
     TORCH_INTERNAL_ASSERT(
-        alloc->buffer()->getValType() == ValType::KirTensorView,
+        alloc->buffer()->isA<kir::TensorView>(),
         "Cannot allocate global buffers that are not tensors.");
     if (!alloc->zeroInit()) {
       global_buffers.empty_buffers.push_back(inferAndAlloc(

@@ -175,45 +175,8 @@ void IrPrinter::handle(const NamedScalar* i) {
   os_ << i->name();
 }
 
-void IrPrinter::handle(const kir::Bool* b) {
-  os_ << "kir::Bool";
-}
-
-void IrPrinter::handle(const kir::Float* f) {
-  os_ << "kir::Float";
-}
-
-void IrPrinter::handle(const kir::Half* h) {
-  os_ << "kir::Half";
-}
-
-void IrPrinter::handle(const kir::Int* i) {
-  os_ << "kir::Int";
-}
-
-void IrPrinter::handle(const kir::NamedScalar*) {
-  os_ << "kir::NamedScalar";
-}
-
-void IrPrinter::handle(const kir::TensorIndex*) {
-  os_ << "kir::TensorIndex";
-}
-
-void IrPrinter::handle(const kir::IterDomain*) {
-  os_ << "kir::IterDomain";
-}
-
-void IrPrinter::handle(const kir::TensorDomain*) {
-  os_ << "kir::TensorDomain";
-}
-
-void IrPrinter::handle(const kir::TensorView*) {
-  os_ << "kir::TensorView";
-}
-
 static bool isTV(const Val* val) {
-  return val->getValType().value() == ValType::TensorView ||
-      val->getValType().value() == ValType::TensorIndex;
+  return val->getValType().value() == ValType::TensorView;
 }
 
 // Check if we're a TensorView op that we can generate code for.
@@ -349,58 +312,16 @@ void IrPrinter::handle(const TernaryOp* top) {
     os_ << ";\n";
 }
 
-void IrPrinter::handle(const kir::UnaryOp* uop) {
-  os_ << "kir::UnaryOp";
-}
-
-void IrPrinter::handle(const kir::BinaryOp* bop) {
-  os_ << "kir::BinaryOp";
-}
-
-void IrPrinter::handle(const kir::TernaryOp* top) {
-  os_ << "kir::TernaryOp";
-}
-
 void IrPrinter::handle(const ReductionOp* rop) {
-  TORCH_CHECK(rop->out()->getValType() != ValType::TensorIndex);
   indent();
   os_ << rop->out() << " = reduction( " << rop->in()
       << ", op = " << rop->getReductionOpType()
       << ", initial value = " << rop->init() << " )\n";
 }
 
-void IrPrinter::handle(const kir::ReductionOp* rop) {
-  os_ << "kir::ReductionOp";
-}
-
-void IrPrinter::handle(const kir::GridReduction* gr) {
-  os_ << "kir::GridReduction";
-}
-
 void IrPrinter::handle(const BroadcastOp* bop) {
-  TORCH_CHECK(bop->out()->getValType() != ValType::TensorIndex);
   indent();
   os_ << bop->out() << " = broadcast( " << bop->in() << " )\n";
-}
-
-void IrPrinter::handle(const kir::BroadcastOp*) {
-  os_ << "kir::BroadcastOp";
-}
-
-void IrPrinter::handle(const kir::ForLoop* fl) {
-  os_ << "kir::ForLoop";
-}
-
-void IrPrinter::handle(const kir::IfThenElse* ite) {
-  os_ << "kir::IfThenElse";
-}
-
-void IrPrinter::handle(const kir::Allocate* a) {
-  os_ << "kir::Allocate";
-}
-
-void IrPrinter::handle(const kir::Sync* a) {
-  os_ << "kir::Sync";
 }
 
 void IrPrinter::handle(const Split* s) {

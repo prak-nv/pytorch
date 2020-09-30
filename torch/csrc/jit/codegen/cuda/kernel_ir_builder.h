@@ -12,10 +12,6 @@ namespace jit {
 namespace fuser {
 namespace kir {
 
-// Simple classification helpers
-bool isLoweredScalar(const Val* val);
-bool isLoweredVal(const Val* val);
-
 //! Kernel IR builder interface
 //!
 //! The only way to create new Kernel IR nodes is through the
@@ -47,8 +43,9 @@ class IrBuilder {
   //! to the appropriate constructor
   template <class T, class... Args>
   T* create(Args&&... args) {
-    const auto node = new T(kir::Passkey(), std::forward<Args>(args)...);
-    kernel_->registerIrNode(std::unique_ptr<T>(node));
+    const kir::Passkey passkey(kernel_);
+    const auto node = new T(passkey, std::forward<Args>(args)...);
+    kernel_->registerIrNode(passkey, std::unique_ptr<T>(node));
     return node;
   }
 
@@ -69,11 +66,8 @@ class IrBuilder {
   Val* newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs);
 
  private:
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-private-field"
   // Non-owning pointer to the kernel to be modified
   Kernel* kernel_ = nullptr;
-#pragma clang diagnostic pop
 };
 
 } // namespace kir
