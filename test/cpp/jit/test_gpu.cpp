@@ -7087,6 +7087,16 @@ TEST(NVFuserTest, FusionInputsIdLookup_CUDA) {
   TORCH_CHECK(id_1_relook.eviction == false);
 }
 
+TEST(NVFuserTest, Stringify) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeDummyTensor(1);
+
+  std::cout << "c10::str(TensorView*): " << ::c10::str(tv0) << std::endl;
+  std::cout << "c10::str(const TensorView*): " << ::c10::str(const_cast<const TensorView*>(tv0)) << std::endl;
+}
+
 } // namespace jit
 } // namespace torch
 

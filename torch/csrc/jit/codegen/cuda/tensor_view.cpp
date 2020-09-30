@@ -25,7 +25,10 @@ DataType aten_opt_type_map(const c10::optional<at::ScalarType>& scalar_type) {
 } // namespace
 
 TensorView::TensorView(TensorDomain* _domain, DataType dtype, MemoryType mtype)
-    : Val(ValType::TensorView, dtype), domain_(_domain), memory_type_(mtype) {}
+    : Val(ValType::TensorView, dtype), domain_(_domain), memory_type_(mtype) {
+  std::cout << "In ctor: " << ::c10::str(this) << std::endl;
+  std::cout << "In ctor (const*): " << ::c10::str(const_cast<const TensorView*>(this)) << std::endl;
+}
 
 TensorView::TensorView(const std::shared_ptr<c10::TensorType>& tensor_type)
     : Val(ValType::TensorView,
