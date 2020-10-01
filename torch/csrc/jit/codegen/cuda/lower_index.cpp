@@ -128,23 +128,31 @@ void IndexLowering::handle(TernaryOp* top) {
 
 namespace {
 
-void allocateGridReductionFlag(TensorView* out_tv, Expr* current_scope_expr) {
+void allocateGridReductionFlag(
+    TensorView* out_tv,
+    kir::Expr* current_scope_expr) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-  auto flag_name = kir::GridReduction::getPredicateFlagName(out_tv);
-  auto flag_var = ir_builder.create<kir::Allocate>(
+
+  const auto flag_name = kir::GridReduction::getPredicateFlagName(out_tv);
+  const auto flag_var = ir_builder.create<kir::Allocate>(
       ir_builder.create<kir::NamedScalar>(flag_name, DataType::Bool),
       MemoryType::Local,
       ir_builder.create<kir::Int>(1));
+
   // When enclosed by IfThenElse, place the variable outside of the
   // IfThenElse. This IfThenElse is assumed to be the prediate for
   // this grid reduction expression.
-  if (current_scope_expr->getExprType() == ExprType::IfThenElse) {
+  //
+  // TODO: review the assumption that we're always in the "then" branch
+  //
+  if (current_scope_expr->isA<kir::IfThenElse>()) {
     scope_utils::insertBefore(
-        scope_utils::getParent(current_scope_expr),
+        current_scope_expr->parentScope(),
         current_scope_expr,
         flag_var);
   } else {
-    scope_utils::pushBack(current_scope_expr, flag_var);
+    TORCH_INTERNAL_ASSERT(current_scope_expr->isA<kir::ForLoop>());
+    current_scope_expr->as<kir::ForLoop>()->body().push_back(flag_var);
   }
 }
 

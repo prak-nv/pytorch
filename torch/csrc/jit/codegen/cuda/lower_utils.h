@@ -2,6 +2,7 @@
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 
 #include <bitset>
@@ -17,26 +18,17 @@ class ThreadPredicateMap;
 
 namespace scope_utils {
 
-// Grab the ForLoop starting from scope working out
-std::vector<kir::ForLoop*> getLoops(Expr* scope);
+//! Returns the list of nesting loops starting at `scope`
+std::vector<kir::ForLoop*> getLoops(kir::Expr* scope);
 
-// Track how far our for loop scope is
-unsigned int computeForDepth(Expr* scope);
-
-// Push back an expr to scope
-void pushBack(Expr* scope, Expr* expr);
-
-// Insert expr in scope before ref
-void insertBefore(Expr* scope, Expr* ref, Expr* expr);
-
-// Returns if expr is in scope, does not check nested scopes
-bool exprInScope(Expr* scope, Expr* expr);
-
-// Return the parent of the active scope
-Expr* getParent(Expr* scope);
+//! Insert expr in scope before ref
+//!
+//! \warning for kir::IfThenElse we implicitly insert in the "then" branch!
+//!
+void insertBefore(kir::Expr* scope, kir::Expr* ref, kir::Expr* expr);
 
 // Open a new inner most for loop
-kir::ForLoop* openFor(Expr* scope, IterDomain*);
+kir::ForLoop* openFor(kir::Expr* scope, IterDomain*);
 
 // Provide a new for loop matching the one provided, sets parent_scope as
 // parent_scope, but does not insert into parent scope.
@@ -46,8 +38,6 @@ kir::ForLoop* cloneLoopNest(kir::ForLoop* to_clone, Expr* parent_scope);
 void replaceExprsInScope(
     Expr* scope,
     std::unordered_map<Expr*, Expr*> replacement_map);
-
-Expr* firstInnerMostScope(Expr* scope);
 
 } // namespace scope_utils
 

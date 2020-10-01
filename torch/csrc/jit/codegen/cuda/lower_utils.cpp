@@ -10,159 +10,14 @@
 
 #include <algorithm>
 
+// TODO: refactor this file (one per namespace)
+
 namespace torch {
 namespace jit {
 namespace fuser {
-
 namespace scope_utils {
 
-// START SCOPE HELPER SYSTEMS
 namespace {
-
-class Loops : private OptInDispatch {
- private:
-  std::deque<kir::ForLoop*> loops;
-  void handle(kir::ForLoop* fl) final {
-    loops.insert(loops.begin(), fl);
-  }
-
-  void handle(kir::IfThenElse* ite) final {}
-
-  void handle(Expr* expr) final {
-    OptInDispatch::handle(expr);
-  }
-
- public:
-  static std::vector<kir::ForLoop*> getLoops(Expr* scope) {
-    Loops loops;
-    Expr* it = scope;
-    while (it != nullptr) {
-      loops.handle(it);
-      it = scope_utils::getParent(it);
-    }
-    return std::vector<kir::ForLoop*>(loops.loops.begin(), loops.loops.end());
-  }
-};
-
-class scopePushBack : private OptInDispatch {
- private:
-  Expr* expr_;
-  void handle(kir::ForLoop* fl) final {
-    fl->body().push_back(expr_);
-  }
-
-  void handle(kir::IfThenElse* ite) final {
-    ite->thenBody().push_back(expr_);
-  }
-
-  void handle(Expr* expr) final {
-    OptInDispatch::handle(expr);
-  }
-
-  scopePushBack(Expr* expr) : expr_(expr) {}
-
- public:
-  static void push(Expr* scope, Expr* expr) {
-    scopePushBack pb(expr);
-    TORCH_INTERNAL_ASSERT(
-        expr != nullptr && scope != nullptr,
-        "Cannot push back, scope or expr is a nullptr.");
-    pb.handle(scope);
-  }
-};
-
-class scopeInsertBefore : private OptInDispatch {
- private:
-  Expr* ref_;
-  Expr* expr_;
-  void handle(kir::ForLoop* fl) final {
-    fl->body().insert_before(ref_, expr_);
-  }
-
-  void handle(kir::IfThenElse* ite) final {
-    ite->thenBody().insert_before(ref_, expr_);
-  }
-
-  void handle(Expr* expr) final {
-    OptInDispatch::handle(expr);
-  }
-
-  scopeInsertBefore(Expr* ref, Expr* expr) : ref_(ref), expr_(expr) {}
-
- public:
-  static void insert(Expr* scope, Expr* ref, Expr* expr) {
-    scopeInsertBefore scb(ref, expr);
-    TORCH_INTERNAL_ASSERT(
-        expr != nullptr && scope != nullptr,
-        "Cannot push back, scope or expr is a nullptr.");
-    scb.handle(scope);
-  }
-};
-
-class ExprInScope : private OptInDispatch {
- private:
-  Expr* expr_;
-  bool contains_ = false;
-
-  void handle(kir::ForLoop* fl) final {
-    if (fl->body().contains(expr_)) {
-      contains_ = true;
-    }
-  }
-
-  void handle(kir::IfThenElse* ite) final {
-    if (ite->thenBody().contains(expr_)) {
-      contains_ = true;
-    }
-  }
-
-  void handle(Expr* expr) final {
-    OptInDispatch::handle(expr);
-  }
-
-  ExprInScope(Expr* expr) : expr_(expr) {}
-
- public:
-  static bool find(Expr* scope, Expr* expr) {
-    ExprInScope eis(expr);
-    TORCH_INTERNAL_ASSERT(
-        expr != nullptr && scope != nullptr,
-        "Cannot push back, scope or expr is a nullptr.");
-    eis.handle(scope);
-    return eis.contains_;
-  }
-};
-
-class parentScope : private OptInDispatch {
- private:
-  Expr* parent_ = nullptr;
-
-  void handle(kir::ForLoop* fl) final {
-    parent_ = fl->parentScope();
-  }
-
-  void handle(kir::IfThenElse* ite) final {
-    parent_ = ite->parentScope();
-  }
-
-  void handle(Expr* expr) final {
-    OptInDispatch::handle(expr);
-  }
-
- public:
-  static Expr* get(Expr* scope) {
-    parentScope sp;
-    sp.handle(scope);
-    return sp.parent_;
-  }
-};
-
-void assertScope(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(
-      expr->getExprType() == ExprType::ForLoop ||
-          expr->getExprType() == ExprType::IfThenElse,
-      "Assert Scope failed when calling a scope_util function.");
-}
 
 class CloneLoopNest : public OptOutMutator {
  private:
@@ -235,98 +90,31 @@ class ReplaceExprsInScope : public OptOutDispatch {
   std::unordered_map<Expr*, Expr*> replacement_map_;
 };
 
-class FirstInnerMostScope : private OptInDispatch {
- private:
-  Expr* active_scope = nullptr;
-
-  void handle(kir::ForLoop* fl) final {
-    for (auto expr : fl->body().exprs()) {
-      if (ir_utils::isScope(expr)) {
-        active_scope = expr;
-        return;
-      }
-    }
-    active_scope = nullptr;
-  }
-
-  void handle(kir::IfThenElse* ite) final {
-    for (auto expr : ite->thenBody().exprs()) {
-      if (ir_utils::isScope(expr)) {
-        active_scope = expr;
-        return;
-      }
-    }
-    for (auto expr : ite->elseBody().exprs()) {
-      if (ir_utils::isScope(expr)) {
-        active_scope = expr;
-        return;
-      }
-    }
-    active_scope = nullptr;
-  }
-
-  Expr* getInner(Expr* expr) {
-    OptInDispatch::handle(expr);
-    return active_scope;
-  }
-
- public:
-  static Expr* get(Expr* scope) {
-    TORCH_INTERNAL_ASSERT(
-        scope != nullptr,
-        "Tried to get inner most scope, but was provided nullptr.");
-
-    FirstInnerMostScope fims;
-    Expr* inner = fims.getInner(scope);
-
-    if (inner == nullptr)
-      return scope;
-
-    while (fims.getInner(inner) != nullptr)
-      inner = fims.getInner(inner);
-    return inner;
-  }
-};
-
-// END SCOPE HELPER SYSTEMS
 } // namespace
 
-// Grab the ForLoop starting from scope working out
-std::vector<kir::ForLoop*> getLoops(Expr* scope) {
-  if (scope == nullptr)
-    return std::vector<kir::ForLoop*>();
-  assertScope(scope);
-  return Loops::getLoops(scope);
+std::vector<kir::ForLoop*> getLoops(kir::Expr* scope) {
+  std::vector<kir::ForLoop*> loops;
+  while (scope != nullptr) {
+    if (auto loop = dynamic_cast<kir::ForLoop*>(scope)) {
+      loops.push_back(loop);
+    }
+    scope = scope->parentScope();
+  }
+  std::reverse(loops.begin(), loops.end());
+  return loops;
 }
 
-// Push back an expr to scope
-void pushBack(Expr* scope, Expr* expr) {
-  TORCH_INTERNAL_ASSERT(
-      scope != nullptr, "Scope is a nullptr, cannot push an expr to it.");
-  assertScope(scope);
-  scopePushBack::push(scope, expr);
+void insertBefore(kir::Expr* scope, kir::Expr* ref, kir::Expr* expr) {
+  if (auto ite = dynamic_cast<kir::IfThenElse*>(scope)) {
+    ite->thenBody().insert_before(ref, expr);
+  } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    for_loop->body().insert_before(ref, expr);
+  } else {
+    TORCH_INTERNAL_ASSERT("Unexpected scope expression");
+  }
 }
 
-// Insert expr in scope before ref
-void insertBefore(Expr* scope, Expr* ref, Expr* expr) {
-  scopeInsertBefore::insert(scope, ref, expr);
-}
-
-bool exprInScope(Expr* scope, Expr* expr) {
-  return ExprInScope::find(scope, expr);
-}
-
-// Return the parent of the active scope
-Expr* getParent(Expr* scope) {
-  TORCH_INTERNAL_ASSERT(
-      scope != nullptr,
-      "Tried to close the active scope, but there isn't one set.");
-  assertScope(scope);
-  return parentScope::get(scope);
-}
-
-// Open a new inner most for loop
-kir::ForLoop* openFor(Expr* scope, IterDomain* id) {
+kir::ForLoop* openFor(kir::Expr* scope, IterDomain* id) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   const auto kir_id = GpuLower::lowerValue(id)->as<kir::IterDomain>();
   kir::ForLoop* new_scope = nullptr;
@@ -357,10 +145,6 @@ void replaceExprsInScope(
       replacement_map.find(scope) == replacement_map.end(),
       "Error trying to replace expressions in a scope, scope wants to be replaced entirely.");
   ReplaceExprsInScope::replace(scope, std::move(replacement_map));
-}
-
-Expr* firstInnerMostScope(Expr* scope) {
-  return FirstInnerMostScope::get(scope);
 }
 
 } // namespace scope_utils
@@ -707,8 +491,7 @@ std::unordered_map<IterDomain*, IterDomain*> p2cRootMap(
   return p2c_root_map;
 }
 
-} // namespace loop_utils
-
+} // namespace scope_utils
 } // namespace fuser
 } // namespace jit
 } // namespace torch

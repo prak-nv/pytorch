@@ -15,6 +15,11 @@ Val::Val(Passkey passkey, DataType dtype) : Node(passkey), dtype_(dtype) {
   id_ = passkey.kernel->newValueId(passkey);
 }
 
+void Expr::setParentScope(Expr* scope) {
+  // TODO(kir): checks to make sure the scope lists are consistent
+  parent_scope_ = scope;
+}
+
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
   std::string parallel_dim = stringifyThreadSize(p_type);
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
@@ -332,29 +337,9 @@ ForLoop::ForLoop(
   addInput(iter_domain);
 }
 
-void ForLoop::setParentScope(Expr* scope) {
-  // TODO(kir): rewrite these checks & the related lower utils
-  #if 0
-  TORCH_INTERNAL_ASSERT(
-      !scope_utils::exprInScope(parentScope(), this),
-      "Cannot change parent scope if not already removed from previous parent.");
-  #endif
-  parent_scope_ = scope;
-}
-
 IfThenElse::IfThenElse(Passkey passkey, Bool* cond, Expr* parent_scope)
     : Expr(passkey), cond_{cond}, parent_scope_(parent_scope) {
   addInput(cond);
-}
-
-void IfThenElse::setParentScope(Expr* scope) {
-  // TODO(kir): rewrite these checks & the related lower utils
-  #if 0
-  TORCH_INTERNAL_ASSERT(
-      !scope_utils::exprInScope(parentScope(), this),
-      "Cannot change parent scope if not already removed from previous parent.");
-  #endif
-  parent_scope_ = scope;
 }
 
 Val* TensorIndex::index(int i) const {

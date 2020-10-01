@@ -131,7 +131,7 @@ void GpuLower::lower() {
   }
 }
 
-Kernel* GpuLower::kernel() const {
+kir::Kernel* GpuLower::kernel() const {
   TORCH_CHECK(kernel_);
   return kernel_.get();
 }
@@ -145,7 +145,7 @@ class TORCH_CUDA_API GpuLower::KernelIrMapper : private OptInConstDispatch {
   explicit KernelIrMapper(GpuLower* gpu_lower)
       : gpu_lower_(gpu_lower), ir_builder_(gpu_lower->kernel()) {}
 
-  Val* lower(const Val* value) {
+  kir::Val* lower(const Val* value) {
     const auto it = gpu_lower_->kir_map_.find(value);
     if (it != gpu_lower_->kir_map_.end()) {
       return it->second;
@@ -167,7 +167,7 @@ class TORCH_CUDA_API GpuLower::KernelIrMapper : private OptInConstDispatch {
 
  private:
   // TODO(kir): rewrite this
-  void lowerDefinition(Val* lowered_value, const Expr* def) {
+  void lowerDefinition(kir::Val* lowered_value, const Expr* def) {
     switch (def->type()) {
       case ExprType::UnaryOp: {
         const auto op = def->as<fuser::UnaryOp>();

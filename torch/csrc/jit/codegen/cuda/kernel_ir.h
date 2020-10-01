@@ -180,7 +180,14 @@ class TORCH_CUDA_API Expr : public Node {
     return inputs_;
   }
 
- protected:
+   Expr* parentScope() const {
+    return parent_scope_;
+  }
+
+  void setParentScope(Expr* scope);
+
+protected:
+  // TODO(kir): try to avoid this protected interface
   void addInput(Val* input) {
     inputs_.push_back(input);
   }
@@ -193,6 +200,9 @@ class TORCH_CUDA_API Expr : public Node {
   // TODO(kir): can we avoid this?
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
+
+  // TODO(kir): revisit scope/nesting data structures
+  Expr* parent_scope_ = nullptr;
 };
 
 class TORCH_CUDA_API NamedScalar : public Val {
@@ -794,7 +804,7 @@ class TORCH_CUDA_API Scope {
     return exprs_.size();
   }
 
-/*
+/* $$$
   auto& operator[](size_t i) {
     return exprs_[i];
   }
@@ -853,17 +863,10 @@ class TORCH_CUDA_API ForLoop : public Expr {
     return body_;
   }
 
-  Expr* parentScope() const {
-    return parent_scope_;
-  }
-
-  void setParentScope(Expr* scope);
-
  private:
   Val* const index_ = nullptr;
   IterDomain* const iter_domain_;
   Scope body_;
-  Expr* parent_scope_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its body
@@ -902,17 +905,10 @@ class TORCH_CUDA_API IfThenElse : public Expr {
     return !else_body_.empty();
   }
 
-  Expr* parentScope() const {
-    return parent_scope_;
-  }
-
-  void setParentScope(Expr* scope);
-
  private:
   Bool* const cond_ = nullptr;
   Scope then_body_;
   Scope else_body_;
-  Expr* parent_scope_ = nullptr;
 };
 
 //! Grid reduction operation

@@ -117,7 +117,7 @@ void LoopNestGenerator::pushBack(Expr* expr) {
   if (for_loops.size() == 0) {
     lowered_exprs.push_back(expr);
   } else {
-    scope_utils::pushBack(for_loops.back(), expr);
+    for_loops.back()->body().push_back(expr);
   }
 }
 
@@ -256,8 +256,8 @@ void LoopNestGenerator::handle(Expr* expr) {
     shared_memory_sync |= isModifiedSharedMemory(in);
   }
   if (shared_memory_sync) {
-    // push Sync to the back of the last for loop
-    scope_utils::pushBack(for_loops.back(), ir_builder_.create<kir::Sync>());
+    // Push "sync" to the back of the last for loop
+    for_loops.back()->body().push_back(ir_builder_.create<kir::Sync>());
     cleanSharedMemory();
   }
 
