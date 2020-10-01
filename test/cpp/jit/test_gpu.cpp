@@ -5691,7 +5691,7 @@ TEST(NVFuserTest, FusionSmem_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.size() == 0);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST(NVFuserTest, FusionSmemReduce_CUDA) {
@@ -5741,8 +5741,7 @@ TEST(NVFuserTest, FusionSmemReduce_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.size() == 1);
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.count(24) == 1);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);
 }
 
 TEST(NVFuserTest, FusionSmemBlockGemm_CUDA) {
@@ -5805,7 +5804,7 @@ TEST(NVFuserTest, FusionSmemBlockGemm_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.size() == 0);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
@@ -5891,7 +5890,7 @@ TEST(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.size() == 0);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST(NVFuserTest, FusionSmemDynamicReductionSymbolic_CUDA) {
@@ -5940,7 +5939,7 @@ TEST(NVFuserTest, FusionSmemDynamicReductionSymbolic_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.size() == 0);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST(NVFuserTest, FusionSmemDynamicReductionSymbolicArg_CUDA) {
@@ -5999,8 +5998,7 @@ TEST(NVFuserTest, FusionSmemDynamicReductionSymbolicArg_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.size() == 1);
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.count(24) == 1);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);
 }
 
 TEST(NVFuserTest, FusionSmemDynamicPwiseMulSymbolicArgWAR_CUDA) {
@@ -6058,8 +6056,7 @@ TEST(NVFuserTest, FusionSmemDynamicPwiseMulSymbolicArgWAR_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.size() == 1);
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.count(22) == 1);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);
 }
 
 TEST(NVFuserTest, FusionSmemDynamicTiledGemm_CUDA) {
@@ -6184,8 +6181,7 @@ TEST(NVFuserTest, FusionSmemDynamicTiledGemm_CUDA) {
       aten_C.allclose(C_fuser, 1e-5, 1e-5),
       "Error of: ",
       aten_C.sub(C_fuser).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.size() == 1);
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs.count(41) == 1);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);
 }
 
 TEST(NVFuserTest, FusionGlobalIntermediate_CUDA) {

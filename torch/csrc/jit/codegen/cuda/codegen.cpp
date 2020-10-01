@@ -549,8 +549,10 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
   // TODO(kir): fold initialization into Allocate
   void visit(const kir::Allocate* node) final {
+    const auto buffer_dtype = node->buffer()->dtype();
+
     if (!node->buffer()->isA<kir::TensorView>()) {
-      indent() << node->buffer_type() << " " << gen(node->buffer()) << ";\n";
+      indent() << buffer_dtype << " " << gen(node->buffer()) << ";\n";
       return;
     }
 
@@ -565,24 +567,24 @@ class CudaKernelGenerator : private kir::IrVisitor {
       case MemoryType::Shared: {
         if (node->size()->isScalar() && node->size()->isConst()) {
           // Static shared memory
-          indent() << "__shared__ " << node->buffer_type() << " " << gen(tv)
-                   << "[" << genInline(node->size()) << "];\n";
+          indent() << "__shared__ " << buffer_dtype << " " << gen(tv) << "["
+                   << genInline(node->size()) << "];\n";
         } else {
           // Align Offset Position
           indent() << "offset = alignBufferSize(offset,"
-                   << dataTypeSize(node->buffer_type()) << ");\n";
+                   << dataTypeSize(buffer_dtype) << ");\n";
           // Shared Memory Pointer
-          indent() << node->buffer_type() << "* " << gen(tv)
-                   << " = reinterpret_cast<" << node->buffer_type() << "*>"
+          indent() << buffer_dtype << "* " << gen(tv) << " = reinterpret_cast<"
+                   << buffer_dtype << "*>"
                    << "(array + offset);\n";
           // Increment Offset Position
           indent() << "offset += (" << genInline(node->size()) << " * sizeof("
-                   << node->buffer_type() << "));\n";
+                   << buffer_dtype << "));\n";
         }
         break;
       }
       case MemoryType::Local:
-        indent() << node->buffer_type() << " " << gen(tv) << "["
+        indent() << buffer_dtype << " " << gen(tv) << "["
                  << genInline(node->size()) << "];\n";
         break;
       default:
