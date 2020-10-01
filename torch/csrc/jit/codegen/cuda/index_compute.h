@@ -128,8 +128,8 @@ class IndexCompute : public BackwardVisitor {
   // Map producer contiguity information to consumer, if entries don't match
   // mark as false
   static std::vector<bool> contiguityPasC(
-      TensorDomain* producer,
-      TensorDomain* consumer);
+      kir::TensorDomain* producer,
+      kir::TensorDomain* consumer);
 
   static std::vector<bool> contiguityAnd(
       const std::vector<bool>& contig1,
@@ -182,7 +182,7 @@ class Index {
   // Even those not used for physical addressing. Returns pair <root indices, if
   // indices are mapped to rfactor dom>
   static std::pair<std::vector<kir::Val*>, bool> getConsumerRootPredIndices(
-      TensorView* consumer,
+      kir::TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
       const std::vector<bool>& root_contiguity,
       bool unroll = false);

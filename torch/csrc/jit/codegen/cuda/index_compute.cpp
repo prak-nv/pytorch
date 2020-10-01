@@ -466,8 +466,8 @@ std::vector<bool> IndexCompute::contiguityAnd(
 // TODO: use new mapping functions
 // This mapping might need to go through rfactor, unclear
 std::vector<bool> IndexCompute::contiguityPasC(
-    TensorDomain* producer,
-    TensorDomain* consumer) {
+    kir::TensorDomain* producer,
+    kir::TensorDomain* consumer) {
   FUSER_PERF_SCOPE("contiguityPasC");
 
   const std::vector<bool>& producer_contiguity = producer->contiguity();
@@ -1204,7 +1204,7 @@ kir::TensorIndex* Index::getConsumerIndex(
 // TODO: replace pair with struct
 //
 std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
-    TensorView* consumer_tv,
+    kir::TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::vector<bool>& root_contiguity,
     bool unroll) {

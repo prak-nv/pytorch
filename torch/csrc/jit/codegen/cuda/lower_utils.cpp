@@ -430,6 +430,7 @@ bool isTVOp(const Expr* expr) {
   return false;
 }
 
+// TODO: why do we assume there's a single TV output?
 TensorView* getTVOutput(const Expr* expr) {
   for (auto out : expr->outputs()) {
     if (out->getValType().value() == ValType::TensorView) {
@@ -704,16 +705,6 @@ std::unordered_map<IterDomain*, IterDomain*> p2cRootMap(
   }
 
   return p2c_root_map;
-}
-
-IterDomain* getTermIDInMap(
-    IterDomain* root_id,
-    std::unordered_map<IterDomain*, IterDomain*> p2c_root_map) {
-  auto entry = root_id;
-  while (p2c_root_map.find(entry) != p2c_root_map.end()) {
-    entry = p2c_root_map.at(entry);
-  }
-  return entry;
 }
 
 } // namespace loop_utils

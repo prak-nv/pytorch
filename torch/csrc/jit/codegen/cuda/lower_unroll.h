@@ -69,7 +69,7 @@ class TORCH_CUDA_API UnrollPass : public OptOutDispatch {
   // Map from TensorView
   const ThreadPredicateMap& thread_predicates_;
 
-  std::unordered_map<IterDomain*, IterDomain*> p2c_root_map;
+  std::unordered_map<kir::IterDomain*, kir::IterDomain*> p2c_root_map_;
 
   // keep track if we're within an unrolled loop
   bool look_for_unroll = true;
@@ -92,7 +92,7 @@ class TORCH_CUDA_API UnrollPass : public OptOutDispatch {
       : fusion_(_fusion),
         incoming_exprs_(_incoming_exprs),
         thread_predicates_(_thread_predicates) {
-    p2c_root_map = loop_utils::p2cRootMap(_fusion->exprs(true));
+    p2c_root_map_ = loop_utils::p2cRootMap(_fusion->exprs(true));
   }
 
   // Generate the for Expr replacement map

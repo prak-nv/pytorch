@@ -172,12 +172,6 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
 std::unordered_map<IterDomain*, IterDomain*> p2cRootMap(
     const std::vector<Expr*>& exprs);
 
-// Given a root IterationDomain and a p2c_root_map find the root IterationDomain
-// furthest down in the sorted expr list it maps to. Needed for unrolling.
-IterDomain* getTermIDInMap(
-    IterDomain* root_id,
-    std::unordered_map<IterDomain*, IterDomain*> p2c_root_map);
-
 } // namespace loop_utils
 
 } // namespace fuser

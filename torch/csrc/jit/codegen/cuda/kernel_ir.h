@@ -172,6 +172,14 @@ class TORCH_CUDA_API Expr : public Node {
  public:
   explicit Expr(Passkey passkey) : Node(passkey) {}
 
+  const auto& inputs() const {
+    return inputs_;
+  }
+
+  const auto& outputs() const {
+    return inputs_;
+  }
+
  protected:
   void addInput(Val* input) {
     inputs_.push_back(input);
