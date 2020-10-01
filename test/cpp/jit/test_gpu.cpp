@@ -7087,6 +7087,23 @@ TEST(NVFuserTest, FusionInputsIdLookup_CUDA) {
   TORCH_CHECK(id_1_relook.eviction == false);
 }
 
+TEST(NVFuserTest, FusionRandLike_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeDummyTensor(3);
+  // switching to UnaryOpType::Relu and every thing works fine.
+  auto tv1 = unaryOp(UnaryOpType::RandLike, tv0);
+  auto tv2 = mul(tv0, new Float(0.5));
+  auto tv3 = mul(tv1, tv2);
+
+  fusion.addInput(tv0);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({4, 8, 8, 16}, options);
+  fuser::cuda::scheduleFusion(&fusion, {input});
+}
 } // namespace jit
 } // namespace torch
 
