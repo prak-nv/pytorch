@@ -52,8 +52,6 @@ static const char* data_type2string(DataType t) {
 
 static const char* val_type2string(ValType t) {
   switch (t) {
-    case ValType::TensorIndex:
-      return "TensorIndex";
     case ValType::TensorView:
       return "TensorView";
     case ValType::TensorDomain:
@@ -64,21 +62,9 @@ static const char* val_type2string(ValType t) {
       return "Scalar";
     case ValType::NamedScalar:
       return "NamedScalar";
-    case ValType::KirIterDomain:
-      return "KirIterDomain";
-    case ValType::KirNamedScalar:
-      return "KirNamedScalar";
-    case ValType::KirScalar:
-      return "KirScalar";
-    case ValType::KirTensorDomain:
-      return "KirTensorDomain";
-    case ValType::KirTensorView:
-      return "KirTensorView";
     default:
-      break;
+      TORCH_INTERNAL_ASSERT(false, "No string found for val type.");
   }
-  TORCH_INTERNAL_ASSERT(false, "No string found for val type.");
-  return nullptr;
 }
 
 static const char* expr_type2string(ExprType t) {
@@ -91,37 +77,15 @@ static const char* expr_type2string(ExprType t) {
       return "TernaryOp";
     case ExprType::ReductionOp:
       return "ReductionOp";
-    case ExprType::GridReduction:
-      return "GridReduction";
     case ExprType::BroadcastOp:
       return "BroadcastOp";
-    case ExprType::ForLoop:
-      return "ForLoop";
-    case ExprType::IfThenElse:
-      return "IfThenElse";
-    case ExprType::Allocate:
-      return "Allocate";
-    case ExprType::Sync:
-      return "SyncThreads";
     case ExprType::Split:
       return "Split";
     case ExprType::Merge:
       return "Merge";
-    case ExprType::KirUnaryOp:
-      return "KirUnaryOp";
-    case ExprType::KirBinaryOp:
-      return "KirBinaryOp";
-    case ExprType::KirTernaryOp:
-      return "KirTernaryOp";
-    case ExprType::KirReductionOp:
-      return "KirReductionOp";
-    case ExprType::KirBroadcastOp:
-      return "KirBroadcastOp";
     default:
-      break;
+      TORCH_INTERNAL_ASSERT(false, "No string found for expr type.");
   }
-  TORCH_INTERNAL_ASSERT(false, "No string found for expr type.");
-  return nullptr;
 }
 
 static const char* unary_op_type2string(UnaryOpType t) {
@@ -197,10 +161,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
     case UnaryOpType::Trunc:
       return "truncf";
     default:
-      break;
+      TORCH_INTERNAL_ASSERT(false, "No string found for unary op type.");
   }
-  TORCH_INTERNAL_ASSERT(false, "No string found for unary op type.");
-  return nullptr;
 }
 
 static const char* unary_op_type_inline_op2string(UnaryOpType t) {
@@ -258,10 +220,8 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::NE:
       return "notEqual";
     default:
-      break;
+      TORCH_INTERNAL_ASSERT(false, "No string found for binary op type.");
   }
-  TORCH_INTERNAL_ASSERT(false, "No string found for binary op type.");
-  return nullptr;
 }
 
 static const char* binary_op_type_inline_op2string(BinaryOpType t) {
@@ -307,10 +267,8 @@ static const char* ternary_op_type2string(TernaryOpType t) {
     case TernaryOpType::Where:
       return "where";
     default:
-      break;
+      TORCH_INTERNAL_ASSERT(false, "No string found for ternary op type.");
   }
-  TORCH_INTERNAL_ASSERT(false, "No string found for ternary op type.");
-  return nullptr;
 }
 
 static const char* parallel_type2string(ParallelType t) {
@@ -334,10 +292,8 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::Serial:
       return "S";
     default:
-      break;
+      TORCH_INTERNAL_ASSERT(false, "No string found for parallel type.");
   }
-  TORCH_INTERNAL_ASSERT(false, "No string found for parallel type.");
-  return nullptr;
 }
 
 static const char* memory_type2string(MemoryType t) {
@@ -349,10 +305,8 @@ static const char* memory_type2string(MemoryType t) {
     case MemoryType::Global:
       return "global";
     default:
-      break;
+      TORCH_INTERNAL_ASSERT(false, "No string found for memory type.");
   }
-  TORCH_INTERNAL_ASSERT(false, "No string found for memory type.");
-  return nullptr;
 }
 
 static const char* iter_type2string(IterType t) {
@@ -367,7 +321,6 @@ static const char* iter_type2string(IterType t) {
       return "b";
     default:
       TORCH_INTERNAL_ASSERT(false, "No string found for IterDomain type.");
-      return nullptr;
   }
 }
 
@@ -386,10 +339,8 @@ static const char* thread_size2string(ParallelType t) {
     case ParallelType::TIDx:
       return "blockDim.x";
     default:
-      break;
+      TORCH_INTERNAL_ASSERT(false, "Could not find size of the thread type ", t);
   }
-  TORCH_INTERNAL_ASSERT(false, "Could not find size of the thread type ", t);
-  return nullptr;
 }
 
 const unsigned int _WORD_SHIFT = 16;
@@ -404,9 +355,8 @@ static const char* supported_casts2string(
     case supported_switch_pair(DataType::Half, DataType::Float):
       return "__half2float";
     default:
-      break;
+      return nullptr;
   }
-  return nullptr;
 }
 
 bool is_logical_op(const BinaryOpType& bot) {
@@ -436,7 +386,6 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
       return DataType::Int;
     default:
       TORCH_INTERNAL_ASSERT(false, "No data type found for scalar type.");
-      return DataType::Null;
   }
 }
 
@@ -452,7 +401,6 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
       return at::ScalarType::Long;
     default:
       TORCH_INTERNAL_ASSERT(false, "No data type found for scalar type.");
-      return at::ScalarType::Undefined;
   }
 }
 

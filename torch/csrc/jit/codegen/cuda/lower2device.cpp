@@ -97,7 +97,7 @@ void GpuLower::lower() {
   FusionGuard fg(fusion_);
 
   // Start with a fresh kernel
-  kernel_ = std::make_unique<Kernel>();
+  kernel_ = std::make_unique<kir::Kernel>();
 
   // prepare for lowering
   validateIr(fusion_);
