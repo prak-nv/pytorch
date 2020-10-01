@@ -110,20 +110,22 @@ class TORCH_CUDA_API Node : public NonCopyable, public PolymorphicBase {
  public:
   explicit Node(Passkey) {}
 
-  virtual void accept(IrVisitor* visitor) const { visitor->visit(this); }
+  //! IR Visitor double-dispatch interface
+  //! (https://en.wikipedia.org/wiki/Visitor_pattern)
+  virtual void accept(IrVisitor* visitor) const = 0;
 };
 
 //! Generic value (scalar or tensor)
 class TORCH_CUDA_API Val : public Node {
  public:
-  Val(Passkey passkey, DataType dtype) : Node(passkey), dtype_(dtype) {
-    id_ = passkey.kernel->newValueId(passkey);
-  }
-
-  void accept(IrVisitor* visitor) const override { visitor->visit(this); }
+  Val(Passkey passkey, DataType dtype);
 
   StmtNameType name() const {
     return name_;
+  }
+
+  void setName(StmtNameType name) {
+    name_ = name;
   }
 
   ValueId id() const {
@@ -170,14 +172,12 @@ class TORCH_CUDA_API Expr : public Node {
  public:
   explicit Expr(Passkey passkey) : Node(passkey) {}
 
-  void accept(IrVisitor* visitor) const override { visitor->visit(this); }
-
  protected:
-  void registerInput(Val* input) {
+  void addInput(Val* input) {
     inputs_.push_back(input);
   }
 
-  void registerOutput(Val* output) {
+  void addOutput(Val* output) {
     outputs_.push_back(output);
   }
 
@@ -189,16 +189,19 @@ class TORCH_CUDA_API Expr : public Node {
 
 class TORCH_CUDA_API NamedScalar : public Val {
  public:
-  NamedScalar(Passkey Passkey passkey, std::string name, DataType dtype)
-      : Val(Passkey passkey, dtype), name_(name) {}
+  NamedScalar(Passkey passkey, std::string name, DataType dtype)
+      : Val(passkey, dtype), name_(name) {}
 
   explicit NamedScalar(Passkey passkey, const fuser::NamedScalar* node)
-      : Val(node), name_(node->name()) {}
+      : Val(passkey, node->getDataType().value()) {
+    name_ = node->name();
+  }
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }
 
   bool isScalar() const override { return true; }
 
+  // TODO(kir): this is hiding and redefining Val::name()
   const std::string& name() const {
     return name_;
   }
@@ -224,11 +227,13 @@ class TORCH_CUDA_API NamedScalar : public Val {
 class TORCH_CUDA_API Bool : public Val {
  public:
   explicit Bool(Passkey passkey, const c10::optional<bool>& value)
-      : Val(passkey, DataType::Bool, true, true),
+      : Val(passkey, DataType::Bool),
         maybe_value_(value) {}
 
   explicit Bool(Passkey passkey, const fuser::Bool* node)
-      : Val(node), maybe_value_(node->value()) {}
+      : Val(passkey, DataType::Bool), maybe_value_(node->value()) {
+    setName(node->name());
+  }
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }
 
@@ -251,11 +256,13 @@ class TORCH_CUDA_API Float : public Val {
   using ScalarType = double;
 
   explicit Float(Passkey passkey, const c10::optional<ScalarType>& value)
-      : Val(passkey, DataType::Float, true, true),
+      : Val(passkey, DataType::Float),
         maybe_value_(value) {}
 
   explicit Float(Passkey passkey, const fuser::Float* node)
-      : Val(node), maybe_value_(node->value()) {}
+      : Val(passkey, DataType::Float), maybe_value_(node->value()) {
+    setName(node->name());
+  }
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }
 
@@ -276,11 +283,13 @@ class TORCH_CUDA_API Float : public Val {
 class TORCH_CUDA_API Half : public Val {
  public:
   explicit Half(Passkey passkey, const c10::optional<float>& value)
-      : Val(passkey, DataType::Half, true, true),
+      : Val(passkey, DataType::Half),
         maybe_value_(value) {}
 
   explicit Half(Passkey passkey, const fuser::Half* node)
-      : Val(node), maybe_value_(node->value()) {}
+      : Val(passkey, DataType::Half), maybe_value_(node->value()) {
+    setName(node->name());
+  }
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }
 
@@ -303,14 +312,16 @@ class TORCH_CUDA_API Int : public Val {
   using ScalarType = int64_t;
 
   explicit Int(Passkey passkey, const c10::optional<ScalarType>& value)
-      : Val(passkey, DataType::Int, true, true),
+      : Val(passkey, DataType::Int),
         maybe_value_(value) {}
 
   explicit Int(
       Passkey passkey,
       const fuser::Int* node,
       bool /*avoid_zero_ambiguity*/)
-      : Val(node), maybe_value_(node->value()) {}
+      : Val(passkey, DataType::Int), maybe_value_(node->value()) {
+    setName(node->name());
+  }
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }
 
@@ -379,7 +390,7 @@ class TORCH_CUDA_API IterDomain : public Val {
 
   // Return if this iter domain is either mapped to a block or grid dimension
   bool isThread() const {
-    return (isBlockDim() || isThreadDim());
+    return isBlockDim() || isThreadDim();
   }
 
   ParallelType getParallelType() const {
@@ -721,10 +732,6 @@ class TORCH_CUDA_API Allocate : public Expr {
 
   bool zeroInit() const {
     return zero_init_;
-  }
-
-  DataType buffer_type() const {
-    return buffer_->getDataType().value();
   }
 
  private:

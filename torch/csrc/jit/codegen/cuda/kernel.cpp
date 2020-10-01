@@ -39,10 +39,10 @@ class KernelIrScanner : private kir::IrVisitor {
         summary.global_allocations.push_back(allocate);
         break;
       case MemoryType::Shared:
-        if (allocate->size()->isConstScalar()) {
-          summary.static_allocations.push_back(allocate);
+        if (allocate->size()->isScalar() && allocate->size()->isConst()) {
+          summary.static_smem_allocations.push_back(allocate);
         } else {
-          summary.dynamic_allocations.push_back(allocate);
+          summary.dynamic_smem_allocations.push_back(allocate);
         }
         break;
       case MemoryType::Local:
@@ -71,14 +71,17 @@ class KernelIrScanner : private kir::IrVisitor {
     // Update the largest smem data type
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
         tv->memoryType() == MemoryType::Shared) {
-      const auto data_type = tv->getDataType().value();
+      const auto data_type = tv->dtype();
       const size_t type_size = dataTypeSize(data_type);
-      if (type_size > max_smem_type_size) {
-        max_smem_type_size = type_size;
+      if (type_size > max_smem_type_size_) {
+        max_smem_type_size_ = type_size;
         summary.largest_smem_data_type = data_type;
       }
     }
   }
+
+ private:
+  size_t max_smem_type_size_ = 0;
 };
 
 } // namespace

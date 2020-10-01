@@ -103,7 +103,7 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
   //! \note This is a specialized helper for kir::IrBuilder, not
   //!   intendted for general use
   //!
-  void registerIrNode(kir::Passkey passkey, std::unique_ptr<Statement> node) {
+  void registerIrNode(kir::Passkey passkey, std::unique_ptr<kir::Node> node) {
     TORCH_CHECK(passkey.kernel == this);
     ir_nodes_.push_back(std::move(node));
   }

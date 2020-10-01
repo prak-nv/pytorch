@@ -191,11 +191,16 @@ class TORCH_CUDA_API Val : public Statement {
   Val(Val&& other) = delete;
   Val& operator=(Val&& other) = delete;
 
+  // TODO: why is this optional?
+  //
   c10::optional<ValType> getValType() const override {
     return vtype_;
   }
 
   // Throws if no DataType is found. Vals must have a DataType
+  //
+  // TODO: why is this optional?
+  //
   c10::optional<DataType> getDataType() const override;
 
   bool isScalar() const {
