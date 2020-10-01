@@ -116,9 +116,9 @@ void UnrollPass::computeMap() {
   }
 }
 
-std::vector<Expr*> UnrollPass::runPass(
+std::vector<kir::Expr*> UnrollPass::runPass(
     Fusion* fusion,
-    const std::vector<Expr*>& exprs,
+    const std::vector<kir::Expr*>& exprs,
     const ThreadPredicateMap& thread_predicates) {
   FUSER_PERF_SCOPE("UnrollPass::runPass");
   FusionGuard fg(fusion);

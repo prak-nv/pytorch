@@ -101,9 +101,9 @@ class TORCH_CUDA_API UnrollPass : public OptOutDispatch {
  public:
   // Take the incoming fusion and exprs and run loop unrolling, returning the
   // new IR.
-  static std::vector<Expr*> runPass(
+  static std::vector<kir::Expr*> runPass(
       Fusion* fusion,
-      const std::vector<Expr*>& exprs,
+      const std::vector<kir::Expr*>& exprs,
       const ThreadPredicateMap& thread_predicates);
 };
 

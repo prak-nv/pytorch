@@ -15,9 +15,9 @@ namespace fuser {
 
 class TORCH_CUDA_API IndexLowering : public OptInDispatch {
  public:
-  static std::vector<Expr*> getIndexedExprs(
+  static std::vector<kir::Expr*> getIndexedExprs(
       Fusion* fusion,
-      std::vector<Expr*> incoming_exprs) {
+      std::vector<kir::Expr*> incoming_exprs) {
     FUSER_PERF_SCOPE("IndexLowering::getIndexedExprs");
     FusionGuard fg(fusion);
     IndexLowering il;

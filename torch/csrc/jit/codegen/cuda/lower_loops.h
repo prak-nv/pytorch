@@ -5,6 +5,7 @@
 
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
 
@@ -30,7 +31,7 @@ namespace fuser {
  */
 class TORCH_CUDA_API LoopNestGenerator : public OptOutDispatch {
  public:
-  static std::vector<Expr*> loweredExprs(
+  static std::vector<kir::Expr*> loweredExprs(
       Fusion* fusion,
       ThreadPredicateMap& thread_predicates,
       const std::vector<Expr*>& exprs) {
