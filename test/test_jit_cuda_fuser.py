@@ -612,15 +612,13 @@ class TestCudaFuser(JitTestCase):
         jit_o = t_jit(x, y)
         jit_o = t_jit(x, y)
         print(t_jit.graph_for(x, y ))
-        #o = t(x, y)
+        o = t(x, y)
         print("run everything")
-        '''
         self.assertEqual(o.dtype, jit_o.dtype)
         # numerical issues here due to our scheduling.
         # can't use `self.assertEqual(o, jit_o)`
         self.assertTrue(self._compare("comparing output failed", o, jit_o, 1e-4))
         self.assertGraphContains(t_jit.graph_for(x, y), FUSION_GUARD)
-        '''
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
