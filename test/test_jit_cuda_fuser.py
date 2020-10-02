@@ -644,7 +644,7 @@ class TestCudaFuser(JitTestCase):
     @skipIfRocm
     def test_reduction_permutation(self):
         #x = [7, 8, 12]
-        x = [8, 8, 24]
+        x = [8, 8, 8]
         # note that num_dim is exclusive from len(x), so we are not reducing
         # to single element (codegen limitation at this moment)
         #axes = [1]
