@@ -598,8 +598,8 @@ class TestCudaFuser(JitTestCase):
 
             def forward(self, x: torch.Tensor, y: torch.Tensor):
                 o = torch.add(x, y)
-                #o = torch.sum(o, dim=self.reduction_axis)
-                o = torch.sum(o, dim=2)
+                o = torch.sum(o, dim=self.reduction_axis)
+                #o = torch.sum(o, dim=2)
                 #o = torch.mul(o, 1.5)
                 return o
 
@@ -656,6 +656,27 @@ class TestCudaFuser(JitTestCase):
                         print("test config: sizes ", x, " axes: ", axes, " perm0: ", perm0, " perm1: ", perm1)
                         self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
                         torch.cuda.synchronize()
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    @skipIfRocm
+    def test_reduction_repro(self):
+        x = [7, 8, 12]
+        # note that num_dim is exclusive from len(x), so we are not reducing
+        # to single element (codegen limitation at this moment)
+        #axes = [1]
+        #for perm0 in itertools.permutations(range(len(x))):
+        #    for perm1 in itertools.permutations(range(len(x))):
+        #         print("test config: sizes ", x, " axes: ", axes, " perm0: ", perm0, " perm1: ", perm1)
+        #         self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
+        axes = [0]
+        perm0 = (2, 0, 1)
+        perm1 = (1, 2, 0)
+        for i in range(100):
+            print("test config: sizes ", x, " axes: ", axes, " perm0: ", perm0, " perm1: ", perm1)
+            self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
+            torch.cuda.synchronize()
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
