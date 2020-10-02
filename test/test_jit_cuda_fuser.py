@@ -636,11 +636,16 @@ class TestCudaFuser(JitTestCase):
         x = [7, 8, 12]
         # note that num_dim is exclusive from len(x), so we are not reducing
         # to single element (codegen limitation at this moment)
-        for num_reduce_dim in range(1, len(x)):
-            for axes in itertools.combinations(range(len(x)), num_reduce_dim):
-                for perm0 in itertools.permutations(range(len(x))):
-                    for perm1 in itertools.permutations(range(len(x))):
-                        self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
+        #for num_reduce_dim in range(1, len(x)):
+        #for num_reduce_dim in range(1):
+            #for axes in itertools.combinations(range(len(x)), num_reduce_dim):
+            #axes = 1
+            #if True:
+        axes = [1]
+        for perm0 in itertools.permutations(range(len(x))):
+            for perm1 in itertools.permutations(range(len(x))):
+                 print("test config: sizes ", x, " axes: ", axes, " perm0: ", perm0, " perm1: ", perm1)
+                 self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
