@@ -648,11 +648,13 @@ class TestCudaFuser(JitTestCase):
         #         self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
         for num_reduce_dim in range(1, len(x)):
             for axes in itertools.combinations(range(len(x)), num_reduce_dim):
-                for perm0 in itertools.permutations(range(len(x))):
-                    for perm1 in itertools.permutations(range(len(x))):
-                        print("test config: sizes ", x, " axes: ", axes, " perm0: ", perm0, " perm1: ", perm1)
-                        self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
-                        torch.cuda.synchronize()
+                #for perm0 in itertools.permutations(range(len(x))):
+                #for perm1 in itertools.permutations(range(len(x))):
+                perm0 = range(len(x))
+                perm1 = range(len(x))
+                print("test config: sizes ", x, " axes: ", axes, " perm0: ", perm0, " perm1: ", perm1)
+                self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
+                torch.cuda.synchronize()
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
