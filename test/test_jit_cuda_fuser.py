@@ -588,6 +588,7 @@ class TestCudaFuser(JitTestCase):
                     self._permutation_helper(x, b_axis, torch.float32, "cuda", perm0, perm1)
 
     def _reduction_helper(self, sizes, reduction_axis, dtype, device, perm0, perm1):
+        print("entering function")
         class MyReduction(torch.nn.Module):
             __constants__ = ['reduction_axis']
 
@@ -602,12 +603,15 @@ class TestCudaFuser(JitTestCase):
 
         t = MyReduction()
 
+        print("get python function")
         x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute([perm0.index(i) for i in range(len(sizes))])
         y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute([perm1.index(i) for i in range(len(sizes))])
+        print("get input tensors", x.size(), x.stride(), y.size(), y.stride())
         t_jit = torch.jit.script(t)
         jit_o = t_jit(x, y)
         jit_o = t_jit(x, y)
         o = t(x, y)
+        print("run everything")
         self.assertEqual(o.dtype, jit_o.dtype)
         # numerical issues here due to our scheduling.
         # can't use `self.assertEqual(o, jit_o)`
@@ -626,6 +630,7 @@ class TestCudaFuser(JitTestCase):
                 for axes in itertools.combinations(range(len(x)), num_reduce_dim):
                     perm0 = range(len(x))
                     perm1 = range(len(x))
+                    print("test config: sizes ", x, " axes: ", axes, " perm0: ", perm0, " perm1: ", perm1)
                     self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
@@ -645,7 +650,7 @@ class TestCudaFuser(JitTestCase):
         for perm0 in itertools.permutations(range(len(x))):
             for perm1 in itertools.permutations(range(len(x))):
                  print("test config: sizes ", x, " axes: ", axes, " perm0: ", perm0, " perm1: ", perm1)
-                 #self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
+                 self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
