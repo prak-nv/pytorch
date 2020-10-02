@@ -598,7 +598,8 @@ class TestCudaFuser(JitTestCase):
 
             def forward(self, x: torch.Tensor, y: torch.Tensor):
                 o = torch.add(x, y)
-                o = torch.sum(o, dim=self.reduction_axis)
+                #o = torch.sum(o, dim=self.reduction_axis)
+                o = torch.mul(o, 1.5)
                 return o
 
         t = MyReduction()
