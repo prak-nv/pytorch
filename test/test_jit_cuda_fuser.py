@@ -607,11 +607,11 @@ class TestCudaFuser(JitTestCase):
         x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute([perm0.index(i) for i in range(len(sizes))])
         y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute([perm1.index(i) for i in range(len(sizes))])
         print("get input tensors", x.size(), x.stride(), y.size(), y.stride())
-        #t_jit = torch.jit.script(t)
-        #jit_o = t_jit(x, y)
-        #jit_o = t_jit(x, y)
-        #o = t(x, y)
-        #print("run everything")
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, y)
+        jit_o = t_jit(x, y)
+        o = t(x, y)
+        print("run everything")
         '''
         self.assertEqual(o.dtype, jit_o.dtype)
         # numerical issues here due to our scheduling.
