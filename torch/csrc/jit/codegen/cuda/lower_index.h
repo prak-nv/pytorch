@@ -2,9 +2,8 @@
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
-#include <torch/csrc/jit/codegen/cuda/dispatch.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
-#include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 
 #include <vector>
@@ -13,16 +12,14 @@ namespace torch {
 namespace jit {
 namespace fuser {
 
-class TORCH_CUDA_API IndexLowering : public OptInDispatch {
+class TORCH_CUDA_API IndexLowering : private kir::IrVisitor {
  public:
   static std::vector<kir::Expr*> getIndexedExprs(
-      Fusion* fusion,
       std::vector<kir::Expr*> incoming_exprs) {
     FUSER_PERF_SCOPE("IndexLowering::getIndexedExprs");
-    FusionGuard fg(fusion);
     IndexLowering il;
     il.generate(incoming_exprs);
-    return il.lowered_exprs;
+    return il.lowered_exprs_;
   }
 
  private:
@@ -30,15 +27,10 @@ class TORCH_CUDA_API IndexLowering : public OptInDispatch {
 
   // Wrap pushBack, if active_scope is null we want it to go
   // straight to lower_exprs
-  void pushBack(Expr*);
+  void pushBack(kir::Expr*);
 
-  // Open the for loop.
   void handle(kir::ForLoop*) final;
-
-  // Open the for loop.
   void handle(kir::IfThenElse*) final;
-
-  // Remake operations with TensorIndex
   void handle(UnaryOp*) final;
   void handle(BinaryOp*) final;
   void handle(TernaryOp*) final;
@@ -53,7 +45,7 @@ class TORCH_CUDA_API IndexLowering : public OptInDispatch {
   Val* lowerOutput(Expr* expr) const;
 
  private:
-  std::vector<Expr*> lowered_exprs;
+  std::vector<kir::Expr*> lowered_exprs_;
 
   // This is a slight work around as scope has a couple definitions, we have the
   // Scope that's in ForLoop/IfThenElse which is really just a wrapper around
@@ -62,7 +54,7 @@ class TORCH_CUDA_API IndexLowering : public OptInDispatch {
   // could be either the body or else body of the IfThenElse. However, we want
   // to understand the nesting of IfThenElse/ForLoop nodes.
   kir::Scope* active_scope = nullptr;
-  Expr* active_scope_expr = nullptr;
+  kir::Expr* active_scope_expr = nullptr;
 
   kir::IrBuilder ir_builder_;
 };

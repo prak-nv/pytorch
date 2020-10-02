@@ -45,7 +45,6 @@ namespace fuser {
 //! Parent inherits Child End.
 //!
 std::vector<kir::Expr*> insertThreadSynchronization(
-    Fusion* fusion,
     const std::vector<kir::Expr*>& exprs);
 
 } // namespace fuser

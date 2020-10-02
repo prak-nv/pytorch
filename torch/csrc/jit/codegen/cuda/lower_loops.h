@@ -1,7 +1,7 @@
-#pragma once
-#include <torch/csrc/WindowsTorchApiMacro.h>
 
-#include <torch/csrc/jit/codegen/cuda/dispatch.h>
+#pragma once
+
+#include <torch/csrc/WindowsTorchApiMacro.h>
 
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
@@ -13,23 +13,21 @@ namespace torch {
 namespace jit {
 namespace fuser {
 
-/*
- * Loop nest generator pass will get IR that looks something like:
- * T0[I0o{ceil(I0/4)}, I1o{ceil(I1/128)}, I0iU{4}, I1i{128}] = ...* for( i :
- * I0o{ceil(I0/4)} ) { and will generate the loop nest structure for these exprs
- * like:
- *
- * for( i : I0o{ceil(I0/4)} ) {
- *   for( j : I1o{ceil(I1/128)} ) {
- *     for( k : I0i{4} )
- *       for( l : I1i{128} )
- *         T0[I0o{ceil(I0/4)}, I1o{ceil(I1/128)}, I0iU{4}, I1i{128}] = ...
- *
- * It does not generate predicates, but it will generate allocations, and loop
- * nests to initialize reduction buffers.
- *
- */
-class TORCH_CUDA_API LoopNestGenerator : public OptOutDispatch {
+//! Loop nest generator pass will get IR that looks something like:
+//! T0[I0o{ceil(I0/4)}, I1o{ceil(I1/128)}, I0iU{4}, I1i{128}] = ...* for( i :
+//! I0o{ceil(I0/4)} ) { and will generate the loop nest structure for these exprs
+//! like:
+//!
+//! for( i : I0o{ceil(I0/4)} ) {
+//!   for( j : I1o{ceil(I1/128)} ) {
+//!     for( k : I0i{4} )
+//!       for( l : I1i{128} )
+//!         T0[I0o{ceil(I0/4)}, I1o{ceil(I1/128)}, I0iU{4}, I1i{128}] = ...
+//!
+//! It does not generate predicates, but it will generate allocations, and loop
+//! nests to initialize reduction buffers.
+//!
+class TORCH_CUDA_API LoopNestGenerator {
  public:
   static std::vector<kir::Expr*> loweredExprs(
       Fusion* fusion,
@@ -37,7 +35,7 @@ class TORCH_CUDA_API LoopNestGenerator : public OptOutDispatch {
       const std::vector<Expr*>& exprs) {
     FUSER_PERF_SCOPE("LoopNestGenerator::loweredExprs");
     LoopNestGenerator generator(fusion, thread_predicates, exprs);
-    return generator.lowered_exprs;
+    return generator.lowered_exprs_;
   }
 
  private:
@@ -48,7 +46,7 @@ class TORCH_CUDA_API LoopNestGenerator : public OptOutDispatch {
 
   // Create the allocation for tv, place it inside the loop associated with
   // alloc_id, return the node
-  Expr* pushAlloc(TensorView*);
+  kir::Expr* pushAlloc(TensorView*);
 
   // Fusion shared_memory values
   // Tracks if shared memory is modified
@@ -85,24 +83,24 @@ class TORCH_CUDA_API LoopNestGenerator : public OptOutDispatch {
   void initReduction(TensorView* tv, Val* init_val, Expr* alloc_expr = nullptr);
 
   // Check if expr is a TV op and handle accordingly.
-  void handle(Expr*) final;
+  void handle(Expr*);
 
-  // Run the pass and accumulate output in lowered_exprs
+  // Run the pass and accumulate output in lowered_exprs_
   void generate(const std::vector<Expr*>& exprs);
 
  private:
   // Lowered exprs to return
-  std::vector<Expr*> lowered_exprs;
+  std::vector<kir::Expr*> lowered_exprs_;
 
   // Fusion pointer for convenience
-  Fusion* fusion_;
+  Fusion* fusion_ = nullptr;
 
   // Keep all for loops conveniently to make unrolling easier, basically just a
   // stack of the active for_loops
-  std::vector<kir::ForLoop*> for_loops;
+  std::vector<kir::ForLoop*> for_loops_;
 
   // Track the active computeAt scope, and what view we're "computeAt-ing" into
-  std::vector<std::pair<IterDomain*, TensorView*>> compute_at_scope;
+  std::vector<std::pair<IterDomain*, TensorView*>> compute_at_scope_;
 
   // Predicates from ThreadPredicates that we will extend to reduction buffer
   // initialization

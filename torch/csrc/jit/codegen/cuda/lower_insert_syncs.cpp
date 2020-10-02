@@ -41,8 +41,7 @@ class LocalSyncInserter {
 
   // TODO(kir): this is a place where a mutable IR visitor may be appropriate
   void handle(kir::Expr* expr) {
-    const auto& outputs = expr->outputs();
-    if (outputs.size() == 1 && outputs[0]->isA<kir::TensorView>()) {
+    if (expr->isTVOp()) {
       // For this SyncInserter
       initial_sync_ ? addInputSmemTvs(expr, final_)
                     : addOutputSmemTvs(expr, initial_);
@@ -208,10 +207,8 @@ class LocalSyncInserter {
 } // namespace
 
 std::vector<kir::Expr*> insertThreadSynchronization(
-    Fusion* fusion,
     const std::vector<kir::Expr*>& exprs) {
   FUSER_PERF_SCOPE("insertThreadSynchronization");
-  FusionGuard fg(fusion);
   for (auto expr : exprs) {
     LocalSyncInserter::insertSyncs(expr);
   }

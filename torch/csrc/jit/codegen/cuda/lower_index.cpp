@@ -37,9 +37,9 @@ Val* IndexLowering::lowerOutput(Expr* expr) const {
   }
 }
 
-void IndexLowering::pushBack(Expr* expr) {
+void IndexLowering::pushBack(kir::Expr* expr) {
   if (active_scope == nullptr) {
-    lowered_exprs.push_back(expr);
+    lowered_exprs_.push_back(expr);
   } else {
     active_scope->push_back(expr);
   }
@@ -306,10 +306,10 @@ void IndexLowering::handle(kir::Sync* sync) {
   pushBack(sync);
 }
 
-void IndexLowering::generate(const std::vector<Expr*>& exprs) {
+void IndexLowering::generate(const std::vector<kir::Expr*>& exprs) {
   // Run through loop nests and further lower the expressions
   for (auto* expr : exprs) {
-    OptInDispatch::handle(expr);
+    expr->accept(this);
   }
 }
 

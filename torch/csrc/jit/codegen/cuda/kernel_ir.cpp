@@ -328,17 +328,16 @@ ForLoop::ForLoop(
     Val* index,
     IterDomain* iter_domain,
     Expr* parent_scope)
-    : Expr(passkey),
-      index_{index},
-      iter_domain_{iter_domain},
-      parent_scope_{parent_scope} {
+    : Expr(passkey), index_{index}, iter_domain_{iter_domain} {
   TORCH_INTERNAL_ASSERT(index->dtype() == DataType::Int);
+  setParentScope(parent_scope);
   addInput(index);
   addInput(iter_domain);
 }
 
 IfThenElse::IfThenElse(Passkey passkey, Bool* cond, Expr* parent_scope)
-    : Expr(passkey), cond_{cond}, parent_scope_(parent_scope) {
+    : Expr(passkey), cond_{cond} {
+  setParentScope(parent_scope);
   addInput(cond);
 }
 

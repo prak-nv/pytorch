@@ -1,7 +1,7 @@
 #pragma once
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
-#include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 
 #include <bitset>
@@ -25,35 +25,40 @@ class TORCH_CUDA_API ThreadPredicateMap {
  public:
   using SourceMapType = std::unordered_map<
       ParallelType,
-      std::unordered_set<const TensorView*>,
+      std::unordered_set<const kir::TensorView*>,
       TypeHash>;
+
   using MapType = std::unordered_map<
       const TensorView*,
       std::pair<ir_utils::ParallelTypeBitmap, SourceMapType>>;
+
   using const_iterator = MapType::const_iterator;
 
   explicit ThreadPredicateMap(Fusion* _fusion);
 
-  const_iterator find(const TensorView* tv) const;
+  const_iterator find(const kir::TensorView* tv) const;
   const_iterator end() const;
-  const MapType::mapped_type& at(const TensorView* tv) const;
-  MapType::mapped_type& at(const TensorView* tv);
-  MapType::mapped_type& operator[](const TensorView* tv);
+  const MapType::mapped_type& at(const kir::TensorView* tv) const;
+  MapType::mapped_type& at(const kir::TensorView* tv);
+  MapType::mapped_type& operator[](const kir::TensorView* tv);
 
-  void duplicate(const TensorView* copy, const TensorView* origin);
+  void duplicate(const kir::TensorView* copy, const kir::TensorView* origin);
 
   // Returns a Bool predicate expression for a given output TensorView.
-  kir::Bool* getExpr(const TensorView* out_tv) const;
+  kir::Bool* getExpr(const kir::TensorView* out_tv) const;
 
  private:
   // Update the thread_predicates bitset based on provided Expr
-  void updateBitSet(Expr*);
+  void updateBitSet(kir::Expr*);
 
   void insert(
-      const TensorView* tv,
+      const kir::TensorView* tv,
       const ir_utils::ParallelTypeBitmap& pred,
       const SourceMapType& src_map);
-  void insert(const TensorView* tv, const MapType::mapped_type& pred_and_src);
+      
+  void insert(
+      const kir::TensorView* tv,
+      const MapType::mapped_type& pred_and_src);
 
  private:
   Fusion* fusion_ = nullptr;

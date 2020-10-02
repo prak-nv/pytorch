@@ -16,6 +16,8 @@ namespace fuser {
 
 class ThreadPredicateMap;
 
+using IterDomainMap = std::unordered_map<kir::IterDomain*, kir::IterDomain*>;
+
 namespace scope_utils {
 
 //! Returns the list of nesting loops starting at `scope`
@@ -29,15 +31,6 @@ void insertBefore(kir::Expr* scope, kir::Expr* ref, kir::Expr* expr);
 
 // Open a new inner most for loop
 kir::ForLoop* openFor(kir::Expr* scope, IterDomain*);
-
-// Provide a new for loop matching the one provided, sets parent_scope as
-// parent_scope, but does not insert into parent scope.
-kir::ForLoop* cloneLoopNest(kir::ForLoop* to_clone, Expr* parent_scope);
-
-// Run through a scope and replace expressions inside with replacement_map
-void replaceExprsInScope(
-    Expr* scope,
-    std::unordered_map<Expr*, Expr*> replacement_map);
 
 } // namespace scope_utils
 
@@ -74,26 +67,25 @@ bool isTV(const Val* const);
 
 bool isTVOp(const Expr*);
 
+bool isTVOp(const kir::Expr* expr);
+
 TensorView* getTVOutput(const Expr*);
 
 bool isScalarOp(const Expr*);
 
-void ASSERT_EXPR(Statement*);
+bool hasChildScopes(const kir::Expr* expr);
 
-bool isScope(const Expr*);
-
+// TODO(kir): remove
 Expr* asExpr(Statement*);
 
-// TODO: Remove in favor of ->as<TensorView>()
+// TODO(kir): Remove in favor of ->as<TensorView>()
 TensorView* asTV(Val*);
 
-// TODO: Remove in favor of ->as<ForLoop>()
+// TODO(kir): Remove in favor of ->as<ForLoop>()
 kir::ForLoop* asForLoop(Statement*);
 
-// TODO: Remove in favor of ->as<TensorView>()
+// TODO(kir): Remove in favor of ->as<TensorView>()
 const TensorView* asConstTV(const Val*);
-
-bool isUnrolledFor(const Expr*);
 
 // Represents mapping to bool from BIDx, BIDy, BIDz, TIDx, TIDy and TIDz.
 class ParallelTypeBitmap {
@@ -136,7 +128,7 @@ ParallelTypeBitmap operator^(
 // Even when a domain is broadcast and parallelized, it does not need
 // blockBroadcast unless it is predicated.
 ParallelTypeBitmap getParallelBroadcastDomains(
-    const Val* bop_out,
+    const kir::Val* bop_out,
     const ThreadPredicateMap& preds);
 
 } // namespace ir_utils
@@ -159,8 +151,10 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
 // Go through exprs mapping root domains from producer to consumer. Provides a
 // ground truth for how root domains map through our expressions. Needed for
 // unrolling.
-std::unordered_map<IterDomain*, IterDomain*> p2cRootMap(
-    const std::vector<Expr*>& exprs);
+//
+// TODO(kir): this is only used by UnrollPass, move it there
+//
+IterDomainMap p2cRootMap(const std::vector<Expr*>& exprs);
 
 } // namespace loop_utils
 

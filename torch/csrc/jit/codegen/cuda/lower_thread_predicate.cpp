@@ -14,7 +14,7 @@ namespace fuser {
 
 namespace {
 
-Val* getPredicatePerParallelType(
+kir::Val* getPredicatePerParallelType(
     ParallelType pt,
     const ThreadPredicateMap::SourceMapType& source_map) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
@@ -42,7 +42,7 @@ kir::Bool* getPredicate(
     return ir_builder.create<kir::Bool>(true);
   }
 
-  Val* pred = nullptr;
+  kir::Val* pred = nullptr;
 
   for (const auto& pt_bool : bits.getMap()) {
     if (pt_bool.second) {
@@ -51,12 +51,8 @@ kir::Bool* getPredicate(
     }
   }
 
-  // Should never be hit.
   TORCH_INTERNAL_ASSERT(pred != nullptr);
-
-  TORCH_INTERNAL_ASSERT(
-      pred->getDataType().value() == DataType::Bool,
-      "Tried to return a predicate that is not a bool val.");
+  TORCH_INTERNAL_ASSERT(pred->dtype() == DataType::Bool);
 
   return pred->as<kir::Bool>();
 }
@@ -273,7 +269,7 @@ void ThreadPredicateMap::duplicate(
   }
 }
 
-kir::Bool* ThreadPredicateMap::getExpr(const TensorView* out_tv) const {
+kir::Bool* ThreadPredicateMap::getExpr(const kir::TensorView* out_tv) const {
   TORCH_INTERNAL_ASSERT(find(out_tv) != end(), "Couldn't find ", out_tv);
   return getPredicate(at(out_tv).first, at(out_tv).second);
 }

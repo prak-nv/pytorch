@@ -8,7 +8,6 @@
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
-#include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
 
 namespace torch {
@@ -272,8 +271,7 @@ void UnrollPredicate::openLoop(kir::ForLoop* fl) {
   for_loops_.push_back(fl);
 
   for (auto expr : fl->body().exprs()) {
-    const auto& outputs = expr->outputs();
-    if (outputs.size() == 1 && outputs[0]->isA<kir::TensorView>()) {
+    if (expr->isTVOp()) {
       predicateOn(expr);
     } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       openLoop(for_loop);

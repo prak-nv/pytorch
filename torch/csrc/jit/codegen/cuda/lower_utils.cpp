@@ -17,81 +17,6 @@ namespace jit {
 namespace fuser {
 namespace scope_utils {
 
-namespace {
-
-class CloneLoopNest : public OptOutMutator {
- private:
-  Expr* parent_scope_ = nullptr;
-  Expr* to_clone_ = nullptr;
-
-  Statement* mutate(kir::ForLoop* fl) final {
-    kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-    const auto parent_scope =
-        fl == to_clone_ ? parent_scope_ : fl->parentScope();
-    auto new_loop = ir_builder.create<kir::ForLoop>(
-        fl->index(), fl->iter_domain(), parent_scope);
-    for (Expr* expr : fl->body().exprs()) {
-      new_loop->body().push_back(ir_utils::asExpr(OptOutMutator::mutate(expr)));
-    }
-    return new_loop;
-  }
-
-  CloneLoopNest(Expr* _to_clone, Expr* _parent_scope)
-      : parent_scope_(_parent_scope), to_clone_(_to_clone) {}
-
- public:
-  static kir::ForLoop* getClone(kir::ForLoop* _to_clone, Expr* _parent_scope) {
-    TORCH_INTERNAL_ASSERT(
-        _to_clone != nullptr,
-        "Tried to clone a scope, but received a nullptr.");
-    CloneLoopNest cln(_to_clone, _parent_scope);
-    return ir_utils::asForLoop(ir_utils::asExpr(cln.mutate(_to_clone)));
-  }
-};
-
-class ReplaceExprsInScope : public OptOutDispatch {
- public:
-  static void replace(
-      Expr* scope,
-      std::unordered_map<Expr*, Expr*> replacement_map) {
-    ReplaceExprsInScope reis(std::move(replacement_map));
-    reis.handle(scope);
-  }
-
- private:
-  explicit ReplaceExprsInScope(std::unordered_map<Expr*, Expr*> replacement_map)
-      : replacement_map_(std::move(replacement_map)) {}
-
-  void handleScope(kir::Scope& scope) {
-    for (size_t i = 0; i < scope.size(); ++i) {
-      const auto it = replacement_map_.find(scope[i]);
-      if (it == replacement_map_.end()) {
-        handle(scope[i]);
-        continue;
-      }
-      scope[i] = it->second;
-    }
-  }
-
-  void handle(Expr* expr) final {
-    OptOutDispatch::handle(expr);
-  }
-
-  void handle(kir::ForLoop* fl) final {
-    handleScope(fl->body());
-  }
-
-  void handle(kir::IfThenElse* ite) final {
-    handleScope(ite->thenBody());
-    handleScope(ite->elseBody());
-  }
-
- private:
-  std::unordered_map<Expr*, Expr*> replacement_map_;
-};
-
-} // namespace
-
 std::vector<kir::ForLoop*> getLoops(kir::Expr* scope) {
   std::vector<kir::ForLoop*> loops;
   while (scope != nullptr) {
@@ -132,19 +57,6 @@ kir::ForLoop* openFor(kir::Expr* scope, IterDomain* id) {
   if (scope != nullptr)
     pushBack(scope, new_scope);
   return new_scope;
-}
-
-kir::ForLoop* cloneLoopNest(kir::ForLoop* to_clone, Expr* parent_scope) {
-  return CloneLoopNest::getClone(to_clone, parent_scope);
-}
-
-void replaceExprsInScope(
-    Expr* scope,
-    std::unordered_map<Expr*, Expr*> replacement_map) {
-  TORCH_INTERNAL_ASSERT(
-      replacement_map.find(scope) == replacement_map.end(),
-      "Error trying to replace expressions in a scope, scope wants to be replaced entirely.");
-  ReplaceExprsInScope::replace(scope, std::move(replacement_map));
 }
 
 } // namespace scope_utils
@@ -214,6 +126,11 @@ bool isTVOp(const Expr* expr) {
   return false;
 }
 
+bool isTVOp(const kir::Expr* expr) {
+  const auto& outputs = expr->outputs();
+  return outputs.size() == 1 && outputs[0]->isA<kir::TensorView>();
+}
+
 // TODO: why do we assume there's a single TV output?
 TensorView* getTVOutput(const Expr* expr) {
   for (auto out : expr->outputs()) {
@@ -231,15 +148,8 @@ bool isScalarOp(const Expr* expr) {
   return true;
 }
 
-void ASSERT_EXPR(Statement* stmt) {
-  TORCH_INTERNAL_ASSERT(
-      stmt->isExpr(),
-      "Tried to generate a kernel but hit a non expression during lowering: ",
-      stmt);
-}
-
 Expr* asExpr(Statement* stmt) {
-  ASSERT_EXPR(stmt);
+  TORCH_INTERNAL_ASSERT(stmt->isExpr());
   return stmt->as<Expr>();
 }
 
@@ -248,9 +158,9 @@ TensorView* asTV(Val* val) {
   return val->as<TensorView>();
 }
 
-bool isScope(const Expr* expr) {
-  return expr->getExprType() == ExprType::ForLoop ||
-      expr->getExprType() == ExprType::IfThenElse;
+// TODO(kir): revisit, is it really needed?
+bool hasChildScopes(const kir::Expr* expr) {
+  return expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>();
 }
 
 kir::ForLoop* asForLoop(Statement* stmt) {
@@ -262,14 +172,6 @@ kir::ForLoop* asForLoop(Statement* stmt) {
 const TensorView* asConstTV(const Val* val) {
   TORCH_INTERNAL_ASSERT(isTV(val));
   return val->as<TensorView>();
-}
-
-bool isUnrolledFor(const Expr* expr) {
-  if (expr->getExprType() != ExprType::ForLoop) {
-    return false;
-  }
-  return expr->as<kir::ForLoop>()->iter_domain()->getParallelType() ==
-      ParallelType::Unroll;
 }
 
 const std::unordered_map<ParallelType, int, TypeHash>
@@ -377,28 +279,34 @@ ParallelTypeBitmap operator^(
 }
 
 ParallelTypeBitmap getParallelBroadcastDomains(
-    const Val* bop_out,
+    const kir::Val* bop_out,
     const ThreadPredicateMap& preds) {
-  if (bop_out->getValType().value() == ValType::TensorIndex) {
-    bop_out = bop_out->as<kir::TensorIndex>()->view()->fuserTv();
+  
+  if (auto ti = dynamic_cast<kir::TensorIndex*>(bop_out)) {
+    bop_out = ti->view();
   }
-  TORCH_INTERNAL_ASSERT(
-      bop_out->getValType().value() == ValType::TensorView,
-      "Out is not tensor view");
-  auto out_tv = bop_out->as<TensorView>();
+  
+  TORCH_INTERNAL_ASSERT(bop_out->isA<kir::TensorView>());
+
+  auto out_tv = bop_out->as<kir::TensorView>();
+  
   // If no pred is found for out_tv, no predicate is necessary
   if (preds.find(out_tv) == preds.end()) {
     return ParallelTypeBitmap();
   }
+  
   const ParallelTypeBitmap& out_pred = preds.at(out_tv).first;
 
   ParallelTypeBitmap parallel_broadcast;
+  
   const auto& iter_domains = out_tv->domain()->domain();
+
   // If the output is on shared memory, assume that all subsequent
   // reads from all threads in its CTA can be done with no parallel
   // broadcast. Only one thread will write to shared memory followed
   // by a proper _syncthreads.
-  const bool output_smem = out_tv->getMemoryType() == MemoryType::Shared;
+  const bool output_smem = out_tv->memoryType() == MemoryType::Shared;
+  
   for (auto id : iter_domains) {
     if (!id->isBroadcast()) {
       continue;
@@ -464,9 +372,10 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
   return {alloc_loop, (int64_t)tv->getThisComputeAtAxis()};
 }
 
-std::unordered_map<IterDomain*, IterDomain*> p2cRootMap(
-    const std::vector<Expr*>& exprs) {
-  std::unordered_map<IterDomain*, IterDomain*> p2c_root_map;
+IterDomainMap p2cRootMap(const std::vector<Expr*>& exprs) {
+  IterDomainMap p2c_root_map;
+
+  const auto gpu_lower = GpuLower::current();
 
   for (auto expr : exprs) {
     auto out_tv = ir_utils::getTVOutput(expr);
@@ -482,7 +391,8 @@ std::unordered_map<IterDomain*, IterDomain*> p2cRootMap(
         auto c_id = entry.second;
         // Careful we don't allow circular references
         if (p_id != c_id) {
-          p2c_root_map[p_id] = c_id;
+          p2c_root_map[gpu_lower->lowerValue(p_id)] =
+              gpu_lower->lowerValue(c_id);
         }
       }
     }

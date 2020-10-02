@@ -804,7 +804,6 @@ class TORCH_CUDA_API Scope {
     return exprs_.size();
   }
 
-/* $$$
   auto& operator[](size_t i) {
     return exprs_[i];
   }
@@ -812,7 +811,6 @@ class TORCH_CUDA_API Scope {
   auto& operator[](size_t i) const {
     return exprs_[i];
   }
-*/
 
   // Insert expr before ref
   void insert_before(Expr* ref, Expr* expr);
