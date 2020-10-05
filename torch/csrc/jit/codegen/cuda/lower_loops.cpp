@@ -17,10 +17,8 @@ namespace fuser {
 
 LoopNestGenerator::LoopNestGenerator(
     Fusion* fusion,
-    ThreadPredicateMap& thread_predicates,
     const std::vector<Expr*>& exprs)
     : fusion_(fusion),
-      thread_predicates_(thread_predicates),
       ir_builder_(GpuLower::current()->kernel()) {
   generate(exprs);
 }
@@ -107,7 +105,7 @@ void LoopNestGenerator::openFor(std::pair<IterDomain*, TensorView*> id_pair) {
   }
 }
 
-void LoopNestGenerator::popFor() {
+void LoopNestGenerator::closeFor() {
   TORCH_INTERNAL_ASSERT(
       !for_loops_.empty() && !compute_at_scope_.empty(),
       "Can't pop for loop, scope is empty.");
@@ -146,13 +144,10 @@ void LoopNestGenerator::initReduction(
     ids.push_back(GpuLower::lowerValue(dim)->as<kir::IterDomain>());
   }
 
-  // Unsafe clone, as we want an exact replica of tv so we can create a UnaryOp
-  // to set the buffer to the init_val.
-  auto clone = tv->unsafeClone();
-  thread_predicates_.duplicate(clone, tv);
   // The initilization stmt that will be located inside the loop nest (if there
   // is one)
-  auto init_stmt = new UnaryOp(UnaryOpType::Set, clone, init_val);
+  // $$$ - don't reset def for tv
+  auto init_stmt = new UnaryOp(UnaryOpType::Set, tv, init_val);
 
   // Init a pointer that will become the entirety of the initialization
   Expr* init_loop_nest = nullptr;
@@ -379,7 +374,7 @@ void LoopNestGenerator::handle(Expr* expr) {
   // Reduce the loop nest structure back to computeAt
   if (out->getThisComputeAtAxis() == 0) {
     while (!for_loops_.empty()) {
-      popFor();
+      closeFor();
     }
   } else {
     auto ca_axis = out->getThisComputeAtAxis() - 1;
@@ -387,7 +382,7 @@ void LoopNestGenerator::handle(Expr* expr) {
            for_loops_.back()->iter_domain() !=
                GpuLower::lowerValue(out->getComputeAtAxis(ca_axis).first)
                    ->as<kir::IterDomain>()) {
-      popFor();
+      closeFor();
     }
   }
 }

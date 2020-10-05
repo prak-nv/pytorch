@@ -33,7 +33,7 @@ void UnrollPass::handle(kir::Expr* expr) {
   if (ir_utils::isTVOp(expr)) {
     TORCH_INTERNAL_ASSERT(for_loops_.size() != 0);
 
-    auto pred = PredicateCompute::getInlinePredicate(
+    const auto pred = PredicateCompute::getInlinePredicate(
         expr, for_loops_, getThreadPredicate(expr->outputs()[0]));
 
     // If we need a predicate, put expr inside an if then else

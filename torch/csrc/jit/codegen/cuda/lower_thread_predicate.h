@@ -42,8 +42,6 @@ class TORCH_CUDA_API ThreadPredicateMap {
   MapType::mapped_type& at(const kir::TensorView* tv);
   MapType::mapped_type& operator[](const kir::TensorView* tv);
 
-  void duplicate(const kir::TensorView* copy, const kir::TensorView* origin);
-
   // Returns a Bool predicate expression for a given output TensorView.
   kir::Bool* getExpr(const kir::TensorView* out_tv) const;
 
@@ -55,7 +53,7 @@ class TORCH_CUDA_API ThreadPredicateMap {
       const kir::TensorView* tv,
       const ir_utils::ParallelTypeBitmap& pred,
       const SourceMapType& src_map);
-      
+
   void insert(
       const kir::TensorView* tv,
       const MapType::mapped_type& pred_and_src);

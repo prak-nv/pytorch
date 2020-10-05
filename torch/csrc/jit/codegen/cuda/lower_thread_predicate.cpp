@@ -261,14 +261,6 @@ void ThreadPredicateMap::insert(
   thread_predicates_.insert(std::make_pair(tv, pred_and_src));
 }
 
-void ThreadPredicateMap::duplicate(
-    const TensorView* copy,
-    const TensorView* origin) {
-  if (find(origin) != end()) {
-    insert(copy, at(origin).first, at(origin).second);
-  }
-}
-
 kir::Bool* ThreadPredicateMap::getExpr(const kir::TensorView* out_tv) const {
   TORCH_INTERNAL_ASSERT(find(out_tv) != end(), "Couldn't find ", out_tv);
   return getPredicate(at(out_tv).first, at(out_tv).second);

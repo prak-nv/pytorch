@@ -360,15 +360,6 @@ class TORCH_CUDA_API TensorView : public Val {
   friend class ir_utils::TVDomainGuard;
 
  protected:
-  // Make an exact copy of this tensor (similar to clone()), however, also grabs
-  // the same name. Current use of this is for initialization of reductions.
-  // This will break our dependency chain as it is a literal clone of a
-  // TensorView but it has a different dependency chain. We need to improve our
-  // dependency model to allow for initailziation of reduction buffers. The only
-  // reason we can get away with this for now is because we don't use dependency
-  // analysis for the IR after we call this.
-  TensorView* unsafeClone() const;
-
   void setDomain(TensorDomain* td) {
     domain_ = td;
   }

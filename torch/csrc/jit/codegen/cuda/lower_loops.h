@@ -7,7 +7,6 @@
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
-#include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
 
 namespace torch {
 namespace jit {
@@ -31,7 +30,6 @@ class TORCH_CUDA_API LoopNestGenerator {
  public:
   static std::vector<kir::Expr*> loweredExprs(
       Fusion* fusion,
-      ThreadPredicateMap& thread_predicates,
       const std::vector<Expr*>& exprs) {
     FUSER_PERF_SCOPE("LoopNestGenerator::loweredExprs");
     LoopNestGenerator generator(fusion, thread_predicates, exprs);
@@ -71,7 +69,7 @@ class TORCH_CUDA_API LoopNestGenerator {
   void openFor(std::pair<IterDomain*, TensorView*>);
 
   // Close the inner most for loop
-  void popFor();
+  void closeFor();
 
   // Wrap pushBack in lower_utils if active_scope is null we want it to go
   // straight to lower_exprs
@@ -101,10 +99,6 @@ class TORCH_CUDA_API LoopNestGenerator {
 
   // Track the active computeAt scope, and what view we're "computeAt-ing" into
   std::vector<std::pair<IterDomain*, TensorView*>> compute_at_scope_;
-
-  // Predicates from ThreadPredicates that we will extend to reduction buffer
-  // initialization
-  ThreadPredicateMap& thread_predicates_;
 
   // Kernel IR builder
   kir::IrBuilder ir_builder_;
