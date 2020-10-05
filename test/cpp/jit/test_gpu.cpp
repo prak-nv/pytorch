@@ -7176,6 +7176,22 @@ TEST(NVFuserTest, FusionGroupGuardRelaxedCheck) {
   TORCH_CHECK(fuser::cuda::complyWith(t1, tensor_type));
 }
 
+TEST(NVFuserTest, FusionCacheBeforeTest) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeDummyTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, new Float(1.0));
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 4);
+  tv0->computeAt(tv2, -1);
+
+  tv2->cache_before();
+}
+
 } // namespace jit
 } // namespace torch
 
