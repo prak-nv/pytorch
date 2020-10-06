@@ -473,8 +473,8 @@ std::vector<bool> IndexCompute::contiguityPasC(
   const std::vector<bool>& producer_contiguity = producer->contiguity();
   std::vector<bool> as_consumer_contiguity;
 
-  auto c_root = consumer->getRootDomain();
-  auto p_root = producer->getRootDomain();
+  auto c_root = consumer->rootDomain();
+  auto p_root = producer->rootDomain();
 
   size_t p_ind = 0;
   size_t c_ind = 0;
@@ -1252,14 +1252,12 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
   // If we are generating a predicate for initialization check if we should use
   // rfactor instead of root_dom
   bool use_rfactor = true;
-  if (consumer_tv->hasRFactor()) {
-    auto rfactor_dom = consumer_tv->getMaybeRFactorDomain();
+  if (consumer_tv->domain()->hasRFactor()) {
+    auto rfactor_dom = consumer_tv->domain()->rfactorDomain();
     for (auto rfactor_id : rfactor_dom) {
       if (rfactor_id->isReduction()) {
-        auto kir_rfactor_id =
-            gpu_lower->lowerValue(rfactor_id)->as<kir::IterDomain>();
-        if (index_map.find(kir_rfactor_id) != index_map.end()) {
-          if (!index_map.at(kir_rfactor_id)->isZeroInt()) {
+        if (index_map.find(rfactor_id) != index_map.end()) {
+          if (!index_map.at(rfactor_id)->isZeroInt()) {
             use_rfactor = false;
             break;
           }
@@ -1268,21 +1266,21 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     }
   }
 
-  auto root_dom = use_rfactor ? consumer_tv->getMaybeRFactorDomain()
-                              : consumer_tv->getRootDomain();
+  const auto consumer_domain = consumer_tv->domain();
+  const auto root_domain = (use_rfactor && consumer_domain->hasRFactor())
+      ? consumer_domain->rfactorDomain()
+      : consumer_domain->rootDomain();
 
   const auto zero = ir_builder.create<kir::Int>(0);
-  std::vector<kir::Val*> root_inds(root_dom.size(), zero);
+  std::vector<kir::Val*> root_inds(root_domain.size(), zero);
 
-  for (size_t i = 0; i < root_dom.size(); i++) {
-    if (root_dom[i]->isBroadcast()) {
+  for (size_t i = 0; i < root_domain.size(); i++) {
+    if (root_domain[i]->isBroadcast()) {
       continue;
     }
-
-    auto kir_root_dom_i =
-        gpu_lower->lowerValue(root_dom[i])->as<kir::IterDomain>();
-    if (index_map.find(kir_root_dom_i) != index_map.end()) {
-      root_inds[i] = index_map.at(kir_root_dom_i);
+    const auto it = index_map.find(root_domain[i]);
+    if (it != index_map.end()) {
+      root_inds[i] = it->second;
     }
   }
 

@@ -117,15 +117,15 @@ void UnrollPass::computeMap(const std::vector<kir::Expr*>& exprs) {
 
 // TODO(kir): incorporate this into a new Scope interface
 kir::Expr* UnrollPass::applyReplacements(kir::Expr* expr) const {
-  auto handle_scope = [](kir::Scope& scope) {
+  auto handle_scope = [this](kir::Scope& scope) {
     for (size_t i = 0; i < scope.size(); ++i) {
       scope[i] = applyReplacements(scope[i]);
     }
   };
 
-  const auto it = up.loop_replacement_map_.find(expr);
-  if (it != up.loop_replacement_map_.end()) {
-    return *it;
+  const auto it = loop_replacement_map_.find(expr);
+  if (it != loop_replacement_map_.end()) {
+    return it->second;
   } else {
     if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       handle_scope(for_loop->body());
@@ -143,7 +143,7 @@ std::vector<kir::Expr*> UnrollPass::runPass(
     const ThreadPredicateMap& thread_predicates) {
   FUSER_PERF_SCOPE("UnrollPass::runPass");
   
-  UnrollPass unroll_pass(fusion, exprs, thread_predicates);
+  UnrollPass unroll_pass(fusion, thread_predicates);
   unroll_pass.computeMap(exprs);
 
   std::vector<kir::Expr*> mutated_exprs;

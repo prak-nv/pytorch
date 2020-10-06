@@ -167,7 +167,7 @@ uint64_t FusionExecutor::computeSharedMemory(
     //$$$ kir ee
     auto inferred_val = see.inferValue(smem_alloc->size());
     if (inferred_val.has_value()) {
-      const uint64_t data_size = dataTypeSize(smem_alloc->buffer_type());
+      const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
       // Add padding to align dynamic shared memory
       if (align_padding) {
         total = ceilDiv(total, data_size) * data_size;

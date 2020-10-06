@@ -271,7 +271,7 @@ void UnrollPredicate::openLoop(kir::ForLoop* fl) {
   for_loops_.push_back(fl);
 
   for (auto expr : fl->body().exprs()) {
-    if (expr->isTVOp()) {
+    if (ir_utils::isTVOp(expr)) {
       predicateOn(expr);
     } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       openLoop(for_loop);
