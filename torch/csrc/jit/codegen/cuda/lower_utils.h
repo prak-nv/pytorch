@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
@@ -14,7 +15,9 @@ namespace torch {
 namespace jit {
 namespace fuser {
 
+namespace kir {
 class ThreadPredicateMap;
+}
 
 using IterDomainMap = std::unordered_map<kir::IterDomain*, kir::IterDomain*>;
 
@@ -121,7 +124,7 @@ ParallelTypeBitmap operator^(
 // blockBroadcast unless it is predicated.
 ParallelTypeBitmap getParallelBroadcastDomains(
     const kir::Val* bop_out,
-    const ThreadPredicateMap& preds);
+    const kir::ThreadPredicateMap& preds);
 
 } // namespace ir_utils
 

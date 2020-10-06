@@ -141,7 +141,7 @@ kir::Expr* UnrollPass::applyReplacements(kir::Expr* expr) const {
 std::vector<kir::Expr*> UnrollPass::runPass(
     Fusion* fusion,
     const std::vector<kir::Expr*>& exprs,
-    const ThreadPredicateMap& thread_predicates) {
+    const kir::ThreadPredicateMap& thread_predicates) {
   FUSER_PERF_SCOPE("UnrollPass::runPass");
   
   UnrollPass unroll_pass(fusion, thread_predicates);

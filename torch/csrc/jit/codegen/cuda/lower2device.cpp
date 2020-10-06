@@ -103,12 +103,12 @@ void GpuLower::lower() {
   validateIr(fusion_);
   replaceSymbolicSizes();
 
-  // Compute thread predicates
-  ThreadPredicateMap preds(fusion_);
-
   // Run our passes keeping the lowered expressions and forwarding them
   const auto lowered_exprs =
       LoopNestGenerator::loweredExprs(fusion_, fusion_->exprs(true));
+
+  // Compute thread predicates
+  kir::ThreadPredicateMap preds(kernel_.get());
 
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, lowered_exprs, preds);

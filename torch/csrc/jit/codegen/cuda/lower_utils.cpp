@@ -249,7 +249,7 @@ ParallelTypeBitmap operator^(
 
 ParallelTypeBitmap getParallelBroadcastDomains(
     const kir::Val* bop_out,
-    const ThreadPredicateMap& preds) {
+    const kir::ThreadPredicateMap& preds) {
   
   if (auto ti = dynamic_cast<const kir::TensorIndex*>(bop_out)) {
     bop_out = ti->view();

@@ -4,6 +4,7 @@
 #include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
+#include <torch/csrc/jit/codegen/cuda/kernel.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
@@ -11,6 +12,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace kir {
 
 namespace {
 
@@ -207,19 +209,21 @@ void ThreadPredicateMap::updateBitSet(kir::Expr* expr) {
   }
 }
 
-// TODO(kir): revisit this - can we build it from the kernel IR?
-ThreadPredicateMap::ThreadPredicateMap(Fusion* _fusion) : fusion_(_fusion) {
+ThreadPredicateMap::ThreadPredicateMap(const kir::Kernel* kernel) {
   FUSER_PERF_SCOPE("ThreadPredicateMap");
 
   // Initialize mapping for input tensors
-  for (auto inp : fusion_->inputs()) {
+  for (auto inp : kernel->inputs()) {
     if (auto inp_tv = dynamic_cast<kir::TensorView*>(inp)) {
       insert(inp_tv, ir_utils::ParallelTypeBitmap(), SourceMapType());
     }
   }
 
-  for (auto expr : fusion_->exprs(true)) {
-    updateBitSet(expr);
+  // TODO(kir): first-class expressions iterator?
+  for (const auto& ir_node : kernel->irNodes()) {
+    if (auto expr = dynamic_cast<kir::Expr*>(ir_node.get())) {
+      updateBitSet(expr);
+    }
   }
 }
 
@@ -243,14 +247,14 @@ ThreadPredicateMap::MapType::mapped_type& ThreadPredicateMap::at(
 }
 
 void ThreadPredicateMap::insert(
-    const TensorView* tv,
+    const kir::TensorView* tv,
     const ir_utils::ParallelTypeBitmap& pred,
     const SourceMapType& src_map) {
   insert(tv, std::make_pair(pred, src_map));
 }
 
 void ThreadPredicateMap::insert(
-    const TensorView* tv,
+    const kir::TensorView* tv,
     const std::pair<ir_utils::ParallelTypeBitmap, SourceMapType>&
         pred_and_src) {
   thread_predicates_.insert(std::make_pair(tv, pred_and_src));
@@ -262,6 +266,7 @@ kir::Bool* ThreadPredicateMap::getExpr(const kir::TensorView* out_tv) const {
   return getPredicate(it->second.first, it->second.second);
 }
 
+} // namespace kir
 } // namespace fuser
 } // namespace jit
 } // namespace torch

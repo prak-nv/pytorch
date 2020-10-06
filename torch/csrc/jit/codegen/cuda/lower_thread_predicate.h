@@ -9,6 +9,9 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace kir {
+
+class Kernel;
 
 //! Maps TensorViews to std::pair<ir_utils::ParallelTypeBitmap, SourceMapType>>
 //!
@@ -35,7 +38,8 @@ class TORCH_CUDA_API ThreadPredicateMap {
 
   using const_iterator = MapType::const_iterator;
 
-  explicit ThreadPredicateMap(Fusion* _fusion);
+ public:
+  explicit ThreadPredicateMap(const kir::Kernel* kernel);
 
   // TODO(kir): these methods are only used by getParallelBroadcastDomains()
   const_iterator find(const kir::TensorView* tv) const;
@@ -60,10 +64,10 @@ class TORCH_CUDA_API ThreadPredicateMap {
       const MapType::mapped_type& pred_and_src);
 
  private:
-  Fusion* fusion_ = nullptr;
   MapType thread_predicates_;
 };
 
+} // namespace kir
 } // namespace fuser
 } // namespace jit
 } // namespace torch
