@@ -39,26 +39,6 @@ void insertBefore(kir::Expr* scope, kir::Expr* ref, kir::Expr* expr) {
   }
 }
 
-kir::ForLoop* openFor(kir::Expr* scope, IterDomain* id) {
-  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-  const auto kir_id = GpuLower::lowerValue(id)->as<kir::IterDomain>();
-  kir::ForLoop* new_scope = nullptr;
-  if (id->isThread()) {
-    std::stringstream ss;
-    ss << id->getParallelType();
-    new_scope = ir_builder.create<kir::ForLoop>(
-        ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
-        kir_id,
-        scope);
-  } else {
-    new_scope = ir_builder.create<kir::ForLoop>(
-        ir_builder.create<kir::Int>(c10::nullopt), kir_id, scope);
-  }
-  if (scope != nullptr)
-    pushBack(scope, new_scope);
-  return new_scope;
-}
-
 } // namespace scope_utils
 
 namespace ir_utils {
@@ -161,12 +141,6 @@ TensorView* asTV(Val* val) {
 // TODO(kir): revisit, is it really needed?
 bool hasChildScopes(const kir::Expr* expr) {
   return expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>();
-}
-
-kir::ForLoop* asForLoop(Statement* stmt) {
-  Expr* expr = asExpr(stmt);
-  TORCH_INTERNAL_ASSERT(expr->getExprType() == ExprType::ForLoop);
-  return expr->as<kir::ForLoop>();
 }
 
 const TensorView* asConstTV(const Val* val) {
@@ -282,7 +256,7 @@ ParallelTypeBitmap getParallelBroadcastDomains(
     const kir::Val* bop_out,
     const ThreadPredicateMap& preds) {
   
-  if (auto ti = dynamic_cast<kir::TensorIndex*>(bop_out)) {
+  if (auto ti = dynamic_cast<const kir::TensorIndex*>(bop_out)) {
     bop_out = ti->view();
   }
   
@@ -326,6 +300,8 @@ namespace loop_utils {
 std::pair<kir::ForLoop*, int64_t> getAllocPoint(
     TensorView* tv,
     const std::vector<kir::ForLoop*>& loops) {
+  const auto gpu_lower = GpuLower::current();
+
   // If in global memory, it can be all the way outside the loops.
   if (tv->getMemoryType() == MemoryType::Global) {
     return {nullptr, 0};
@@ -341,8 +317,8 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
   for (int64_t tv_i = 0; tv_i < (int64_t)tv->getThisComputeAtAxis(); tv_i++) {
     // Grab the axis ID
 
-    auto ca_id = tv->getComputeAtAxis(tv_i).first;
-    auto kir_ca_id = GpuLower::lowerValue(ca_id)->as<kir::IterDomain>();
+    const auto ca_id = tv->getComputeAtAxis(tv_i).first;
+    const auto kir_ca_id = gpu_lower->lowerValue(ca_id)->as<kir::IterDomain>();
 
     loops_it =
         std::find_if(loops_it, loops.end(), [&kir_ca_id](const auto& loop) {
@@ -391,8 +367,11 @@ IterDomainMap p2cRootMap(const std::vector<Expr*>& exprs) {
         auto c_id = entry.second;
         // Careful we don't allow circular references
         if (p_id != c_id) {
-          p2c_root_map[gpu_lower->lowerValue(p_id)] =
-              gpu_lower->lowerValue(c_id);
+          const auto kir_p_id =
+              gpu_lower->lowerValue(p_id)->as<kir::IterDomain>();
+          const auto kir_c_id =
+              gpu_lower->lowerValue(c_id)->as<kir::IterDomain>();
+          p2c_root_map[kir_p_id] = kir_c_id;
         }
       }
     }

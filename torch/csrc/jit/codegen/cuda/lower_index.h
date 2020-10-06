@@ -12,6 +12,8 @@ namespace torch {
 namespace jit {
 namespace fuser {
 
+//$$$ not needed anymore
+#if 0
 class TORCH_CUDA_API IndexLowering : private kir::IrVisitor {
  public:
   static std::vector<kir::Expr*> getIndexedExprs(
@@ -58,6 +60,7 @@ class TORCH_CUDA_API IndexLowering : private kir::IrVisitor {
 
   kir::IrBuilder ir_builder_;
 };
+#endif
 
 } // namespace fuser
 } // namespace jit

@@ -5,6 +5,7 @@
 
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/dispatch.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 
@@ -26,20 +27,19 @@ namespace fuser {
 //! It does not generate predicates, but it will generate allocations, and loop
 //! nests to initialize reduction buffers.
 //!
-class TORCH_CUDA_API LoopNestGenerator {
+class TORCH_CUDA_API LoopNestGenerator : public OptOutConstDispatch {
  public:
   static std::vector<kir::Expr*> loweredExprs(
       Fusion* fusion,
       const std::vector<Expr*>& exprs) {
     FUSER_PERF_SCOPE("LoopNestGenerator::loweredExprs");
-    LoopNestGenerator generator(fusion, thread_predicates, exprs);
+    LoopNestGenerator generator(fusion, exprs);
     return generator.lowered_exprs_;
   }
 
  private:
   LoopNestGenerator(
       Fusion* fusion,
-      ThreadPredicateMap& thread_predicates,
       const std::vector<Expr*>& exprs);
 
   // Create the allocation for tv, place it inside the loop associated with
@@ -71,20 +71,26 @@ class TORCH_CUDA_API LoopNestGenerator {
   // Close the inner most for loop
   void closeFor();
 
-  // Wrap pushBack in lower_utils if active_scope is null we want it to go
-  // straight to lower_exprs
-  void pushBack(Expr*);
+  // Appends an expression to the current scope
+  void pushBack(kir::Expr* expr);
 
   // Initialize a buffer to init_val. If this buffer is in smem or registers,
   // pass in its allocation statement so we can make sure that we insert this
   // initialization after the allocation.
-  void initReduction(TensorView* tv, Val* init_val, Expr* alloc_expr = nullptr);
-
-  // Check if expr is a TV op and handle accordingly.
-  void handle(Expr*);
+  void initReduction(TensorView* tv, Val* init_val, kir::Expr* alloc_expr);
 
   // Run the pass and accumulate output in lowered_exprs_
   void generate(const std::vector<Expr*>& exprs);
+
+  kir::Val* lowerOperand(Val* op, Val* out) const;
+  kir::Val* lowerOutput(const Expr* expr) const;
+
+  void handle(const Expr*) final;
+  void handle(const UnaryOp*) final;
+  void handle(const BinaryOp*) final;
+  void handle(const TernaryOp*) final;
+  void handle(const ReductionOp*) final;
+  void handle(const BroadcastOp*) final;
 
  private:
   // Lowered exprs to return
@@ -96,9 +102,6 @@ class TORCH_CUDA_API LoopNestGenerator {
   // Keep all for loops conveniently to make unrolling easier, basically just a
   // stack of the active for_loops
   std::vector<kir::ForLoop*> for_loops_;
-
-  // Track the active computeAt scope, and what view we're "computeAt-ing" into
-  std::vector<std::pair<IterDomain*, TensorView*>> compute_at_scope_;
 
   // Kernel IR builder
   kir::IrBuilder ir_builder_;

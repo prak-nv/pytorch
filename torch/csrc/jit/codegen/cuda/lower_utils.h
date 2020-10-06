@@ -21,6 +21,7 @@ using IterDomainMap = std::unordered_map<kir::IterDomain*, kir::IterDomain*>;
 namespace scope_utils {
 
 //! Returns the list of nesting loops starting at `scope`
+//$$ needed?
 std::vector<kir::ForLoop*> getLoops(kir::Expr* scope);
 
 //! Insert expr in scope before ref
@@ -28,9 +29,6 @@ std::vector<kir::ForLoop*> getLoops(kir::Expr* scope);
 //! \warning for kir::IfThenElse we implicitly insert in the "then" branch!
 //!
 void insertBefore(kir::Expr* scope, kir::Expr* ref, kir::Expr* expr);
-
-// Open a new inner most for loop
-kir::ForLoop* openFor(kir::Expr* scope, IterDomain*);
 
 } // namespace scope_utils
 
@@ -80,9 +78,6 @@ Expr* asExpr(Statement*);
 
 // TODO(kir): Remove in favor of ->as<TensorView>()
 TensorView* asTV(Val*);
-
-// TODO(kir): Remove in favor of ->as<ForLoop>()
-kir::ForLoop* asForLoop(Statement*);
 
 // TODO(kir): Remove in favor of ->as<TensorView>()
 const TensorView* asConstTV(const Val*);

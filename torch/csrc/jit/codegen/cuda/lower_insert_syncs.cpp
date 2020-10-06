@@ -41,7 +41,7 @@ class LocalSyncInserter {
 
   // TODO(kir): this is a place where a mutable IR visitor may be appropriate
   void handle(kir::Expr* expr) {
-    if (expr->isTVOp()) {
+    if (ir_utils::isTVOp(expr)) {
       // For this SyncInserter
       initial_sync_ ? addInputSmemTvs(expr, final_)
                     : addOutputSmemTvs(expr, initial_);
