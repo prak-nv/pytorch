@@ -29,12 +29,13 @@ kir::Bool* UnrollPass::getThreadPredicate(kir::TensorView* tv) {
 }
 
 void UnrollPass::handle(kir::Expr* expr) {
-  // If tv op, predciate it
+  // If tv op, predicate it
   if (ir_utils::isTVOp(expr)) {
     TORCH_INTERNAL_ASSERT(for_loops_.size() != 0);
 
+    const auto out_tv = expr->outputs()[0]->as<kir::TensorView>();
     const auto pred = PredicateCompute::getInlinePredicate(
-        expr, for_loops_, getThreadPredicate(expr->outputs()[0]));
+        expr, for_loops_, getThreadPredicate(out_tv));
 
     // If we need a predicate, put expr inside an if then else
     if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {

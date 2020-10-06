@@ -143,11 +143,6 @@ bool hasChildScopes(const kir::Expr* expr) {
   return expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>();
 }
 
-const TensorView* asConstTV(const Val* val) {
-  TORCH_INTERNAL_ASSERT(isTV(val));
-  return val->as<TensorView>();
-}
-
 const std::unordered_map<ParallelType, int, TypeHash>
     ParallelTypeBitmap::pt_to_offset_{{ParallelType::BIDx, 0},
                                       {ParallelType::BIDy, 1},

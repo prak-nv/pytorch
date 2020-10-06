@@ -66,7 +66,7 @@ class TORCH_CUDA_API LoopNestGenerator : public OptOutConstDispatch {
 
   // Open a new inner most for loop, track which TV it was constructed from
   // according to the computeAt chain.
-  void openFor(std::pair<IterDomain*, TensorView*>);
+  void openFor(IterDomain*);
 
   // Close the inner most for loop
   void closeFor();

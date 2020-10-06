@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <deque>
 
 namespace torch {
 namespace jit {
@@ -122,13 +123,12 @@ kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
 
 } // namespace
 
-void LoopNestGenerator::openFor(std::pair<IterDomain*, TensorView*> id_pair) {
-  IterDomain* id = id_pair.first;
+void LoopNestGenerator::openFor(IterDomain* iter_domain) {
   if (for_loops_.size() > 0) {
-    kir::ForLoop* new_scope = openForHelper(for_loops_.back(), id);
+    kir::ForLoop* new_scope = openForHelper(for_loops_.back(), iter_domain);
     for_loops_.push_back(new_scope);
   } else {
-    for_loops_.push_back(openForHelper(nullptr, id));
+    for_loops_.push_back(openForHelper(nullptr, iter_domain));
     lowered_exprs_.push_back(for_loops_.back());
   }
 }
@@ -293,10 +293,10 @@ void LoopNestGenerator::handle(const Expr* expr) {
   TensorView* out = expr->output(0)->as<TensorView>();
 
   // Figure out what the entire loop structure should look like.
-  std::deque<std::pair<IterDomain*, TensorView*>> loop_structure;
+  std::deque<IterDomain*> loop_structure;
 
   // As we go through iteration domains track the previous view
-  TensorView* last_ca_view = nullptr;
+  const TensorView* last_ca_view = nullptr;
   // Check where in the previous view our last axis was in that view
   int64_t last_ca_view_ind = 0;
 
@@ -321,8 +321,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
     } else {
       // This is a new view, figure out where we are in it, and start from there
       for (start = 0; start < ca_view->nDims(); start++) {
-        if (loop_structure.back().first ==
-            ca_view->getComputeAtAxis(start).first) {
+        if (loop_structure.back() == ca_view->getComputeAtAxis(start).first) {
           break;
         }
       }
@@ -334,7 +333,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
     for (size_t ca_i = start; ca_i < ca_view->nDims(); ca_i++) {
       // Note that ca_view->getComputeAtAxis(ca_i) is equivalent to
       // std::pair(ca_view->axis(ca_i), ca_view)
-      loop_structure.push_back(ca_view->getComputeAtAxis(ca_i));
+      loop_structure.push_back(ca_view->getComputeAtAxis(ca_i).first);
 
       // Update the last view processed
       last_ca_view_ind = ca_i;
@@ -357,13 +356,13 @@ void LoopNestGenerator::handle(const Expr* expr) {
        out_i++) {
     // It's actually local, but getComputeAtAxis returns a std::pair, axis
     // doesn't
-    loop_structure.push_back(out->getComputeAtAxis(out_i));
+    loop_structure.push_back(out->getComputeAtAxis(out_i).first);
   }
 
   // At this point loop_structure contains our overal target loop nest structure
   // Lets get a copy of the loop structure, and figure out which loops we need
   // to open.
-  decltype(loop_structure) loops_to_open(loop_structure);
+  auto loops_to_open = loop_structure;
 
   // Pop out loops already opened
   for (const auto& existing_loop : for_loops_) {
@@ -371,8 +370,8 @@ void LoopNestGenerator::handle(const Expr* expr) {
       // Nothing to open
       break;
     }
-    if (gpu_lower->lowerValue(loops_to_open.front().first)
-            ->as<kir::IterDomain>() == existing_loop->iter_domain()) {
+    if (gpu_lower->lowerValue(loops_to_open.front())->as<kir::IterDomain>() ==
+        existing_loop->iter_domain()) {
       loops_to_open.pop_front();
     }
   }

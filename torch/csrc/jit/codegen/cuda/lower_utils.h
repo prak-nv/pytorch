@@ -79,9 +79,6 @@ Expr* asExpr(Statement*);
 // TODO(kir): Remove in favor of ->as<TensorView>()
 TensorView* asTV(Val*);
 
-// TODO(kir): Remove in favor of ->as<TensorView>()
-const TensorView* asConstTV(const Val*);
-
 // Represents mapping to bool from BIDx, BIDy, BIDz, TIDx, TIDy and TIDz.
 class ParallelTypeBitmap {
  public:

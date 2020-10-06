@@ -1,10 +1,10 @@
+
 #pragma once
+
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
-
-#include <bitset>
 
 namespace torch {
 namespace jit {
@@ -12,7 +12,7 @@ namespace fuser {
 
 //! Maps TensorViews to std::pair<ir_utils::ParallelTypeBitmap, SourceMapType>>
 //!
-//! Map from tensorview to bit set represnting <BIDx, BIDy, BIDz, TIDx, TIDy,
+//! Map from TensorView to bit set represnting <BIDx, BIDy, BIDz, TIDx, TIDy,
 //! TIDz> If any dependency of TV had a parallelized reduction, we will track
 //! it here. This will be used for predicate generation to prevent
 //! parallelization on that axis. This is important if we have a reduction on
@@ -28,19 +28,20 @@ class TORCH_CUDA_API ThreadPredicateMap {
       std::unordered_set<const kir::TensorView*>,
       TypeHash>;
 
+  // TODO(kir): replace std::pair<> with struct
   using MapType = std::unordered_map<
-      const TensorView*,
+      const kir::TensorView*,
       std::pair<ir_utils::ParallelTypeBitmap, SourceMapType>>;
 
   using const_iterator = MapType::const_iterator;
 
   explicit ThreadPredicateMap(Fusion* _fusion);
 
+  // TODO(kir): these methods are only used by getParallelBroadcastDomains()
   const_iterator find(const kir::TensorView* tv) const;
   const_iterator end() const;
   const MapType::mapped_type& at(const kir::TensorView* tv) const;
   MapType::mapped_type& at(const kir::TensorView* tv);
-  MapType::mapped_type& operator[](const kir::TensorView* tv);
 
   // Returns a Bool predicate expression for a given output TensorView.
   kir::Bool* getExpr(const kir::TensorView* out_tv) const;

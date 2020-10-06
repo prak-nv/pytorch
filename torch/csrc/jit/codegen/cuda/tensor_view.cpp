@@ -190,7 +190,7 @@ void TensorView::setComputeAt(
 // another fusion output,  we may want to check that there is a direct
 // consumer/producer relationship between this and compute_at view before using
 // this function, and creating another pass to handle relative outputs.
-int TensorView::getComputeAtRelPos(int pos) {
+int TensorView::getComputeAtRelPos(int pos) const {
   if (!hasComputeAt()) {
     return pos;
   }

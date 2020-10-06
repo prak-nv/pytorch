@@ -267,11 +267,11 @@ class TORCH_CUDA_API TensorView : public Val {
   }
 
   // Return position in compute_at_view that lines up with this->axis(pos)?
-  int getComputeAtRelPos(int pos);
+  int getComputeAtRelPos(int pos) const;
 
   // Will check if an axis is inside computeAtAxis and will fetch the reference
   // to be used in code generation.
-  std::pair<int, TensorView*> getComputeAtPos(int pos) {
+  std::pair<int, const TensorView*> getComputeAtPos(int pos) const {
     pos = normalizeAxisPos(pos);
     TORCH_INTERNAL_ASSERT(
         nDims() > 0, "Tried to access a computeAt axis in a 0-dim TensorView");
@@ -280,7 +280,7 @@ class TORCH_CUDA_API TensorView : public Val {
     return compute_at_view_->getComputeAtPos(getComputeAtRelPos(pos));
   }
 
-  std::pair<IterDomain*, TensorView*> getComputeAtAxis(int pos) {
+  std::pair<IterDomain*, const TensorView*> getComputeAtAxis(int pos) const {
     const auto computeAtPos = getComputeAtPos(pos);
     return std::make_pair(
         computeAtPos.second->axis(computeAtPos.first), computeAtPos.second);

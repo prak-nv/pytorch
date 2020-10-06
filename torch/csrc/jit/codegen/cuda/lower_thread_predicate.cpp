@@ -63,7 +63,7 @@ void mergeSourceMap(
   for (const auto& kv : src) {
     const auto& src_key = kv.first;
     const auto& src_value = kv.second;
-    std::unordered_set<const TensorView*>& dst_set = dst[src_key];
+    auto& dst_set = dst[src_key];
     for (const auto& src_tensor : src_value) {
       dst_set.insert(src_tensor);
     }
@@ -72,7 +72,7 @@ void mergeSourceMap(
 
 void addToSouceMap(
     ThreadPredicateMap::SourceMapType& dst,
-    const TensorView* tv,
+    const kir::TensorView* tv,
     const ir_utils::ParallelTypeBitmap& reducton_pred) {
   for (const auto& kv : reducton_pred.getMap()) {
     if (kv.second) {
@@ -96,12 +96,13 @@ void maskSouceMap(
 // A bit of a hack for now for GEMM tiling so we don't fetch tiles multiple
 // times. It's safe to do, there may simply be a better place to do it.
 void avoidRedundantWritesToSmem(
-    TensorView* out_tv,
+    const kir::TensorView* out_tv,
     ir_utils::ParallelTypeBitmap& pred) {
-  if (out_tv->getMemoryType() == MemoryType::Shared) {
-    for (size_t i = 0; i < out_tv->nDims(); i++) {
-      auto id = out_tv->getComputeAtAxis(i).first;
-      if (out_tv->axis(i)->isBroadcast() && id->isThreadDim()) {
+  if (out_tv->memoryType() == MemoryType::Shared) {
+    const auto out_domain = out_tv->domain();
+    for (size_t i = 0; i < out_domain->nDims(); i++) {
+      const auto id = out_tv->fuserTv()->getComputeAtAxis(i).first;
+      if (out_domain->axis(i)->isBroadcast() && id->isThreadDim()) {
         pred.set(id->getParallelType(), true);
       }
     }
@@ -111,7 +112,7 @@ void avoidRedundantWritesToSmem(
 } // namespace
 
 // Update the reduction_deps bitset based on provided Expr
-void ThreadPredicateMap::updateBitSet(Expr* expr) {
+void ThreadPredicateMap::updateBitSet(kir::Expr* expr) {
   FUSER_PERF_SCOPE("ThreadPredicateMap::updateBitSet");
 
   // Which predicates were set for the inputs
@@ -127,14 +128,14 @@ void ThreadPredicateMap::updateBitSet(Expr* expr) {
 
   // Run through inputs and update bitsets
   for (const auto* inp : expr->inputs()) {
-    if (!ir_utils::isTV(inp))
+    if (!inp->isA<kir::TensorView>()) {
       continue;
+    }
 
-    auto tv_inp = ir_utils::asConstTV(inp);
+    auto tv_inp = inp->as<kir::TensorView>();
     TORCH_INTERNAL_ASSERT(
         thread_predicates_.find(tv_inp) != thread_predicates_.end(),
-        "Thread predicate map was not initialized, couldn't find ",
-        inp);
+        "Thread predicate map was not initialized");
 
     input_preds |= at(tv_inp).first;
 
@@ -197,34 +198,33 @@ void ThreadPredicateMap::updateBitSet(Expr* expr) {
 
   // Run through outputs and set bitset predicates
   for (auto* out : expr->outputs()) {
-    if (!ir_utils::isTV(out))
-      continue;
-    TORCH_INTERNAL_ASSERT(find(ir_utils::asConstTV(out)) == end());
-    auto pred_for_this_out = output_preds;
-    avoidRedundantWritesToSmem(ir_utils::asTV(out), pred_for_this_out);
-    insert(ir_utils::asConstTV(out), pred_for_this_out, src_map);
+    if (auto out_tv = dynamic_cast<kir::TensorView*>(out)) {
+      TORCH_INTERNAL_ASSERT(find(out_tv) == end());
+      auto pred_for_this_out = output_preds;
+      avoidRedundantWritesToSmem(out_tv, pred_for_this_out);
+      insert(out_tv, pred_for_this_out, src_map);
+    }
   }
 }
 
 // TODO(kir): revisit this - can we build it from the kernel IR?
 ThreadPredicateMap::ThreadPredicateMap(Fusion* _fusion) : fusion_(_fusion) {
   FUSER_PERF_SCOPE("ThreadPredicateMap");
+
   // Initialize mapping for input tensors
   for (auto inp : fusion_->inputs()) {
-    if (ir_utils::isTV(inp)) {
-      insert(
-          ir_utils::asConstTV(inp),
-          ir_utils::ParallelTypeBitmap(),
-          SourceMapType());
+    if (auto inp_tv = dynamic_cast<kir::TensorView*>(inp)) {
+      insert(inp_tv, ir_utils::ParallelTypeBitmap(), SourceMapType());
     }
   }
+
   for (auto expr : fusion_->exprs(true)) {
     updateBitSet(expr);
   }
 }
 
 ThreadPredicateMap::const_iterator ThreadPredicateMap::find(
-    const TensorView* tv) const {
+    const kir::TensorView* tv) const {
   return thread_predicates_.find(tv);
 }
 
@@ -233,18 +233,13 @@ ThreadPredicateMap::const_iterator ThreadPredicateMap::end() const {
 }
 
 const ThreadPredicateMap::MapType::mapped_type& ThreadPredicateMap::at(
-    const TensorView* tv) const {
+    const kir::TensorView* tv) const {
   return thread_predicates_.at(tv);
 }
 
 ThreadPredicateMap::MapType::mapped_type& ThreadPredicateMap::at(
-    const TensorView* tv) {
+    const kir::TensorView* tv) {
   return thread_predicates_.at(tv);
-}
-
-ThreadPredicateMap::MapType::mapped_type& ThreadPredicateMap::operator[](
-    const TensorView* tv) {
-  return thread_predicates_[tv];
 }
 
 void ThreadPredicateMap::insert(
@@ -262,8 +257,9 @@ void ThreadPredicateMap::insert(
 }
 
 kir::Bool* ThreadPredicateMap::getExpr(const kir::TensorView* out_tv) const {
-  TORCH_INTERNAL_ASSERT(find(out_tv) != end(), "Couldn't find ", out_tv);
-  return getPredicate(at(out_tv).first, at(out_tv).second);
+  const auto it = find(out_tv);
+  TORCH_INTERNAL_ASSERT(it != end());
+  return getPredicate(it->second.first, it->second.second);
 }
 
 } // namespace fuser
