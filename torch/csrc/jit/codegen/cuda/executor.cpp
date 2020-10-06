@@ -487,7 +487,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         launch_params.bdimx(),
         launch_params.bdimy(),
         launch_params.bdimz(),
-        launch_params.smem()*4,
+        launch_params.smem() * 4,
         stream,
         kernel_arguments.getBuffer(),
         nullptr));
