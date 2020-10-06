@@ -704,6 +704,8 @@ class TORCH_CUDA_API BroadcastOp : public Expr {
  public:
   BroadcastOp(Passkey passkey, Val* out, Val* in);
 
+  void accept(IrVisitor* visitor) const override { visitor->visit(this); }
+
   Val* out() const {
     return out_;
   }

@@ -503,13 +503,14 @@ std::vector<bool> IndexCompute::contiguityPasC(
 
 namespace {
 
-std::deque<TensorView*> getComputeAtTVStackFrom(TensorView* from_tv) {
+std::deque<const TensorView*> getComputeAtTVStackFrom(
+    const TensorView* from_tv) {
   // What's the computeAt root tensor view in this operation
   // This tensor is the terminating tensor in the computeAT dag from consumer
   auto end_tv = from_tv->getComputeAtAxis(0).second;
 
   // grab all tensor views from producer_tv -> computeAtRoot
-  std::deque<TensorView*> tv_stack;
+  std::deque<const TensorView*> tv_stack;
 
   // Then immediate consumer
   auto running_tv = from_tv;
@@ -531,10 +532,10 @@ std::pair<
     std::unordered_map<kir::IterDomain*, kir::Val*>,
     std::unordered_map<kir::IterDomain*, kir::Val*>>
 generateIndexAndExtentMap(
-    std::deque<TensorView*> c2p_tv_stack,
+    std::deque<const TensorView*> c2p_tv_stack,
     std::deque<kir::ForLoop*> loops,
     const std::unordered_map<kir::ForLoop*, kir::Val*>& loop_to_ind_map,
-    const std::vector<bool>& last_tv_root_contiguity) {
+  const std::vector<bool>& last_tv_root_contiguity) {
   if (c2p_tv_stack.empty())
     return std::make_pair(
         std::unordered_map<kir::IterDomain*, kir::Val*>(),
@@ -590,13 +591,13 @@ generateIndexAndExtentMap(
 
   // Maps to be used in the c2p propagation
   std::unordered_map<
-      TensorView*,
+      const TensorView*,
       std::unordered_map<kir::IterDomain*, kir::Val*>>
       p2c_index_maps;
 
   // PROPAGATE PRODUCER -> CONSUMER START
 
-  std::deque<TensorView*> p2c_tv_stack(
+  std::deque<const TensorView*> p2c_tv_stack(
       c2p_tv_stack.rbegin(), c2p_tv_stack.rend());
 
   // Setup initial IndexCompute:
@@ -772,7 +773,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
   ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
 
   // grab all tensor views from producer_tv <- computeAtRoot
-  std::deque<TensorView*> tv_stack = getComputeAtTVStackFrom(consumer_tv);
+  auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
   tv_stack.push_back(producer_tv);
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map;
@@ -903,7 +904,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
 
   // grab all tensor views from producer_tv <- computeAtRoot
-  std::deque<TensorView*> tv_stack = getComputeAtTVStackFrom(consumer_tv);
+  auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
   tv_stack.push_back(producer_tv);
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map =
@@ -998,7 +999,7 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
   // grab all tensor views from producer_tv <- computeAtRoot
-  std::deque<TensorView*> tv_stack = getComputeAtTVStackFrom(consumer_tv);
+  auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map;
   std::transform(
@@ -1072,7 +1073,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // grab all tensor views from consumer_tv <- computeAtRoot
-  std::deque<TensorView*> tv_stack = getComputeAtTVStackFrom(consumer_tv);
+  auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map =
       indexMapFromTV(consumer_tv, loops);
@@ -1214,7 +1215,7 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // grab all tensor views from producer_tv <- computeAtRoot
-  std::deque<TensorView*> tv_stack = getComputeAtTVStackFrom(consumer_tv);
+  auto tv_stack = getComputeAtTVStackFrom(consumer_tv->fuserTv());
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map;
 
