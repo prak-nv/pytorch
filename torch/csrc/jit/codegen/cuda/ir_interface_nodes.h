@@ -181,39 +181,47 @@ namespace ir_utils {
 class TVDomainGuard;
 }
 
+/**
+ * TensorViewOptions class is intended to be used with
+ * TensorView::makeTensor(TensorviewOptions tvo). TensorViewOptions allows users
+ * to easily set the properties of the TensorView to be constructed. This
+ * includes sizes, contiguity, number of dimensions, and type.
+ *
+ */
 class TensorViewOptions {
  public:
-  // Set the number of dimensions of the tensor
+  /// Set the number of dimensions of the tensor
   TensorViewOptions nDims(int ndims) const {
     TensorViewOptions tvo = *this;
     tvo.setNDims(ndims);
     return tvo;
   }
 
-  // Set the data type of the tensor
+  /// Set the data type of the tensor
   TensorViewOptions DType(DataType dtype) const {
     TensorViewOptions tvo = *this;
     tvo.setDType(dtype);
     return tvo;
   }
 
-  // Set if the tensor is fully contiguous. If this is set contiguity does not
-  // need to be directly set.
+  /// Set if the tensor is fully contiguous. If this is set contiguity does not
+  /// need to be directly set.
   TensorViewOptions fullyContiguous(bool is_fully_contiguous) const {
     TensorViewOptions tvo = *this;
     tvo.setFullyContig(is_fully_contiguous);
     return tvo;
   }
 
-  // Set if the tensor is constructed of fully runtime sizes. If this is set,
-  // sizes does not need to be directly set.
+  /// Set if the tensor is constructed of fully runtime sizes. If this is set,
+  /// sizes does not need to be directly set.
   TensorViewOptions fullySymbolic(bool is_fully_symbolic) const {
     TensorViewOptions tvo = *this;
     tvo.setFullySymbolic(is_fully_symbolic);
     return tvo;
   }
 
-  // Set the contiguity of each dimension
+  /// Set the contiguity of each dimension. If specified the size of this vector
+  /// will take precedence over the ndims field.
   TensorViewOptions withContiguity(std::vector<bool> contiguity) const {
     TensorViewOptions tvo = *this;
     tvo.setContiguity(contiguity);
@@ -221,7 +229,8 @@ class TensorViewOptions {
   }
 
   // Set the size of each dimension, <0 is a symbolic size, and >0 is a compile
-  // time size.
+  // time size. If specified the size of this vector will take precedence over
+  // the ndims field.
   TensorViewOptions withSizes(std::vector<int64_t> sizes) const {
     TensorViewOptions tvo = *this;
     tvo.setSizes(sizes);
@@ -304,25 +313,28 @@ class TensorViewOptions {
   friend TensorView;
 };
 
-// TensorView is our primitive Tensor Type used in code generation. It can be
-// thought of as representing physical memory, however, its dimensionality is
-// modifed as split/merge/computeAt functions are called. The history of
-// these transformations are kept and used for generating actual code referncing
-// physical memory. Generally when users are thinking of code generation in
-// reference to a Tensor, this is the class they should be interacting with.
-//
-// The reason we need both TensorView and TensorDomain is that we need to have a
-// record of both what is being computed and how it is being computed. For
-// example we may have the operation: TV3[I, J, K] = TV2[I, J, K] + TV1[I, J, K]
-// The mathematical operations here are on the tensor views TV1, TV2, and TV3.
-// This operation is a pointwise operation. To compute this pointwise operation
-// we iterate over the 3D TensorDomain [I, J, K], where K is the fastest
-// changing dimension.
-//
-// TODO: Need to work on the const model for TensorView, making all functions
-// that should be const, const. Gave this a try but expanded really quickly.
-// getComputeAtAxis not being const because it can return a TV that some expect
-// to be non-const is the biggest headache.
+/**
+ * TensorView is our primitive Tensor Type used in code generation. It can be
+ * thought of as representing physical memory, however, its dimensionality is
+ * modifed as split/merge/computeAt functions are called. The history of
+ * these transformations are kept and used for generating actual code referncing
+ * physical memory. Generally when users are thinking of code generation in
+ * reference to a Tensor, this is the class they should be interacting with.
+ *
+ * The reason we need both TensorView and TensorDomain is that we need to have a
+ * record of both what is being computed and how it is being computed. For
+ * example we may have the operation: TV3[I, J, K] = TV2[I, J, K] + TV1[I, J, K]
+ * The mathematical operations here are on the tensor views TV1, TV2, and TV3.
+ * This operation is a pointwise operation. To compute this pointwise operation
+ * we iterate over the 3D TensorDomain [I, J, K], where K is the fastest
+ * changing dimension.
+ */
+/*
+ * TODO: Need to work on the const model for TensorView, making all functions
+ * that should be const, const. Gave this a try but expanded really quickly.
+ * getComputeAtAxis not being const because it can return a TV that some expect
+ * to be non-const is the biggest headache.
+ */
 class TORCH_CUDA_API TensorView : public Val {
  public:
   ~TensorView() = default;
@@ -349,7 +361,10 @@ class TORCH_CUDA_API TensorView : public Val {
     return domain_;
   }
 
-  // Convenience function to make a new tensor based on provided options
+  /// Factory like constructor to make a TensorView. Takes in a TensorViewOption
+  /// which provides details about the tensor to be constructed. Similar to
+  /// at::Tensor and its use of TensorOptions.
+
   static TensorView* makeTensor(const TensorViewOptions tvo) {
     TensorViewOptions tvo_validated = tvo.validate();
 
