@@ -34,6 +34,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 using StmtNameType = unsigned int;
 
@@ -355,6 +356,7 @@ class TORCH_CUDA_API Expr : public Statement {
   std::vector<Val*> outputs_;
 };
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

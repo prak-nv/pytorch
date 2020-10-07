@@ -20,6 +20,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 namespace kir {
 
 class IrBuilder;
@@ -567,7 +568,7 @@ class TORCH_CUDA_API TensorView final : public Val {
     return memory_type_;
   }
 
-  const fuser::TensorView* fuserTv() const {
+  const fuser::cuda::TensorView* fuserTv() const {
     TORCH_INTERNAL_ASSERT(fuser_tv_ != nullptr);
     return fuser_tv_;
   }
@@ -577,7 +578,7 @@ class TORCH_CUDA_API TensorView final : public Val {
   MemoryType memory_type_ = MemoryType::Local;
 
   // TODO(kir): remove temporary hack
-  const fuser::TensorView* fuser_tv_ = nullptr;
+  const fuser::cuda::TensorView* fuser_tv_ = nullptr;
 };
 
 class TORCH_CUDA_API UnaryOp final : public Expr {
@@ -995,7 +996,7 @@ class TORCH_CUDA_API GridReduction final : public Expr {
   }
 
   static std::string getPredicateFlagName(const TensorView* val);
-  static std::string getPredicateFlagName(const fuser::TensorView* val);
+  static std::string getPredicateFlagName(const fuser::cuda::TensorView* val);
 
  private:
   ReductionOp* reduction_op_ = nullptr;
@@ -1007,6 +1008,7 @@ class TORCH_CUDA_API GridReduction final : public Expr {
 std::string toString(const Node* node);
 
 } // namespace kir
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

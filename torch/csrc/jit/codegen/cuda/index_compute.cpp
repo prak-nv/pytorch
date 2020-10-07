@@ -14,6 +14,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 namespace {
 
@@ -1288,6 +1289,7 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
   return { root_inds, use_rfactor };
 }
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

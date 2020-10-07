@@ -16,6 +16,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 /*
  * A Bool value.
@@ -404,6 +405,7 @@ class TORCH_CUDA_API TensorView : public Val {
   MemoryType memory_type_ = MemoryType::Local;
 };
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

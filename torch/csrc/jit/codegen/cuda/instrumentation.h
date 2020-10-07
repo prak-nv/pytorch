@@ -9,6 +9,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 namespace inst {
 
 //! An optional record of selected timestamped operations, events and counters
@@ -27,7 +28,7 @@ namespace inst {
 //! An easy way to view traces is to type `about://tracing` in Chrome or
 //! Chromium.
 //!
-class Trace : public NonCopyable {
+class C10_EXPORT Trace : public NonCopyable {
  public:
   using Clock = std::chrono::steady_clock;
 
@@ -62,7 +63,7 @@ class Trace : public NonCopyable {
 
 //! \internal Automatic scope for a perf marker
 //!   (normally used through the FUSER_PERF_SCOPE macro)
-class TraceScope : public NonCopyable {
+class C10_EXPORT TraceScope : public NonCopyable {
  public:
   explicit TraceScope(const char* event_name) : event_name_(event_name) {
     Trace::instance()->beginEvent(event_name_);
@@ -85,9 +86,10 @@ class TraceScope : public NonCopyable {
 //! \param name The name of the scope, normally a simple string literal
 //!
 #define FUSER_PERF_SCOPE(name) \
-  fuser::inst::TraceScope FUSER_ANONYMOUS(_perf_scope_)(name)
+  torch::jit::fuser::cuda::inst::TraceScope FUSER_ANONYMOUS(_perf_scope_)(name)
 
 } // namespace inst
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

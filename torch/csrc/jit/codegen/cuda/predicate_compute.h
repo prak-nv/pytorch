@@ -8,6 +8,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 //! Predicate compute takes a TensorView and set of indices. The number of
 //! indices and the root of the TensorView are required to have the same number
@@ -71,6 +72,7 @@ class TORCH_CUDA_API UnrollPredicate {
   const IterDomainMap& p2c_root_map_;
 };
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

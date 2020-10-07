@@ -13,6 +13,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 namespace kir {
 
 //! Summary of interesting facts about the kernel
@@ -141,6 +142,7 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
 };
 
 } // namespace kir
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

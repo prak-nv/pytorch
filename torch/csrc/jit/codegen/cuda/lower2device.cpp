@@ -14,6 +14,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 // TODO(kir): revisit this
 thread_local GpuLower* active_gpu_lower = nullptr;
@@ -170,13 +171,13 @@ class TORCH_CUDA_API GpuLower::KernelIrMapper : private OptInConstDispatch {
   void lowerDefinition(kir::Val* lowered_value, const Expr* def) {
     switch (def->type()) {
       case ExprType::UnaryOp: {
-        const auto op = def->as<fuser::UnaryOp>();
+        const auto op = def->as<UnaryOp>();
         ir_builder_.create<kir::UnaryOp>(
             op->getUnaryOpType(), lowered_value, lower(op->in()));
         break;
       }
       case ExprType::BinaryOp: {
-        const auto op = def->as<fuser::BinaryOp>();
+        const auto op = def->as<BinaryOp>();
         ir_builder_.create<kir::BinaryOp>(
             op->getBinaryOpType(),
             lowered_value,
@@ -185,7 +186,7 @@ class TORCH_CUDA_API GpuLower::KernelIrMapper : private OptInConstDispatch {
         break;
       }
       case ExprType::TernaryOp: {
-        const auto op = def->as<fuser::TernaryOp>();
+        const auto op = def->as<TernaryOp>();
         ir_builder_.create<kir::TernaryOp>(
             op->getTernaryOpType(),
             lowered_value,
@@ -267,6 +268,7 @@ GpuLower* GpuLower::current() {
   return active_gpu_lower;
 }
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

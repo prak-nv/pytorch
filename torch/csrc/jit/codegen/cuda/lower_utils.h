@@ -14,6 +14,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 namespace kir {
 class ThreadPredicateMap;
@@ -150,7 +151,7 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
 IterDomainMap p2cRootMap(const std::vector<Expr*>& exprs);
 
 } // namespace loop_utils
-
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

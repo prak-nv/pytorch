@@ -12,6 +12,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 // TODO: rename to just ExpressionEvaluator (since it's the only kind we have)
 class TORCH_CUDA_API StatefulExpressionEvaluator : private OptOutDispatch {
@@ -65,6 +66,7 @@ class TORCH_CUDA_API StatefulExpressionEvaluator : private OptOutDispatch {
   Fusion* fusion_ = nullptr;
 };
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

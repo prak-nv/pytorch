@@ -13,6 +13,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 kir::Bool* UnrollPass::getThreadPredicate(kir::TensorView* tv) {
   // No thread predicate is needed predicate when tv is output of a
@@ -155,6 +156,7 @@ std::vector<kir::Expr*> UnrollPass::runPass(
   return mutated_exprs;
 }
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

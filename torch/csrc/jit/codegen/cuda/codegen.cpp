@@ -11,6 +11,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 namespace codegen {
 
 namespace {
@@ -615,6 +616,7 @@ std::string generateCudaKernel(
 }
 
 } // namespace codegen
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

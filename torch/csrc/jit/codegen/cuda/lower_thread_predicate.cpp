@@ -12,6 +12,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 namespace kir {
 
 namespace {
@@ -267,6 +268,7 @@ kir::Bool* ThreadPredicateMap::getExpr(const kir::TensorView* out_tv) const {
 }
 
 } // namespace kir
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

@@ -17,6 +17,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 LoopNestGenerator::LoopNestGenerator(
     Fusion* fusion,
@@ -998,6 +999,7 @@ void LoopNestGenerator::handle(const BroadcastOp* bop) {
   pushBack(ir_builder_.create<kir::BroadcastOp>(out, in));
 }
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

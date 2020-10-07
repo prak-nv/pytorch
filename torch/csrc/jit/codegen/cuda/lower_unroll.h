@@ -11,6 +11,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 //! Unroll pass
 //!
@@ -95,6 +96,7 @@ class TORCH_CUDA_API UnrollPass {
   bool non_trivial_pred_found_ = false;
 };
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

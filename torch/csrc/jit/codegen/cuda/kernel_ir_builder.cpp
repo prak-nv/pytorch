@@ -4,6 +4,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 namespace kir {
 
 Val* IrBuilder::newResult(const Val* lhs, const Val* rhs) {
@@ -73,6 +74,7 @@ Val* IrBuilder::modExpr(Val* lhs, Val* rhs) {
 }
 
 } // namespace kir
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

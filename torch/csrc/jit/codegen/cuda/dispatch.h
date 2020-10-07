@@ -47,6 +47,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 class Fusion;
 
@@ -359,6 +360,7 @@ class TORCH_CUDA_API OptInMutator : public PolymorphicBase {
   }
 };
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

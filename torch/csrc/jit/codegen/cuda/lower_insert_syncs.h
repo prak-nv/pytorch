@@ -11,6 +11,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 //! Insert sync at end of for-loops to prevent write-after-read race condition.
 //!
@@ -47,6 +48,7 @@ namespace fuser {
 std::vector<kir::Expr*> insertThreadSynchronization(
     const std::vector<kir::Expr*>& exprs);
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

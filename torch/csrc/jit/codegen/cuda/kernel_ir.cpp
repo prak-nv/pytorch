@@ -9,6 +9,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 namespace kir {
 
 Val::Val(Passkey passkey, DataType dtype) : Node(passkey), dtype_(dtype) {
@@ -106,7 +107,7 @@ TensorDomain::TensorDomain(
   setName(tensor_domain->name());
 
   const auto lowerIterDomains =
-      [](const std::vector<fuser::IterDomain*>& domains) {
+      [](const std::vector<fuser::cuda::IterDomain*>& domains) {
         std::vector<IterDomain*> lowered_domains;
         lowered_domains.reserve(domains.size());
         for (const auto iter_domain : domains) {
@@ -410,7 +411,8 @@ std::string GridReduction::getPredicateFlagName(const TensorView* val) {
 }
 
 // TODO(kir): remove this
-std::string GridReduction::getPredicateFlagName(const fuser::TensorView* val) {
+std::string GridReduction::getPredicateFlagName(
+    const fuser::cuda::TensorView* val) {
   std::stringstream ss;
   ss << "T" << val->name() << "_pred";
   return ss.str();
@@ -423,6 +425,7 @@ std::string toString(const Node* node) {
 
 
 } // namespace kir
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

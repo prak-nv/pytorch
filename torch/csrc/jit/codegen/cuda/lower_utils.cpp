@@ -15,6 +15,8 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
+  
 namespace scope_utils {
 
 std::vector<kir::ForLoop*> getLoops(kir::Expr* scope) {
@@ -366,7 +368,8 @@ IterDomainMap p2cRootMap(const std::vector<Expr*>& exprs) {
   return p2c_root_map;
 }
 
-} // namespace scope_utils
+} // namespace loop_utils
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

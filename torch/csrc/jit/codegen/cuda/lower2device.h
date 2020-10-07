@@ -13,6 +13,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 class TORCH_CUDA_API GpuLower {
   class KernelIrMapper;
@@ -54,6 +55,7 @@ class TORCH_CUDA_API GpuLower {
   Fusion* fusion_ = nullptr;
 };
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

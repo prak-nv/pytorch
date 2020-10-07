@@ -12,6 +12,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 #if 0
 IndexLowering::IndexLowering() : ir_builder_(GpuLower::current()->kernel()) {}
@@ -315,6 +316,7 @@ void IndexLowering::generate(const std::vector<kir::Expr*>& exprs) {
 }
 #endif
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

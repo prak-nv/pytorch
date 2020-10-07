@@ -11,6 +11,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
+namespace cuda {
 
 //$$$ not needed anymore
 #if 0
@@ -62,6 +63,7 @@ class TORCH_CUDA_API IndexLowering : private kir::IrVisitor {
 };
 #endif
 
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch
