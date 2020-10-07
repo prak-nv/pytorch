@@ -416,6 +416,12 @@ std::string GridReduction::getPredicateFlagName(const fuser::TensorView* val) {
   return ss.str();
 }
 
+// $$$
+std::string toString(const Node* node) {
+  return "???";
+}
+
+
 } // namespace kir
 } // namespace fuser
 } // namespace jit

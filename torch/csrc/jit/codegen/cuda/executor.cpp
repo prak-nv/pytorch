@@ -103,7 +103,7 @@ void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
   has_block_broadcasts = kernel_summary.has_block_broadcasts;
 
   if (!kernel_summary.static_smem_allocations.empty()) {
-    StatefulExpressionEvaluator static_evaluator(&fusion_);
+    kir::ExpressionEvaluator static_evaluator;
     unsigned static_smem_size = computeSharedMemory(
         static_evaluator, kernel_summary.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
@@ -122,26 +122,31 @@ void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
 namespace {
 
 at::Tensor inferAndAlloc(
-    const TensorView* tv,
-    StatefulExpressionEvaluator& see,
+    const kir::TensorView* tv,
+    kir::ExpressionEvaluator& expr_eval,
     const CompileOptions& options,
     bool zero_init = false) {
   FUSER_PERF_SCOPE("inferAndAlloc");
 
   std::vector<int64_t> sizes;
-  for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
-    auto inferred_val = see.inferValue(id->rawExtent());
+  
+  const auto domain = tv->domain();
+  const auto maybe_rfactor_domain =
+      domain->hasRFactor() ? domain->rfactorDomain() : domain->rootDomain();
+
+  for (auto id : kir::TensorDomain::noReductions(maybe_rfactor_domain)) {
+    const auto inferred_val = expr_eval.evaluate(id->rawExtent());
     TORCH_INTERNAL_ASSERT(
         inferred_val.has_value(),
         "Could not launch kernel as program could not infer ",
-        id->rawExtent(),
+        kir::toString(id->rawExtent()),
         " for the buffer ",
-        tv);
+        kir::toString(tv));
     sizes.push_back(inferred_val.value());
   }
 
-  auto at_type = data_type_to_aten(tv->getDataType().value());
-  auto tensor_options =
+  const auto at_type = data_type_to_aten(tv->dtype());
+  const auto tensor_options =
       at::TensorOptions().dtype(at_type).device(options.device);
 
   if (zero_init) {
@@ -158,14 +163,13 @@ at::Tensor inferAndAlloc(
 } // namespace
 
 uint64_t FusionExecutor::computeSharedMemory(
-    StatefulExpressionEvaluator& see,
+    kir::ExpressionEvaluator& expr_eval,
     const std::vector<const kir::Allocate*>& buffers,
     bool align_padding,
     uint64_t total) {
   FUSER_PERF_SCOPE("computeSharedMemory");
   for (auto smem_alloc : buffers) {
-    //$$$ kir ee
-    auto inferred_val = see.inferValue(smem_alloc->size());
+    const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
     if (inferred_val.has_value()) {
       const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
       // Add padding to align dynamic shared memory
@@ -187,23 +191,24 @@ uint64_t FusionExecutor::computeSharedMemory(
 
 LaunchParams FusionExecutor::computeLaunchParams(
     const LaunchParams& launch_constraints,
-    StatefulExpressionEvaluator& see) {
+    kir::ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("computeLaunchParams");
 
   LaunchParams launch_params;
 
   // Lets collect all IterDomains that are bound to a thread binding
-  std::unordered_map<ParallelType, std::vector<IterDomain*>, TypeHash>
-      parallel_iter_domains;
+  std::unordered_map<ParallelType, std::vector<const kir::Val*>, TypeHash>
+      parallel_iter_extents;
   for (auto tv : getUsedTVs()) {
     for (auto id : tv->domain()->domain()) {
       if (id->isThread() && !id->isBroadcast()) {
-        if (parallel_iter_domains.find(id->getParallelType()) !=
-            parallel_iter_domains.end()) {
-          parallel_iter_domains.at(id->getParallelType()).push_back(id);
+        // TODO(kir): we should rewrite this logic based on the Kernel object
+        auto kir_extent = lowered_.lowerValue(id->rawExtent());
+        const auto it = parallel_iter_extents.find(id->getParallelType());
+        if (it != parallel_iter_extents.end()) {
+          it->second.push_back(kir_extent);
         } else {
-          parallel_iter_domains[id->getParallelType()] =
-              std::vector<IterDomain*>({id});
+          parallel_iter_extents[id->getParallelType()] = {kir_extent};
         }
       }
     }
@@ -213,12 +218,12 @@ LaunchParams FusionExecutor::computeLaunchParams(
   // IterDomains that have been parallelized, and bind those values. Or make
   // sure if they could be inferred the inference matches what was set.
   if (launch_constraints.nBlocks() * launch_constraints.nThreads() != -1) {
-    for (auto& entry : parallel_iter_domains) {
+    for (auto& entry : parallel_iter_extents) {
       auto p_type = entry.first;
       if (launch_constraints.hasDim(p_type)) {
-        auto parallel_ids = entry.second;
-        for (auto parallel_id : parallel_ids) {
-          auto inferred_val = see.inferValue(parallel_id->rawExtent());
+        auto parallel_extents = entry.second;
+        for (auto extent : parallel_extents) {
+          auto inferred_val = expr_eval.evaluate(extent);
           if (inferred_val.has_value()) {
             // This value could have been inferred, make sure it was set right.
             TORCH_CHECK(
@@ -232,10 +237,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
                 launch_constraints.getDim(p_type));
           } else {
             // Bind the launch constraint into our evaluation context
-            see.safeBind(
-                parallel_id->rawExtent(),
-                launch_constraints.getDim(entry.first),
-                &lowered_);
+            expr_eval.bind(extent, launch_constraints.getDim(entry.first));
             launch_params.bind(launch_constraints.getDim(p_type), p_type);
           }
         }
@@ -244,17 +246,15 @@ LaunchParams FusionExecutor::computeLaunchParams(
   }
 
   // Run through the rest of the parallel IterDomains and infer their size
-  for (auto& entry : parallel_iter_domains) {
+  for (auto& entry : parallel_iter_extents) {
     auto p_type = entry.first;
-    auto parallel_ids = entry.second;
-    for (auto parallel_id : parallel_ids) {
-      auto val = see.inferValue(parallel_id->rawExtent());
+    auto parallel_extents = entry.second;
+    for (auto extent : parallel_extents) {
+      const auto val = expr_eval.evaluate(extent);
       TORCH_INTERNAL_ASSERT(
-          val,
-          "Tried to evaluate the extent of ",
-          parallel_id,
-          " to set launch bounds but could not.");
-      launch_params.bind(val.value(), p_type);
+          val.has_value(),
+          "Tried to evaluate the extent to set launch bounds but could not.");
+      launch_params.bind(*val, p_type);
     }
   }
 
@@ -272,13 +272,13 @@ LaunchParams FusionExecutor::computeLaunchParams(
   }
 
   const uint64_t dynamic_smem_size = computeSharedMemory(
-      see,
+      expr_eval,
       kernel_summary.dynamic_smem_allocations,
       true,
       reduction_broadcast_workspace);
 
   const uint64_t static_smem_size =
-      computeSharedMemory(see, kernel_summary.static_smem_allocations);
+      computeSharedMemory(expr_eval, kernel_summary.static_smem_allocations);
 
   TORCH_INTERNAL_ASSERT(
       (dynamic_smem_size + static_smem_size) < max_device_smem,
@@ -289,7 +289,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
 }
 
 FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
-    StatefulExpressionEvaluator& see) {
+    kir::ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("allocGlobalVals");
   GlobalBuffers global_buffers;
   const auto& kernel_summary = lowered_.kernel()->summary();
@@ -299,14 +299,14 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
         "Cannot allocate global buffers that are not tensors.");
     if (!alloc->zeroInit()) {
       global_buffers.empty_buffers.push_back(inferAndAlloc(
-          alloc->buffer()->as<kir::TensorView>()->fuserTv(),
-          see,
+          alloc->buffer()->as<kir::TensorView>(),
+          expr_eval,
           options_,
           false));
     } else {
       global_buffers.zero_buffers.push_back(inferAndAlloc(
-          alloc->buffer()->as<kir::TensorView>()->fuserTv(),
-          see,
+          alloc->buffer()->as<kir::TensorView>(),
+          expr_eval,
           options_,
           true));
     }
@@ -316,15 +316,15 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
 }
 
 std::vector<at::Tensor> FusionExecutor::allocOutputs(
-    StatefulExpressionEvaluator& see) {
+    kir::ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("allocOutputs");
-  std::vector<at::Tensor> outputs;
-  for (auto output : fusion_.outputs()) {
-    TORCH_INTERNAL_ASSERT(
-        output->getValType() == ValType::TensorView,
+  const auto kernel = lowered_.kernel();
+  std::vector<at::Tensor> outputs(kernel->outputs().size());
+  for (auto output : kernel->outputs()) {
+    TORCH_INTERNAL_ASSERT(output->isA<kir::TensorView>(),
         "Cannot allocate outputs that are not tensors.");
     outputs.push_back(
-        inferAndAlloc(output->as<TensorView>(), see, options_, false));
+        inferAndAlloc(output->as<kir::TensorView>(), expr_eval, options_, false));
   }
   return outputs;
 }
@@ -369,9 +369,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   if (executor_entry && executor_entry->init) {
     {
-      // context manager to disable auto grad for `empty_cuda` calls later;
+      // context manager to disable auto grad for `empty_cuda` calls later
       at::AutoNonVariableTypeMode non_variable_type_mode;
-      // take the short-cut for launch if we see a recorded input set again;
+      // take the short-cut for launch if we see a recorded input set again
       launch_params = executor_entry->launch_params;
       for (size_t i = 0; i < executor_entry->output_sizes.size(); i++) {
         auto tensor_options = at::TensorOptions()
@@ -398,25 +398,26 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     rand_offset = executor_entry->rand_offset;
   } else {
     // code path to take when either:
-    //   1. no opt_code is provided or;
+    //   1. no opt_code is provided or
     //   2. `executor_entry` is not initialized
     executor_utils::validateKernelInputs(&fusion_, inputs, options_.device);
 
-    StatefulExpressionEvaluator evaluator =
-        executor_utils::statefulBindInputs(inputs, &fusion_, &lowered_);
+    const auto kernel = lowered_.kernel();
 
-    launch_params = computeLaunchParams(launch_constraints, evaluator);
+    auto expr_eval = executor_utils::bindKernelInputs(inputs, kernel);
+
+    launch_params = computeLaunchParams(launch_constraints, expr_eval);
 
     if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
-      alloced_outputs = allocOutputs(evaluator);
+      alloced_outputs = allocOutputs(expr_eval);
     } else {
       executor_utils::validateKernelOutputs(
           &fusion_, alloced_outputs, options_.device);
     }
 
-    global_buffers = allocGlobalVals(evaluator);
+    global_buffers = allocGlobalVals(expr_eval);
 
-    if (lowered_.kernel()->summary().is_stochastic) {
+    if (kernel->summary().is_stochastic) {
       // NOTE: this is how we map offset to PW kernels in order to have
       // identical random number generator to match native PyTorch results.
       // But it doesn't really work as it takes assumption how threads are

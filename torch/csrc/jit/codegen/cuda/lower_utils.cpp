@@ -81,15 +81,6 @@ std::vector<IterDomain*> iterDomainInputsOfOrderedAs(
   return ordered_inputs;
 }
 
-std::vector<Val*> indices(std::vector<kir::ForLoop*> loops) {
-  std::vector<Val*> inds(loops.size());
-  std::transform(
-      loops.begin(), loops.end(), inds.begin(), [](kir::ForLoop* fl) {
-        return fl->index();
-      });
-  return inds;
-}
-
 bool isTV(const Val* val) {
   return val->getValType().value() == ValType::TensorView;
 }

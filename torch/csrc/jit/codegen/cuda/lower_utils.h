@@ -62,8 +62,6 @@ std::vector<IterDomain*> iterDomainInputsOfOrderedAs(
     const std::vector<IterDomain*>& of,
     const std::vector<IterDomain*>& order);
 
-std::vector<Val*> indices(std::vector<kir::ForLoop*>);
-
 bool isTV(const Val* const);
 
 bool isTVOp(const Expr*);
