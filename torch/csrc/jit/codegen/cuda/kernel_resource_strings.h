@@ -33,28 +33,76 @@ struct Tensor<T, 0> {
 };
 )";
 
-// Code support for FP16 __half type and intrinsics
-static auto code_fp16_support = R"(
-#define __HALF_TO_US(var) *(reinterpret_cast<unsigned short *>(&(var)))
-#define __HALF_TO_CUS(var) *(reinterpret_cast<const unsigned short *>(&(var)))
-struct __align__(2) __half {
-  __host__ __device__ __half() { }
-protected:
-  unsigned short __x;
-};
+static auto code_half_type_support = R"(
+using uint16_t = unsigned short;
 
-/* Definitions of intrinsics */
-__device__ __half __float2half(const float f) {
-  __half val;
-  asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(__HALF_TO_US(val)) : "f"(f));
-  return val;
-}
-__device__ float __half2float(const __half h) {
-  float val;
-  asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(__HALF_TO_CUS(h)));
-  return val;
-}
+// IEEE half-precision floating-point type
+struct alignas(2) half_t {
+  // Static conversion operators
+  __forceinline__ __device__
+  static half_t fromFloat(const float& flt) {
+    half_t val;
+    asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(val.raw()) : "f"(flt));
+    return val;
+  }
+
+  __forceinline__ __device__
+  static float toFloat(const half_t& x) {
+    float val;
+    asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(x.raw()));
+    return val;
+  }
+
+  __forceinline__ __device__
+  static half_t fromInt(const int& x) {
+    half_t val;
+    asm("{  cvt.rn.f16.s32 %0, %1;}\n" : "=h"(val.raw()) : "r"(x));
+    return val;
+  }
+
+  // Methods
+
+  // Default constructor
+  __forceinline__ __device__
+  half_t() :
+    storage()
+  { }
+
+  __forceinline__ __device__
+  explicit half_t(float x) {
+    storage = fromFloat(x).raw();
+  }
+
+  __forceinline__ __device__
+  explicit half_t(int x) {
+    storage = fromInt(x).raw();
+  }
+
+  __forceinline__ __device__
+  operator float() const {
+    return toFloat(*this);
+  }
+
+  // Accesses raw internal state
+  __forceinline__ __device__
+  uint16_t& raw() {
+    return storage;
+  }
+
+  // Accesses raw internal state
+  __forceinline__ __device__
+  uint16_t raw() const {
+    return storage;
+  }
+
+private :
+  uint16_t storage;
+};
 )";
+
+
+
+
 
 // struct and code for functions that need random number generation
 static auto code_random_number_gen = R"(

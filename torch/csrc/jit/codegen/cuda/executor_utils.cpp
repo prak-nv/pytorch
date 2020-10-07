@@ -20,7 +20,7 @@ namespace executor_utils {
 std::string kernelPreamble() {
   std::stringstream ss;
   ss << code_template_tensor_struct << "\n"
-     << code_fp16_support << "\n"
+     << code_half_type_support << "\n"
      << code_random_number_gen << "\n"
      << code_helper_funcs << "\n"
      << code_template_block_reduction << "\n"

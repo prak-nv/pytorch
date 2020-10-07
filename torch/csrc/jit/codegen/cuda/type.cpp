@@ -39,7 +39,7 @@ static const char* data_type2string(DataType t) {
     case DataType::Float:
       return "float";
     case DataType::Half:
-      return "__half";
+      return "half_t";
     case DataType::Int:
       return "int64_t";
     case DataType::Null:
@@ -401,9 +401,9 @@ static const char* supported_casts2string(
     const std::pair<DataType, DataType>& t) {
   switch (supported_switch_pair(std::get<0>(t), std::get<1>(t))) {
     case supported_switch_pair(DataType::Float, DataType::Half):
-      return "__float2half";
+      return "half_t::fromFloat";
     case supported_switch_pair(DataType::Half, DataType::Float):
-      return "__half2float";
+      return "half_t::toFloat";
     default:
       break;
   }
