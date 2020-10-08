@@ -103,7 +103,7 @@ TensorDomain::TensorDomain(Passkey passkey, std::vector<IterDomain*> domain)
 TensorDomain::TensorDomain(
     Passkey passkey,
     const fuser::cuda::TensorDomain* tensor_domain)
-    : Val(passkey, tensor_domain->getDataType().value()),
+    : Val(passkey, DataType::Null),
       contiguity_(tensor_domain->contiguity()) {
   // preserve the fusion node's name
   setName(tensor_domain->name());

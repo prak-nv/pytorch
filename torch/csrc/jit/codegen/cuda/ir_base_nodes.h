@@ -165,10 +165,6 @@ class TORCH_CUDA_API Statement : public NonCopyable, public PolymorphicBase {
  */
 class TORCH_CUDA_API Val : public Statement {
  public:
-  virtual ~Val() = default;
-
-  Val() = delete;
-
   // We may not want to register this value during Val's constructor. The reason
   // for this is that if we register the val, then ina derived constructor try
   // to throw, fusion's destructor will get called, but the pointer to this Val

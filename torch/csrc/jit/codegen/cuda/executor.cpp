@@ -336,7 +336,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputs(
     kir::ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("allocOutputs");
   const auto kernel = lowered_.kernel();
-  std::vector<at::Tensor> outputs(kernel->outputs().size());
+  std::vector<at::Tensor> outputs;
   for (auto output : kernel->outputs()) {
     TORCH_INTERNAL_ASSERT(output->isA<kir::TensorView>(),
         "Cannot allocate outputs that are not tensors.");
@@ -380,7 +380,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   auto stream = at::cuda::getCurrentCUDAStream();
 
   LaunchParams launch_params;
-  std::vector<at::Tensor> alloced_outputs = outputs;
+  std::vector<at::Tensor> allocated_outputs = outputs;
   GlobalBuffers global_buffers;
   uint64_t rand_offset = 0;
 
@@ -394,7 +394,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         auto tensor_options = at::TensorOptions()
                                   .dtype(executor_entry->output_types[i])
                                   .device(options_.device);
-        alloced_outputs.push_back(at::native::empty_cuda(
+        allocated_outputs.push_back(at::native::empty_cuda(
             executor_entry->output_sizes[i], tensor_options));
       }
       for (size_t i = 0; i < executor_entry->empty_buffer_sizes.size(); i++) {
@@ -426,10 +426,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     launch_params = computeLaunchParams(launch_constraints, expr_eval);
 
     if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
-      alloced_outputs = allocOutputs(expr_eval);
+      allocated_outputs = allocOutputs(expr_eval);
     } else {
       executor_utils::validateKernelOutputs(
-          &fusion_, alloced_outputs, options_.device);
+          &fusion_, allocated_outputs, options_.device);
     }
 
     global_buffers = allocGlobalVals(expr_eval);
@@ -443,7 +443,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       // works.
       rand_offset = 4 *
           (std::ceil(
-               alloced_outputs[0].numel() /
+               allocated_outputs[0].numel() /
                (4.0 * 128 * launch_params.gdimx())) + // NOLINT
            1);
     }
@@ -453,7 +453,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (executor_entry) {
       // record the the short-cut executor entry for the given input set;
       executor_entry->launch_params = launch_params;
-      for (const auto& output : alloced_outputs) {
+      for (const auto& output : allocated_outputs) {
         executor_entry->output_sizes.push_back(output.sizes().vec());
         executor_entry->output_types.push_back(output.scalar_type());
       }
@@ -472,7 +472,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   KernelArgumentHolder kernel_arguments;
   kernel_arguments.push(inputs);
-  kernel_arguments.push(alloced_outputs);
+  kernel_arguments.push(allocated_outputs);
   kernel_arguments.push(global_buffers.empty_buffers);
   kernel_arguments.push(global_buffers.zero_buffers);
   if (lowered_.kernel()->summary().is_stochastic) {
@@ -496,7 +496,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     AT_CUDA_CHECK(cudaStreamSynchronize(stream));
   }
 
-  return alloced_outputs;
+  return allocated_outputs;
 }
 
 } // namespace cuda

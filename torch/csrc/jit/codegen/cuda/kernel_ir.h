@@ -489,6 +489,7 @@ class TORCH_CUDA_API IterDomain final : public Val {
   bool is_rfactor_domain_ = false;
 };
 
+// TODO(kir): is this really a value?
 class TORCH_CUDA_API TensorDomain final : public Val {
  public:
   explicit TensorDomain(Passkey passkey, std::vector<IterDomain*> domain);
