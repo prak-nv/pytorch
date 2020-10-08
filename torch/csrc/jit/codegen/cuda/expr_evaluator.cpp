@@ -37,7 +37,7 @@ void StatefulExpressionEvaluator::safeBind(
 
 c10::optional<Int::ScalarType> StatefulExpressionEvaluator::inferValue(
     Val* value) {
-  FUSER_PERF_SCOPE("inferValue");
+  FUSER_PERF_SCOPE("StatefulExpressionEvaluator::inferValue");
   return maybeHandle(value);
 }
 
@@ -45,12 +45,9 @@ void StatefulExpressionEvaluator::print() const {
   std::cout << "\nEvaluation context\n";
   std::cout << "--------------------\n";
   for (const auto& kv : bindings_) {
-    std::cout << kv.first << " = " << kv.second;
-    if (kv.first->isConstScalar()) {
-      std::cout << " ; original value = "
-                << kv.first->as<Int>()->value().value();
-    }
-    std::cout << " ; " << *kv.first->getValType() << "\n";
+    TORCH_INTERNAL_ASSERT(!kv.first->isConstScalar());
+    std::cout << kv.first << " = " << kv.second << " ; "
+              << *kv.first->getValType() << "\n";
   }
   std::cout << "--------------------\n\n";
 }
