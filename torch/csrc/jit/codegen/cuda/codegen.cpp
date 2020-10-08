@@ -66,7 +66,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
               << TensorDomain::noReductions(
                      tv->fuserTv()->getMaybeRFactorDomain())
                      .size()
-              << "> " << gen(tv);
+              << "> " << varName(tv, "T");
       } else {
         TORCH_INTERNAL_ASSERT(val->isScalar());
         code_ << val->dtype() << " " << gen(val);
@@ -160,10 +160,15 @@ class CudaKernelGenerator : private kir::IrVisitor {
     return tmp_code.str();
   }
 
-  std::string gen(const kir::TensorView* tv) {
-    std::stringstream tv_name;
-    tv_name << "T" << tv->name();
-    return tv_name.str();
+  // TODO(kir): consider automatic var naming
+  std::string varName(const kir::Val* val, const char* prefix) {
+    std::stringstream value_name;
+    if (val->name() != kInvalidStmName) {
+      value_name << prefix << val->name();
+    } else {
+      value_name << "k" << prefix << val->id();
+    }
+    return value_name.str();
   }
 
   std::string genInline(const kir::Node* node) {
@@ -181,7 +186,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     } else if (node->isConst()) {
       code_ << *node->value();
     } else {
-      code_ << "b" << node->name();
+      code_ << varName(node, "b");
     }
   }
 
@@ -193,7 +198,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
       const int digits = std::numeric_limits<Float::ScalarType>::max_digits10;
       code_ << "float(" << std::setprecision(digits) << *node->value() << ")";
     } else {
-      code_ << "f" << node->name();
+      code_ << varName(node, "f");
     }
   }
 
@@ -204,7 +209,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     } else if (node->isConst()) {
       code_ << "__float2half(" << *node->value() << ")";
     } else {
-      code_ << "h" << node->name();
+      code_ << varName(node, "h");
     }
   }
 
@@ -215,7 +220,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     } else if (node->isConst()) {
       code_ << *node->value();
     } else {
-      code_ << "i" << node->name();
+      code_ << varName(node, "i");
     }
   }
 
@@ -224,7 +229,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
   }
 
   void visit(const kir::TensorIndex* node) final {
-    code_ << gen(node->view()) << "[";
+    code_ << varName(node->view(), "T") << "[";
 
     bool first = true;
     for (auto* ind : node->indices()) {
@@ -252,8 +257,9 @@ class CudaKernelGenerator : private kir::IrVisitor {
     TORCH_INTERNAL_ASSERT(!"Unreachable");
   }
 
-  void visit(const kir::TensorView* node) final {
-    TORCH_INTERNAL_ASSERT(!"Unreachable");
+  void visit(const kir::TensorView* tv) final {
+    // TODO(kir): temporary workaround for reduction initialization
+    code_ << varName(tv, "T") << "[0]";
   }
 
   void visit(const kir::UnaryOp* node) final {
@@ -271,8 +277,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     } else {
       if (node->operation() == UnaryOpType::Cast) {
         const auto cast_str =
-            cast_func_str({node->in()->dtype(),
-                           node->out()->dtype()});
+            cast_func_str({node->in()->dtype(), node->out()->dtype()});
         code_ << cast_str.value();
       } else {
         code_ << node->operation();
@@ -496,8 +501,8 @@ class CudaKernelGenerator : private kir::IrVisitor {
       indent() << kTab << gen(rop->in()) << ",\n";
     }
     indent() << kTab << genReductionOp(op_type, data_type) << ",\n";
-    indent() << kTab << "&" << gen(work_buffer) << "[0],\n";
-    indent() << kTab << gen(sync_buffer) << ",\n";
+    indent() << kTab << "&" << varName(work_buffer, "T") << "[0],\n";
+    indent() << kTab << varName(sync_buffer, "T") << ",\n";
     indent() << kTab << "static_cast<" << data_type << "*>(shared_mem),\n";
     if (node->pred() == nullptr) {
       indent() << kTab << "true,\n";
@@ -563,20 +568,20 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
     switch (tv->memoryType()) {
       case MemoryType::Global:
-        indent() << "// Allocate global tensor " << gen(tv) << "\n";
+        indent() << "// Allocate global tensor " << varName(tv, "T") << "\n";
         break;
       case MemoryType::Shared: {
         if (node->size()->isScalar() && node->size()->isConst()) {
           // Static shared memory
-          indent() << "__shared__ " << buffer_dtype << " " << gen(tv) << "["
-                   << genInline(node->size()) << "];\n";
+          indent() << "__shared__ " << buffer_dtype << " " << varName(tv, "T")
+                   << "[" << genInline(node->size()) << "];\n";
         } else {
           // Align Offset Position
           indent() << "offset = alignBufferSize(offset,"
                    << dataTypeSize(buffer_dtype) << ");\n";
           // Shared Memory Pointer
-          indent() << buffer_dtype << "* " << gen(tv) << " = reinterpret_cast<"
-                   << buffer_dtype << "*>"
+          indent() << buffer_dtype << "* " << varName(tv, "T")
+                   << " = reinterpret_cast<" << buffer_dtype << "*>"
                    << "(array + offset);\n";
           // Increment Offset Position
           indent() << "offset += (" << genInline(node->size()) << " * sizeof("
@@ -585,7 +590,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
         break;
       }
       case MemoryType::Local:
-        indent() << buffer_dtype << " " << gen(tv) << "["
+        indent() << buffer_dtype << " " << varName(tv, "T") << "["
                  << genInline(node->size()) << "];\n";
         break;
       default:

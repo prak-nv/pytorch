@@ -162,6 +162,7 @@ class TORCH_CUDA_API Val : public Node {
  public:
   Val(Passkey passkey, DataType dtype);
 
+  // TODO(kir): consider renaming
   StmtNameType name() const {
     return name_;
   }
