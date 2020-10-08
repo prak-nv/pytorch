@@ -45,12 +45,12 @@ kir::Expr* LoopNestGenerator::pushAlloc(TensorView* tv) {
   for (size_t i = alloc_pos; i < tv->nDims(); i++) {
     IterDomain* compute_at_dim = tv->getComputeAtAxis(i).first;
     IterDomain* local_dim = tv->axis(i);
+    const auto memory_type = tv->getMemoryType();
     if (
         // If shared memory, don't use any IDs bound to a grid dimension
-        (tv->memory_type_ == MemoryType::Shared &&
-         compute_at_dim->isBlockDim()) ||
+        (memory_type == MemoryType::Shared && compute_at_dim->isBlockDim()) ||
         // If local memory, don't use any IDs bound to a grid or block dimension
-        (tv->memory_type_ == MemoryType::Local && compute_at_dim->isThread()) ||
+        (memory_type == MemoryType::Local && compute_at_dim->isThread()) ||
         // If we're reducing this dimension, don't use it in the allocation
         // computation
         local_dim->isReduction() ||
@@ -715,6 +715,8 @@ void reorderExprsForComputeAt(std::vector<Expr*>& exprs) {
 void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   FusionGuard fg(fusion_);
 
+  TORCH_INTERNAL_ASSERT(lowered_exprs_.empty());
+
   // Identify all shared memory TensorViews
   // Insert into shared_memory map <tv, modify status>
   for (auto v : fusion_->vals()) {
@@ -724,9 +726,6 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
       }
     }
   }
-
-  // Initialize members of the class
-  lowered_exprs_.clear();
 
   auto reordered = exprs;
   reorderExprsForComputeAt(reordered);

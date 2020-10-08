@@ -175,7 +175,6 @@ class ComputeAt;
 class TransformReplay;
 class TransformIter;
 class OptOutMutator;
-class LoopNestGenerator;
 
 namespace ir_utils {
 class TVDomainGuard;
@@ -354,7 +353,6 @@ class TORCH_CUDA_API TensorView : public Val {
 
   friend TORCH_CUDA_API TransformReplay;
   friend TORCH_CUDA_API OptOutMutator;
-  friend TORCH_CUDA_API LoopNestGenerator;
   friend ComputeAt;
   friend void IrFixComputeAt(Fusion*);
   friend void adjustMemoryTypes(Fusion* fusion);
