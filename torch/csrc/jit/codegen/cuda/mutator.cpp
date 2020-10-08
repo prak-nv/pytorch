@@ -171,9 +171,9 @@ Statement* OptOutMutator::mutate(ReductionOp* rop) {
   return new ReductionOp(rop->getReductionOpType(), init, out, in);
 }
 
-Statement* OptOutMutator::mutate(BroadcastOp* bop) {	
-  return bop;	
-}	
+Statement* OptOutMutator::mutate(BroadcastOp* bop) {
+  return bop;
+}
 
 } // namespace cuda
 } // namespace fuser
