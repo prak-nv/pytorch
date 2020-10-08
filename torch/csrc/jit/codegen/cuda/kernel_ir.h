@@ -179,8 +179,12 @@ class TORCH_CUDA_API Val : public Node {
   }
 
   Expr* definition() const {
-    // $$$
-    return nullptr;
+    return definition_;
+  }
+
+  void setDefinition(Expr* expr) {
+    TORCH_INTERNAL_ASSERT(definition_ == nullptr);
+    definition_ = expr;
   }
 
   virtual bool isScalar() const { return false; }
@@ -193,6 +197,9 @@ class TORCH_CUDA_API Val : public Node {
 
  private:
   const DataType dtype_;
+
+  // The expression which defines this value, or nullptr
+  Expr* definition_ = nullptr;
 
   // This is a value name preserved from the Fusion IR (optional)
   StmtNameType name_ = kInvalidStmName;
@@ -235,6 +242,7 @@ protected:
   }
 
   void addOutput(Val* output) {
+    output->setDefinition(this);
     outputs_.push_back(output);
   }
 
