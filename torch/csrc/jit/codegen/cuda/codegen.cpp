@@ -258,8 +258,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
   }
 
   void visit(const kir::TensorView* tv) final {
-    // TODO(kir): temporary workaround for reduction initialization
-    code_ << varName(tv, "T") << "[0]";
+    TORCH_INTERNAL_ASSERT(!"Unreachable");
   }
 
   void visit(const kir::UnaryOp* node) final {

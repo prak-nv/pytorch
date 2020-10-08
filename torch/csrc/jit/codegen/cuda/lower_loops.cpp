@@ -126,8 +126,7 @@ kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
 
 void LoopNestGenerator::openFor(IterDomain* iter_domain) {
   if (for_loops_.size() > 0) {
-    kir::ForLoop* new_scope = openForHelper(for_loops_.back(), iter_domain);
-    for_loops_.push_back(new_scope);
+    for_loops_.push_back(openForHelper(for_loops_.back(), iter_domain));
   } else {
     for_loops_.push_back(openForHelper(nullptr, iter_domain));
     lowered_exprs_.push_back(for_loops_.back());
@@ -150,6 +149,7 @@ void LoopNestGenerator::pushBack(kir::Expr* expr) {
 // Update for loop structure based on this TensorView, if there's an allocation
 // stmt, send it in so we can make sure that we insert this initialization after
 // it
+// $$$ revisit indexing generation
 void LoopNestGenerator::initReduction(
     TensorView* tv,
     Val* init_val,
@@ -172,14 +172,6 @@ void LoopNestGenerator::initReduction(
     ids.push_back(gpu_lower->lowerValue(dim)->as<kir::IterDomain>());
   }
 
-  // The initilization stmt that will be located inside the loop nest (if there
-  // is one)
-  // $$$ - don't reset def for tv
-  const auto init_stmt = ir_builder_.create<kir::UnaryOp>(
-      UnaryOpType::Set,
-      gpu_lower->lowerValue(tv),
-      gpu_lower->lowerValue(init_val));
-
   // Init a pointer that will become the entirety of the initialization
   kir::Expr* init_loop_nest = nullptr;
 
@@ -187,13 +179,18 @@ void LoopNestGenerator::initReduction(
   // if one exists. Once we're done this inner_fl will be the inner most loop
   // containing the init_stmt
   kir::ForLoop* inner_fl = nullptr;
-  if (alloc_pos >= 1)
+  if (alloc_pos >= 1) {
     inner_fl = for_loops_[alloc_pos - 1];
+  }
+
+  // Keep track of the init for indeces, 
+  // which are needed to generate the inner kir::TensorIndex
+  std::vector<kir::Val*> indeces;
 
   // Work through the iter domains that we need to initialize on, outside to
   // inside, to construct the loop nest for the initialization.
   for (auto id : ids) {
-    kir::ForLoop* new_fl;
+    kir::ForLoop* new_fl = nullptr;
 
     if (id->isThread()) {
       // If based on a thread, make sure we get the named Int right
@@ -207,6 +204,7 @@ void LoopNestGenerator::initReduction(
       // Otherwise it's just a new int-
       new_fl = ir_builder_.create<kir::ForLoop>(
           ir_builder_.create<kir::Int>(c10::nullopt), id, inner_fl);
+      indeces.push_back(new_fl->index());
     }
 
     if (init_loop_nest == nullptr) {
@@ -217,16 +215,25 @@ void LoopNestGenerator::initReduction(
       // Otherwise place it inside the last generated loop
       inner_fl->body().push_back(new_fl);
     }
+
     // Increment the inner most for loop
     inner_fl = new_fl;
   }
 
+  if (indeces.empty()) {
+    indeces.push_back(ir_builder_.create<kir::Int>(0));
+  }
+
+  // Create the initialization assignment
+  const auto tensor_index = ir_builder_.create<kir::TensorIndex>(tv, indeces);
+  const auto init_stmt = ir_builder_.create<kir::UnaryOp>(
+      UnaryOpType::Set, tensor_index, gpu_lower->lowerValue(init_val));
+
+  // If there were for loops generated, place the init_stmt in the inner most
+  // for loop. If no loops were generated, than our init_stmt is all we need.
   if (init_loop_nest == nullptr) {
-    // If no loops were generated, than our init_stmt is all we need
     init_loop_nest = init_stmt;
   } else {
-    // If there were for loops generated, place the init_stmt in the inner most
-    // for loop.
     inner_fl->body().push_back(init_stmt);
   }
 
@@ -655,7 +662,7 @@ void mergeGroupsIntoSortedList(
 // correct loop nests. Vector exprs is assumed to be topologically
 // sorted, but that is not sufficient as tensors computed at
 // outer loops need to be located earlier.
-std::vector<Expr*> reorderExprsForComputeAt(std::vector<Expr*>& exprs) {
+std::vector<Expr*> reorderExprsForComputeAt(const std::vector<Expr*>& exprs) {
   ExprListT reordered_exprs;
   // expr -> target
   ExprTargetMapT target_map;
@@ -767,10 +774,8 @@ kir::Val* LoopNestGenerator::lowerOperand(Val* op, Val* out) const {
   }
 }
 
-kir::Val* LoopNestGenerator::lowerOutput(const Expr* expr) const {
-  TORCH_CHECK(expr->outputs().size() == 1);
-  const auto out = expr->output(0);
-  if (ir_utils::isTVOp(expr)) {
+kir::Val* LoopNestGenerator::lowerOutput(Val* out) const {
+  if (ir_utils::isTV(out)) {
     return Index::getConsumerIndex(ir_utils::asTV(out), for_loops_);
   } else {
     return GpuLower::current()->lowerValue(out);
@@ -780,7 +785,7 @@ kir::Val* LoopNestGenerator::lowerOutput(const Expr* expr) const {
 void LoopNestGenerator::handle(const UnaryOp* uop) {
   if (ir_utils::isTVOp(uop)) {
     const auto in = lowerOperand(uop->in(), uop->out());
-    const auto out = lowerOutput(uop);
+    const auto out = lowerOutput(uop->out());
     pushBack(ir_builder_.create<kir::UnaryOp>(uop->getUnaryOpType(), out, in));
   } else {
     // This will automatically lower the expression defining the value
@@ -793,7 +798,7 @@ void LoopNestGenerator::handle(const BinaryOp* bop) {
   if (ir_utils::isTVOp(bop)) {
     const auto lhs = lowerOperand(bop->lhs(), bop->out());
     const auto rhs = lowerOperand(bop->rhs(), bop->out());
-    const auto out = lowerOutput(bop);
+    const auto out = lowerOutput(bop->out());
     pushBack(ir_builder_.create<kir::BinaryOp>(
         bop->getBinaryOpType(), out, lhs, rhs));
   } else {
@@ -808,7 +813,7 @@ void LoopNestGenerator::handle(const TernaryOp* top) {
     const auto in1 = lowerOperand(top->in1(), top->out());
     const auto in2 = lowerOperand(top->in2(), top->out());
     const auto in3 = lowerOperand(top->in3(), top->out());
-    const auto out = lowerOutput(top);
+    const auto out = lowerOutput(top->out());
     pushBack(ir_builder_.create<kir::TernaryOp>(
         top->getTernaryOpType(), out, in1, in2, in3));
   } else {

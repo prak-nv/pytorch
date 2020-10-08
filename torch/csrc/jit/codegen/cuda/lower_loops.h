@@ -84,7 +84,7 @@ class TORCH_CUDA_API LoopNestGenerator : public OptOutConstDispatch {
   void generate(const std::vector<Expr*>& exprs);
 
   kir::Val* lowerOperand(Val* op, Val* out) const;
-  kir::Val* lowerOutput(const Expr* expr) const;
+  kir::Val* lowerOutput(Val* out) const;
 
   void handle(const Expr*) final;
   void handle(const UnaryOp*) final;
