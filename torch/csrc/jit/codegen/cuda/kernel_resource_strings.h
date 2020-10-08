@@ -111,7 +111,7 @@ public:
   Array() { }
 
   __forceinline__ __device__
-  constexpr size_t size() const {
+  size_t size() const {
     return elements_;
   }
 
@@ -143,23 +143,12 @@ public:
   }
 
   __forceinline__ __device__
-  const ScalarType& operator[](size_t pos) const {
-    // TODO: Index check?
-    return storage_[pos];
-  }
-
-  __forceinline__ __device__
   ScalarType* data() {
     return reinterpret_cast<ScalarType*>(storage_);
   }
 
-  __forceinline__ __device__
-  const ScalarType* data() {
-    return reinterpret_cast<const ScalarType*>(storage_);
-  }
-
 private:
-  constexpr size_t elements_ = Elements;
+  size_t elements_ = Elements;
   ScalarType storage_[Elements];
 };
 )";
