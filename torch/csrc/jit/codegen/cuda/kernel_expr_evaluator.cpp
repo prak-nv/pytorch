@@ -7,7 +7,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
-//namespace cuda {
+namespace cuda {
 namespace kir {
 
 void ExpressionEvaluator::print() const {
@@ -27,7 +27,7 @@ void ExpressionEvaluator::print() const {
 }
 
 } // namespace kir
-//} // namespace cuda
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

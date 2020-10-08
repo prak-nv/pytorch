@@ -11,7 +11,7 @@
 namespace torch {
 namespace jit {
 namespace fuser {
-//namespace cuda {$$$
+namespace cuda {
 namespace kir {
 
 //! $$$
@@ -127,7 +127,7 @@ class TORCH_CUDA_API ExpressionEvaluator : private IrVisitor {
 };
 
 } // namespace kir
-//} // namespace cuda $$$
+} // namespace cuda
 } // namespace fuser
 } // namespace jit
 } // namespace torch

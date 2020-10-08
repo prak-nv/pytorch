@@ -71,8 +71,8 @@ void FusionExecutor::debugCompileFusionFromStr(
   has_block_broadcasts = kernel_summary.has_block_broadcasts;
 
   if (!kernel_summary.static_smem_allocations.empty()) {
-    StatefulExpressionEvaluator static_evaluator(&fusion_);
-    unsigned static_smem_size = computeSharedMemory(
+    kir::ExpressionEvaluator static_evaluator;
+    const auto static_smem_size = computeSharedMemory(
         static_evaluator, kernel_summary.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
         static_smem_size < max_device_smem,
@@ -121,7 +121,7 @@ void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
 
   if (!kernel_summary.static_smem_allocations.empty()) {
     kir::ExpressionEvaluator static_evaluator;
-    unsigned static_smem_size = computeSharedMemory(
+    const auto static_smem_size = computeSharedMemory(
         static_evaluator, kernel_summary.static_smem_allocations);
     TORCH_INTERNAL_ASSERT(
         static_smem_size < max_device_smem,

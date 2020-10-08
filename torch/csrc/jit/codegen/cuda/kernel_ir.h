@@ -252,7 +252,7 @@ class TORCH_CUDA_API NamedScalar final : public Val {
   NamedScalar(Passkey passkey, std::string name, DataType dtype)
       : Val(passkey, dtype), name_(name) {}
 
-  explicit NamedScalar(Passkey passkey, const fuser::NamedScalar* node)
+  explicit NamedScalar(Passkey passkey, const fuser::cuda::NamedScalar* node)
       : Val(passkey, node->getDataType().value()) {
     name_ = node->name();
   }
@@ -290,7 +290,7 @@ class TORCH_CUDA_API Bool final : public Val {
       : Val(passkey, DataType::Bool),
         maybe_value_(value) {}
 
-  explicit Bool(Passkey passkey, const fuser::Bool* node)
+  explicit Bool(Passkey passkey, const fuser::cuda::Bool* node)
       : Val(passkey, DataType::Bool), maybe_value_(node->value()) {
     setName(node->name());
   }
@@ -319,7 +319,7 @@ class TORCH_CUDA_API Float final : public Val {
       : Val(passkey, DataType::Float),
         maybe_value_(value) {}
 
-  explicit Float(Passkey passkey, const fuser::Float* node)
+  explicit Float(Passkey passkey, const fuser::cuda::Float* node)
       : Val(passkey, DataType::Float), maybe_value_(node->value()) {
     setName(node->name());
   }
@@ -348,7 +348,7 @@ class TORCH_CUDA_API Half final : public Val {
       : Val(passkey, DataType::Half),
         maybe_value_(value) {}
 
-  explicit Half(Passkey passkey, const fuser::Half* node)
+  explicit Half(Passkey passkey, const fuser::cuda::Half* node)
       : Val(passkey, DataType::Half), maybe_value_(node->value()) {
     setName(node->name());
   }
@@ -379,7 +379,7 @@ class TORCH_CUDA_API Int final : public Val {
 
   explicit Int(
       Passkey passkey,
-      const fuser::Int* node,
+      const fuser::cuda::Int* node,
       bool /*avoid_zero_ambiguity*/)
       : Val(passkey, DataType::Int), maybe_value_(node->value()) {
     setName(node->name());
@@ -413,7 +413,7 @@ class TORCH_CUDA_API IterDomain final : public Val {
  public:
   IterDomain(Passkey passkey, Val* start, Val* extent);
 
-  explicit IterDomain(Passkey passkey, const fuser::IterDomain* iter_domain);
+  explicit IterDomain(Passkey, const fuser::cuda::IterDomain* iter_domain);
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }
 
@@ -487,7 +487,7 @@ class TORCH_CUDA_API TensorDomain final : public Val {
 
   explicit TensorDomain(
       Passkey passkey,
-      const fuser::TensorDomain* tensor_domain);
+      const fuser::cuda::TensorDomain* tensor_domain);
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }
 
@@ -556,7 +556,7 @@ class TORCH_CUDA_API TensorDomain final : public Val {
 
 class TORCH_CUDA_API TensorView final : public Val {
  public:
-  explicit TensorView(Passkey passkey, const fuser::TensorView* tv);
+  explicit TensorView(Passkey, const fuser::cuda::TensorView* tv);
 
   TensorDomain* domain() const {
     return domain_;
@@ -723,8 +723,8 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
 class TORCH_CUDA_API TensorIndex final : public Val {
  public:
   TensorIndex(
-      Passkey passkey,
-      const fuser::TensorView* view,
+      Passkey,
+      const fuser::cuda::TensorView* view,
       std::vector<Val*> indices);
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }

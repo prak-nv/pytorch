@@ -70,7 +70,9 @@ c10::optional<ParallelType> NamedScalar::getParallelIndex() const {
 IterDomain::IterDomain(Passkey passkey, Val* start, Val* extent)
     : Val(passkey, DataType::Int), start_(start), extent_(extent) {}
 
-IterDomain::IterDomain(Passkey passkey, const fuser::IterDomain* iter_domain)
+IterDomain::IterDomain(
+    Passkey passkey,
+    const fuser::cuda::IterDomain* iter_domain)
     : Val(passkey, iter_domain->getDataType().value()),
       start_(GpuLower::current()->lowerValue(iter_domain->start())),
       extent_(GpuLower::current()->lowerValue(iter_domain->rawExtent())),
@@ -100,7 +102,7 @@ TensorDomain::TensorDomain(Passkey passkey, std::vector<IterDomain*> domain)
 
 TensorDomain::TensorDomain(
     Passkey passkey,
-    const fuser::TensorDomain* tensor_domain)
+    const fuser::cuda::TensorDomain* tensor_domain)
     : Val(passkey, tensor_domain->getDataType().value()),
       contiguity_(tensor_domain->contiguity()) {
   // preserve the fusion node's name
@@ -181,7 +183,7 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return no_broadcast_domains;
 }
 
-TensorView::TensorView(Passkey passkey, const fuser::TensorView* tv)
+TensorView::TensorView(Passkey passkey, const fuser::cuda::TensorView* tv)
     : Val(passkey, tv->getDataType().value()), fuser_tv_(tv) {
   setName(tv->name());
   domain_ = GpuLower::current()->lowerValue(tv->domain())->as<TensorDomain>();
@@ -278,7 +280,7 @@ BroadcastOp::BroadcastOp(Passkey passkey, Val* out, Val* in)
 
 TensorIndex::TensorIndex(
     Passkey passkey,
-    const fuser::TensorView* view,
+    const fuser::cuda::TensorView* view,
     std::vector<Val*> indices)
     : Val(passkey, view->getDataType().value()),
       view_(GpuLower::current()->lowerValue(view)->as<TensorView>()),
