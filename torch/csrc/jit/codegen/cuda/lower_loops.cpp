@@ -655,7 +655,7 @@ void mergeGroupsIntoSortedList(
 // correct loop nests. Vector exprs is assumed to be topologically
 // sorted, but that is not sufficient as tensors computed at
 // outer loops need to be located earlier.
-void reorderExprsForComputeAt(std::vector<Expr*>& exprs) {
+std::vector<Expr*> reorderExprsForComputeAt(std::vector<Expr*>& exprs) {
   ExprListT reordered_exprs;
   // expr -> target
   ExprTargetMapT target_map;
@@ -678,7 +678,7 @@ void reorderExprsForComputeAt(std::vector<Expr*>& exprs) {
 
   // If no computeAt found, no need to reorder.
   if (computed_at_exprs.size() == 0) {
-    return;
+    return exprs;
   }
 
   // 2. Sort each loop-nest group based on axis (i.e., score)
@@ -706,7 +706,7 @@ void reorderExprsForComputeAt(std::vector<Expr*>& exprs) {
   // Reordering completed. Reordered exprs exist in reordered_exprs.
 
   TORCH_INTERNAL_ASSERT(exprs.size() == reordered_exprs.size());
-  exprs = std::move(reordered_exprs);
+  return reordered_exprs;
 }
 
 } // namespace
@@ -718,7 +718,6 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   TORCH_INTERNAL_ASSERT(lowered_exprs_.empty());
 
   // Identify all shared memory TensorViews
-  // Insert into shared_memory map <tv, modify status>
   for (auto v : fusion_->vals()) {
     if (v->getValType().value() == ValType::TensorView) {
       if (v->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
@@ -727,10 +726,8 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
     }
   }
 
-  auto reordered = exprs;
-  reorderExprsForComputeAt(reordered);
-
-  for (auto* expr : reordered) {
+  // Process the carefully ordered expressions
+  for (const auto* expr : reorderExprsForComputeAt(exprs)) {
     handle(expr);
   }
 
