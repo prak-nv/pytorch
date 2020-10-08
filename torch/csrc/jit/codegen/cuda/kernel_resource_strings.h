@@ -100,9 +100,69 @@ private :
 };
 )";
 
+static auto code_vect_array_support = R"(
+template <typename ScalarType, int Elements >
+class Array {
+public:
+  /// Initialization should be explicit as the user
+  /// may perfer an empty array
+  // TODO: Check for zero elements?
+  __forceinline__ __device__
+  Array() { }
 
+  __forceinline__ __device__
+  constexpr size_t size() const {
+    return elements_;
+  }
 
+ /// Set array to specific value
+ /// Maybe not of the other initializers are needed
+  __forceinline__ __device__
+  void fill(ScalarType val) {
+    for(size_t i = 0; i < elements_; ++i) {
+      storage_[i] = val;
+    }
+  }
 
+  /// Set array to all zeros
+  __forceinline__ __device__
+  void zeros() {
+    fill(ScalarType(0));
+  }
+
+  /// Set array to all ones
+  __forceinline__ __device__
+  void ones() {
+    fill(ScalarType(1));
+  }
+
+  __forceinline__ __device__
+  ScalarType& operator[](size_t pos) {
+    // TODO: Index check?
+    return storage_[pos];
+  }
+
+  __forceinline__ __device__
+  const ScalarType& operator[](size_t pos) const {
+    // TODO: Index check?
+    return storage_[pos];
+  }
+
+  __forceinline__ __device__
+  ScalarType* data() {
+    return reinterpret_cast<ScalarType*>(storage_);
+  }
+
+  __forceinline__ __device__
+  const ScalarType* data() {
+    return reinterpret_cast<const ScalarType*>(storage_);
+  }
+
+private:
+  constexpr size_t elements_ = Elements;
+  ScalarType storage_[Elements];
+};
+)";
 
 // struct and code for functions that need random number generation
 static auto code_random_number_gen = R"(
