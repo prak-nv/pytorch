@@ -236,6 +236,14 @@ class TORCH_CUDA_API Expr : public Node {
 
   void setParentScope(Expr* scope);
 
+  Bool* predicate() const {
+    return predicate_;
+  }
+
+  void setPredicate(Bool* predicate) {
+    predicate_ = predicate;
+  }
+
 protected:
   // TODO(kir): try to avoid this protected interface
   void addInput(Val* input) {
@@ -254,6 +262,8 @@ protected:
 
   // TODO(kir): revisit scope/nesting data structures
   Expr* parent_scope_ = nullptr;
+
+  Bool* predicate_ = nullptr;
 };
 
 class TORCH_CUDA_API NamedScalar final : public Val {
@@ -707,14 +717,6 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
     return init_;
   }
 
-  Bool* predicate() const {
-    return predicate_;
-  }
-
-  void setPredicate(Bool* predicate) {
-    predicate_ = predicate;
-  }
-
   BinaryOpType operation() const {
     return operation_;
   }
@@ -730,7 +732,6 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
   Val* const init_ = nullptr;
   Val* const out_ = nullptr;
   Val* const in_ = nullptr;
-  Bool* predicate_ = nullptr;
 };
 
 class TORCH_CUDA_API TensorIndex final : public Val {
@@ -1003,14 +1004,6 @@ class TORCH_CUDA_API GridReduction final : public Expr {
     return sync_buffer_;
   }
 
-  Bool* predicate() const {
-    return predicate_;
-  }
-
-  void setPredicate(Bool* predicate) {
-    predicate_ = predicate;
-  }
-
   static std::string getPredicateFlagName(const TensorView* val);
   static std::string getPredicateFlagName(const fuser::cuda::TensorView* val);
 
@@ -1018,7 +1011,6 @@ class TORCH_CUDA_API GridReduction final : public Expr {
   ReductionOp* reduction_op_ = nullptr;
   Allocate* reduction_buffer_ = nullptr;
   Allocate* sync_buffer_ = nullptr;
-  Bool* predicate_ = nullptr;
 };
 
 std::string toString(const Node* node);
