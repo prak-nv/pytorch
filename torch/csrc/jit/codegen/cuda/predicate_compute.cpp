@@ -22,10 +22,15 @@ namespace {
 // TODO(kir): same question as ir_utils::getTvOutput():
 //    why do we assume a single TV output?
 //
-kir::TensorView* firstTvOutput(kir::Expr* expr) {
+const kir::TensorView* firstTvOutput(kir::Expr* expr) {
   for (auto out : expr->outputs()) {
     if (out->isA<kir::TensorView>()) {
       return out->as<kir::TensorView>();
+    }
+
+    // $$$???
+    if (out->isA<kir::TensorIndex>()) {
+      return out->as<kir::TensorIndex>()->view();
     }
   }
   TORCH_INTERNAL_ASSERT(false, "Missing kir::TensorView output");

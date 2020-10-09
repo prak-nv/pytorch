@@ -30,10 +30,13 @@ kir::Bool* UnrollPass::getThreadPredicate(kir::TensorView* tv) {
 }
 
 void UnrollPass::handle(kir::Expr* expr) {
+  // $$$ we may have a TensorIndex instead of a TensorView here
   // If tv op, predicate it
   if (ir_utils::isTVOp(expr)) {
     TORCH_INTERNAL_ASSERT(for_loops_.size() != 0);
 
+    // $$$ we should already have the predicate here
+    #if 0
     const auto out_tv = expr->outputs()[0]->as<kir::TensorView>();
     const auto pred = PredicateCompute::getInlinePredicate(
         expr, for_loops_, getThreadPredicate(out_tv));
@@ -48,6 +51,7 @@ void UnrollPass::handle(kir::Expr* expr) {
       for_loops_.back()->body().insert_before(expr, inline_ite);
       for_loops_.back()->body().erase(expr);
     }
+    #endif
   } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
     handle(for_loop);
   }

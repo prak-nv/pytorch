@@ -447,10 +447,10 @@ class CudaKernelGenerator : private kir::IrVisitor {
       indent() << kTab << "threadIdx,\n";
       indent() << kTab << "blockDim,\n";
       indent() << kTab << "static_cast<" << data_type << "*>(shared_mem),\n";
-      if (node->pred() == nullptr) {
+      if (node->predicate() == nullptr) {
         indent() << kTab << "true,\n";
       } else {
-        indent() << kTab << genInline(node->pred()) << ",\n";
+        indent() << kTab << genInline(node->predicate()) << ",\n";
       }
       indent() << kTab << genInline(node->init()) << ");\n";
     }
@@ -503,10 +503,10 @@ class CudaKernelGenerator : private kir::IrVisitor {
     indent() << kTab << "&" << varName(work_buffer, "T") << "[0],\n";
     indent() << kTab << varName(sync_buffer, "T") << ",\n";
     indent() << kTab << "static_cast<" << data_type << "*>(shared_mem),\n";
-    if (node->pred() == nullptr) {
+    if (node->predicate() == nullptr) {
       indent() << kTab << "true,\n";
     } else {
-      indent() << kTab << genInline(node->pred()) << ",\n";
+      indent() << kTab << genInline(node->predicate()) << ",\n";
     }
     indent() << kTab << genInline(node->reduction_op()->init()) << ");\n";
   }

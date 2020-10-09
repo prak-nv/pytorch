@@ -232,14 +232,8 @@ ReductionOp::ReductionOp(
     BinaryOpType operation,
     Val* init,
     Val* out,
-    Val* in,
-    Bool* pred)
-    : Expr(passkey),
-      operation_(operation),
-      init_(init),
-      out_(out),
-      in_(in),
-      pred_(pred) {
+    Val* in)
+    : Expr(passkey), operation_(operation), init_(init), out_(out), in_(in) {
   addOutput(out);
   addInput(in);
 }
@@ -398,13 +392,11 @@ GridReduction::GridReduction(
     Passkey passkey,
     ReductionOp* reduction_op,
     Allocate* reduction_buffer,
-    Allocate* sync_buffer,
-    Bool* pred)
+    Allocate* sync_buffer)
     : Expr(passkey),
       reduction_op_(reduction_op),
       reduction_buffer_(reduction_buffer),
-      sync_buffer_(sync_buffer),
-      pred_(pred) {}
+      sync_buffer_(sync_buffer) {}
 
 std::string GridReduction::getPredicateFlagName(const TensorView* val) {
   std::stringstream ss;

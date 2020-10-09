@@ -1203,10 +1203,10 @@ kir::TensorIndex* Index::getConsumerIndex(
 // Basically just copy getGlobalConsumerIndex, just don't do the striding and
 // return std::vector of Vals
 //
-// TODO: replace pair with struct
+// TODO(kir): replace pair with struct
 //
 std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
-    kir::TensorView* consumer_tv,
+    const kir::TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::vector<bool>& root_contiguity,
     bool unroll) {

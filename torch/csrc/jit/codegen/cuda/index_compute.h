@@ -183,7 +183,7 @@ class Index {
   // Even those not used for physical addressing. Returns pair <root indices, if
   // indices are mapped to rfactor dom>
   static std::pair<std::vector<kir::Val*>, bool> getConsumerRootPredIndices(
-      kir::TensorView* consumer,
+      const kir::TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
       const std::vector<bool>& root_contiguity,
       bool unroll = false);

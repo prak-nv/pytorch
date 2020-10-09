@@ -691,8 +691,7 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
       BinaryOpType operation,
       Val* init,
       Val* out,
-      Val* in,
-      Bool* pred = nullptr);
+      Val* in);
 
   void accept(IrVisitor* visitor) const override { visitor->visit(this); }
 
@@ -708,8 +707,12 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
     return init_;
   }
 
-  Bool* pred() const {
-    return pred_;
+  Bool* predicate() const {
+    return predicate_;
+  }
+
+  void setPredicate(Bool* predicate) {
+    predicate_ = predicate;
   }
 
   BinaryOpType operation() const {
@@ -727,7 +730,7 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
   Val* const init_ = nullptr;
   Val* const out_ = nullptr;
   Val* const in_ = nullptr;
-  Bool* const pred_ = nullptr;
+  Bool* predicate_ = nullptr;
 };
 
 class TORCH_CUDA_API TensorIndex final : public Val {
@@ -986,8 +989,7 @@ class TORCH_CUDA_API GridReduction final : public Expr {
       Passkey passkey,
       ReductionOp* reduction_op,
       Allocate* reduction_buffer,
-      Allocate* sync_buffer,
-      Bool* pred = nullptr);
+      Allocate* sync_buffer);
 
   ReductionOp* reduction_op() const {
     return reduction_op_;
@@ -1001,8 +1003,12 @@ class TORCH_CUDA_API GridReduction final : public Expr {
     return sync_buffer_;
   }
 
-  Bool* pred() const {
-    return pred_;
+  Bool* predicate() const {
+    return predicate_;
+  }
+
+  void setPredicate(Bool* predicate) {
+    predicate_ = predicate;
   }
 
   static std::string getPredicateFlagName(const TensorView* val);
@@ -1012,7 +1018,7 @@ class TORCH_CUDA_API GridReduction final : public Expr {
   ReductionOp* reduction_op_ = nullptr;
   Allocate* reduction_buffer_ = nullptr;
   Allocate* sync_buffer_ = nullptr;
-  Bool* pred_ = nullptr;
+  Bool* predicate_ = nullptr;
 };
 
 std::string toString(const Node* node);

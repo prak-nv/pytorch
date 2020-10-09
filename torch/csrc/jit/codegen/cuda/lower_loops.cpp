@@ -823,38 +823,6 @@ void LoopNestGenerator::handle(const TernaryOp* top) {
   }
 }
 
-namespace {
-
-void allocateGridReductionFlag(
-    TensorView* out_tv,
-    kir::Expr* current_scope_expr) {
-  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-
-  const auto flag_name = kir::GridReduction::getPredicateFlagName(out_tv);
-  const auto flag_var = ir_builder.create<kir::Allocate>(
-      ir_builder.create<kir::NamedScalar>(flag_name, DataType::Bool),
-      MemoryType::Local,
-      ir_builder.create<kir::Int>(1));
-
-  // When enclosed by IfThenElse, place the variable outside of the
-  // IfThenElse. This IfThenElse is assumed to be the prediate for
-  // this grid reduction expression.
-  //
-  // TODO: review the assumption that we're always in the "then" branch
-  //
-  if (current_scope_expr->isA<kir::IfThenElse>()) {
-    scope_utils::insertBefore(
-        current_scope_expr->parentScope(),
-        current_scope_expr,
-        flag_var);
-  } else {
-    TORCH_INTERNAL_ASSERT(current_scope_expr->isA<kir::ForLoop>());
-    current_scope_expr->as<kir::ForLoop>()->body().push_back(flag_var);
-  }
-}
-
-} // namespace
-
 void LoopNestGenerator::handle(const ReductionOp* rop) {
   TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(rop));
 
@@ -881,33 +849,31 @@ void LoopNestGenerator::handle(const ReductionOp* rop) {
         "then the grid reduction.");
   }
 
-#if 0 // $$$
   const auto out = Index::getConsumerIndex(out_tv, for_loops_);
   const auto in = Index::getProducerIndex(
       ir_utils::asTV(rop->in()), ir_utils::asTV(rop->out()), for_loops_);
 
   kir::ReductionOp* block_reduction_op = nullptr;
+
   if (is_block_reduce) {
-
-    /*$$$
-    auto pred =
-        PredicateCompute::getInlinePredicate(rop, for_loops_, nullptr, false);
-    */
-    kir::Bool* pred = nullptr;
-
     block_reduction_op = ir_builder_.create<kir::ReductionOp>(
-        rop->getReductionOpType(),
-        gpu_lower->lowerValue(rop->init()),
-        out,
-        in,
-        pred);
+        rop->getReductionOpType(), gpu_lower->lowerValue(rop->init()), out, in);
+
+    block_reduction_op->setPredicate(PredicateCompute::getInlinePredicate(
+        block_reduction_op, for_loops_, nullptr, false));
+
     pushBack(block_reduction_op);
   }
 
   if (is_grid_reduce) {
     // First, declare a boolean flag variable storing the return value
-    // of gridReduce.
-    allocateGridReductionFlag(out_tv, active_scope_expr);
+    // of the gridReduce() helper
+    const auto flag_name = kir::GridReduction::getPredicateFlagName(out_tv);
+    const auto flag_var = ir_builder_.create<kir::Allocate>(
+        ir_builder_.create<kir::NamedScalar>(flag_name, DataType::Bool),
+        MemoryType::Local,
+        ir_builder_.create<kir::Int>(1));
+    pushBack(flag_var);
 
     std::vector<IterDomain*> buffer_ids(out_tv->domain()->domain());
     buffer_ids.erase(
@@ -942,9 +908,7 @@ void LoopNestGenerator::handle(const ReductionOp* rop) {
 
     IterDomain* buffer_id = new IterDomain(new Int(0), buffer_size);
     TensorView* reduce_buffer_tv = new TensorView(
-        new TensorDomain({buffer_id}),
-        out->getDataType().value(),
-        MemoryType::Global);
+        new TensorDomain({buffer_id}), out->dtype(), MemoryType::Global);
 
     IterDomain* sync_id = new IterDomain(new Int(0), sync_size);
     TensorView* reduce_sync_tv = new TensorView(
@@ -966,10 +930,11 @@ void LoopNestGenerator::handle(const ReductionOp* rop) {
               out,
               in)
         : block_reduction_op;
-    auto pred =
-        PredicateCompute::getInlinePredicate(rop, loops, nullptr, false);
-    const auto grid_reduction = ir_builder_.create<kir::GridReduction>(
-        grid_reduction_op, reduce_buffer, sync_buffer, pred);
+
+    auto grid_reduction = ir_builder_.create<kir::GridReduction>(
+        grid_reduction_op, reduce_buffer, sync_buffer);
+    grid_reduction->setPredicate(PredicateCompute::getInlinePredicate(
+        grid_reduction, for_loops_, nullptr, false));
 
     pushBack(reduce_buffer);
     pushBack(sync_buffer);
@@ -980,7 +945,6 @@ void LoopNestGenerator::handle(const ReductionOp* rop) {
     pushBack(ir_builder_.create<kir::BinaryOp>(
         rop->getReductionOpType(), out, out, in));
   }
-#endif
 }
 
 void LoopNestGenerator::handle(const BroadcastOp* bop) {
