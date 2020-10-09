@@ -204,6 +204,9 @@ void LoopNestGenerator::initReduction(
       // Otherwise it's just a new int-
       new_fl = ir_builder_.create<kir::ForLoop>(
           ir_builder_.create<kir::Int>(c10::nullopt), id, inner_fl);
+    }
+
+    if (!id->isThreadDim()) {
       indeces.push_back(new_fl->index());
     }
 

@@ -47,6 +47,7 @@ void IndexLowering::pushBack(kir::Expr* expr) {
   }
 }
 
+//$$$ ???
 void IndexLowering::handle(kir::IfThenElse* ite) {
   Expr* prev_scope_expr = active_scope_expr;
   kir::Scope* prev_scope = active_scope;
