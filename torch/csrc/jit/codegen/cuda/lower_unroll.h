@@ -65,7 +65,7 @@ class TORCH_CUDA_API UnrollPass {
   }
 
   // Wrapper to access thread_predicates_ based on an output TV
-  kir::Bool* getThreadPredicate(kir::TensorView*);
+  kir::Bool* getThreadPredicate(const kir::TensorView*);
 
   kir::Expr* applyReplacements(kir::Expr* expr) const;
 
@@ -93,6 +93,7 @@ class TORCH_CUDA_API UnrollPass {
 
   // As we generate inline predicates check if we actually generated a
   // non-trivial one.
+  // $$$ really neede?
   bool non_trivial_pred_found_ = false;
 };
 

@@ -15,7 +15,7 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-kir::Bool* UnrollPass::getThreadPredicate(kir::TensorView* tv) {
+kir::Bool* UnrollPass::getThreadPredicate(const kir::TensorView* tv) {
   // No thread predicate is needed predicate when tv is output of a
   // parallel broadcast expression.
   if (auto def = tv->definition()) {
@@ -30,28 +30,31 @@ kir::Bool* UnrollPass::getThreadPredicate(kir::TensorView* tv) {
 }
 
 void UnrollPass::handle(kir::Expr* expr) {
-  // $$$ we may have a TensorIndex instead of a TensorView here
-  // If tv op, predicate it
-  if (ir_utils::isTVOp(expr)) {
-    TORCH_INTERNAL_ASSERT(for_loops_.size() != 0);
+  const auto& outputs = expr->outputs();
+  if (outputs.size() == 1) {
+    //$$$ this should move to lowering
+    TORCH_INTERNAL_ASSERT(!outputs[0]->isA<kir::TensorView>());
+    if (auto out_ti = dynamic_cast<kir::TensorIndex*>(outputs[0])) {
+      TORCH_INTERNAL_ASSERT(for_loops_.size() != 0);
+      // If we need a predicate, put expr inside an if then else
 
-    // $$$ we should already have the predicate here
-    #if 0
-    const auto out_tv = expr->outputs()[0]->as<kir::TensorView>();
-    const auto pred = PredicateCompute::getInlinePredicate(
-        expr, for_loops_, getThreadPredicate(out_tv));
+      // $$$ we should already have the predicate here
+      // const auto pred = expr->predicate();
+      const auto pred = PredicateCompute::getInlinePredicate(
+          expr, for_loops_, getThreadPredicate(out_ti->view()));
 
-    // If we need a predicate, put expr inside an if then else
-    if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
-      non_trivial_pred_found_ = true;
-      kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-      kir::IfThenElse* inline_ite =
-          ir_builder.create<kir::IfThenElse>(pred, for_loops_.back());
-      inline_ite->thenBody().push_back(expr);
-      for_loops_.back()->body().insert_before(expr, inline_ite);
-      for_loops_.back()->body().erase(expr);
+      if (pred != nullptr) {
+        if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
+          non_trivial_pred_found_ = true;
+          kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+          kir::IfThenElse* inline_ite =
+              ir_builder.create<kir::IfThenElse>(pred, for_loops_.back());
+          inline_ite->thenBody().push_back(expr);
+          for_loops_.back()->body().insert_before(expr, inline_ite);
+          for_loops_.back()->body().erase(expr);
+        }
+      }
     }
-    #endif
   } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
     handle(for_loop);
   }
