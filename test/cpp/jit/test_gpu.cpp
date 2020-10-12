@@ -7153,6 +7153,62 @@ TEST(NVFuserTest, FusionGroupGuardRelaxedCheck) {
   TORCH_CHECK(complyWith(t1, tensor_type));
 }
 
+TEST(NVFuserTest, FusionComputeAtMultiBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // tv0 [i0]
+  auto tv0 = makeDummyTensor(1);
+  fusion.addInput(tv0);
+
+  // tv1 [i0]
+  auto tv1 = add(tv0, new Float(1));
+  // tv2 [B, i0]
+  auto tv2 = broadcast(tv1, {true, false});
+  // tv3 [B, i0]
+  auto tv3 = broadcast(tv1, {true, false});
+  // tv4 [i1, i0]
+  auto tv4 = makeDummyTensor(2);
+  fusion.addInput(tv4);
+  // tv5 [i1, i0]
+  auto tv5 = add(tv2, tv4);
+  fusion.addOutput(tv5);
+  // tv5 [i1, i0]
+  auto tv6 = add(tv3, tv4);
+  fusion.addOutput(tv6);
+
+  fusion.printMath();
+  // T1[ iS1{i1} ]
+  //     = T0[ iS0{i1} ]
+  //     + float(1);
+  // T2[ bS2{1}, iS1{i1} ] = broadcast( T1[ iS1{i1} ] )
+  // T5[ iS7{i8}, iS6{i1} ]
+  //     = T2[ bS2{1}, iS1{i1} ]
+  //     + T4[ iS4{i8}, iS5{i10} ];
+  // T3[ bS3{1}, iS1{i1} ] = broadcast( T1[ iS1{i1} ] )
+  // T6[ iS9{i8}, iS8{i1} ]
+  //     = T3[ bS3{1}, iS1{i1} ]
+  //     + T4[ iS4{i8}, iS5{i10} ];
+
+  tv1->computeAt(tv2, -1);
+
+  fusion.printMath();
+  // T1[ iS1{i1} ] compute_at( T2, 2 )
+  //     = T0[ iS0{i1} ]
+  //     + float(1);
+  // T2[ bS2{1}, iS1{i1} ] compute_at( T5, 1 ) = broadcast( T1[ iS1{i1} ] compute_at( T2, 2 ) )
+  // T5[ iS6{i1}, iS7{i8} ] compute_at( T6, 1 )
+  //     = T2[ bS2{1}, iS1{i1} ] compute_at( T5, 1 )
+  //     + T4[ iS4{i8}, iS5{i10} ];
+  // T3[ iS1{i1}, bS3{1} ] compute_at( T6, 1 ) = broadcast( T1[ iS1{i1} ] compute_at( T2, 2 ) )
+  // T6[ iS8{i1}, iS9{i8} ]
+  //     = T3[ iS1{i1}, bS3{1} ] compute_at( T6, 1 )
+  //     + T4[ iS4{i8}, iS5{i10} ];
+
+  //fusion.printKernel();
+  return;
+}
+
 } // namespace jit
 } // namespace torch
 
