@@ -7153,7 +7153,7 @@ TEST(NVFuserTest, FusionGroupGuardRelaxedCheck) {
   TORCH_CHECK(complyWith(t1, tensor_type));
 }
 
-TEST(NVFuserTest, FusionComputeAtMultiBroadcast) {
+TEST(NVFuserTest, FusionComputeAtMultiBroadcast1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -7190,22 +7190,21 @@ TEST(NVFuserTest, FusionComputeAtMultiBroadcast) {
   //     = T3[ bS3{1}, iS1{i1} ]
   //     + T4[ iS4{i8}, iS5{i10} ];
 
-  tv1->computeAt(tv2, -1);
+  tv1->computeAt(tv5, -1);
 
   fusion.printMath();
   // T1[ iS1{i1} ] compute_at( T2, 2 )
   //     = T0[ iS0{i1} ]
   //     + float(1);
-  // T2[ bS2{1}, iS1{i1} ] compute_at( T5, 1 ) = broadcast( T1[ iS1{i1} ] compute_at( T2, 2 ) )
-  // T5[ iS6{i1}, iS7{i8} ] compute_at( T6, 1 )
-  //     = T2[ bS2{1}, iS1{i1} ] compute_at( T5, 1 )
+  // T2[ bS2{1}, iS1{i1} ] compute_at( T5, 2 ) = broadcast( T1[ iS1{i1} ] compute_at( T2, 2 ) )
+  // T5[ iS7{i8}, iS6{i1} ] compute_at( T6, 1 )
+  //     = T2[ bS2{1}, iS1{i1} ] compute_at( T5, 2 )
   //     + T4[ iS4{i8}, iS5{i10} ];
   // T3[ iS1{i1}, bS3{1} ] compute_at( T6, 1 ) = broadcast( T1[ iS1{i1} ] compute_at( T2, 2 ) )
   // T6[ iS8{i1}, iS9{i8} ]
   //     = T3[ iS1{i1}, bS3{1} ] compute_at( T6, 1 )
   //     + T4[ iS4{i8}, iS5{i10} ];
 
-  //fusion.printKernel();
   return;
 }
 
@@ -7263,7 +7262,6 @@ TEST(NVFuserTest, FusionComputeAtMultiBroadcast2) {
   // T6[ iS24{( ceilDiv(i1, 128) )}, iS25{128}, iS9{i8} ]
   //     = T3[ iS22{( ceilDiv(i1, 128) )}, iS23{128}, bS3{1} ] compute_at( T6, 1 )
   //     + T4[ iS4{i8}, iS5{i10} ];
-
 
   return;
 }
