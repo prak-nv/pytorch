@@ -117,10 +117,11 @@ ParallelTypeBitmap operator^(
     const ParallelTypeBitmap& lhs,
     const ParallelTypeBitmap& rhs);
 
-// Returns a ParallelTypeBitmap representing which domain needs
-// blockBroadcast.
-// Even when a domain is broadcast and parallelized, it does not need
-// blockBroadcast unless it is predicated.
+//! Returns a ParallelTypeBitmap representing which domain needs
+//! blockBroadcast.
+//!
+//! Even when a domain is broadcast and parallelized, it does not need
+//! blockBroadcast unless it is predicated.
 ParallelTypeBitmap getParallelBroadcastDomains(
     const kir::Val* bop_out,
     const kir::ThreadPredicateMap& preds);

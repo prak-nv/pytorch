@@ -6,6 +6,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/kernel.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 
@@ -130,57 +131,59 @@ void ThreadPredicateMap::updateBitSet(kir::Expr* expr) {
   SourceMapType src_map;
 
   // Run through inputs and update bitsets
-  for (const auto* inp : expr->inputs()) {
-    if (!inp->isA<kir::TensorView>()) {
-      continue;
+  for (const auto* in : expr->inputs()) {
+    // Handle TensorIndex transparently (mapped to their views)
+    if (auto ti = dynamic_cast<const kir::TensorIndex*>(in)) {
+      in = ti->view();
     }
 
-    auto tv_inp = inp->as<kir::TensorView>();
-    TORCH_INTERNAL_ASSERT(
-        thread_predicates_.find(tv_inp) != thread_predicates_.end(),
-        "Thread predicate map was not initialized");
+    if (auto in_tv = dynamic_cast<const kir::TensorView*>(in)) {
+      TORCH_INTERNAL_ASSERT(
+          thread_predicates_.find(in_tv) != thread_predicates_.end(),
+          "Thread predicate map was not initialized");
 
-    input_preds |= at(tv_inp).first;
+      input_preds |= at(in_tv).first;
 
-    mergeSourceMap(src_map, at(tv_inp).second);
+      mergeSourceMap(src_map, at(in_tv).second);
 
-    ir_utils::ParallelTypeBitmap id_reductions;
-    ir_utils::ParallelTypeBitmap id_bcasts;
-    ir_utils::ParallelTypeBitmap id_ptypes;
+      ir_utils::ParallelTypeBitmap id_reductions;
+      ir_utils::ParallelTypeBitmap id_bcasts;
+      ir_utils::ParallelTypeBitmap id_ptypes;
 
-    for (auto id : tv_inp->domain()->domain()) {
-      if (id->isThread()) {
-        id_ptypes.set(id->getParallelType(), true);
-        if (id->isReduction())
-          id_reductions.set(id->getParallelType(), true);
-        if (id->isBroadcast())
-          id_bcasts.set(id->getParallelType(), true);
-      }
-    }
-
-    // Validate the combination of ptypes, reductions, bcasts
-    for (size_t i = 0; i < ir_utils::ParallelTypeBitmap::num_p_type; i++) {
-      if (input_reductions[i]) {
-        if (id_ptypes[i]) {
-          TORCH_INTERNAL_ASSERT(
-              id_reductions[i],
-              "Mismatched parallelized reductions found on inputs of epxr: ",
-              expr);
-          TORCH_CHECK(
-              !id_bcasts[i],
-              "Invalid broadcast and reduction combination, tried to parallelize both with the same thread dim: ",
-              inp);
+      for (auto id : in_tv->domain()->domain()) {
+        if (id->isThread()) {
+          id_ptypes.set(id->getParallelType(), true);
+          if (id->isReduction())
+            id_reductions.set(id->getParallelType(), true);
+          if (id->isBroadcast())
+            id_bcasts.set(id->getParallelType(), true);
         }
       }
-    }
 
-    // Accumulate
-    input_reductions |= id_reductions;
-    input_bcasts |= id_bcasts;
+      // Validate the combination of ptypes, reductions, bcasts
+      for (size_t i = 0; i < ir_utils::ParallelTypeBitmap::num_p_type; i++) {
+        if (input_reductions[i]) {
+          if (id_ptypes[i]) {
+            TORCH_INTERNAL_ASSERT(
+                id_reductions[i],
+                "Mismatched parallelized reductions found on inputs of epxr: ",
+                expr);
+            TORCH_CHECK(
+                !id_bcasts[i],
+                "Invalid broadcast and reduction combination, tried to parallelize both with the same thread dim: ",
+                kir::toString(in));
+          }
+        }
+      }
 
-    if (id_reductions.any()) {
-      // add tv_inp as a source
-      addToSouceMap(src_map, tv_inp, id_reductions);
+      // Accumulate
+      input_reductions |= id_reductions;
+      input_bcasts |= id_bcasts;
+
+      if (id_reductions.any()) {
+        // add in_tv as a source
+        addToSouceMap(src_map, in_tv, id_reductions);
+      }
     }
   }
 
@@ -196,6 +199,7 @@ void ThreadPredicateMap::updateBitSet(kir::Expr* expr) {
 
   // Get rid of any reductions which are bcasted
   output_preds &= bcast_reset_map;
+
   // Similarly, drop non-relevant source tensors
   maskSouceMap(src_map, bcast_reset_map);
 
@@ -214,9 +218,9 @@ ThreadPredicateMap::ThreadPredicateMap(const kir::Kernel* kernel) {
   FUSER_PERF_SCOPE("ThreadPredicateMap");
 
   // Initialize mapping for input tensors
-  for (auto inp : kernel->inputs()) {
-    if (auto inp_tv = dynamic_cast<kir::TensorView*>(inp)) {
-      insert(inp_tv, ir_utils::ParallelTypeBitmap(), SourceMapType());
+  for (auto in : kernel->inputs()) {
+    if (auto in_tv = dynamic_cast<kir::TensorView*>(in)) {
+      insert(in_tv, ir_utils::ParallelTypeBitmap(), SourceMapType());
     }
   }
 
