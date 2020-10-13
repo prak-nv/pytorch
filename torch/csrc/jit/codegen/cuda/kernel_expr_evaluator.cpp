@@ -1,6 +1,7 @@
 
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 
 #include <iostream>
 

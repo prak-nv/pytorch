@@ -1013,8 +1013,6 @@ class TORCH_CUDA_API GridReduction final : public Expr {
   Allocate* sync_buffer_ = nullptr;
 };
 
-std::string toString(const Node* node);
-
 } // namespace kir
 } // namespace cuda
 } // namespace fuser

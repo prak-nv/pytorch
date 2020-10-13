@@ -412,12 +412,6 @@ std::string GridReduction::getPredicateFlagName(
   return ss.str();
 }
 
-// $$$
-std::string toString(const Node* node) {
-  return "???";
-}
-
-
 } // namespace kir
 } // namespace cuda
 } // namespace fuser
