@@ -6,6 +6,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
@@ -821,7 +822,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
         " dim: ",
         i,
         " id: ",
-        kir_root_dom_i);
+        kir::toString(kir_root_dom_i));
 
     auto root_ind = index_map.at(kir_root_dom_i);
 
@@ -940,7 +941,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
         " dim: ",
         i,
         " id: ",
-        kir_root_dom_i);
+        kir::toString(kir_root_dom_i));
 
     const auto root_ind_i = index_map.at(kir_root_dom_i);
     if (root_ind_i->isZeroInt()) {
@@ -1045,7 +1046,7 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
         " dim: ",
         i,
         " id: ",
-        kir_root_dom_i);
+        kir::toString(kir_root_dom_i));
     auto ind = index_map.at(kir_root_dom_i);
 
     if (i == root_dom.size() - 1 && inner_most_dim_contig) {
@@ -1108,7 +1109,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
         " dim: ",
         i,
         " id: ",
-        kir_root_dom_i);
+        kir::toString(kir_root_dom_i));
 
     const auto root_ind_i = index_map.at(kir_root_dom_i);
     if (root_ind_i->isZeroInt()) {

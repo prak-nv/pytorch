@@ -114,6 +114,9 @@ class TORCH_CUDA_API Kernel final : public NonCopyable {
     TORCH_CHECK(passkey.kernel == this);
     return next_value_id_++;
   }
+  
+  //! Debug dump of the Kernel IR
+  void print() const;
 
  private:
   // Analyze the kernel IR and caches the summary of interesting data
