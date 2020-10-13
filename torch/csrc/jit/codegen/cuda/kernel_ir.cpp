@@ -410,6 +410,7 @@ Allocate::Allocate(
   }
 
   if (memory_type_ == MemoryType::Local) {
+#if 0
     if (!size_->isConstScalar()) {
       TORCH_INTERNAL_ASSERT(
           false,
@@ -419,6 +420,7 @@ Allocate::Allocate(
           buffer_,
           " with symbolic size.");
     }
+#endif
   }
 
   addInput(size_);
