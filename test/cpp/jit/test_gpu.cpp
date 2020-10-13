@@ -7266,6 +7266,30 @@ TEST(NVFuserTest, FusionComputeAtMultiBroadcast2) {
   return;
 }
 
+TEST(NVFuserTest, FusionComputeAtMultiReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeDummyTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, new Float(1));
+
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = sum(tv1, {1});
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  tv1->computeAt(tv2, -1);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  return;
+}
+
 } // namespace jit
 } // namespace torch
 
