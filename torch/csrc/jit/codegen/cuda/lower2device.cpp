@@ -104,6 +104,14 @@ void GpuLower::lower() {
   validateIr(fusion_);
   replaceSymbolicSizes();
 
+  // Set the kernel inputs & outputs
+  for (auto input : fusion_->inputs()) {
+    kernel_->addInput(GpuLower::lowerValue(input));
+  }
+  for (auto output : fusion_->outputs()) {
+    kernel_->addOutput(GpuLower::lowerValue(output));
+  }
+
   // Run our passes keeping the lowered expressions and forwarding them
   const auto lowered_exprs =
       LoopNestGenerator::loweredExprs(fusion_, fusion_->exprs(true));
@@ -122,14 +130,6 @@ void GpuLower::lower() {
 
   // We now have the lowered expressions, finalize the kernel IR
   kernel_->finalize(sync_exprs, preds);
-
-  // Set the kernel inputs & outputs
-  for (auto input : fusion_->inputs()) {
-    kernel_->addInput(GpuLower::lowerValue(input));
-  }
-  for (auto output : fusion_->outputs()) {
-    kernel_->addOutput(GpuLower::lowerValue(output));
-  }
 }
 
 kir::Kernel* GpuLower::kernel() const {

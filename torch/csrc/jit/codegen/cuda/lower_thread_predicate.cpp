@@ -119,6 +119,11 @@ void avoidRedundantWritesToSmem(
 void ThreadPredicateMap::updateBitSet(kir::Expr* expr) {
   FUSER_PERF_SCOPE("ThreadPredicateMap::updateBitSet");
 
+  // Early exit if we alrady processed this expression
+  if (visited_.find(expr) != visited_.end()) {
+    return;
+  }
+
   // Which predicates were set for the inputs
   ir_utils::ParallelTypeBitmap input_preds;
 
@@ -138,9 +143,13 @@ void ThreadPredicateMap::updateBitSet(kir::Expr* expr) {
     }
 
     if (auto in_tv = dynamic_cast<const kir::TensorView*>(in)) {
-      TORCH_INTERNAL_ASSERT(
-          thread_predicates_.find(in_tv) != thread_predicates_.end(),
-          "Thread predicate map was not initialized");
+      // The definitions must be processed before uses
+      if (find(in_tv) == end()) {
+        const auto def = in_tv->definition();
+        TORCH_INTERNAL_ASSERT(def != nullptr);
+        TORCH_INTERNAL_ASSERT(visited_.find(def) == visited_.end());
+        updateBitSet(def);
+      }
 
       input_preds |= at(in_tv).first;
 
@@ -192,16 +201,13 @@ void ThreadPredicateMap::updateBitSet(kir::Expr* expr) {
   auto output_preds = input_preds | input_reductions;
 
   // Figure out which dims bcast wants to reset
-  auto bcast_reset_map = output_preds & input_bcasts;
-
-  // Flip it to make a bit mask
-  bcast_reset_map = ~bcast_reset_map;
+  const auto bcast_reset_mask = ~(output_preds & input_bcasts);
 
   // Get rid of any reductions which are bcasted
-  output_preds &= bcast_reset_map;
+  output_preds &= bcast_reset_mask;
 
   // Similarly, drop non-relevant source tensors
-  maskSouceMap(src_map, bcast_reset_map);
+  maskSouceMap(src_map, bcast_reset_mask);
 
   // Run through outputs and set bitset predicates
   for (auto* out : expr->outputs()) {
@@ -212,6 +218,9 @@ void ThreadPredicateMap::updateBitSet(kir::Expr* expr) {
       insert(out_tv, pred_for_this_out, src_map);
     }
   }
+
+  // Mark the expression as processed
+  TORCH_CHECK(visited_.insert(expr).second);
 }
 
 ThreadPredicateMap::ThreadPredicateMap(const kir::Kernel* kernel) {

@@ -6,6 +6,10 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 
+#include <unordered_set>
+#include <unordered_map>
+#include <utility>
+
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -66,6 +70,7 @@ class TORCH_CUDA_API ThreadPredicateMap {
 
  private:
   MapType thread_predicates_;
+  std::unordered_set<const kir::Expr*> visited_;
 };
 
 } // namespace kir
