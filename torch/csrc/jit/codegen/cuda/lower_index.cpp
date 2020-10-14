@@ -226,17 +226,17 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
 
     const auto zero = ir_builder_.create<kir::Int>(0);
 
-    const auto buffer_id =
-        ir_builder_.create<kir::IterDomain>(zero, buffer_size);
+    const std::vector<kir::IterDomain*> new_buffer_ids = {
+        ir_builder_.create<kir::IterDomain>(zero, buffer_size)};
     const auto buffer_domain =
-        ir_builder_.create<kir::TensorDomain>({buffer_id});
+        ir_builder_.create<kir::TensorDomain>(new_buffer_ids);
     const auto reduce_buffer_tv = ir_builder_.create<kir::TensorView>(
         out->dtype(), buffer_domain, MemoryType::Global);
 
-    const auto sync_id =
-        ir_builder_.create<kir::IterDomain>(zero, sync_size);
+    const std::vector<kir::IterDomain*> new_sync_ids = {
+        ir_builder_.create<kir::IterDomain>(zero, sync_size)};
     const auto sync_domain =
-        ir_builder_.create<kir::TensorDomain>({sync_id});
+        ir_builder_.create<kir::TensorDomain>(new_sync_ids);
     const auto reduce_sync_tv = ir_builder_.create<kir::TensorView>(
         DataType::Int, sync_domain, MemoryType::Global);
 
