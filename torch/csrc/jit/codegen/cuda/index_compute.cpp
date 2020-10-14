@@ -1171,7 +1171,7 @@ kir::TensorIndex* Index::getProducerIndex(
 
   if (producer->domain()->noReductions().size() == 0) {
     return ir_builder.create<kir::TensorIndex>(
-        producer, std::vector<kir::Val*>{});
+        producer, std::vector<kir::Val*>());
   }
 
   if (producer->getMemoryType() == MemoryType::Global) {
@@ -1191,7 +1191,7 @@ kir::TensorIndex* Index::getConsumerIndex(
 
   if (consumer->domain()->noReductions().size() == 0) {
     return ir_builder.create<kir::TensorIndex>(
-        consumer, std::vector<kir::Val*>{});
+        consumer, std::vector<kir::Val*>());
   }
 
   if (consumer->getMemoryType() == MemoryType::Global) {
