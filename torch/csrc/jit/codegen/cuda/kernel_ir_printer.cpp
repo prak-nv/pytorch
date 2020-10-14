@@ -11,9 +11,25 @@ namespace fuser {
 namespace cuda {
 namespace kir {
 
-static std::string boolLiteral(bool value) {
+namespace {
+
+std::string boolLiteral(bool value) {
   return value ? "true" : "false";
 }
+
+std::string varName(const kir::Val* val, const char* prefix) {
+  std::stringstream value_name;
+  if (val == nullptr) {
+    value_name << "<nullptr>";
+  } else if (val->name() != kInvalidStmName) {
+    value_name << prefix << val->name();
+  } else {
+    value_name << "k" << prefix << val->id();
+  }
+  return value_name.str();
+}
+
+} // namespace
 
 void IrPrinter::printNode(const kir::Node* stmt) {
   stmt->accept(this);
@@ -83,8 +99,7 @@ void IrPrinter::visit(const kir::Bool* node) {
   if (node->isConst()) {
     os_ << boolLiteral(*node->value());
   } else {
-    //$$$ name or id!
-    os_ << "b" << node->name();
+    os_ << varName(node, "b");
   }
 }
 
@@ -93,7 +108,7 @@ void IrPrinter::visit(const kir::Float* node) {
     const int digits = std::numeric_limits<Float::ScalarType>::max_digits10;
     os_ << "float(" << std::setprecision(digits) << *node->value() << ")";
   } else {
-    os_ << "f" << node->name();
+    os_ << varName(node, "f");
   }
 }
 
@@ -101,7 +116,7 @@ void IrPrinter::visit(const kir::Half* node) {
   if (node->isConst()) {
     os_ << "half(" << *node->value() << ")";
   } else {
-    os_ << "h" << node->name();
+    os_ << varName(node, "h");
   }
 }
 
@@ -109,7 +124,7 @@ void IrPrinter::visit(const kir::Int* node) {
   if (node->isConst()) {
     os_ << *node->value();
   } else {
-    os_ << "i" << node->name();
+    os_ << varName(node, "i");
   }
 }
 
@@ -143,7 +158,7 @@ void IrPrinter::visit(const kir::TensorDomain*) {
 
 void IrPrinter::visit(const kir::TensorView* node) {
   // TODO(KIR): print memory type too?
-  os_ << "T" << node->name();
+  os_ << varName(node, "T");
 }
 
 void IrPrinter::visit(const kir::UnaryOp* node) {

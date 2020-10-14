@@ -184,7 +184,7 @@ class TORCH_CUDA_API Val : public Node {
   }
 
   void setDefinition(Expr* expr) {
-    TORCH_INTERNAL_ASSERT(definition_ == nullptr);
+    //$$$ TORCH_INTERNAL_ASSERT(definition_ == nullptr);
     definition_ = expr;
   }
 

@@ -257,13 +257,18 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
   }
 
   void handle(const ReductionOp* node) final {
-    //$$$
-    TORCH_INTERNAL_ASSERT(false, "TODO");
+    const auto lowered_node = ir_builder_.create<kir::ReductionOp>(
+        node->getReductionOpType(),
+        lowerValue(node->init()),
+        lowerValue(node->out()),
+        lowerValue(node->in()));
+    TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
   }
 
   void handle(const BroadcastOp* node) final {
-    //$$$
-    TORCH_INTERNAL_ASSERT(false, "TODO");
+    const auto lowered_node = ir_builder_.create<kir::BroadcastOp>(
+        lowerValue(node->out()), lowerValue(node->in()));
+    TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
   }
 
  private:
