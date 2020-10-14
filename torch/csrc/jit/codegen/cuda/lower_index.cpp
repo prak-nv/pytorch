@@ -116,7 +116,7 @@ void IndexLowering::visit(const kir::TernaryOp* top) {
 namespace {
 
 void allocateGridReductionFlag(
-    TensorView* out_tv,
+    kir::TensorView* out_tv,
     kir::Expr* current_scope_expr) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
@@ -129,9 +129,6 @@ void allocateGridReductionFlag(
   // When enclosed by IfThenElse, place the variable outside of the
   // IfThenElse. This IfThenElse is assumed to be the prediate for
   // this grid reduction expression.
-  //
-  // TODO: review the assumption that we're always in the "then" branch
-  //
   if (current_scope_expr->isA<kir::IfThenElse>()) {
     scope_utils::insertBefore(
         current_scope_expr->parentScope(),
@@ -146,12 +143,11 @@ void allocateGridReductionFlag(
 } // namespace
 
 void IndexLowering::visit(const kir::ReductionOp* rop) {
-  TORCH_INTERNAL_ASSERT(
-      ir_utils::isTVOp(rop),
-      "Cannot have a reduction operation on something other than a tensor view, but received ",
-      rop);
+  TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(rop));
 
-  auto out_tv = ir_utils::asTV(rop->out());
+  const auto gpu_lower = GpuLower::current();
+
+  const auto out_tv = ir_utils::asTV(rop->out());
 
   const bool is_block_reduce = out_tv->hasBlockReduction();
   const bool is_grid_reduce = out_tv->hasGridReduction();
@@ -163,35 +159,33 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
         std::none_of(
             out_tv->domain()->domain().begin(),
             out_tv->domain()->domain().end(),
-            [](IterDomain* id) {
+            [](kir::IterDomain* id) {
               return !id->isThread() && id->isReduction();
             }),
-        "Found a reduction stage that has both a non-parallelized reduction and a grid reduction.",
-        " This is not supported, please use rfactor to do the serialized reduction first, then the grid reduction.");
+        "Found a reduction stage that has both a non-parallelized ",
+        "reduction and a grid reduction.  This is not supported, ",
+        "please use rfactor to do the serialized reduction first, ",
+        "then the grid reduction.");
   }
+
   const auto loops = scope_utils::getLoops(active_scope_expr_);
 
-  kir::TensorIndex* out = Index::getConsumerIndex(out_tv, loops);
-  kir::TensorIndex* in = Index::getProducerIndex(
-      ir_utils::asTV(rop->in()), ir_utils::asTV(rop->out()), loops);
+  const auto out = lowerDstIndex(rop->out());
+  const auto in = lowerSrcIndex(rop->in(), rop->out());
 
   kir::ReductionOp* block_reduction_op = nullptr;
-  if (is_block_reduce) {
-    auto pred =
-        PredicateCompute::getInlinePredicate(rop, loops, nullptr, false);
 
+  if (is_block_reduce) {
     block_reduction_op = ir_builder_.create<kir::ReductionOp>(
-        rop->getReductionOpType(),
-        GpuLower::lowerValue(rop->init()),
-        out,
-        in,
-        pred);
+        rop->operation(), rop->init(), out, in);
+    block_reduction_op->setPredicate(
+        PredicateCompute::getInlinePredicate(rop, loops, nullptr, false));
     pushBack(block_reduction_op);
   }
 
   if (is_grid_reduce) {
     // First, declare a boolean flag variable storing the return value
-    // of gridReduce.
+    // of the gridReduce() helper
     allocateGridReductionFlag(out_tv, active_scope_expr_);
 
     std::vector<IterDomain*> buffer_ids(out_tv->domain()->domain());
@@ -227,19 +221,17 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
 
     IterDomain* buffer_id = new IterDomain(new Int(0), buffer_size);
     TensorView* reduce_buffer_tv = new TensorView(
-        new TensorDomain({buffer_id}),
-        out->getDataType().value(),
-        MemoryType::Global);
+        new TensorDomain({buffer_id}), out->dtype(), MemoryType::Global);
 
     IterDomain* sync_id = new IterDomain(new Int(0), sync_size);
     TensorView* reduce_sync_tv = new TensorView(
         new TensorDomain({sync_id}), DataType::Int, MemoryType::Global);
 
     const auto reduce_buffer = ir_builder_.create<kir::Allocate>(
-        GpuLower::lowerValue(reduce_buffer_tv),
+        gpu_lower->lowerValue(reduce_buffer_tv),
         reduce_sync_tv->getMemoryType());
     const auto sync_buffer = ir_builder_.create<kir::Allocate>(
-        GpuLower::lowerValue(reduce_sync_tv),
+        gpu_lower->lowerValue(reduce_sync_tv),
         reduce_sync_tv->getMemoryType(),
         nullptr,
         true);
@@ -247,14 +239,15 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
     const auto grid_reduction_op = block_reduction_op == nullptr
         ? ir_builder_.create<kir::ReductionOp>(
               rop->getReductionOpType(),
-              GpuLower::lowerValue(rop->init()),
+              gpu_lower->lowerValue(rop->init()),
               out,
               in)
         : block_reduction_op;
-    auto pred =
-        PredicateCompute::getInlinePredicate(rop, loops, nullptr, false);
-    const auto grid_reduction = ir_builder_.create<kir::GridReduction>(
-        grid_reduction_op, reduce_buffer, sync_buffer, pred);
+
+    auto grid_reduction = ir_builder_.create<kir::GridReduction>(
+        grid_reduction_op, reduce_buffer, sync_buffer);
+    grid_reduction->setPredicate(PredicateCompute::getInlinePredicate(
+        grid_reduction, for_loops_, nullptr, false));
 
     pushBack(reduce_buffer);
     pushBack(sync_buffer);
