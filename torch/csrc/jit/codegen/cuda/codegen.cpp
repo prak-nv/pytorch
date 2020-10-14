@@ -44,19 +44,12 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
     std::vector<kir::Val*> params;
 
-    // Inputs
+    // Inputs & Outputs
     for (auto val : kernel_->inputs()) {
       params.push_back(val);
     }
-
-    // Outputs
     for (auto val : kernel_->outputs()) {
       params.push_back(val);
-    }
-
-    // Global buffers
-    for (auto allocate : kernel_summary.global_allocations) {
-      params.push_back(allocate->buffer());
     }
 
     // Generate parameter declarations
@@ -75,6 +68,14 @@ class CudaKernelGenerator : private kir::IrVisitor {
       if (val != params.back()) {
         code_ << ", ";
       }
+    }
+
+    // Global buffers
+    for (auto allocate : kernel_summary.global_allocations) {
+      TORCH_INTERNAL_ASSERT(allocate->buffer()->isA<kir::TensorView>());
+      const auto tv = allocate->buffer()->as<kir::TensorView>();
+      code_ << ", Tensor<" << tv->dtype() << ", "
+            << tv->domain()->rootDomain().size() << "> " << varName(tv, "T");
     }
 
     // Kernels generating random numbers take extra (seed, offset) arguments

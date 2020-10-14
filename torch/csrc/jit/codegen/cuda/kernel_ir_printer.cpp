@@ -20,7 +20,7 @@ std::string boolLiteral(bool value) {
 std::string varName(const kir::Val* val, const char* prefix) {
   std::stringstream value_name;
   if (val == nullptr) {
-    value_name << "<nullptr>";
+    value_name << "$nullptr";
   } else if (val->name() != kInvalidStmName) {
     value_name << prefix << val->name();
   } else {
@@ -72,10 +72,14 @@ std::ostream& IrPrinter::indent() {
 }
 
 std::string IrPrinter::gen(const kir::Node* stmt) {
-  std::stringstream ss;
-  IrPrinter ir_printer(ss);
-  ir_printer.printNode(stmt);
-  return ss.str();
+  if (stmt != nullptr) {
+    std::stringstream ss;
+    IrPrinter ir_printer(ss);
+    ir_printer.printNode(stmt);
+    return ss.str();
+  } else {
+    return "$nullptr";
+  }
 }
 
 void IrPrinter::startBlock() {
@@ -223,10 +227,12 @@ void IrPrinter::visit(const kir::GridReduction* node) {
            << ", in=" << gen(reduction_op->in())
            << ", init=" << gen(reduction_op->init())
            << ", pred=" << gen(reduction_op->predicate()) << ")\n";
-  indent() << kTab << ".reduction_buffer=" << gen(node->reduction_buffer())
+  indent() << kTab << kTab
+           << ".reduction_buffer=" << gen(node->reduction_buffer()->buffer())
            << "\n";
-  indent() << kTab << ".sync_buffer=" << gen(node->sync_buffer()) << "\n";
-  indent() << kTab << ".grid_pred=" << gen(node->predicate()) << "\n";
+  indent() << kTab << kTab
+           << ".sync_buffer=" << gen(node->sync_buffer()->buffer()) << "\n";
+  indent() << kTab << kTab << ".grid_pred=" << gen(node->predicate()) << "\n";
 }
 
 void IrPrinter::visit(const kir::BroadcastOp* node) {
