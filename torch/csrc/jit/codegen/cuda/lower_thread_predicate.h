@@ -14,9 +14,6 @@ namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
-namespace kir {
-
-class Kernel;
 
 //! Maps TensorViews to std::pair<ir_utils::ParallelTypeBitmap, SourceMapType>>
 //!
@@ -33,47 +30,45 @@ class TORCH_CUDA_API ThreadPredicateMap {
  public:
   using SourceMapType = std::unordered_map<
       ParallelType,
-      std::unordered_set<const kir::TensorView*>,
+      std::unordered_set<const TensorView*>,
       TypeHash>;
 
   // TODO(kir): replace std::pair<> with struct
   using MapType = std::unordered_map<
-      const kir::TensorView*,
+      const TensorView*,
       std::pair<ir_utils::ParallelTypeBitmap, SourceMapType>>;
 
   using const_iterator = MapType::const_iterator;
 
- public:
-  explicit ThreadPredicateMap(const kir::Kernel* kernel);
+  explicit ThreadPredicateMap(Fusion* _fusion);
 
-  // TODO(kir): these methods are only used by getParallelBroadcastDomains()
-  const_iterator find(const kir::TensorView* tv) const;
+  // TODO(kir): these methods are only used by getParallelBroadcastDomains() ?
+  const_iterator find(const TensorView* tv) const;
   const_iterator end() const;
-  const MapType::mapped_type& at(const kir::TensorView* tv) const;
-  MapType::mapped_type& at(const kir::TensorView* tv);
+  const MapType::mapped_type& at(const TensorView* tv) const;
+  MapType::mapped_type& at(const TensorView* tv);
 
   // Returns a Bool predicate expression for a given output TensorView.
-  kir::Bool* getExpr(const kir::TensorView* out_tv) const;
+  kir::Bool* getExpr(const TensorView* out_tv) const;
 
  private:
   // Update the thread_predicates bitset based on provided Expr
-  void updateBitSet(kir::Expr*);
+  void updateBitSet(const Expr*);
 
   void insert(
-      const kir::TensorView* tv,
+      const TensorView* tv,
       const ir_utils::ParallelTypeBitmap& pred,
       const SourceMapType& src_map);
 
   void insert(
-      const kir::TensorView* tv,
+      const TensorView* tv,
       const MapType::mapped_type& pred_and_src);
 
  private:
+  Fusion* fusion_ = nullptr;
   MapType thread_predicates_;
-  std::unordered_set<const kir::Expr*> visited_;
 };
 
-} // namespace kir
 } // namespace cuda
 } // namespace fuser
 } // namespace jit

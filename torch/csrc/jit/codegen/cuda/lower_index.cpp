@@ -14,7 +14,6 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-#if 0
 IndexLowering::IndexLowering() : ir_builder_(GpuLower::current()->kernel()) {}
 
 Val* IndexLowering::lowerOperand(Val* op, Val* out) const {
@@ -315,7 +314,6 @@ void IndexLowering::generate(const std::vector<kir::Expr*>& exprs) {
     expr->accept(this);
   }
 }
-#endif
 
 } // namespace cuda
 } // namespace fuser

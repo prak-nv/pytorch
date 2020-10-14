@@ -83,6 +83,7 @@ void IrPrinter::visit(const kir::Bool* node) {
   if (node->isConst()) {
     os_ << boolLiteral(*node->value());
   } else {
+    //$$$ name or id!
     os_ << "b" << node->name();
   }
 }

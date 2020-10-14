@@ -104,6 +104,9 @@ void GpuLower::lower() {
   validateIr(fusion_);
   replaceSymbolicSizes();
 
+  // Compute thread predicates
+  ThreadPredicateMap preds(fusion_);
+  
   // Set the kernel inputs & outputs
   for (auto input : fusion_->inputs()) {
     kernel_->addInput(GpuLower::lowerValue(input));
@@ -114,10 +117,7 @@ void GpuLower::lower() {
 
   // Run our passes keeping the lowered expressions and forwarding them
   const auto lowered_exprs =
-      LoopNestGenerator::loweredExprs(fusion_, fusion_->exprs(true));
-
-  // Compute thread predicates
-  kir::ThreadPredicateMap preds(kernel_.get());
+      LoopNestGenerator::loweredExprs(fusion_, preds, fusion_->exprs(true));
 
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, lowered_exprs, preds);
@@ -125,11 +125,10 @@ void GpuLower::lower() {
   // Insert SyncThreads at end of for-loop to avoid WAR race condition
   const auto sync_exprs = insertThreadSynchronization(unrolled_loops);
 
-  //$$$
-  //const auto indexed_loops = IndexLowering::getIndexedExprs(sync_exprs);
+  const auto indexed_loops = IndexLowering::getIndexedExprs(sync_exprs);
 
   // We now have the lowered expressions, finalize the kernel IR
-  kernel_->finalize(sync_exprs, preds);
+  kernel_->finalize(indexed_loops, preds);
 }
 
 kir::Kernel* GpuLower::kernel() const {

@@ -5,9 +5,9 @@
 
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
-#include <torch/csrc/jit/codegen/cuda/dispatch.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
+#include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
 
 namespace torch {
 namespace jit {
@@ -28,19 +28,21 @@ namespace cuda {
 //! It does not generate predicates, but it will generate allocations, and loop
 //! nests to initialize reduction buffers.
 //!
-class TORCH_CUDA_API LoopNestGenerator : public OptOutConstDispatch {
+class TORCH_CUDA_API LoopNestGenerator {
  public:
   static std::vector<kir::Expr*> loweredExprs(
       Fusion* fusion,
+      ThreadPredicateMap& thread_predicates,
       const std::vector<Expr*>& exprs) {
     FUSER_PERF_SCOPE("LoopNestGenerator::loweredExprs");
-    LoopNestGenerator generator(fusion, exprs);
+    LoopNestGenerator generator(fusion, thread_predicates, exprs);
     return generator.lowered_exprs_;
   }
 
  private:
   LoopNestGenerator(
       Fusion* fusion,
+      ThreadPredicateMap& thread_predicates,
       const std::vector<Expr*>& exprs);
 
   // Create the allocation for tv, place it inside the loop associated with
@@ -80,18 +82,10 @@ class TORCH_CUDA_API LoopNestGenerator : public OptOutConstDispatch {
   // initialization after the allocation.
   void initReduction(TensorView* tv, Val* init_val, kir::Expr* alloc_expr);
 
+  void handle(const Expr*);
+
   // Run the pass and accumulate output in lowered_exprs_
   void generate(const std::vector<Expr*>& exprs);
-
-  kir::Val* lowerOperand(Val* op, Val* out) const;
-  kir::Val* lowerOutput(Val* out) const;
-
-  void handle(const Expr*) final;
-  void handle(const UnaryOp*) final;
-  void handle(const BinaryOp*) final;
-  void handle(const TernaryOp*) final;
-  void handle(const ReductionOp*) final;
-  void handle(const BroadcastOp*) final;
 
  private:
   // Lowered exprs to return

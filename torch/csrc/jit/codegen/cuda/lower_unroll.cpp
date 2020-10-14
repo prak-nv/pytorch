@@ -20,40 +20,35 @@ kir::Bool* UnrollPass::getThreadPredicate(const kir::TensorView* tv) {
   // parallel broadcast expression.
   if (auto def = tv->definition()) {
     if (auto bop = dynamic_cast<kir::BroadcastOp*>(def)) {
-      if (ir_utils::getParallelBroadcastDomains(bop->out(), thread_predicates_)
+      TORCH_INTERNAL_ASSERT(bop->out()->isA<kir::TensorView>());
+      if (ir_utils::getParallelBroadcastDomains(
+              bop->out()->as<kir::TensorView>()->fuserTv(), thread_predicates_)
               .any()) {
         return nullptr;
       }
     }
   }
-  return thread_predicates_.getExpr(tv);
+  return thread_predicates_.getExpr(tv->fuserTv());
 }
 
 void UnrollPass::handle(kir::Expr* expr) {
-  const auto& outputs = expr->outputs();
-  if (outputs.size() == 1) {
-    //$$$ this should move to lowering
-    TORCH_INTERNAL_ASSERT(!outputs[0]->isA<kir::TensorView>());
-    if (auto out_ti = dynamic_cast<kir::TensorIndex*>(outputs[0])) {
-      TORCH_INTERNAL_ASSERT(for_loops_.size() != 0);
-      // If we need a predicate, put expr inside an if then else
+  // If tv op, predciate it
+  if (ir_utils::isTVOp(expr)) {
+    TORCH_INTERNAL_ASSERT(for_loops_.size() != 0);
 
-      // $$$ we should already have the predicate here
-      // const auto pred = expr->predicate();
-      const auto pred = PredicateCompute::getInlinePredicate(
-          expr, for_loops_, getThreadPredicate(out_ti->view()));
+    const auto out_tv = expr->outputs()[0]->as<kir::TensorView>();
+    const auto pred = PredicateCompute::getInlinePredicate(
+        expr, for_loops_, getThreadPredicate(out_tv));
 
-      if (pred != nullptr) {
-        if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
-          non_trivial_pred_found_ = true;
-          kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-          kir::IfThenElse* inline_ite =
-              ir_builder.create<kir::IfThenElse>(pred, for_loops_.back());
-          inline_ite->thenBody().push_back(expr);
-          for_loops_.back()->body().insert_before(expr, inline_ite);
-          for_loops_.back()->body().erase(expr);
-        }
-      }
+    // If we need a predicate, put expr inside an if then else
+    if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
+      non_trivial_pred_found_ = true;
+      kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+      kir::IfThenElse* inline_ite =
+          ir_builder.create<kir::IfThenElse>(pred, for_loops_.back());
+      inline_ite->thenBody().push_back(expr);
+      for_loops_.back()->body().insert_before(expr, inline_ite);
+      for_loops_.back()->body().erase(expr);
     }
   } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
     handle(for_loop);
@@ -149,7 +144,7 @@ kir::Expr* UnrollPass::applyReplacements(kir::Expr* expr) const {
 std::vector<kir::Expr*> UnrollPass::runPass(
     Fusion* fusion,
     const std::vector<kir::Expr*>& exprs,
-    const kir::ThreadPredicateMap& thread_predicates) {
+    const ThreadPredicateMap& thread_predicates) {
   FUSER_PERF_SCOPE("UnrollPass::runPass");
   
   UnrollPass unroll_pass(fusion, thread_predicates);

@@ -1,9 +1,7 @@
 
 #include <torch/csrc/jit/codegen/cuda/lower_loops.h>
-#include <torch/csrc/jit/codegen/cuda/index_compute.h>
 #include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
-#include <torch/csrc/jit/codegen/cuda/predicate_compute.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
@@ -21,6 +19,7 @@ namespace cuda {
 
 LoopNestGenerator::LoopNestGenerator(
     Fusion* fusion,
+    ThreadPredicateMap& thread_predicates,
     const std::vector<Expr*>& exprs)
     : fusion_(fusion),
       ir_builder_(GpuLower::current()->kernel()) {
@@ -149,7 +148,6 @@ void LoopNestGenerator::pushBack(kir::Expr* expr) {
 // Update for loop structure based on this TensorView, if there's an allocation
 // stmt, send it in so we can make sure that we insert this initialization after
 // it
-// $$$ revisit indexing generation
 void LoopNestGenerator::initReduction(
     TensorView* tv,
     Val* init_val,
@@ -183,10 +181,6 @@ void LoopNestGenerator::initReduction(
     inner_fl = for_loops_[alloc_pos - 1];
   }
 
-  // Keep track of the init for indeces, 
-  // which are needed to generate the inner kir::TensorIndex
-  std::vector<kir::Val*> indeces;
-
   // Work through the iter domains that we need to initialize on, outside to
   // inside, to construct the loop nest for the initialization.
   for (auto id : ids) {
@@ -206,10 +200,6 @@ void LoopNestGenerator::initReduction(
           ir_builder_.create<kir::Int>(c10::nullopt), id, inner_fl);
     }
 
-    if (!id->isThreadDim()) {
-      indeces.push_back(new_fl->index());
-    }
-
     if (init_loop_nest == nullptr) {
       // If this is our first generated loop, then it will be our outer most
       // loop nest
@@ -223,14 +213,10 @@ void LoopNestGenerator::initReduction(
     inner_fl = new_fl;
   }
 
-  if (indeces.empty()) {
-    indeces.push_back(ir_builder_.create<kir::Int>(0));
-  }
-
   // Create the initialization assignment
-  const auto tensor_index = ir_builder_.create<kir::TensorIndex>(tv, indeces);
+  const auto kir_tv = gpu_lower->lowerValue(tv);
   const auto init_stmt = ir_builder_.create<kir::UnaryOp>(
-      UnaryOpType::Set, tensor_index, gpu_lower->lowerValue(init_val));
+      UnaryOpType::Set, kir_tv, gpu_lower->lowerValue(init_val));
 
   // If there were for loops generated, place the init_stmt in the inner most
   // for loop. If no loops were generated, than our init_stmt is all we need.
@@ -286,7 +272,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
           MemoryType::Local,
           ir_builder_.create<kir::Int>(1)));
     }
-    OptOutConstDispatch::handle(expr);
+    pushBack(expr);
     return;
   }
 
@@ -409,7 +395,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
   }
 
   //  Place the expression
-  OptOutConstDispatch::handle(expr);
+  pushBack(expr);
 
   // If output is a shared memory buffer, set modified status
   modifySharedMemory(out);
@@ -766,205 +752,6 @@ bool LoopNestGenerator::isModifiedSharedMemory(Val* key) const {
     return it->second;
   }
   return false;
-}
-
-kir::Val* LoopNestGenerator::lowerOperand(Val* op, Val* out) const {
-  if (ir_utils::isTV(op)) {
-    return Index::getProducerIndex(
-        ir_utils::asTV(op), ir_utils::asTV(out), for_loops_);
-  } else {
-    return GpuLower::current()->lowerValue(op);
-  }
-}
-
-kir::Val* LoopNestGenerator::lowerOutput(Val* out) const {
-  if (ir_utils::isTV(out)) {
-    return Index::getConsumerIndex(ir_utils::asTV(out), for_loops_);
-  } else {
-    return GpuLower::current()->lowerValue(out);
-  }
-}
-
-void LoopNestGenerator::handle(const UnaryOp* uop) {
-  if (ir_utils::isTVOp(uop)) {
-    const auto in = lowerOperand(uop->in(), uop->out());
-    const auto out = lowerOutput(uop->out());
-    pushBack(ir_builder_.create<kir::UnaryOp>(uop->getUnaryOpType(), out, in));
-  } else {
-    // This will automatically lower the expression defining the value
-    // TODO(kir): revisit this
-    pushBack(GpuLower::current()->lowerValue(uop->out())->definition());
-  }
-}
-
-void LoopNestGenerator::handle(const BinaryOp* bop) {
-  if (ir_utils::isTVOp(bop)) {
-    const auto lhs = lowerOperand(bop->lhs(), bop->out());
-    const auto rhs = lowerOperand(bop->rhs(), bop->out());
-    const auto out = lowerOutput(bop->out());
-    pushBack(ir_builder_.create<kir::BinaryOp>(
-        bop->getBinaryOpType(), out, lhs, rhs));
-  } else {
-    // This will automatically lower the expression defining the value
-    // TODO(kir): revisit this
-    pushBack(GpuLower::current()->lowerValue(bop->out())->definition());
-  }
-}
-
-void LoopNestGenerator::handle(const TernaryOp* top) {
-  if (ir_utils::isTVOp(top)) {
-    const auto in1 = lowerOperand(top->in1(), top->out());
-    const auto in2 = lowerOperand(top->in2(), top->out());
-    const auto in3 = lowerOperand(top->in3(), top->out());
-    const auto out = lowerOutput(top->out());
-    pushBack(ir_builder_.create<kir::TernaryOp>(
-        top->getTernaryOpType(), out, in1, in2, in3));
-  } else {
-    // This will automatically lower the expression defining the value
-    // TODO(kir): revisit this
-    pushBack(GpuLower::current()->lowerValue(top->out())->definition());
-  }
-}
-
-void LoopNestGenerator::handle(const ReductionOp* rop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(rop));
-
-  const auto gpu_lower = GpuLower::current();
-
-  const auto out_tv = ir_utils::asTV(rop->out());
-
-  const bool is_block_reduce = out_tv->hasBlockReduction();
-  const bool is_grid_reduce = out_tv->hasGridReduction();
-
-  // If we do a grid reduction we can't have a reduction axis that is not bound
-  // to a grid or block dim ()
-  if (is_grid_reduce) {
-    TORCH_INTERNAL_ASSERT(
-        std::none_of(
-            out_tv->domain()->domain().begin(),
-            out_tv->domain()->domain().end(),
-            [](IterDomain* id) {
-              return !id->isThread() && id->isReduction();
-            }),
-        "Found a reduction stage that has both a non-parallelized ",
-        "reduction and a grid reduction.  This is not supported, ",
-        "please use rfactor to do the serialized reduction first, ",
-        "then the grid reduction.");
-  }
-
-  const auto out = Index::getConsumerIndex(out_tv, for_loops_);
-  const auto in = Index::getProducerIndex(
-      ir_utils::asTV(rop->in()), ir_utils::asTV(rop->out()), for_loops_);
-
-  kir::ReductionOp* block_reduction_op = nullptr;
-
-  if (is_block_reduce) {
-    block_reduction_op = ir_builder_.create<kir::ReductionOp>(
-        rop->getReductionOpType(), gpu_lower->lowerValue(rop->init()), out, in);
-
-    block_reduction_op->setPredicate(PredicateCompute::getInlinePredicate(
-        block_reduction_op, for_loops_, nullptr, false));
-
-    pushBack(block_reduction_op);
-  }
-
-  if (is_grid_reduce) {
-    // First, declare a boolean flag variable storing the return value
-    // of the gridReduce() helper
-    const auto flag_name = kir::GridReduction::getPredicateFlagName(out_tv);
-    const auto flag_var = ir_builder_.create<kir::Allocate>(
-        ir_builder_.create<kir::NamedScalar>(flag_name, DataType::Bool),
-        MemoryType::Local,
-        ir_builder_.create<kir::Int>(1));
-    pushBack(flag_var);
-
-    std::vector<IterDomain*> buffer_ids(out_tv->domain()->domain());
-    buffer_ids.erase(
-        std::remove_if(
-            buffer_ids.begin(),
-            buffer_ids.end(),
-            [](IterDomain* id) {
-              return id->isReduction() & !id->isBlockDim();
-            }),
-        buffer_ids.end());
-
-    Val* buffer_size =
-        buffer_ids.empty() ? new Int(1) : buffer_ids[0]->rawExtent();
-    for (size_t i = 1; i < buffer_ids.size(); i++) {
-      buffer_size = mul(buffer_size, buffer_ids[i]->rawExtent());
-    }
-
-    std::vector<IterDomain*> sync_ids(out_tv->domain()->domain());
-    sync_ids.erase(
-        std::remove_if(
-            sync_ids.begin(),
-            sync_ids.end(),
-            [](IterDomain* id) {
-              return id->isReduction() || !id->isBlockDim();
-            }),
-        sync_ids.end());
-
-    Val* sync_size = sync_ids.empty() ? new Int(1) : sync_ids[0]->rawExtent();
-    for (size_t i = 1; i < sync_ids.size(); i++) {
-      sync_size = mul(sync_size, sync_ids[i]->rawExtent());
-    }
-
-    IterDomain* buffer_id = new IterDomain(new Int(0), buffer_size);
-    TensorView* reduce_buffer_tv = new TensorView(
-        new TensorDomain({buffer_id}), out->dtype(), MemoryType::Global);
-
-    IterDomain* sync_id = new IterDomain(new Int(0), sync_size);
-    TensorView* reduce_sync_tv = new TensorView(
-        new TensorDomain({sync_id}), DataType::Int, MemoryType::Global);
-
-    const auto reduce_buffer = ir_builder_.create<kir::Allocate>(
-        gpu_lower->lowerValue(reduce_buffer_tv),
-        reduce_sync_tv->getMemoryType());
-    const auto sync_buffer = ir_builder_.create<kir::Allocate>(
-        gpu_lower->lowerValue(reduce_sync_tv),
-        reduce_sync_tv->getMemoryType(),
-        nullptr,
-        true);
-
-    const auto grid_reduction_op = block_reduction_op == nullptr
-        ? ir_builder_.create<kir::ReductionOp>(
-              rop->getReductionOpType(),
-              gpu_lower->lowerValue(rop->init()),
-              out,
-              in)
-        : block_reduction_op;
-
-    auto grid_reduction = ir_builder_.create<kir::GridReduction>(
-        grid_reduction_op, reduce_buffer, sync_buffer);
-    grid_reduction->setPredicate(PredicateCompute::getInlinePredicate(
-        grid_reduction, for_loops_, nullptr, false));
-
-    pushBack(reduce_buffer);
-    pushBack(sync_buffer);
-    pushBack(grid_reduction);
-  }
-
-  if (!is_block_reduce && !is_grid_reduce) {
-    pushBack(ir_builder_.create<kir::BinaryOp>(
-        rop->getReductionOpType(), out, out, in));
-  }
-}
-
-void LoopNestGenerator::handle(const BroadcastOp* bop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(bop));
-
-  kir::TensorIndex* out =
-      Index::getConsumerIndex(ir_utils::asTV(bop->out()), for_loops_);
-
-  kir::Val* in = nullptr;
-  if (ir_utils::isTV(bop->in())) {
-    in = Index::getProducerIndex(
-        ir_utils::asTV(bop->in()), ir_utils::asTV(bop->out()), for_loops_);
-  } else {
-    in = GpuLower::current()->lowerValue(bop->in());
-  }
-
-  pushBack(ir_builder_.create<kir::BroadcastOp>(out, in));
 }
 
 } // namespace cuda

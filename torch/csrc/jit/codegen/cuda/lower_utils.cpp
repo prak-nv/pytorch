@@ -242,33 +242,24 @@ ParallelTypeBitmap operator^(
 }
 
 ParallelTypeBitmap getParallelBroadcastDomains(
-    const kir::Val* bop_out,
-    const kir::ThreadPredicateMap& preds) {
-  
-  if (auto ti = dynamic_cast<const kir::TensorIndex*>(bop_out)) {
-    bop_out = ti->view();
-  }
-  
-  TORCH_INTERNAL_ASSERT(bop_out->isA<kir::TensorView>());
-
-  auto out_tv = bop_out->as<kir::TensorView>();
-  
-  // If no pred is found for out_tv, no predicate is necessary
-  if (preds.find(out_tv) == preds.end()) {
+    const TensorView* tv,
+    const ThreadPredicateMap& preds) {
+  // If no pred is found for tv, no predicate is necessary
+  if (preds.find(tv) == preds.end()) {
     return ParallelTypeBitmap();
   }
   
-  const ParallelTypeBitmap& out_pred = preds.at(out_tv).first;
+  const ParallelTypeBitmap& out_pred = preds.at(tv).first;
 
   ParallelTypeBitmap parallel_broadcast;
   
-  const auto& iter_domains = out_tv->domain()->domain();
+  const auto& iter_domains = tv->domain()->domain();
 
   // If the output is on shared memory, assume that all subsequent
   // reads from all threads in its CTA can be done with no parallel
   // broadcast. Only one thread will write to shared memory followed
   // by a proper _syncthreads.
-  const bool output_smem = out_tv->memoryType() == MemoryType::Shared;
+  const bool output_smem = tv->getMemoryType() == MemoryType::Shared;
   
   for (auto id : iter_domains) {
     if (!id->isBroadcast()) {

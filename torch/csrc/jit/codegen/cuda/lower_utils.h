@@ -16,9 +16,7 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-namespace kir {
 class ThreadPredicateMap;
-}
 
 using IterDomainMap = std::unordered_map<kir::IterDomain*, kir::IterDomain*>;
 
@@ -123,8 +121,8 @@ ParallelTypeBitmap operator^(
 //! Even when a domain is broadcast and parallelized, it does not need
 //! blockBroadcast unless it is predicated.
 ParallelTypeBitmap getParallelBroadcastDomains(
-    const kir::Val* bop_out,
-    const kir::ThreadPredicateMap& preds);
+    const TensorView* tv,
+    const ThreadPredicateMap& preds);
 
 } // namespace ir_utils
 

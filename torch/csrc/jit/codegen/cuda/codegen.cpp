@@ -372,7 +372,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
     const ir_utils::ParallelTypeBitmap domains =
         ir_utils::getParallelBroadcastDomains(
-            tensor_index->view(), kernel_->predicateMap());
+            tensor_index->view()->fuserTv(), kernel_->predicateMap());
 
     const bool thread_x = domains.get(ParallelType::TIDx);
     const bool thread_y = domains.get(ParallelType::TIDy);

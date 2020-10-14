@@ -56,10 +56,10 @@ class TORCH_CUDA_API UnrollPass {
   static std::vector<kir::Expr*> runPass(
       Fusion* fusion,
       const std::vector<kir::Expr*>& exprs,
-      const kir::ThreadPredicateMap& thread_predicates);
+      const ThreadPredicateMap& thread_predicates);
 
  private:
-  UnrollPass(Fusion* fusion, const kir::ThreadPredicateMap& thread_predicates)
+  UnrollPass(Fusion* fusion, const ThreadPredicateMap& thread_predicates)
       : thread_predicates_(thread_predicates) {
     p2c_root_map_ = loop_utils::p2cRootMap(fusion->exprs(true));
   }
@@ -84,7 +84,7 @@ class TORCH_CUDA_API UnrollPass {
   std::vector<kir::ForLoop*> for_loops_;
 
   // Map from TensorView
-  const kir::ThreadPredicateMap& thread_predicates_;
+  const ThreadPredicateMap& thread_predicates_;
 
   IterDomainMap p2c_root_map_;
 
@@ -93,7 +93,7 @@ class TORCH_CUDA_API UnrollPass {
 
   // As we generate inline predicates check if we actually generated a
   // non-trivial one.
-  // $$$ really neede?
+  // $$$ really needed?
   bool non_trivial_pred_found_ = false;
 };
 
