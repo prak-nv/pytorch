@@ -259,10 +259,10 @@ class TORCH_CUDA_API IterDomain : public Val {
   static std::pair<IterDomain*, IterDomain*> split(IterDomain* in, Val* factor);
 
   // Run concretization pass and return the concretized domain of broadcast id
-  static const IterDomain* concretizeDomain(IterDomain* bcast_dom);
+  static const IterDomain* concretizeDomain(const IterDomain* bcast_dom);
 
   // Attempt to prove 2 IterDomains are equal in start and rawExtent
-  static bool proveEquivalent(IterDomain* a, IterDomain* b);
+  static bool proveEquivalent(const IterDomain* a, const IterDomain* b);
 
   bool isReduction() const {
     return getIterType() == IterType::Reduction;
@@ -539,6 +539,11 @@ class TORCH_CUDA_API TensorDomain : public Val {
         consumer,
         std::unordered_set<IterDomain*>(p_root.begin(), p_root.end()));
   }
+
+  static std::unordered_map<IterDomain*, IterDomain*> mapRootDomains(
+    const std::vector<IterDomain*>& from,
+    const std::vector<IterDomain*>& to,
+    const std::unordered_set<IterDomain*>& filter_set);
 
   // pair is in order where second is the consumer of first
   std::pair<TensorDomain*, TensorDomain*> rFactor(const std::vector<int>& axes);

@@ -7432,8 +7432,9 @@ TEST(NVFuserTest, FusionComputeAtMultiBCast_CUDA) {
   TensorView* tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
-  // This is not supported and should throw an exception.
-  ASSERT_ANY_THROW(tv1->computeAt(tv3, -1));
+  // TODO: Lowering and validation run
+  tv1->computeAt(tv3, -1);
+  fusion.printMath();
 }
 
 TEST(NVFuserTest, FusionReductionHalf_CUDA) {

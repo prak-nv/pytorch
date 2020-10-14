@@ -16,9 +16,9 @@ namespace cuda {
 
 namespace {
 
-class ScalarCheck : OptInDispatch {
+class ScalarCheck : OptInConstDispatch {
  public:
-  static bool sameAs(Val* v1, Val* v2) {
+  static bool sameAs(const Val* v1, const Val* v2) {
     if (v1 == v2)
       return true;
 
@@ -33,33 +33,33 @@ class ScalarCheck : OptInDispatch {
   }
 
  private:
-  void handle(Bool* b) override {
+  void handle(const Bool* b) override {
     same_ = v1_->as<Bool>()->sameAs(v2_->as<Bool>());
   }
 
-  void handle(Float* f) override {
+  void handle(const Float* f) override {
     same_ = v1_->as<Float>()->sameAs(v2_->as<Float>());
   }
 
-  void handle(Half* h) override {
+  void handle(const Half* h) override {
     same_ = v1_->as<Half>()->sameAs(v2_->as<Half>());
   }
 
-  void handle(Int* i) override {
+  void handle(const Int* i) override {
     same_ = v1_->as<Int>()->sameAs(v2_->as<Int>());
   }
 
-  void handle(NamedScalar* ns) override {
+  void handle(const NamedScalar* ns) override {
     same_ = v1_->as<NamedScalar>()->sameAs(v2_->as<NamedScalar>());
   }
 
-  ScalarCheck(Val* _v1, Val* _v2) : v1_(_v1), v2_(_v2) {
-    OptInDispatch::handle(v1_);
+  ScalarCheck(const Val* _v1, const Val* _v2) : v1_(_v1), v2_(_v2) {
+    OptInConstDispatch::handle(v1_);
   }
 
  private:
-  Val* v1_ = nullptr;
-  Val* v2_ = nullptr;
+  const Val* v1_ = nullptr;
+  const Val* v2_ = nullptr;
   bool same_ = false;
 };
 
@@ -922,13 +922,29 @@ std::vector<std::pair<int, int>> TensorDomain::mapDomainPandC(
 
   size_t itc = 0, itp = 0;
   while (itc < consumer.size() && itp < producer.size()) {
-    if (consumer[itc]->isBroadcast() && !producer[itp]->isBroadcast()) {
+    IterDomain* p_id = producer[itp];
+    IterDomain* c_id = consumer[itc];
+
+    // When the producer ID is a reduction domain, there should never
+    // be any matching domain in the consumer.
+    if (p_id->isReduction()) {
+      itp++;
+      continue;
+    }
+
+    // When the consumer is a broadcast domain, but the producer is
+    // not, the consumer broadcast must be the new broadcast domain
+    // introduced by broadcasting the producer.
+    if (c_id->isBroadcast() && !p_id->isBroadcast()) {
       itc++;
       continue;
     }
-    if (producer[itp]->isReduction()) {
-      itp++;
-      continue;
+
+    // At this point, p_id and c_id must match.
+    if (std::getenv("PROVE")) {
+      if (!IterDomain::proveEquivalent(p_id, c_id)) {
+        TORCH_WARN("Can't prove equivalence: ", p_id, ", ", c_id);
+      }
     }
 
     dom_map.emplace_back(std::make_pair(itp, itc));
@@ -982,6 +998,29 @@ std::unordered_map<IterDomain*, IterDomain*> TensorDomain::mapRootPtoC(
     }
   }
   return root_id_map;
+}
+
+std::unordered_map<IterDomain*, IterDomain*> TensorDomain::mapRootDomains(
+    const std::vector<IterDomain*>& from,
+    const std::vector<IterDomain*>& to,
+    const std::unordered_set<IterDomain*>& filter_set) {
+  std::unordered_map<IterDomain*, IterDomain*> dom_map;
+  std::deque<IterDomain*> root_dom2_remaining({to.begin(), to.end()});
+  for (auto id1 : from) {
+    auto it = std::find_if(root_dom2_remaining.begin(), root_dom2_remaining.end(),
+                           [id1](IterDomain* id2) {
+                             return IterDomain::proveEquivalent(id1, id2);
+                           });
+    if (it != root_dom2_remaining.end()) {
+      IterDomain* matched_id = *it;
+      root_dom2_remaining.erase(it);
+      if (filter_set.find(id1) != filter_set.end()) {
+        dom_map.insert(std::make_pair(id1, matched_id));
+      }
+      continue;
+    }
+  }
+  return dom_map;
 }
 
 // pair is in order where second is the consumer of first
@@ -1164,7 +1203,7 @@ class ConcretizeDomain : private BackwardVisitor {
   //! API call to run the concretize pass and return the
   //! axis that bcast_dom concretizes to
   //!
-  static const IterDomain* getConcreteDomain(IterDomain* bcast_dom) {
+  static const IterDomain* getConcreteDomain(const IterDomain* bcast_dom) {
     ConcretizeDomain cd(bcast_dom->fusion());
 
     // Remove this assertion once we support broadcast on output
@@ -1174,12 +1213,12 @@ class ConcretizeDomain : private BackwardVisitor {
 
   // Returns true if either id is not a broadcast or
   // the traversal has found a concretized axis for id
-  bool canConcretize(IterDomain* id) const {
+  bool canConcretize(const IterDomain* id) const {
     return !id->isBroadcast() || bcast_domain_map_.count(id);
   }
 
   // Returns the concretized id recorded from traversal
-  IterDomain* concretized(IterDomain* id) const {
+  const IterDomain* concretized(const IterDomain* id) const {
     TORCH_INTERNAL_ASSERT(canConcretize(id));
     if (!id->isBroadcast()) {
       return id;
@@ -1190,10 +1229,10 @@ class ConcretizeDomain : private BackwardVisitor {
  private:
   // Utility to inspect a pointwise operator and
   // record concretize opportunities
-  void concretizePwOp(Expr* e);
+  void concretizePwOp(const Expr* e);
 
   // Utility to record new concretize opportunity
-  void concretizeTo(IterDomain* id, IterDomain* To) {
+  void concretizeTo(const IterDomain* id, const IterDomain* To) {
     TORCH_INTERNAL_ASSERT(id->isBroadcast() && !To->isBroadcast());
     bcast_domain_map_[id] = concretized(To);
   }
@@ -1217,11 +1256,11 @@ class ConcretizeDomain : private BackwardVisitor {
   };
 
  private:
-  using MapType = std::unordered_map<IterDomain*, IterDomain*>;
+  using MapType = std::unordered_map<const IterDomain*, const IterDomain*>;
   MapType bcast_domain_map_;
 };
 
-void ConcretizeDomain::concretizePwOp(Expr* e) {
+void ConcretizeDomain::concretizePwOp(const Expr* e) {
   if (e->output(0)->getValType() != ValType::TensorView) {
     return;
   }
@@ -1271,7 +1310,7 @@ class ProveValEqual : private IterVisitor {
   //! \param b Another value from the same fusion
   //! \returns Boolean representing if they are proven to be
   //!          equal based on scalar check and graph traversal
-  bool areEqual(Val* a, Val* b) const {
+  bool areEqual(const Val* a, const Val* b) const {
     if (ScalarCheck::sameAs(a, b)) {
       return true;
     }
@@ -1293,7 +1332,7 @@ class ProveValEqual : private IterVisitor {
   //! \returns Boolean representing if they are proven to be
   //!          equivalent in the sense that they have equal
   //!          start and extent
-  bool areEquivalent(IterDomain* a, IterDomain* b) const {
+  bool areEquivalent(const IterDomain* a, const IterDomain* b) const {
     if (a->sameAs(b)) {
       return true;
     }
@@ -1312,7 +1351,7 @@ class ProveValEqual : private IterVisitor {
 
  private:
   // Utility class to record new equality found
-  void proveId(IterDomain* a, IterDomain* b) {
+  void proveId(const IterDomain* a, const IterDomain* b) {
     if (!a->sameAs(b)) {
       eq_set_.join(a->start(), b->start());
       eq_set_.join(a->rawExtent(), b->rawExtent());
@@ -1367,14 +1406,14 @@ class ProveValEqual : private IterVisitor {
 } // namespace
 
 // API call to return the concretized axis of a broadcast axis
-const IterDomain* IterDomain::concretizeDomain(IterDomain* bcast_dom) {
+const IterDomain* IterDomain::concretizeDomain(const IterDomain* bcast_dom) {
   return ConcretizeDomain::getConcreteDomain(bcast_dom);
 }
 
 // API call to check if two IterDomains are equal
 // checks start and extent, contains both scalar check and graph traversal
 // broadcast domains are concretized before comparing
-bool IterDomain::proveEquivalent(IterDomain* a, IterDomain* b) {
+bool IterDomain::proveEquivalent(const IterDomain* a, const IterDomain* b) {
   TORCH_INTERNAL_ASSERT(a->fusion() == b->fusion());
   ProveValEqual pve(a->fusion());
   return pve.areEquivalent(a, b);
