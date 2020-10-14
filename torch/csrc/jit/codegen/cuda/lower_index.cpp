@@ -147,18 +147,19 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
 
   const auto gpu_lower = GpuLower::current();
 
-  const auto out_tv = ir_utils::asTV(rop->out());
+  const auto out_tv = rop->out()->as<kir::TensorView>();
+  const auto out_domain = out_tv->domain();
 
-  const bool is_block_reduce = out_tv->hasBlockReduction();
-  const bool is_grid_reduce = out_tv->hasGridReduction();
+  const bool is_block_reduce = out_domain->hasBlockReduction();
+  const bool is_grid_reduce = out_domain->hasGridReduction();
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim ()
   if (is_grid_reduce) {
     TORCH_INTERNAL_ASSERT(
         std::none_of(
-            out_tv->domain()->domain().begin(),
-            out_tv->domain()->domain().end(),
+            out_domain->domain().begin(),
+            out_domain->domain().end(),
             [](kir::IterDomain* id) {
               return !id->isThread() && id->isReduction();
             }),
@@ -168,18 +169,18 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
         "then the grid reduction.");
   }
 
-  const auto loops = scope_utils::getLoops(active_scope_expr_);
-
   const auto out = lowerDstIndex(rop->out());
   const auto in = lowerSrcIndex(rop->in(), rop->out());
+
+  const auto pred = PredicateCompute::getInlinePredicate(
+      rop, scope_utils::getLoops(active_scope_expr_), nullptr, false);
 
   kir::ReductionOp* block_reduction_op = nullptr;
 
   if (is_block_reduce) {
     block_reduction_op = ir_builder_.create<kir::ReductionOp>(
         rop->operation(), rop->init(), out, in);
-    block_reduction_op->setPredicate(
-        PredicateCompute::getInlinePredicate(rop, loops, nullptr, false));
+    block_reduction_op->setPredicate(pred);
     pushBack(block_reduction_op);
   }
 
@@ -188,66 +189,71 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
     // of the gridReduce() helper
     allocateGridReductionFlag(out_tv, active_scope_expr_);
 
-    std::vector<IterDomain*> buffer_ids(out_tv->domain()->domain());
+    auto buffer_ids = out_domain->domain();
     buffer_ids.erase(
         std::remove_if(
             buffer_ids.begin(),
             buffer_ids.end(),
-            [](IterDomain* id) {
-              return id->isReduction() & !id->isBlockDim();
+            [](kir::IterDomain* id) {
+              return id->isReduction() && !id->isBlockDim();
             }),
         buffer_ids.end());
 
-    Val* buffer_size =
-        buffer_ids.empty() ? new Int(1) : buffer_ids[0]->rawExtent();
+    kir::Val* buffer_size = buffer_ids.empty() ? ir_builder_.create<kir::Int>(1)
+                                               : buffer_ids[0]->rawExtent();
+
     for (size_t i = 1; i < buffer_ids.size(); i++) {
-      buffer_size = mul(buffer_size, buffer_ids[i]->rawExtent());
+      buffer_size =
+          ir_builder_.mulExpr(buffer_size, buffer_ids[i]->rawExtent());
     }
 
-    std::vector<IterDomain*> sync_ids(out_tv->domain()->domain());
+    auto sync_ids = out_domain->domain();
     sync_ids.erase(
         std::remove_if(
             sync_ids.begin(),
             sync_ids.end(),
-            [](IterDomain* id) {
+            [](kir::IterDomain* id) {
               return id->isReduction() || !id->isBlockDim();
             }),
         sync_ids.end());
 
-    Val* sync_size = sync_ids.empty() ? new Int(1) : sync_ids[0]->rawExtent();
+    kir::Val* sync_size = sync_ids.empty() ?
+      ir_builder_.create<kir::Int>(1) : sync_ids[0]->rawExtent();
+
     for (size_t i = 1; i < sync_ids.size(); i++) {
-      sync_size = mul(sync_size, sync_ids[i]->rawExtent());
+      sync_size = ir_builder_.mulExpr(sync_size, sync_ids[i]->rawExtent());
     }
 
-    IterDomain* buffer_id = new IterDomain(new Int(0), buffer_size);
-    TensorView* reduce_buffer_tv = new TensorView(
-        new TensorDomain({buffer_id}), out->dtype(), MemoryType::Global);
+    const auto zero = ir_builder_.create<kir::Int>(0);
 
-    IterDomain* sync_id = new IterDomain(new Int(0), sync_size);
-    TensorView* reduce_sync_tv = new TensorView(
-        new TensorDomain({sync_id}), DataType::Int, MemoryType::Global);
+    const auto buffer_id =
+        ir_builder_.create<kir::IterDomain>(zero, buffer_size);
+    const auto buffer_domain =
+        ir_builder_.create<kir::TensorDomain>({buffer_id});
+    const auto reduce_buffer_tv = ir_builder_.create<kir::TensorView>(
+        out->dtype(), buffer_domain, MemoryType::Global);
+
+    const auto sync_id =
+        ir_builder_.create<kir::IterDomain>(zero, sync_size);
+    const auto sync_domain =
+        ir_builder_.create<kir::TensorDomain>({sync_id});
+    const auto reduce_sync_tv = ir_builder_.create<kir::TensorView>(
+        DataType::Int, sync_domain, MemoryType::Global);
 
     const auto reduce_buffer = ir_builder_.create<kir::Allocate>(
-        gpu_lower->lowerValue(reduce_buffer_tv),
-        reduce_sync_tv->getMemoryType());
-    const auto sync_buffer = ir_builder_.create<kir::Allocate>(
-        gpu_lower->lowerValue(reduce_sync_tv),
-        reduce_sync_tv->getMemoryType(),
-        nullptr,
-        true);
+        reduce_buffer_tv, reduce_buffer_tv->memoryType());
 
-    const auto grid_reduction_op = block_reduction_op == nullptr
+    const auto sync_buffer = ir_builder_.create<kir::Allocate>(
+        reduce_sync_tv, reduce_sync_tv->memoryType(), nullptr, true);
+
+    const auto grid_reduction_op = (block_reduction_op == nullptr)
         ? ir_builder_.create<kir::ReductionOp>(
-              rop->getReductionOpType(),
-              gpu_lower->lowerValue(rop->init()),
-              out,
-              in)
+              rop->operation(), rop->init(), out, in)
         : block_reduction_op;
 
     auto grid_reduction = ir_builder_.create<kir::GridReduction>(
         grid_reduction_op, reduce_buffer, sync_buffer);
-    grid_reduction->setPredicate(PredicateCompute::getInlinePredicate(
-        grid_reduction, for_loops_, nullptr, false));
+    grid_reduction->setPredicate(pred);
 
     pushBack(reduce_buffer);
     pushBack(sync_buffer);
@@ -256,7 +262,7 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
 
   if (!is_block_reduce && !is_grid_reduce) {
     pushBack(ir_builder_.create<kir::BinaryOp>(
-        rop->getReductionOpType(), out, out, in));
+        rop->operation(), out, out, in));
   }
 }
 

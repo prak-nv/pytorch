@@ -183,12 +183,19 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return no_broadcast_domains;
 }
 
-TensorView::TensorView(Passkey passkey, fuser::cuda::TensorView* tv)
+TensorView::TensorView(Passkey passkey, const fuser::cuda::TensorView* tv)
     : Val(passkey, tv->getDataType().value()), fuser_tv_(tv) {
   setName(tv->name());
   domain_ = GpuLower::current()->lowerValue(tv->domain())->as<TensorDomain>();
   memory_type_ = tv->getMemoryType();
 }
+
+TensorView::TensorView(
+    Passkey passkey,
+    DataType dtype,
+    TensorDomain* domain,
+    MemoryType memory_type)
+    : Val(passkey, dtype), domain_(domain), memory_type_(memory_type) {}
 
 UnaryOp::UnaryOp(Passkey passkey, UnaryOpType operation, Val* out, Val* in)
     : Expr(passkey), operation_(operation), out_(out), in_(in) {

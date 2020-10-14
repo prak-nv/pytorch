@@ -503,7 +503,7 @@ class TORCH_CUDA_API IterDomain final : public Val {
 // TODO(kir): is this really a value?
 class TORCH_CUDA_API TensorDomain final : public Val {
  public:
-  explicit TensorDomain(Passkey passkey, std::vector<IterDomain*> domain);
+  explicit TensorDomain(Passkey, std::vector<IterDomain*> domain);
 
   explicit TensorDomain(
       Passkey passkey,
@@ -515,6 +515,7 @@ class TORCH_CUDA_API TensorDomain final : public Val {
     return domain_.size();
   }
 
+  // TODO(kir): rename this
   const std::vector<IterDomain*>& domain() const {
     return domain_;
   }
@@ -576,7 +577,13 @@ class TORCH_CUDA_API TensorDomain final : public Val {
 
 class TORCH_CUDA_API TensorView final : public Val {
  public:
-  explicit TensorView(Passkey, fuser::cuda::TensorView* tv);
+  explicit TensorView(Passkey, const fuser::cuda::TensorView* tv);
+
+  TensorView(
+      Passkey,
+      DataType dtype,
+      TensorDomain* domain,
+      MemoryType memory_type);
 
   TensorDomain* domain() const {
     return domain_;
@@ -590,7 +597,8 @@ class TORCH_CUDA_API TensorView final : public Val {
 
   fuser::cuda::TensorView* fuserTv() const {
     TORCH_INTERNAL_ASSERT(fuser_tv_ != nullptr);
-    return fuser_tv_;
+    // TODO(kir): remove the need for const_cast
+    return const_cast<fuser::cuda::TensorView*>(fuser_tv_); // NOLINT
   }
 
  private:
@@ -598,7 +606,7 @@ class TORCH_CUDA_API TensorView final : public Val {
   MemoryType memory_type_ = MemoryType::Local;
 
   // TODO(kir): remove temporary hack
-  fuser::cuda::TensorView* fuser_tv_ = nullptr;
+  const fuser::cuda::TensorView* fuser_tv_ = nullptr;
 };
 
 class TORCH_CUDA_API UnaryOp final : public Expr {
@@ -786,8 +794,8 @@ class TORCH_CUDA_API BroadcastOp final : public Expr {
 //! of the size of the buffer that is generated from the TensorView that
 //! describes the output of an operation.
 //!
-//! TODO: The components of Allocate like Type and Name could be separated from
-//! the the assocated TensorView.  Perhaps that is more appropriate?
+//! TODO(kir): The components of Allocate like Type and Name could be separated
+//!   from the the assocated TensorView.  Perhaps that is more appropriate?
 //!
 class TORCH_CUDA_API Allocate final : public Expr {
  public:

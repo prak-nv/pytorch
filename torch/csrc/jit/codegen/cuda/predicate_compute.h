@@ -42,7 +42,7 @@ class PredicateCompute {
       bool use_rfactor);
 
   static kir::Bool* getInlinePredicate(
-      kir::Expr* expr,
+      const kir::Expr* expr,
       const std::vector<kir::ForLoop*>& loops,
       kir::Bool* thread_pred,
       bool ignore_block_grid_reductions = true);

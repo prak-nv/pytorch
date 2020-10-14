@@ -22,16 +22,18 @@ namespace {
 // TODO(kir): same question as ir_utils::getTvOutput():
 //    why do we assume a single TV output?
 //
-const kir::TensorView* firstTvOutput(kir::Expr* expr) {
+const kir::TensorView* firstTvOutput(const kir::Expr* expr) {
   for (auto out : expr->outputs()) {
     if (out->isA<kir::TensorView>()) {
       return out->as<kir::TensorView>();
     }
 
     // $$$???
+    /*
     if (out->isA<kir::TensorIndex>()) {
       return out->as<kir::TensorIndex>()->view();
     }
+    */
   }
   TORCH_INTERNAL_ASSERT(false, "Missing kir::TensorView output");
 }
@@ -112,7 +114,7 @@ std::vector<kir::Bool*> PredicateCompute::computePredicates(
 }
 
 kir::Bool* PredicateCompute::getInlinePredicate(
-    kir::Expr* expr,
+    const kir::Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
     kir::Bool* thread_pred,
     bool ignore_block_grid_reductions) {
@@ -126,7 +128,7 @@ kir::Bool* PredicateCompute::getInlinePredicate(
 
   // Handle these elsewhere
   if (ignore_block_grid_reductions) {
-    if (auto reduction_op = dynamic_cast<kir::ReductionOp*>(expr)) {
+    if (auto reduction_op = dynamic_cast<const kir::ReductionOp*>(expr)) {
       const auto domain = reduction_op->out()->as<kir::TensorView>()->domain();
       if (domain->hasBlockReduction() || domain->hasGridReduction()) {
         return ir_builder.create<kir::Bool>(true);
