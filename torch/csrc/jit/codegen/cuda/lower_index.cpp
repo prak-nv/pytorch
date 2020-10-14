@@ -145,7 +145,7 @@ void allocateGridReductionFlag(
 
 } // namespace
 
-void IndexLowering::handle(ReductionOp* rop) {
+void IndexLowering::visit(const kir::ReductionOp* rop) {
   TORCH_INTERNAL_ASSERT(
       ir_utils::isTVOp(rop),
       "Cannot have a reduction operation on something other than a tensor view, but received ",
@@ -267,30 +267,21 @@ void IndexLowering::handle(ReductionOp* rop) {
   }
 }
 
-void IndexLowering::handle(BroadcastOp* bop) {
-  TORCH_INTERNAL_ASSERT(
-      ir_utils::isTVOp(bop),
-      "Cannot have a broadcast operation on something other than a tensor view, but received ",
-      bop);
-
-  auto loops = scope_utils::getLoops(active_scope_expr_);
-
-  kir::TensorIndex* out =
-      Index::getConsumerIndex(ir_utils::asTV(bop->out()), loops);
-
-  Val* in = bop->in();
-  if (ir_utils::isTV(in))
-    in = Index::getProducerIndex(
-        ir_utils::asTV(in), ir_utils::asTV(bop->out()), loops);
+void IndexLowering::visit(const kir::BroadcastOp* bop) {
+  TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(bop));
+  const auto out = lowerDstIndex(bop->out());
+  const auto in = lowerSrcIndex(bop->in(), bop->out());
   pushBack(ir_builder_.create<kir::BroadcastOp>(out, in));
 }
 
-void IndexLowering::handle(kir::Allocate* allocate) {
-  pushBack(allocate);
+void IndexLowering::visit(const kir::Allocate* allocate) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Allocate*>(allocate)); // NOLINT
 }
 
-void IndexLowering::handle(kir::Sync* sync) {
-  pushBack(sync);
+void IndexLowering::visit(const kir::Sync* sync) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Sync*>(sync)); // NOLINT
 }
 
 void IndexLowering::generate(const std::vector<kir::Expr*>& exprs) {
