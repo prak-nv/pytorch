@@ -941,10 +941,10 @@ std::vector<std::pair<int, int>> TensorDomain::mapDomainPandC(
     }
 
     // At this point, p_id and c_id must match.
-    if (std::getenv("PROVE")) {
-      if (!IterDomain::proveEquivalent(p_id, c_id)) {
-        TORCH_WARN("Can't prove equivalence: ", p_id, ", ", c_id);
-      }
+    // TODO: Remove getenv.
+    if (!std::getenv("SKIP_PROVING")) {
+      TORCH_INTERNAL_ASSERT(IterDomain::proveEquivalent(p_id, c_id),
+                            "Can't prove equivalence: ", p_id, ", ", c_id);
     }
 
     dom_map.emplace_back(std::make_pair(itp, itc));
