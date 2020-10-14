@@ -138,7 +138,7 @@ namespace loop_utils {
 // first dimension that needs to be allocated is. Meaning we need to allocate
 // that local axis and above.
 std::pair<kir::ForLoop*, int64_t> getAllocPoint(
-    TensorView* tv,
+    const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops);
 
 // Go through exprs mapping root domains from producer to consumer. Provides a

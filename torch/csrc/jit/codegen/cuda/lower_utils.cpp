@@ -278,7 +278,7 @@ ParallelTypeBitmap getParallelBroadcastDomains(
 namespace loop_utils {
 
 std::pair<kir::ForLoop*, int64_t> getAllocPoint(
-    TensorView* tv,
+    const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops) {
   const auto gpu_lower = GpuLower::current();
 

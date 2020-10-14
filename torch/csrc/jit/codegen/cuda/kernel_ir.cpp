@@ -183,7 +183,7 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return no_broadcast_domains;
 }
 
-TensorView::TensorView(Passkey passkey, const fuser::cuda::TensorView* tv)
+TensorView::TensorView(Passkey passkey, fuser::cuda::TensorView* tv)
     : Val(passkey, tv->getDataType().value()), fuser_tv_(tv) {
   setName(tv->name());
   domain_ = GpuLower::current()->lowerValue(tv->domain())->as<TensorDomain>();

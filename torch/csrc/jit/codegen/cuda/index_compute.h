@@ -145,23 +145,23 @@ class Index {
   // Producer indexing if it's in shared or local memory
   static kir::TensorIndex* getProducerIndex_impl(
       TensorView* producer,
-      TensorView* consumer,
+      const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops);
 
   // Consumer indexing if it's in shared or local memory
   static kir::TensorIndex* getConsumerIndex_impl(
-      TensorView* consumer,
+      const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops);
 
   // Producer if it's in global memory
   static kir::TensorIndex* getGlobalProducerIndex(
       TensorView* producer,
-      TensorView* consumer,
+      const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops);
 
   // Consumer indexing if it's in global memory
   static kir::TensorIndex* getGlobalConsumerIndex(
-      TensorView* consumer,
+      const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops);
 
  public:
@@ -171,12 +171,12 @@ class Index {
   // Producer indexing dispatch
   static kir::TensorIndex* getProducerIndex(
       TensorView* producer,
-      TensorView* consumer,
+      const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops);
 
   // Consumer index dispatch
   static kir::TensorIndex* getConsumerIndex(
-      TensorView* consumer,
+      const TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops);
 
   // Consumer indices for predicates, keep all indices matching in root domain.

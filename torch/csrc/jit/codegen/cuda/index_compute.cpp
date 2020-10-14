@@ -758,7 +758,7 @@ generateIndexAndExtentMap(
 
 kir::TensorIndex* Index::getGlobalProducerIndex(
     TensorView* producer_tv,
-    TensorView* consumer_tv,
+    const TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("getGlobalProducerIndex");
 
@@ -848,7 +848,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
 namespace {
 
 std::unordered_map<kir::ForLoop*, kir::Val*> indexMapFromTV(
-    TensorView* tv,
+    const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops) {
   auto alloc_point = loop_utils::getAllocPoint(tv, loops);
   auto alloc_loop = alloc_point.first;
@@ -890,7 +890,7 @@ std::unordered_map<kir::ForLoop*, kir::Val*> indexMapFromTV(
 // Producer index for either shared or local memory
 kir::TensorIndex* Index::getProducerIndex_impl(
     TensorView* producer_tv,
-    TensorView* consumer_tv,
+    const TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops) {
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
@@ -994,7 +994,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
 }
 
 kir::TensorIndex* Index::getGlobalConsumerIndex(
-    TensorView* consumer_tv,
+    const TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("getGlobalConsumerIndex");
 
@@ -1069,7 +1069,7 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
 
 // Consumer index for either shared or local memory
 kir::TensorIndex* Index::getConsumerIndex_impl(
-    TensorView* consumer_tv,
+    const TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops) {
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
@@ -1163,7 +1163,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
 // Producer is the inputs of an expression
 kir::TensorIndex* Index::getProducerIndex(
     TensorView* producer,
-    TensorView* consumer,
+    const TensorView* consumer,
     const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("Index::getProducerIndex");
 
@@ -1183,7 +1183,7 @@ kir::TensorIndex* Index::getProducerIndex(
 
 // Consumer is the output of an expression
 kir::TensorIndex* Index::getConsumerIndex(
-    TensorView* consumer,
+    const TensorView* consumer,
     const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("Index::getConsumerIndex");
 

@@ -16,116 +16,101 @@ namespace cuda {
 
 IndexLowering::IndexLowering() : ir_builder_(GpuLower::current()->kernel()) {}
 
-Val* IndexLowering::lowerOperand(Val* op, Val* out) const {
-  if (ir_utils::isTV(op)) {
+kir::Val* IndexLowering::lowerSrcIndex(kir::Val* val, kir::Val* dst) const {
+  if (auto tv = dynamic_cast<kir::TensorView*>(val)) {
+    TORCH_INTERNAL_ASSERT(dst->isA<kir::TensorView>());
     return Index::getProducerIndex(
-        ir_utils::asTV(op),
-        ir_utils::asTV(out),
-        scope_utils::getLoops(active_scope_expr));
+        tv->fuserTv(),
+        dst->as<kir::TensorView>()->fuserTv(),
+        scope_utils::getLoops(active_scope_expr_));
   } else {
-    return GpuLower::lowerValue(op);
+    return val;
   }
 }
 
-Val* IndexLowering::lowerOutput(Expr* expr) const {
-  TORCH_CHECK(expr->outputs().size() == 1);
-  const auto out = expr->output(0);
-  if (ir_utils::isTVOp(expr)) {
+kir::Val* IndexLowering::lowerDstIndex(kir::Val* dst) const {
+  if (auto tv = dynamic_cast<kir::TensorView*>(dst)) {
     return Index::getConsumerIndex(
-        ir_utils::asTV(out), scope_utils::getLoops(active_scope_expr));
+        tv->fuserTv(), scope_utils::getLoops(active_scope_expr_));
   } else {
-    return GpuLower::lowerValue(out);
+    return dst;
   }
 }
 
 void IndexLowering::pushBack(kir::Expr* expr) {
-  if (active_scope == nullptr) {
+  if (active_scope_ == nullptr) {
     lowered_exprs_.push_back(expr);
   } else {
-    active_scope->push_back(expr);
+    active_scope_->push_back(expr);
   }
 }
 
-//$$$ ???
-void IndexLowering::handle(kir::IfThenElse* ite) {
-  Expr* prev_scope_expr = active_scope_expr;
-  kir::Scope* prev_scope = active_scope;
+void IndexLowering::visit(const kir::IfThenElse* ite) {
+  const auto prev_scope_expr = active_scope_expr_;
+  const auto prev_scope = active_scope_;
 
+  // TODO(kir): try to avoid recreating new nodes and leaving old ones around
   auto new_ite =
       ir_builder_.create<kir::IfThenElse>(ite->cond(), prev_scope_expr);
   pushBack(new_ite);
-  active_scope_expr = new_ite;
-  active_scope = &new_ite->thenBody();
+  
+  active_scope_expr_ = new_ite;
+  active_scope_ = &new_ite->thenBody();
 
   for (auto expr : ite->thenBody().exprs()) {
-    OptInDispatch::handle(expr);
+    expr->accept(this);
   }
 
-  active_scope = &new_ite->elseBody();
+  active_scope_ = &new_ite->elseBody();
 
   for (auto expr : ite->elseBody().exprs()) {
-    OptInDispatch::handle(expr);
+    expr->accept(this);
   }
 
-  active_scope = prev_scope;
-  active_scope_expr = prev_scope_expr;
+  active_scope_ = prev_scope;
+  active_scope_expr_ = prev_scope_expr;
 }
 
-void IndexLowering::handle(kir::ForLoop* fl) {
-  Expr* prev_scope_expr = active_scope_expr;
-  kir::Scope* prev_scope = active_scope;
+void IndexLowering::visit(const kir::ForLoop* for_loop) {
+  const auto prev_scope_expr = active_scope_expr_;
+  const auto prev_scope = active_scope_;
 
-  auto newFl = ir_builder_.create<kir::ForLoop>(
-      fl->index(), fl->iter_domain(), prev_scope_expr);
-  pushBack(newFl);
+  auto new_for_loop = ir_builder_.create<kir::ForLoop>(
+      for_loop->index(), for_loop->iter_domain(), prev_scope_expr);
+  pushBack(new_for_loop);
 
-  active_scope_expr = newFl;
-  active_scope = &newFl->body();
+  active_scope_expr_ = new_for_loop;
+  active_scope_ = &new_for_loop->body();
 
-  for (auto expr : fl->body().exprs()) {
-    OptInDispatch::handle(expr);
+  for (auto expr : for_loop->body().exprs()) {
+    expr->accept(this);
   }
 
-  active_scope = prev_scope;
-  active_scope_expr = prev_scope_expr;
+  active_scope_ = prev_scope;
+  active_scope_expr_ = prev_scope_expr;
 }
 
-void IndexLowering::handle(UnaryOp* uop) {
-  if (ir_utils::isTVOp(uop)) {
-    const auto in = lowerOperand(uop->in(), uop->out());
-    const auto out = lowerOutput(uop);
-    pushBack(ir_builder_.create<kir::UnaryOp>(uop->getUnaryOpType(), out, in));
-  } else {
-    // This will automatically lower the expression defining the value
-    pushBack(GpuLower::lowerValue(uop->out())->getOrigin());
-  }
+void IndexLowering::visit(const kir::UnaryOp* uop) {
+  const auto in = lowerSrcIndex(uop->in(), uop->out());
+  const auto out = lowerDstIndex(uop->out());
+  pushBack(ir_builder_.create<kir::UnaryOp>(uop->operation(), out, in));
 }
 
-void IndexLowering::handle(BinaryOp* bop) {
-  if (ir_utils::isTVOp(bop)) {
-    const auto lhs = lowerOperand(bop->lhs(), bop->out());
-    const auto rhs = lowerOperand(bop->rhs(), bop->out());
-    const auto out = lowerOutput(bop);
-    pushBack(ir_builder_.create<kir::BinaryOp>(
-        bop->getBinaryOpType(), out, lhs, rhs));
-  } else {
-    // This will automatically lower the expression defining the value
-    pushBack(GpuLower::lowerValue(bop->out())->getOrigin());
-  }
+void IndexLowering::visit(const kir::BinaryOp* bop) {
+  const auto lhs = lowerSrcIndex(bop->lhs(), bop->out());
+  const auto rhs = lowerSrcIndex(bop->rhs(), bop->out());
+  const auto out = lowerDstIndex(bop->out());
+  pushBack(
+      ir_builder_.create<kir::BinaryOp>(bop->operation(), out, lhs, rhs));
 }
 
-void IndexLowering::handle(TernaryOp* top) {
-  if (ir_utils::isTVOp(top)) {
-    const auto in1 = lowerOperand(top->in1(), top->out());
-    const auto in2 = lowerOperand(top->in2(), top->out());
-    const auto in3 = lowerOperand(top->in3(), top->out());
-    const auto out = lowerOutput(top);
-    pushBack(ir_builder_.create<kir::TernaryOp>(
-        top->getTernaryOpType(), out, in1, in2, in3));
-  } else {
-    // This will automatically lower the expression defining the value
-    pushBack(GpuLower::lowerValue(top->out())->getOrigin());
-  }
+void IndexLowering::visit(const kir::TernaryOp* top) {
+  const auto in1 = lowerSrcIndex(top->in1(), top->out());
+  const auto in2 = lowerSrcIndex(top->in2(), top->out());
+  const auto in3 = lowerSrcIndex(top->in3(), top->out());
+  const auto out = lowerDstIndex(top->out());
+  pushBack(
+      ir_builder_.create<kir::TernaryOp>(top->operation(), out, in1, in2, in3));
 }
 
 namespace {
@@ -184,7 +169,7 @@ void IndexLowering::handle(ReductionOp* rop) {
         "Found a reduction stage that has both a non-parallelized reduction and a grid reduction.",
         " This is not supported, please use rfactor to do the serialized reduction first, then the grid reduction.");
   }
-  const auto loops = scope_utils::getLoops(active_scope_expr);
+  const auto loops = scope_utils::getLoops(active_scope_expr_);
 
   kir::TensorIndex* out = Index::getConsumerIndex(out_tv, loops);
   kir::TensorIndex* in = Index::getProducerIndex(
@@ -207,7 +192,7 @@ void IndexLowering::handle(ReductionOp* rop) {
   if (is_grid_reduce) {
     // First, declare a boolean flag variable storing the return value
     // of gridReduce.
-    allocateGridReductionFlag(out_tv, active_scope_expr);
+    allocateGridReductionFlag(out_tv, active_scope_expr_);
 
     std::vector<IterDomain*> buffer_ids(out_tv->domain()->domain());
     buffer_ids.erase(
@@ -288,7 +273,7 @@ void IndexLowering::handle(BroadcastOp* bop) {
       "Cannot have a broadcast operation on something other than a tensor view, but received ",
       bop);
 
-  auto loops = scope_utils::getLoops(active_scope_expr);
+  auto loops = scope_utils::getLoops(active_scope_expr_);
 
   kir::TensorIndex* out =
       Index::getConsumerIndex(ir_utils::asTV(bop->out()), loops);
@@ -309,8 +294,7 @@ void IndexLowering::handle(kir::Sync* sync) {
 }
 
 void IndexLowering::generate(const std::vector<kir::Expr*>& exprs) {
-  // Run through loop nests and further lower the expressions
-  for (auto* expr : exprs) {
+  for (auto expr : exprs) {
     expr->accept(this);
   }
 }

@@ -26,24 +26,22 @@ class TORCH_CUDA_API IndexLowering : private kir::IrVisitor {
  private:
   IndexLowering();
 
-  // Wrap pushBack, if active_scope is null we want it to go
-  // straight to lower_exprs
   void pushBack(kir::Expr*);
 
-  void handle(kir::ForLoop*) final;
-  void handle(kir::IfThenElse*) final;
-  void handle(UnaryOp*) final;
-  void handle(BinaryOp*) final;
-  void handle(TernaryOp*) final;
-  void handle(ReductionOp*) final;
-  void handle(BroadcastOp*) final;
-  void handle(kir::Allocate*) final;
-  void handle(kir::Sync*) final;
+  void visit(const kir::ForLoop*) final;
+  void visit(const kir::IfThenElse*) final;
+  void visit(const kir::UnaryOp*) final;
+  void visit(const kir::BinaryOp*) final;
+  void visit(const kir::TernaryOp*) final;
+  void visit(const kir::ReductionOp*) final;
+  void visit(const kir::BroadcastOp*) final;
+  void visit(const kir::Allocate*) final;
+  void visit(const kir::Sync*) final;
 
-  void generate(const std::vector<Expr*>& exprs);
+  void generate(const std::vector<kir::Expr*>& exprs);
 
-  Val* lowerOperand(Val* op, Val* out) const;
-  Val* lowerOutput(Expr* expr) const;
+  kir::Val* lowerSrcIndex(kir::Val* val, kir::Val* dst) const;
+  kir::Val* lowerDstIndex(kir::Val* dst) const;
 
  private:
   std::vector<kir::Expr*> lowered_exprs_;
@@ -54,8 +52,8 @@ class TORCH_CUDA_API IndexLowering : private kir::IrVisitor {
   // to be able to carry both around because when we push back to a scope it
   // could be either the body or else body of the IfThenElse. However, we want
   // to understand the nesting of IfThenElse/ForLoop nodes.
-  kir::Scope* active_scope = nullptr;
-  kir::Expr* active_scope_expr = nullptr;
+  kir::Scope* active_scope_ = nullptr;
+  kir::Expr* active_scope_expr_ = nullptr;
 
   kir::IrBuilder ir_builder_;
 };

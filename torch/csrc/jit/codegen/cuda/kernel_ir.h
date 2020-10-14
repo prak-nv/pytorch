@@ -576,7 +576,7 @@ class TORCH_CUDA_API TensorDomain final : public Val {
 
 class TORCH_CUDA_API TensorView final : public Val {
  public:
-  explicit TensorView(Passkey, const fuser::cuda::TensorView* tv);
+  explicit TensorView(Passkey, fuser::cuda::TensorView* tv);
 
   TensorDomain* domain() const {
     return domain_;
@@ -588,7 +588,7 @@ class TORCH_CUDA_API TensorView final : public Val {
     return memory_type_;
   }
 
-  const fuser::cuda::TensorView* fuserTv() const {
+  fuser::cuda::TensorView* fuserTv() const {
     TORCH_INTERNAL_ASSERT(fuser_tv_ != nullptr);
     return fuser_tv_;
   }
@@ -598,7 +598,7 @@ class TORCH_CUDA_API TensorView final : public Val {
   MemoryType memory_type_ = MemoryType::Local;
 
   // TODO(kir): remove temporary hack
-  const fuser::cuda::TensorView* fuser_tv_ = nullptr;
+  fuser::cuda::TensorView* fuser_tv_ = nullptr;
 };
 
 class TORCH_CUDA_API UnaryOp final : public Expr {

@@ -272,7 +272,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
           MemoryType::Local,
           ir_builder_.create<kir::Int>(1)));
     }
-    pushBack(expr);
+    pushBack(gpu_lower->lowerExpr(expr));
     return;
   }
 
@@ -395,7 +395,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
   }
 
   //  Place the expression
-  pushBack(expr);
+  pushBack(gpu_lower->lowerExpr(expr));
 
   // If output is a shared memory buffer, set modified status
   modifySharedMemory(out);
