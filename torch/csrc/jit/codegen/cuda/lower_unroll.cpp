@@ -50,10 +50,8 @@ kir::Bool* UnrollPass::getThreadPredicate(const kir::TensorView* tv) {
 }
 
 void UnrollPass::handle(kir::Expr* expr) {
-  // If tv op, predciate it
-  if (ir_utils::isTVOp(expr)) {
-    TORCH_INTERNAL_ASSERT(for_loops_.size() != 0);
-
+  // If tv op, predicate it (except for top level expressions)
+  if (ir_utils::isTVOp(expr) && !for_loops_.empty()) {
     const auto out_tv = expr->outputs()[0]->as<kir::TensorView>();
     const auto pred = PredicateCompute::getInlinePredicate(
         expr, for_loops_, getThreadPredicate(out_tv));
@@ -86,7 +84,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     for_loops_.push_back(fl);
 
     // Make copy of exprs because we replace them inplace in fl
-    std::vector<kir::Expr*> exprs_copy = fl->body().exprs();
+    const auto exprs_copy = fl->body().exprs();
     for (auto expr : exprs_copy) {
       handle(expr);
     }
