@@ -3,7 +3,7 @@
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
-#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
+#include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 
 #include <unordered_set>
@@ -33,7 +33,7 @@ class TORCH_CUDA_API ThreadPredicateMap {
       std::unordered_set<const TensorView*>,
       TypeHash>;
 
-  // TODO(kir): replace std::pair<> with struct
+  // TODO(kir): replace std::pair<> with struct ?
   using MapType = std::unordered_map<
       const TensorView*,
       std::pair<ir_utils::ParallelTypeBitmap, SourceMapType>>;
@@ -62,9 +62,7 @@ class TORCH_CUDA_API ThreadPredicateMap {
       const ir_utils::ParallelTypeBitmap& pred,
       const SourceMapType& src_map);
 
-  void insert(
-      const TensorView* tv,
-      const MapType::mapped_type& pred_and_src);
+  void insert(const TensorView* tv, const MapType::mapped_type& pred_and_src);
 
  private:
   Fusion* fusion_ = nullptr;

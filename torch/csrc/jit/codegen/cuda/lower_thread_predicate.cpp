@@ -47,7 +47,7 @@ kir::Bool* getPredicate(
 
   for (const auto& pt_bool : bits.getMap()) {
     if (pt_bool.second) {
-      auto tp = getPredicatePerParallelType(pt_bool.first, source_map);
+      const auto tp = getPredicatePerParallelType(pt_bool.first, source_map);
       pred = (pred == nullptr) ? tp : ir_builder.andExpr(pred, tp);
     }
   }
@@ -96,17 +96,19 @@ void maskSouceMap(
 
 // A bit of a hack for now for GEMM tiling so we don't fetch tiles multiple
 // times. It's safe to do, there may simply be a better place to do it.
-void avoidRedundantWritesToSmem(
-    TensorView* out_tv,
-    ir_utils::ParallelTypeBitmap& pred) {
+ir_utils::ParallelTypeBitmap avoidRedundantWritesToSmem(
+    const TensorView* out_tv,
+    const ir_utils::ParallelTypeBitmap& pred) {
+  auto new_pred = pred;
   if (out_tv->getMemoryType() == MemoryType::Shared) {
     for (size_t i = 0; i < out_tv->nDims(); i++) {
       auto id = out_tv->getComputeAtAxis(i).first;
       if (out_tv->axis(i)->isBroadcast() && id->isThreadDim()) {
-        pred.set(id->getParallelType(), true);
+        new_pred.set(id->getParallelType(), true);
       }
     }
   }
+  return new_pred;
 }
 
 } // namespace
@@ -198,9 +200,7 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
   for (auto* out : expr->outputs()) {
     if (auto tv = dynamic_cast<const TensorView*>(out)) {
       TORCH_INTERNAL_ASSERT(find(tv) == end());
-      auto pred_for_this_out = output_preds;
-      avoidRedundantWritesToSmem(ir_utils::asTV(out), pred_for_this_out);
-      insert(tv, pred_for_this_out, src_map);
+      insert(tv, avoidRedundantWritesToSmem(tv, output_preds), src_map);
     }
   }
 }
