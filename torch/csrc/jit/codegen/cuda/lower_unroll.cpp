@@ -39,14 +39,11 @@ kir::ForLoop* cloneLoopNest(
 kir::Bool* UnrollPass::getThreadPredicate(const kir::TensorView* tv) {
   // No thread predicate is needed predicate when tv is output of a
   // parallel broadcast expression.
-  if (auto def = tv->definition()) {
-    if (auto bop = dynamic_cast<kir::BroadcastOp*>(def)) {
-      TORCH_INTERNAL_ASSERT(bop->out()->isA<kir::TensorView>());
-      if (ir_utils::getParallelBroadcastDomains(
-              bop->out()->as<kir::TensorView>()->fuserTv(), thread_predicates_)
-              .any()) {
-        return nullptr;
-      }
+  if (auto bop = dynamic_cast<kir::BroadcastOp*>(tv->definition())) {
+    TORCH_INTERNAL_ASSERT(bop->out()->isA<kir::TensorView>());
+    const auto out = bop->out()->as<kir::TensorView>()->fuserTv();
+    if (ir_utils::getParallelBroadcastDomains(out, thread_predicates_).any()) {
+      return nullptr;
     }
   }
   return thread_predicates_.getExpr(tv->fuserTv());

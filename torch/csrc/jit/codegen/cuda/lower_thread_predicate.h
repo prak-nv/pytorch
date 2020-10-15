@@ -51,6 +51,8 @@ class TORCH_CUDA_API ThreadPredicateMap {
   // Returns a Bool predicate expression for a given output TensorView.
   kir::Bool* getExpr(const TensorView* out_tv) const;
 
+  void print() const;
+
  private:
   // Update the thread_predicates bitset based on provided Expr
   void updateBitSet(const Expr*);
