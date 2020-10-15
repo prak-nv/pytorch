@@ -492,12 +492,23 @@ class TORCH_CUDA_API IterDomain final : public Val {
     return extent_;
   }
 
+  bool isSimple() const {
+    return is_simple_;
+  }
+
  private:
   Val* const start_ = nullptr;
   Val* const extent_ = nullptr;
   ParallelType parallel_type_ = ParallelType::Serial;
   IterType iter_type_ = IterType::Iteration;
   bool is_rfactor_domain_ = false;
+
+  // An IterDomain is "simple" if the original Fusion IterDomain
+  // doesn't have a definition ("origin" expression)
+  //
+  // TODO(kir): this feels like a hack, revisit
+  // 
+  bool is_simple_ = true;
 };
 
 // TODO(kir): is this really a value?

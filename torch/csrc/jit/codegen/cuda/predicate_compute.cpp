@@ -27,13 +27,6 @@ const kir::TensorView* firstTvOutput(const kir::Expr* expr) {
     if (out->isA<kir::TensorView>()) {
       return out->as<kir::TensorView>();
     }
-
-    // $$$???
-    /*
-    if (out->isA<kir::TensorIndex>()) {
-      return out->as<kir::TensorIndex>()->view();
-    }
-    */
   }
   TORCH_INTERNAL_ASSERT(false, "Missing kir::TensorView output");
 }
@@ -65,7 +58,7 @@ std::vector<kir::Bool*> PredicateCompute::computePredicates(
 
   bool no_pred_needed = true;
   for (auto id : domain->domain()) {
-    if (id->definition() != nullptr) {
+    if (!id->isSimple()) {
       no_pred_needed = false;
       break;
     }
