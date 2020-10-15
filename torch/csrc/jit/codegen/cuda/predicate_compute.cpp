@@ -172,7 +172,7 @@ kir::Bool* PredicateCompute::getInlinePredicate(
   std::vector<kir::Bool*> preds;
 
   for (auto pred : all_preds) {
-    if (!(pred->isConst()) || !(pred->isConst() && pred->value().value())) {
+    if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
       preds.push_back(pred);
     }
   }
