@@ -158,7 +158,8 @@ class FusionExecutorCache {
   // is controled by the order of declaration instead of their order in the list
   //
   //! cache fusion->hasReduction() because it's expensive;
-  bool has_reduction_;
+  bool has_reduction_ = false;
+  TensorView* reduction_tv_ = nullptr;
 
   //! TODO: ugly logic for now. We should integrate the hashing of cache for
   //!       different kernels. (alternatively we could do so in scheduler).

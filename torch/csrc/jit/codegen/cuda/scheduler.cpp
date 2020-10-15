@@ -88,8 +88,8 @@ bool scheduleFusion(Fusion* fusion, const at::ArrayRef<c10::IValue> inputs) {
   FusionGuard fg(fusion);
   // maybe has_reduction for scheudling should be done on a per output tensor
   // basis.
-  TORCH_INTERNAL_ASSERT(
-      !fusion->hasReduction(), "This scheduler only handles pointwise ops.");
+  //TORCH_INTERNAL_ASSERT(
+  //    !fusion->hasReduction(), "This scheduler only handles pointwise ops.");
   const bool disable_unroll = fusion->isStochastic();
 
   for (auto out_val : fusion->outputs()) {
@@ -292,13 +292,13 @@ TORCH_CUDA_API c10::optional<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& fusion_inputs,
     TensorView* red_tv) {
-  FUSER_PERF_SCOPE("scheduleReduction");
+  FUSER_PERF_SCOPE("getReductionHeuristics");
 
   FusionGuard fg(fusion);
 
-  if (!fusion->hasReduction()) {
-    return c10::nullopt;
-  }
+  //if (!fusion->hasReduction()) {
+  //  return c10::nullopt;
+  //}
 
   auto red_root_dom = red_tv->getRootDomain();
   const bool red_on_fastest_dim =
@@ -307,9 +307,9 @@ TORCH_CUDA_API c10::optional<ReductionParams> getReductionHeuristics(
   TORCH_INTERNAL_ASSERT(
       red_tv != nullptr, "Reduction TensorView wasn't found.");
 
-  if (!fusion->hasReduction()) {
-    return c10::nullopt;
-  }
+  //if (!fusion->hasReduction()) {
+  //  return c10::nullopt;
+  //}
 
   TORCH_INTERNAL_ASSERT(
       red_tv->hasReduction(), "TensorView doesn't have a reduction.");
@@ -346,6 +346,7 @@ void scheduleReduction(
     const ReductionParams& rparams,
     TensorView* red_tv,
     std::vector<TensorView*> outs_of_red) {
+  FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
 
   // We coalesc all reduction axes to the right;

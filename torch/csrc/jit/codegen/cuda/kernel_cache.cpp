@@ -5,6 +5,8 @@
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
 #include <torch/csrc/jit/runtime/graph_executor.h>
 
+#include <chrono>
+
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -209,6 +211,7 @@ at::DimVector inversePermutation(
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<IValue>& inputs) {
   IdLookupReturn ret;
+
   std::stringstream encoded_inputs;
   for (const auto& input : inputs) {
     if (input.isTensor()) {
@@ -266,61 +269,75 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
   FUSER_PERF_SCOPE("FusionExecutorCache::FusionExecutorCache");
   // avoid putting `has_reduction_` in the initializer list
   has_reduction_ = fusion_->hasReduction();
+
+  if (has_reduction_) {
+    FusionGuard fg(fusion_.get());
+    
+    // Use dependency check to find the reduction tv as it returns used values
+    // instead of exprs.
+    
+    // The call is relatively heavy weight, consider caching
+    auto used_vals = DependencyCheck::getAllValsBetween(
+        {fusion_->inputs().begin(), fusion_->inputs().end()},
+        fusion_->outputs());
+    
+    // TODO(JIE): cache the reduction node.
+    
+    // Find the reduction tensor view, make sure there's only one
+    for (auto val : used_vals) {
+      if (val->getValType().value() == ValType::TensorView) {
+        auto tv = val->as<TensorView>();
+        if (tv->hasReduction()) {
+          TORCH_INTERNAL_ASSERT(
+              reduction_tv_ == nullptr,
+              "Already found a reduction tensorview, cannot handle fusion of multiple reductions.");
+          reduction_tv_ = tv;
+        }
+      }
+    }
+    
+    TORCH_INTERNAL_ASSERT(
+        reduction_tv_ != nullptr,
+        "Could not find the reduction tensor view in the fusion.");
+  }
 }
 
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<IValue>& inputs) {
+  //auto start = std::chrono::high_resolution_clock::now();
   FUSER_PERF_SCOPE("runFusionWithInputs");
 
-  // get unique id `unique_id` for given input set `inputs`;
-  auto id_lookup_ret = inputs_id_lookup_.lookupId(inputs);
-  if (id_lookup_ret.eviction) {
-    evictCache(id_lookup_ret.evict_id);
+  size_t unique_id;
+  int device_index;
+  LaunchParams launch_params;
+
+  {
+    //auto t1 = std::chrono::high_resolution_clock::now();
+    FUSER_PERF_SCOPE("cache lookup");
+    // get unique id `unique_id` for given input set `inputs`;
+    auto id_lookup_ret = inputs_id_lookup_.lookupId(inputs);
+    if (id_lookup_ret.eviction) {
+      // printf("cache eviction\n");
+      FUSER_PERF_SCOPE("cache eviction");
+      evictCache(id_lookup_ret.evict_id);
+    }
+
+    unique_id = id_lookup_ret.id;
+    device_index = getCommonDeviceCUDA(inputs);
+    TORCH_CHECK(device_index >= 0, "device is not coherent for fusion inputs");
+    //auto t_duration = std::chrono::high_resolution_clock::now() - t1;
+    //std::cout << "\n cache lookup time: " << std::chrono::duration_cast<std::chrono::microseconds>(t_duration).count() << " us" << std::endl;
   }
 
-  const size_t unique_id = id_lookup_ret.id;
-  const int device_index = getCommonDeviceCUDA(inputs);
-  TORCH_CHECK(device_index >= 0, "device is not coherent for fusion inputs");
-
-  LaunchParams launch_params;
   if (code_to_fe_lookup_.count(unique_id) == 0) {
     // enter when we get a new input set. We need to search for compatible
     // entries in cached `FusionExecutor` or compile new one as needed.
 
     // caching strategy is different for pw-fusion and reduction-fusion.
     if (has_reduction_) {
-      // Grab the fusion to analyze for heuristics
-      FusionGuard fg(fusion_.get());
-
-      TensorView* reduction_tv = nullptr;
-      // Use dependency check to find the reduction tv as it returns used values
-      // instead of exprs.
-
-      // The call is relatively heavy weight, consider caching
-      auto used_vals = DependencyCheck::getAllValsBetween(
-          {fusion_->inputs().begin(), fusion_->inputs().end()},
-          fusion_->outputs());
-
-      // Find the reduction tensor view, make sure there's only one
-      for (auto val : used_vals) {
-        if (val->getValType().value() == ValType::TensorView) {
-          auto tv = val->as<TensorView>();
-          if (tv->hasReduction()) {
-            TORCH_INTERNAL_ASSERT(
-                reduction_tv == nullptr,
-                "Already found a reduction tensorview, cannot handle fusion of multiple reductions.");
-            reduction_tv = tv;
-          }
-        }
-      }
-
-      TORCH_INTERNAL_ASSERT(
-          reduction_tv != nullptr,
-          "Could not find the reduction tensor view in the fusion.");
-
       // Generate the reduction parameters
       auto reduction_params =
-          getReductionHeuristics(fusion_.get(), inputs, reduction_tv);
+          getReductionHeuristics(fusion_.get(), inputs, reduction_tv_);
 
       TORCH_INTERNAL_ASSERT(
           reduction_params.has_value(),
@@ -333,6 +350,9 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
       if (!fusion_executor->compiled()) {
         // HEURISTIC NOT COMPILED, COMPILE A KERNEL
+
+        // We clone *fusion_ to fusion so we can leave the unscheduled
+        // computational graph intact for future compilation.
         Fusion fusion = *fusion_;
 
         FusionGuard fg(&fusion);
@@ -403,8 +423,19 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     }
   }
 
-  return code_to_fe_lookup_[unique_id]->runFusion(
+  //auto t_duration = std::chrono::high_resolution_clock::now() - start;
+  //std::cout << "\n runFusionWithInputs time: " << std::chrono::duration_cast<std::chrono::microseconds>(t_duration).count() << " us" << std::endl;
+
+  //start = std::chrono::high_resolution_clock::now();
+
+  auto ret = code_to_fe_lookup_[unique_id]->runFusion(
       inputs, launch_params, unique_id);
+
+  //t_duration = std::chrono::high_resolution_clock::now() - start;
+  //std::cout << "\n runFusion time: " << std::chrono::duration_cast<std::chrono::microseconds>(t_duration).count() << " us" << std::endl;
+  return ret;
+  // return code_to_fe_lookup_[unique_id]->runFusion(
+  //     inputs, launch_params, unique_id);
 }
 
 bool GraphCache::requiresPermutation() {
