@@ -273,8 +273,8 @@ std::unordered_map<ParallelType, IterDomain*, TypeHash> ReductionOp::
 
 BroadcastOp::BroadcastOp(Passkey passkey, Val* out, Val* in)
     : Expr(passkey), out_(out), in_(in) {
-  TORCH_CHECK(in->isA<TensorIndex>());
-  TORCH_CHECK(out->isA<TensorIndex>());
+  TORCH_CHECK(in->isA<TensorIndex>() || in->isA<TensorView>());
+  TORCH_CHECK(out->isA<TensorIndex>() || out->isA<TensorView>());
   addOutput(out);
   addInput(in);
 }
