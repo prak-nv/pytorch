@@ -227,7 +227,7 @@ class TORCH_CUDA_API Expr : public Node {
   }
 
   const auto& outputs() const {
-    return inputs_;
+    return outputs_;
   }
 
    Expr* parentScope() const {
