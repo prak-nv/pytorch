@@ -15,6 +15,27 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+namespace {
+
+// Provide a new for loop matching the one provided, sets parent_scope as
+// parent_scope, but does not insert into parent scope.
+kir::ForLoop* cloneLoopNest(
+    const kir::ForLoop* for_loop,
+    kir::Expr* parent_scope) {
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+  const auto new_loop = ir_builder.create<kir::ForLoop>(
+      for_loop->index(), for_loop->iter_domain(), parent_scope);
+  for (auto expr : for_loop->body().exprs()) {
+    if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      expr = cloneLoopNest(nested_for_loop, new_loop);
+    }
+    new_loop->body().push_back(expr);
+  }
+  return new_loop;
+}
+
+} // namespace
+
 kir::Bool* UnrollPass::getThreadPredicate(const kir::TensorView* tv) {
   // No thread predicate is needed predicate when tv is output of a
   // parallel broadcast expression.
@@ -77,7 +98,6 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     return;
   }
 
-/*$$$
   auto unroll_pred = UnrollPredicate::get(for_loops_, fl, p2c_root_map_);
 
   kir::ForLoop* parent_scope = for_loops_.empty() ? nullptr : for_loops_.back();
@@ -87,12 +107,12 @@ void UnrollPass::handle(kir::ForLoop* fl) {
       ir_builder.create<kir::IfThenElse>(unroll_pred, parent_scope);
 
   // Get the loop nest for the unrolled path
-  kir::ForLoop* unrolled_loop_nest = scope_utils::cloneLoopNest(fl, unroll_ite);
+  kir::ForLoop* unrolled_loop_nest = cloneLoopNest(fl, unroll_ite);
 
   unroll_ite->thenBody().push_back(unrolled_loop_nest);
 
   // Loop nest for inlined path
-  kir::ForLoop* inlined_loop = scope_utils::cloneLoopNest(fl, unroll_ite);
+  kir::ForLoop* inlined_loop = cloneLoopNest(fl, unroll_ite);
 
   // Add inline predicates for inlined loop nest
   look_for_unroll_ = false;
@@ -106,7 +126,6 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     unroll_ite->elseBody().push_back(inlined_loop);
     loop_replacement_map_.insert({fl, unroll_ite});
   }
-*/
 }
 
 // Generate the loop nest structure and place it in lowered_exprs

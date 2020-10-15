@@ -98,7 +98,7 @@ kir::Expr* LoopNestGenerator::pushAlloc(TensorView* tv) {
 
 namespace {
 
-//$$$ rewrite?
+// TODO(kir): revisit and try to simplify this
 kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
