@@ -888,6 +888,7 @@ class TORCH_CUDA_API Allocate final : public Expr {
   }
 
   void setAlias(const Allocate* alias) {
+    TORCH_INTERNAL_ASSERT(alias != this);
     TORCH_INTERNAL_ASSERT(alias->memoryType() == memory_type_);
     alias_ = alias;
   }

@@ -258,6 +258,7 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
   }
 
   if (!is_block_reduce && !is_grid_reduce) {
+    // TODO(kir): this breaks our "SSA" form
     pushBack(ir_builder_.create<kir::BinaryOp>(rop->operation(), out, out, in));
   }
 }

@@ -92,13 +92,15 @@ class AllocateReuseModifier {
   }
 
  private:
+  // Do we have a true pointwise op?
+  // (ie. a TV op, excluding direct assignments and reductions)
   static bool isPointwiseTvOp(const kir::Expr* expr) {
     if (ir_utils::isTVOp(expr)) {
       if (auto unary_op = dynamic_cast<const kir::UnaryOp*>(expr)) {
-        // TODO: explain why we ignore assignments
         return unary_op->operation() != UnaryOpType::Set;
+      } else {
+        return expr->isA<kir::BinaryOp>() || expr->isA<kir::TernaryOp>();
       }
-      return true;
     }
     return false;
   }
