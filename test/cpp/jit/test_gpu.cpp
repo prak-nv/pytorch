@@ -5823,7 +5823,7 @@ TEST(NVFuserTest, FusionSmemBlockGemm_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);//$$$
 }
 
 TEST(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
@@ -5909,7 +5909,7 @@ TEST(NVFuserTest, FusionSmemBlockGemmCache_CUDA) {
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
       aten_output.sub(outputs[0]).abs().max());
-  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);//$$$
 }
 
 TEST(NVFuserTest, FusionSmemDynamicReductionSymbolic_CUDA) {
