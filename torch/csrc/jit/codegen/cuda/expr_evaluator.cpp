@@ -17,6 +17,7 @@ void StatefulExpressionEvaluator::safeBind(
     Int::ScalarType concrete_value) {
   auto already_concrete_val = getValue(value);
 
+  // TODO(kir): do we need this anymore?
   if (already_concrete_val.has_value()) {
     TORCH_INTERNAL_ASSERT(
         concrete_value == already_concrete_val.value(),

@@ -7,6 +7,7 @@
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_resource_strings.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/resource_guard.h>
 
 #include <fstream>
@@ -214,7 +215,21 @@ kir::ExpressionEvaluator bindKernelInputs(
           "Something went wrong configuring launch. Inputs no longer match.");
 
       for (size_t dim = 0; dim < root_domain.size(); dim++) {
-        expr_eval.bind(root_domain[dim]->extent(), aten_tensor.sizes()[dim]);
+        const auto extent = root_domain[dim]->extent();
+        const auto value = aten_tensor.sizes()[dim];
+        const auto prev_value = expr_eval.evaluate(extent);
+        if (prev_value.has_value()) {
+          TORCH_CHECK(
+              *prev_value == value,
+              "Attempting to bind ",
+              kir::toString(extent),
+              " to ",
+              value,
+              "but it's already set to ",
+              *prev_value);
+        } else {
+          expr_eval.bind(extent, value);
+        }
       }
     } else if (input->isScalar() && input->dtype() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
