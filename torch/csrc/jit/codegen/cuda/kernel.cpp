@@ -38,7 +38,7 @@ class KernelIrScanner : private kir::IrVisitor {
   }
 
   void visit(const kir::Allocate* allocate) final {
-    switch (allocate->getMemoryType()) {
+    switch (allocate->memoryType()) {
       case MemoryType::Global:
         summary.global_allocations.push_back(allocate);
         break;

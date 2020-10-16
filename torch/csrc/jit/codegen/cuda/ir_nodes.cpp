@@ -1191,8 +1191,8 @@ class ConcretizeDomain : private BackwardVisitor {
     bcast_domain_map_[id] = concretized(To);
   }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Woverloaded-virtual"
+  using BackwardVisitor::handle;
+
   void handle(ReductionOp* rop) override {
     concretizePwOp(rop);
   }
@@ -1208,7 +1208,6 @@ class ConcretizeDomain : private BackwardVisitor {
   void handle(TernaryOp* top) override {
     concretizePwOp(top);
   };
-#pragma clang diagnostic pop
 
  private:
   using MapType = std::unordered_map<IterDomain*, IterDomain*>;
@@ -1216,7 +1215,12 @@ class ConcretizeDomain : private BackwardVisitor {
 };
 
 void ConcretizeDomain::concretizePwOp(Expr* e) {
-  TensorView* tv = *ir_utils::filterByType<TensorView>(e->outputs()).begin();
+  if (e->output(0)->getValType() != ValType::TensorView) {
+    return;
+  }
+
+  TORCH_INTERNAL_ASSERT(e->outputs().size() == 1);
+  TensorView* tv = e->output(0)->as<TensorView>();
 
   std::vector<IterDomain*> io = tv->getRootDomain();
 
@@ -1310,8 +1314,13 @@ class ProveValEqual : private IterVisitor {
 
   // Inspect a pointwise op and record the identified equality
   void provePwOp(Expr* e) {
-    TensorView* tv = *ir_utils::filterByType<TensorView>(e->outputs()).begin();
-    std::vector<IterDomain*> io = tv->getRootDomain();
+    if (e->output(0)->getValType() != ValType::TensorView) {
+      return;
+    }
+
+    TORCH_INTERNAL_ASSERT(e->outputs().size() == 1);
+    TensorView* tv = e->output(0)->as<TensorView>();
+    const std::vector<IterDomain*>& io = tv->getRootDomain();
 
     // Record equalities from output to all the inputs
     // ignores un-concretizable broadcasts
@@ -1325,8 +1334,8 @@ class ProveValEqual : private IterVisitor {
     }
   }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Woverloaded-virtual"
+  using IterVisitor::handle;
+
   void handle(ReductionOp* rop) override {
     provePwOp(rop);
   }
@@ -1342,7 +1351,6 @@ class ProveValEqual : private IterVisitor {
   void handle(TernaryOp* top) override {
     provePwOp(top);
   }
-#pragma clang diagnostic pop
 
  private:
   ConcretizeDomain cd_;

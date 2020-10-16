@@ -823,7 +823,7 @@ class TORCH_CUDA_API Allocate final : public Expr {
     return buffer_;
   }
 
-  MemoryType getMemoryType() const {
+  MemoryType memoryType() const {
     return memory_type_;
   }
 
@@ -835,11 +835,24 @@ class TORCH_CUDA_API Allocate final : public Expr {
     return zero_init_;
   }
 
+  const Allocate* alias() const {
+    return alias_;
+  }
+
+  void setAlias(const Allocate* alias) {
+    TORCH_INTERNAL_ASSERT(alias->memoryType() == memory_type_);
+    alias_ = alias;
+  }
+
  private:
   Val* buffer_ = nullptr;
   MemoryType memory_type_ = MemoryType::Local;
   Val* size_ = nullptr;
   bool zero_init_ = false;
+
+  // This alias tracks the next Allocate node in a linked chain of aliases
+  // If the alias is nullptr, then the Allocate node uses memory in the kernel
+  const Allocate* alias_ = nullptr;
 };
 
 // Sync represents __syncthreads barrier for block level coordination.

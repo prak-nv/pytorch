@@ -14,16 +14,23 @@ namespace cuda {
 
 namespace {
 
+//! Scan through Kernel IR to insert Sync nodes to avoid
+//! Write-After-Read (WAR) race condition
+//!
 class LocalSyncInserter {
   using TvSet = std::unordered_set<const kir::TensorView*>;
 
  public:
-  static void insertSyncs(kir::Expr* expr) {
+  //! Write-After-Read race conditions are only found within for-loops.
+  //! Sync nodes are inserted directly into the for-loops.
+  //! The expressions are modified in-place and exprs is const.
+  static void insertSyncs(const std::vector<kir::Expr*>& exprs) {
     LocalSyncInserter sync_inserter;
-    sync_inserter.handle(expr);
-  }
+    for (auto expr : exprs) {
+      sync_inserter.handle(expr);
+    }
+  }  
 
- private:
   const auto& initial() const {
     return initial_;
   }
@@ -40,6 +47,7 @@ class LocalSyncInserter {
     return all_smem_outputs_;
   }
 
+ private:
   // TODO(kir): this is a place where a mutable IR visitor may be appropriate
   void handle(kir::Expr* expr) {
     if (ir_utils::isTVOp(expr)) {
@@ -144,6 +152,9 @@ class LocalSyncInserter {
       // Determine if any smem TV is written to at beginning of the for-loop
       // and whether that smem TV is read from at the end of the for-loop
       // Insert new SyncThreads at end of for-loop to prevent WAR race condition
+      //
+      // TODO: replace __syncthreads with __threadfence for alias ops
+      //
       if (detectIntersection(initial_, final_) &&
           !fl->body().exprs().back()->isA<kir::Sync>() && !is_last_op_sync_) {
         // std::cout << "WAR race detected; Add Sync" << std::endl;
@@ -210,10 +221,8 @@ class LocalSyncInserter {
 std::vector<kir::Expr*> insertThreadSynchronization(
     const std::vector<kir::Expr*>& exprs) {
   FUSER_PERF_SCOPE("insertThreadSynchronization");
-  for (auto expr : exprs) {
-    LocalSyncInserter::insertSyncs(expr);
-  }
-  return exprs;
+  LocalSyncInserter::insertSyncs(exprs);
+  return exprs;  
 }
 
 } // namespace cuda

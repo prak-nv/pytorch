@@ -256,7 +256,7 @@ void IrPrinter::visit(const kir::IfThenElse* node) {
 
 void IrPrinter::visit(const kir::Allocate* node) {
   indent() << gen(node->buffer()) << " = ALLOCATE("
-           << "mem_type=" << node->getMemoryType() << ", "
+           << "mem_type=" << node->memoryType() << ", "
            << "size=" << gen(node->size()) << ", "
            << "zero_init=" << boolLiteral(node->zeroInit()) << ")\n";
 }

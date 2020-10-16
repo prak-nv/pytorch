@@ -569,35 +569,43 @@ class CudaKernelGenerator : private kir::IrVisitor {
     const auto size = node->size();
     TORCH_INTERNAL_ASSERT(size != nullptr);
 
-    switch (tv->memoryType()) {
-      case MemoryType::Global:
-        indent() << "// Allocate global tensor " << varName(tv, "T") << "\n";
-        break;
-      case MemoryType::Shared: {
-        if (kir::ExpressionEvaluator::isConst(size)) {
-          // Static shared memory
-          indent() << "__shared__ " << buffer_dtype << " " << varName(tv, "T")
-                   << "[" << genInline(size) << "];\n";
-        } else {
-          // Align Offset Position
-          indent() << "offset = alignBufferSize(offset,"
-                   << dataTypeSize(buffer_dtype) << ");\n";
-          // Shared Memory Pointer
-          indent() << buffer_dtype << "* " << varName(tv, "T")
-                   << " = reinterpret_cast<" << buffer_dtype << "*>"
-                   << "(array + offset);\n";
-          // Increment Offset Position
-          indent() << "offset += (" << genInline(size) << " * sizeof("
-                   << buffer_dtype << "));\n";
-        }
-        break;
+    if (node->alias() != nullptr) {
+      // Allocate alias another Allocate node
+      const auto alias_tv = node->alias()->buffer()->as<kir::TensorView>();
+      indent() << "// Alias Allocation - " << node->memoryType() << "\n";
+      indent() << buffer_dtype << "* " << varName(tv, "T") << " = "
+               << varName(alias_tv, "T") << ";\n";
+    } else {
+      // Standard Memory Allocation
+      switch (tv->memoryType()) {
+        case MemoryType::Global:
+          indent() << "// Allocate global tensor " << varName(tv, "T") << "\n";
+          break;
+        case MemoryType::Shared:
+          if (kir::ExpressionEvaluator::isConst(size)) {
+            // Static shared memory
+            indent() << "__shared__ " << buffer_dtype << " " << varName(tv, "T")
+                     << "[" << genInline(size) << "];\n";
+          } else {
+            // Align Offset Position
+            indent() << "offset = alignBufferSize(offset,"
+                     << dataTypeSize(buffer_dtype) << ");\n";
+            // Shared Memory Pointer
+            indent() << buffer_dtype << "* " << varName(tv, "T")
+                     << " = reinterpret_cast<" << buffer_dtype << "*>"
+                     << "(array + offset);\n";
+            // Increment Offset Position
+            indent() << "offset += (" << genInline(size) << " * sizeof("
+                     << buffer_dtype << "));\n";
+          }
+          break;
+        case MemoryType::Local:
+          indent() << buffer_dtype << " " << varName(tv, "T") << "["
+                   << genInline(size) << "];\n";
+          break;
+        default:
+          TORCH_INTERNAL_ASSERT(false, "Unexpected memory type");
       }
-      case MemoryType::Local:
-        indent() << buffer_dtype << " " << varName(tv, "T") << "["
-                 << genInline(size) << "];\n";
-        break;
-      default:
-        TORCH_INTERNAL_ASSERT(false, "Unexpected memory type");
     }
   }
 

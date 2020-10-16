@@ -57,7 +57,7 @@ c10::optional<Int::ScalarType> StatefulExpressionEvaluator::getValue(
     Val* value) {
   TORCH_INTERNAL_ASSERT(
       value->isAnInt(),
-      "Expressoin Evaluation does not support values other than integers at this time.");
+      "Expression Evaluation does not support values other than integers at this time.");
 
   if (value->getValType().value() == ValType::Scalar) {
     if (value->as<Int>()->value().has_value()) {
