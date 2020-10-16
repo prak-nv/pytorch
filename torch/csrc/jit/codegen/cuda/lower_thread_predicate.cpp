@@ -258,30 +258,6 @@ kir::Bool* ThreadPredicateMap::getExpr(const TensorView* out_tv) const {
   return getPredicate(at(out_tv).first, at(out_tv).second);
 }
 
-void ThreadPredicateMap::print() const {
-  std::cout << "\nThreadPredicateMap\n";
-  std::cout << "--------------------------------\n";
-  for (const auto& kv : thread_predicates_) {
-    std::cout << "T" << kv.first->name() << " {";
-    // ir_utils::ParallelTypeBitmap
-    for (auto ptkv : kv.second.first.getMap()) {
-      if (ptkv.second) {
-        std::cout << " " <<  ptkv.first;
-      }
-    }
-    std::cout << " }\n";
-    // SourceMapType
-    for (const auto& pkv : kv.second.second) {
-      std::cout << "    " << pkv.first << ".{";
-      for (auto tv : pkv.second) {
-        std::cout << " " << tv;
-      }
-      std::cout << " }\n";
-    }
-  }
-  std::cout << "--------------------------------\n\n";
-}
-
 } // namespace cuda
 } // namespace fuser
 } // namespace jit
