@@ -35,13 +35,21 @@ c10::optional<Int::ScalarType> ExpressionEvaluator::evaluate(const Val* value) {
   }
 
   // Is the value known (either explicit binding or memoized)?
-  const auto it = known_values_.find(value);
-  if (it != known_values_.end()) {
-    return it->second;
+  const auto pre_eval_it = known_values_.find(value);
+  if (pre_eval_it != known_values_.end()) {
+    return pre_eval_it->second;
   }
 
   value->accept(this);
-  return known_values_[value];
+
+  const auto post_eval_it = known_values_.find(value);
+  return post_eval_it != known_values_.end()
+      ? c10::optional<Int::ScalarType>(post_eval_it->second)
+      : c10::nullopt;
+}
+
+bool ExpressionEvaluator::isConst(const Val* value) {
+  return ExpressionEvaluator().evaluate(value).has_value();
 }
 
 void ExpressionEvaluator::print() const {

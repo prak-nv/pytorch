@@ -1,10 +1,11 @@
 
-#include <torch/csrc/jit/codegen/cuda/lower_loops.h>
 #include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
+#include <torch/csrc/jit/codegen/cuda/lower_loops.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 
@@ -80,7 +81,7 @@ kir::Expr* LoopNestGenerator::pushAlloc(TensorView* tv) {
 
   // Track Shared Memory Allocation Nodes
   if (tv->getMemoryType() == MemoryType::Shared) {
-    if (!size->isScalar() || !size->isConst()) {
+    if (!kir::ExpressionEvaluator::isConst(size)) {
       dynamic_smem_.push_front(alloc);
       return nullptr;
     }

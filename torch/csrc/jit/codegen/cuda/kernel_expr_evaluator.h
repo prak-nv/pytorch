@@ -23,6 +23,9 @@ class TORCH_CUDA_API ExpressionEvaluator : private IrVisitor {
   //! $$$
   c10::optional<Int::ScalarType> evaluate(const Val* value);
 
+  //! $$$
+  static bool isConst(const Val* value);
+
   //! Debugging helper, prints all the currently known values
   void print() const;
 

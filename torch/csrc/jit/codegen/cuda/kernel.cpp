@@ -2,6 +2,7 @@
 #include <torch/csrc/jit/codegen/cuda/kernel.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 
 #include <iostream>
 #include <unordered_set>
@@ -42,7 +43,7 @@ class KernelIrScanner : private kir::IrVisitor {
         summary.global_allocations.push_back(allocate);
         break;
       case MemoryType::Shared:
-        if (allocate->size()->isScalar() && allocate->size()->isConst()) {
+        if (ExpressionEvaluator::isConst(allocate->size())) {
           summary.static_smem_allocations.push_back(allocate);
         } else {
           summary.dynamic_smem_allocations.push_back(allocate);

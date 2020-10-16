@@ -2,6 +2,7 @@
 #include <torch/csrc/jit/codegen/cuda/codegen.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/type.h>
 #include <torch/csrc/jit/codegen/cuda/utils.h>
 
@@ -564,17 +565,19 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
     const auto tv = node->buffer()->as<kir::TensorView>();
     TORCH_INTERNAL_ASSERT(tv->domain()->nDims() > 0);
-    TORCH_INTERNAL_ASSERT(node->size() != nullptr);
+
+    const auto size = node->size();
+    TORCH_INTERNAL_ASSERT(size != nullptr);
 
     switch (tv->memoryType()) {
       case MemoryType::Global:
         indent() << "// Allocate global tensor " << varName(tv, "T") << "\n";
         break;
       case MemoryType::Shared: {
-        if (node->size()->isScalar() && node->size()->isConst()) {
+        if (kir::ExpressionEvaluator::isConst(size)) {
           // Static shared memory
           indent() << "__shared__ " << buffer_dtype << " " << varName(tv, "T")
-                   << "[" << genInline(node->size()) << "];\n";
+                   << "[" << genInline(size) << "];\n";
         } else {
           // Align Offset Position
           indent() << "offset = alignBufferSize(offset,"
@@ -584,14 +587,14 @@ class CudaKernelGenerator : private kir::IrVisitor {
                    << " = reinterpret_cast<" << buffer_dtype << "*>"
                    << "(array + offset);\n";
           // Increment Offset Position
-          indent() << "offset += (" << genInline(node->size()) << " * sizeof("
+          indent() << "offset += (" << genInline(size) << " * sizeof("
                    << buffer_dtype << "));\n";
         }
         break;
       }
       case MemoryType::Local:
         indent() << buffer_dtype << " " << varName(tv, "T") << "["
-                 << genInline(node->size()) << "];\n";
+                 << genInline(size) << "];\n";
         break;
       default:
         TORCH_INTERNAL_ASSERT(false, "Unexpected memory type");
