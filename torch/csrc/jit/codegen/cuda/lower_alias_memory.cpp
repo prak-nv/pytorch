@@ -75,20 +75,16 @@ class AllocateReuseModifier {
 
     // Iterate over candidates to find match
     for (auto tv : candidate_alias_tv_) {
-      TORCH_INTERNAL_ASSERT(
-          map_tv_to_origin_expr_.find(tv) != map_tv_to_origin_expr_.end());
+      const auto def = tv->definition();
+      TORCH_INTERNAL_ASSERT(def != nullptr);
 
-      const auto& expr = map_tv_to_origin_expr_[tv];
-      const auto output = expr->outputs()[0]->as<kir::TensorView>();
-      //$$$ isn't output same at tv?
-      TORCH_CHECK(tv == output);
-
-      const auto alloc_it = map_tv_to_allocations_.find(output->name());
+      const auto alloc_it = map_tv_to_allocations_.find(tv->name());
       TORCH_INTERNAL_ASSERT(alloc_it != map_tv_to_allocations_.end());
       const auto output_alloc = alloc_it->second;
 
       const auto input_alloc = findCompatibleInputAllocate(
-          SymbolicSizePrinter::printSize(output_alloc), expr);
+          SymbolicSizePrinter::printSize(output_alloc), def);
+
       if (input_alloc != nullptr) {
         output_alloc->setAlias(input_alloc);
       }
@@ -152,19 +148,15 @@ class AllocateReuseModifier {
     map_expr_to_pos_[expr] = expr_index;
 
     if (ir_utils::isTVOp(expr)) {
-      const auto output = expr->outputs()[0]->as<kir::TensorView>();
-      map_tv_to_origin_expr_[output] = expr;
+      const auto output_tv = expr->outputs()[0]->as<kir::TensorView>();
 
-      //$$$ dup lookup
-      const bool has_allocation = map_tv_to_allocations_.find(output->name()) !=
-          map_tv_to_allocations_.end();
-
-      if (has_allocation) {
-        const bool smem_valid = (output->memoryType() == MemoryType::Shared);
+      const auto alloc_it = map_tv_to_allocations_.find(output_tv->name());
+      if (alloc_it != map_tv_to_allocations_.end()) {
+        const bool smem_valid = (output_tv->memoryType() == MemoryType::Shared);
 
         bool local_valid = false;
-        if (output->memoryType() == MemoryType::Local) {
-          const auto allocation = map_tv_to_allocations_[output->name()];
+        if (output_tv->memoryType() == MemoryType::Local) {
+          const auto allocation = alloc_it->second;
           const auto register_size =
               expr_evaluator_.evaluate(allocation->size());
           if (register_size.has_value()) {
@@ -172,11 +164,11 @@ class AllocateReuseModifier {
           }
         }
 
-        // For the output TV to be an alias candidate,
+        // For the outputv TV to be an alias candidate,
         // its allocation size must exceed the threshold
         // OR be in shared memory
         if (smem_valid || local_valid) {
-          candidate_alias_tv_.insert(output);
+          candidate_alias_tv_.insert(output_tv);
         }
       }
 
@@ -220,12 +212,8 @@ class AllocateReuseModifier {
   kir::ExpressionEvaluator expr_evaluator_;
 
   // Map expression to unique position 
-  // TODO: position relative to what?
+  // TODO: elaborate - position relative to what? 
   std::unordered_map<const kir::Expr*, size_t> map_expr_to_pos_;
-
-  // Map TensorView to origin expression
-  // $$$ remove 
-  std::unordered_map<const kir::TensorView*, const kir::Expr*> map_tv_to_origin_expr_;
 
   // Map TensorView to last usage expression position
   std::unordered_map<const kir::TensorView*, size_t> map_tv_to_last_usage_;
