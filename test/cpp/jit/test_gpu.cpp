@@ -1119,25 +1119,25 @@ TEST(NVFuserTest, FusionParser_CUDA) {
 __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Tensor<float, 1> T3) {
   float T2[1];
   if ((((((blockIdx.x * 1) + (1 - 1)) * 128) + threadIdx.x) < T0.size[0])) {
-    for(size_t i6 = 0; i6 < 1; ++i6) {
-      T2[i6]
-        = T0[((((blockIdx.x * 1) + i6) * 128) + threadIdx.x)]
-        * T1[((((blockIdx.x * 1) + i6) * 128) + threadIdx.x)];
-      T3[((((blockIdx.x * 1) + i6) * 128) + threadIdx.x)]
-        = T2[i6]
-        * T0[((((blockIdx.x * 1) + i6) * 128) + threadIdx.x)];
+    for(size_t ki25 = 0; ki25 < 1; ++ki25) {
+      T2[ki25]
+        = T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
+        * T1[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
+      T3[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
+        = T2[ki25]
+        * T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
     }
   } else {
-    for(size_t i6 = 0; i6 < 1; ++i6) {
-      if ((((((blockIdx.x * 1) + i6) * 128) + threadIdx.x) < T0.size[0])) {
-        T2[i6]
-          = T0[((((blockIdx.x * 1) + i6) * 128) + threadIdx.x)]
-          * T1[((((blockIdx.x * 1) + i6) * 128) + threadIdx.x)];
+    for(size_t ki25 = 0; ki25 < 1; ++ki25) {
+      if ((((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x) < T0.size[0])) {
+        T2[ki25]
+          = T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
+          * T1[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
       }
-      if ((((((blockIdx.x * 1) + i6) * 128) + threadIdx.x) < T0.size[0])) {
-        T3[((((blockIdx.x * 1) + i6) * 128) + threadIdx.x)]
-          = T2[i6]
-          * T0[((((blockIdx.x * 1) + i6) * 128) + threadIdx.x)];
+      if ((((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x) < T0.size[0])) {
+        T3[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
+          = T2[ki25]
+          * T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
       }
     }
   }
