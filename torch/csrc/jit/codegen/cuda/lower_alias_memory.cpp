@@ -21,9 +21,9 @@ namespace {
 //!
 class SymbolicSizePrinter : private kir::IrVisitor {
  public:
-  static std::string printSize(const kir::Allocate* alloc) {
+  static std::string printSize(const kir::Allocate* allocate) {
     SymbolicSizePrinter printer;
-    alloc->size()->accept(&printer);
+    allocate->size()->accept(&printer);
     return printer.os_.str();
   }
 
@@ -125,7 +125,7 @@ class AllocateReuseModifier {
 
         const auto input_alloc = map_tv_to_allocations_[input_tv->id()];
 
-        // input_allocation == nullptr implies that input_tv is a kernel input
+        // input_alloc == nullptr implies that input_tv is a kernel input
         if (input_alloc != nullptr) {
           if (candidate_alias_tv_.find(input_tv) != candidate_alias_tv_.end() &&
               output_size_str == SymbolicSizePrinter::printSize(input_alloc) &&
@@ -159,7 +159,7 @@ class AllocateReuseModifier {
           map_tv_to_allocations_.end();
 
       if (has_allocation) {
-        const bool smem_valid = output->memoryType() == MemoryType::Shared;
+        const bool smem_valid = (output->memoryType() == MemoryType::Shared);
 
         bool local_valid = false;
         if (output->memoryType() == MemoryType::Local) {
@@ -188,14 +188,14 @@ class AllocateReuseModifier {
       handle(ite);
     } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       handle(for_loop);
-    } else if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
-      handle(alloc);
+    } else if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
+      handle(allocate);
     }
   }
 
-  void handle(kir::Allocate* alloc) {
-    if (auto tv = dynamic_cast<const kir::TensorView*>(alloc->buffer())) {
-      map_tv_to_allocations_[tv->id()] = alloc;
+  void handle(kir::Allocate* allocate) {
+    if (auto tv = dynamic_cast<const kir::TensorView*>(allocate->buffer())) {
+      map_tv_to_allocations_[tv->id()] = allocate;
     }
   }
 
