@@ -74,8 +74,7 @@ void ExpressionEvaluator::visit(const Int* value) {
 }
 
 void ExpressionEvaluator::visit(const NamedScalar* named_scalar) {
-  TORCH_INTERNAL_ASSERT(
-      false, "Attempting to evaluate an unbound named scalar");
+  // It's a legal expresison node so we must handle it
 }
 
 void ExpressionEvaluator::visit(const UnaryOp* unary_op) {

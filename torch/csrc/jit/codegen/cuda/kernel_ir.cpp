@@ -2,6 +2,7 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/type.h>
@@ -383,7 +384,7 @@ Allocate::Allocate(
 
   if (memory_type_ == MemoryType::Local) {
     TORCH_INTERNAL_ASSERT(
-        size_->isScalar() && size_->isConst(),
+        ExpressionEvaluator::isConst(size_),
         "Allocations must be based on constant integers for the memory type ",
         memory_type_);
   }
