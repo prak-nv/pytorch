@@ -1,12 +1,14 @@
 
-#include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
-#include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
-#include <torch/csrc/jit/codegen/cuda/ir_utils.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
+#include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
+
+#include <sstream>
+#include <unordered_set>
+#include <unordered_map>
 
 namespace torch {
 namespace jit {
@@ -17,52 +19,41 @@ namespace {
 
 //! Get string representation of Allocate size for symbolic comparison
 //!
-class SymbolicSizePrinter final : private OptOutConstDispatch {
+class SymbolicSizePrinter : private kir::IrVisitor {
  public:
-  static std::string print_size(const kir::Allocate* alloc) {
+  static std::string printSize(const kir::Allocate* alloc) {
     SymbolicSizePrinter printer;
-    printer.handle(alloc->size());
+    alloc->size()->accept(&printer);
     return printer.os_.str();
   }
 
  private:
-  void handle(const Val* v) final {
-    OptOutConstDispatch::handle(v);
-  }
-
-  void handle(const Expr* e) final {
-    OptOutConstDispatch::handle(e);
-  }
-
-  void handle(const kir::Int* node) final {
-    if (auto def = FusionGuard::getCurFusion()->origin(node)) {
-      os_ << "( ";
-      handle(def);
-      os_ << " )";
-      return;
-    } else if (node->isSymbolic()) {
-      os_ << "i" << node->name();
-    } else {
+  void visit(const kir::Int* node) final {
+    if (auto def = node->definition()) {
+      def->accept(this);
+    } else if (node->isConst()) {
       os_ << *node->value();
-    }
-  }
-
-  void handle(const kir::NamedScalar* node) final {
-    os_ << node->name();
-  }
-
-  void handle(const kir::BinaryOp* node) final {
-    if (auto inline_bop = inline_op_str(node->getBinaryOpType())) {
-      handle(node->lhs());
-      os_ << " " << inline_bop.value() << " ";
-      handle(node->rhs());
     } else {
-      os_ << node->getBinaryOpType() << "(";
-      handle(node->lhs());
-      os_ << ", ";
-      handle(node->rhs());
-      os_ << ")";
+      os_ << "ki" << node->id();
     }
+  }
+
+  void visit(const kir::NamedScalar* named_scalar) final {
+    os_ << "@" << named_scalar->name();
+  }
+
+  void visit(const kir::UnaryOp* unary_op) final {
+    os_ << unary_op->operation() << "(";
+    unary_op->accept(this);
+    os_ << ")";
+  }
+
+  void visit(const kir::BinaryOp* binary_op) final {
+    os_ << binary_op->operation() << "(";
+    binary_op->lhs()->accept(this);
+    os_ << ",";
+    binary_op->rhs()->accept(this);
+    os_ << ")";
   }
 
  private:
@@ -71,13 +62,12 @@ class SymbolicSizePrinter final : private OptOutConstDispatch {
 
 //! Reuse Allocation nodes via pointer aliasing
 //!
-class AllocateReuseModifier final : private OptOutDispatch {
- public:
-  explicit AllocateReuseModifier(Fusion* fusion, size_t register_size_threshold)
-      : eval_evaluator_(fusion),
-        register_size_threshold_(register_size_threshold) {}
+class AllocateReuseModifier {
+  // Alias local memory if it exceeds this threshold
+  static constexpr size_t kRegisterSizeThreshold = 1;
 
-  void modify(const std::vector<Expr*>& exprs) {
+ public:
+  void modify(const std::vector<kir::Expr*>& exprs) {
     // Find candidate TensorViews and collect analysis information
     for (auto expr : exprs) {
       handle(expr);
@@ -89,98 +79,95 @@ class AllocateReuseModifier final : private OptOutDispatch {
           map_tv_to_origin_expr_.find(tv) != map_tv_to_origin_expr_.end());
 
       const auto& expr = map_tv_to_origin_expr_[tv];
-      const auto output = expr->output(0)->as<TensorView>();
+      const auto output = expr->outputs()[0]->as<kir::TensorView>();
+      //$$$ isn't output same at tv?
+      TORCH_CHECK(tv == output);
 
-      TORCH_INTERNAL_ASSERT(
-          map_tv_to_allocations_.find(output->name()) !=
-          map_tv_to_allocations_.end());
+      const auto alloc_it = map_tv_to_allocations_.find(output->id());
+      TORCH_INTERNAL_ASSERT(alloc_it != map_tv_to_allocations_.end());
+      const auto output_alloc = alloc_it->second;
 
-      auto output_alloc = map_tv_to_allocations_[output->name()];
-
-      auto input_alloc = findCompatibleInputAllocate(
-          SymbolicSizePrinter::print_size(output_alloc), expr);
+      const auto input_alloc = findCompatibleInputAllocate(
+          SymbolicSizePrinter::printSize(output_alloc), expr);
       if (input_alloc != nullptr) {
-        // std::cout << "Alias Match\t" << output->getMemoryType() << std::endl;
         output_alloc->setAlias(input_alloc);
       }
     }
   }
 
  private:
-  // Check if we are a Pointwise TensorView op.
-  bool isPwiseTVOp(const Expr* expr) {
-    // Ignore set operations
-    if (expr->outputs().size() == 1 && ir_utils::isTV(expr->output(0)) &&
-        ((expr->getExprType().value() == ExprType::UnaryOp &&
-          expr->as<UnaryOp>()->getUnaryOpType() != UnaryOpType::Set) ||
-         expr->getExprType().value() == ExprType::BinaryOp ||
-         expr->getExprType().value() == ExprType::TernaryOp))
+  static bool isPointwiseTvOp(const kir::Expr* expr) {
+    if (ir_utils::isTVOp(expr)) {
+      if (auto unary_op = dynamic_cast<const kir::UnaryOp*>(expr)) {
+        // TODO: explain why we ignore assignments
+        return unary_op->operation() != UnaryOpType::Set;
+      }
       return true;
+    }
     return false;
   }
 
   // Find an Input Allocate that is compatible with the Output Allocate
-  kir::Allocate* findCompatibleInputAllocate(
+  const kir::Allocate* findCompatibleInputAllocate(
       const std::string& output_size_str,
-      Expr* expr) {
+      const kir::Expr* expr) {
     // Stop searching if current op is not point-wise
-    if (!isPwiseTVOp(expr)) {
+    if (!isPointwiseTvOp(expr)) {
       return nullptr;
     }
 
-    const auto& expr_inputs_iter =
-        ir_utils::filterByType<TensorView>(expr->inputs());
+    const kir::TensorView* first_tv_input = nullptr;
+    for (const auto input : expr->inputs()) {
+      if (auto input_tv = dynamic_cast<const kir::TensorView*>(input)) {
+        if (first_tv_input == nullptr) {
+          first_tv_input = input_tv;
+        }
 
-    std::vector<TensorView*> expr_inputs(
-        expr_inputs_iter.begin(), expr_inputs_iter.end());
+        const auto input_alloc = map_tv_to_allocations_[input_tv->id()];
 
-    for (const auto input : expr_inputs) {
-      auto input_alloc = map_tv_to_allocations_[input->name()];
-
-      // input_allocation == nullptr implies that input_tv is a fusion input.
-      if (input_alloc != nullptr) {
-        if (candidate_alias_tv_.find(input) != candidate_alias_tv_.end() &&
-            output_size_str == SymbolicSizePrinter::print_size(input_alloc) &&
-            map_tv_to_last_usage_[input] <= map_expr_to_pos_[expr]) {
-          return input_alloc;
+        // input_allocation == nullptr implies that input_tv is a kernel input
+        if (input_alloc != nullptr) {
+          if (candidate_alias_tv_.find(input_tv) != candidate_alias_tv_.end() &&
+              output_size_str == SymbolicSizePrinter::printSize(input_alloc) &&
+              map_tv_to_last_usage_[input_tv] <= map_expr_to_pos_[expr]) {
+            return input_alloc;
+          }
         }
       }
     }
 
     // Assume the first argument contains the primary variable
     // Follow path along point-wise operations
-    if (!expr_inputs.empty()) {
-      auto first_input_argument_tv = expr_inputs.front()->getOrigin();
-      if (first_input_argument_tv != nullptr) {
-        return findCompatibleInputAllocate(
-            output_size_str, first_input_argument_tv);
+    if (first_tv_input != nullptr) {
+      if (const auto def = first_tv_input->definition()) {
+        return findCompatibleInputAllocate(output_size_str, def);
       }
     }
+
     return nullptr;
   }
 
-  void handle(Expr* expr) final {
-    size_t expr_index = map_expr_to_pos_.size();
+  void handle(kir::Expr* expr) {
+    const size_t expr_index = map_expr_to_pos_.size();
     map_expr_to_pos_[expr] = expr_index;
 
     if (ir_utils::isTVOp(expr)) {
-      const auto output = expr->output(0)->as<TensorView>();
+      const auto output = expr->outputs()[0]->as<kir::TensorView>();
       map_tv_to_origin_expr_[output] = expr;
 
-      bool has_allocation = map_tv_to_allocations_.find(output->name()) !=
+      const bool has_allocation = map_tv_to_allocations_.find(output->id()) !=
           map_tv_to_allocations_.end();
 
       if (has_allocation) {
-        bool smem_valid = output->getMemoryType() == MemoryType::Shared;
+        const bool smem_valid = output->memoryType() == MemoryType::Shared;
 
         bool local_valid = false;
-        if (output->getMemoryType() == MemoryType::Local) {
-          auto allocation = map_tv_to_allocations_[output->name()];
-          auto inferred_register_size =
-              eval_evaluator_.inferValue(allocation->size());
-          if (inferred_register_size.has_value()) {
-            local_valid =
-                inferred_register_size.value() > register_size_threshold_;
+        if (output->memoryType() == MemoryType::Local) {
+          const auto allocation = map_tv_to_allocations_[output->id()];
+          const auto register_size =
+              expr_evaluator_.evaluate(allocation->size());
+          if (register_size.has_value()) {
+            local_valid = *register_size > kRegisterSizeThreshold;
           }
         }
 
@@ -192,30 +179,33 @@ class AllocateReuseModifier final : private OptOutDispatch {
         }
       }
 
-      const auto& expr_inputs =
-          ir_utils::filterByType<TensorView>(expr->inputs());
-      for (const auto input : expr_inputs) {
-        map_tv_to_last_usage_[input] = expr_index;
+      for (auto input : expr->inputs()) {
+        if (auto input_tv = dynamic_cast<kir::TensorView*>(input)) {
+          map_tv_to_last_usage_[input_tv] = expr_index;
+        }
       }
-    } else {
-      OptOutDispatch::handle(expr);
+    } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
+      handle(ite);
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      handle(for_loop);
+    } else if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
+      handle(alloc);
     }
   }
 
-  void handle(kir::Allocate* a) final {
-    if (a->buffer()->getValType().value() == ValType::KirTensorView) {
-      auto tv = a->buffer()->as<kir::TensorView>()->fuserTv();
-      map_tv_to_allocations_[tv->name()] = a;
+  void handle(kir::Allocate* alloc) {
+    if (auto tv = dynamic_cast<const kir::TensorView*>(alloc->buffer())) {
+      map_tv_to_allocations_[tv->id()] = alloc;
     }
   }
 
-  void handle(kir::ForLoop* fl) final {
-    for (auto expr : fl->body().exprs()) {
+  void handle(const kir::ForLoop* for_loop) {
+    for (auto expr : for_loop->body().exprs()) {
       handle(expr);
     }
   }
 
-  void handle(kir::IfThenElse* ite) final {
+  void handle(const kir::IfThenElse* ite) {
     for (auto expr : ite->thenBody().exprs()) {
       handle(expr);
     }
@@ -226,39 +216,33 @@ class AllocateReuseModifier final : private OptOutDispatch {
 
  private:
   // Expression Evaluator to infer size of register allocation
-  StatefulExpressionEvaluator eval_evaluator_;
+  kir::ExpressionEvaluator expr_evaluator_;
 
-  // Alias local memory if it exceeds this threshold
-  const size_t register_size_threshold_;
-
-  // Map expression to unique position
-  std::unordered_map<Expr*, size_t> map_expr_to_pos_;
+  // Map expression to unique position 
+  // TODO: position relative to what?
+  std::unordered_map<const kir::Expr*, size_t> map_expr_to_pos_;
 
   // Map TensorView to origin expression
-  std::unordered_map<const TensorView*, Expr*> map_tv_to_origin_expr_;
+  // $$$ remove 
+  std::unordered_map<const kir::TensorView*, const kir::Expr*> map_tv_to_origin_expr_;
 
   // Map TensorView to last usage expression position
-  std::unordered_map<const TensorView*, size_t> map_tv_to_last_usage_;
+  std::unordered_map<const kir::TensorView*, size_t> map_tv_to_last_usage_;
 
   // Map TensorView name to Allocate node
-  std::unordered_map<unsigned int, kir::Allocate*> map_tv_to_allocations_;
+  std::unordered_map<kir::ValueId, kir::Allocate*> map_tv_to_allocations_;
 
   // Track candidate TensorViews whose Allocate nodes
   // could potentially alias another Allocate node
-  std::unordered_set<const TensorView*> candidate_alias_tv_;
+  std::unordered_set<const kir::TensorView*> candidate_alias_tv_;
 };
 
 } // namespace
 
-std::vector<Expr*> reuseMemoryAllocations(
-    Fusion* fusion,
-    const std::vector<Expr*>& exprs) {
+std::vector<kir::Expr*> reuseMemoryAllocations(
+    const std::vector<kir::Expr*>& exprs) {
   FUSER_PERF_SCOPE("reuseMemoryAllocations");
-  FusionGuard fg(fusion);
-
-  // Alias local memory if it exceeds this threshold
-  const size_t register_size_threshold = 1;
-  AllocateReuseModifier arm(fusion, register_size_threshold);
+  AllocateReuseModifier arm;
   arm.modify(exprs);
   return exprs;
 }
