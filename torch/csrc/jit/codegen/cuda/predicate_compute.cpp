@@ -209,7 +209,7 @@ kir::Bool* UnrollPredicate::get(
       unroll_pred = ir_builder.andExpr(unroll_pred, pred);
     }
   }
-  
+
   return unroll_pred->as<kir::Bool>();
 }
 

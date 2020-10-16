@@ -3,8 +3,8 @@
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
-#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 
 #include <bitset>
 #include <map>
@@ -85,7 +85,7 @@ class ParallelTypeBitmap {
   static constexpr int num_p_type = 6;
 
   ParallelTypeBitmap() = default;
-  
+
   bool get(ParallelType pt) const;
   bool set(ParallelType pt, bool);
   ParallelTypeBitmap operator&=(const ParallelTypeBitmap& other);

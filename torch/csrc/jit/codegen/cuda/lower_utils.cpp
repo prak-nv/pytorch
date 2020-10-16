@@ -17,7 +17,7 @@ namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
-  
+
 namespace scope_utils {
 
 std::vector<kir::ForLoop*> getLoops(kir::Expr* scope) {
@@ -248,11 +248,11 @@ ParallelTypeBitmap getParallelBroadcastDomains(
   if (preds.find(tv) == preds.end()) {
     return ParallelTypeBitmap();
   }
-  
+
   const ParallelTypeBitmap& out_pred = preds.at(tv).first;
 
   ParallelTypeBitmap parallel_broadcast;
-  
+
   const auto& iter_domains = tv->domain()->domain();
 
   // If the output is on shared memory, assume that all subsequent
@@ -260,7 +260,7 @@ ParallelTypeBitmap getParallelBroadcastDomains(
   // broadcast. Only one thread will write to shared memory followed
   // by a proper _syncthreads.
   const bool output_smem = tv->getMemoryType() == MemoryType::Shared;
-  
+
   for (auto id : iter_domains) {
     if (!id->isBroadcast()) {
       continue;

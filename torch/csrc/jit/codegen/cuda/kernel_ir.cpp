@@ -1,8 +1,8 @@
 
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/type.h>
@@ -96,8 +96,7 @@ Val* IterDomain::extent() const {
 }
 
 TensorDomain::TensorDomain(Passkey passkey, std::vector<IterDomain*> domain)
-    : Val(passkey, DataType::Null),
-      root_domain_(std::move(domain)) {
+    : Val(passkey, DataType::Null), root_domain_(std::move(domain)) {
   domain_ = root_domain_;
   resetDomains();
 }
@@ -105,8 +104,7 @@ TensorDomain::TensorDomain(Passkey passkey, std::vector<IterDomain*> domain)
 TensorDomain::TensorDomain(
     Passkey passkey,
     const fuser::cuda::TensorDomain* tensor_domain)
-    : Val(passkey, DataType::Null),
-      contiguity_(tensor_domain->contiguity()) {
+    : Val(passkey, DataType::Null), contiguity_(tensor_domain->contiguity()) {
   // preserve the fusion node's name
   setName(tensor_domain->name());
 

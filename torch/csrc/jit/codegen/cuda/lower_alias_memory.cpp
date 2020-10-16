@@ -1,14 +1,14 @@
 
-#include <torch/csrc/jit/codegen/cuda/instrumentation.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
-#include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
+#include <torch/csrc/jit/codegen/cuda/instrumentation.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
+#include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 
 #include <sstream>
-#include <unordered_set>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace torch {
 namespace jit {
@@ -211,8 +211,8 @@ class AllocateReuseModifier {
   // Expression Evaluator to infer size of register allocation
   kir::ExpressionEvaluator expr_evaluator_;
 
-  // Map expression to unique position 
-  // TODO: elaborate - position relative to what? 
+  // Map expression to unique position
+  // TODO: elaborate - position relative to what?
   std::unordered_map<const kir::Expr*, size_t> map_expr_to_pos_;
 
   // Map TensorView to last usage expression position

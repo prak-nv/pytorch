@@ -29,9 +29,9 @@ namespace cuda {
 //!     if( i * 4 + j < TV.size(0))
 //!       TV[i * 4 + j]...
 //!
-//! However if we had TV.size[0] = 16 at "compile time" then we wouldn't need the
-//! predicate. However we will still generate: for(i : 4) for(j : 4) if( i * 4 +
-//! j < TV.size(0)) TV[i * 4 + j]...
+//! However if we had TV.size[0] = 16 at "compile time" then we wouldn't need
+//! the predicate. However we will still generate: for(i : 4) for(j : 4) if( i *
+//! 4 + j < TV.size(0)) TV[i * 4 + j]...
 //!
 class PredicateCompute {
  public:

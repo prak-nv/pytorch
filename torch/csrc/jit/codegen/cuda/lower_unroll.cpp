@@ -160,7 +160,7 @@ std::vector<kir::Expr*> UnrollPass::runPass(
     const std::vector<kir::Expr*>& exprs,
     const ThreadPredicateMap& thread_predicates) {
   FUSER_PERF_SCOPE("UnrollPass::runPass");
-  
+
   UnrollPass unroll_pass(fusion, thread_predicates);
   unroll_pass.computeMap(exprs);
 
@@ -168,7 +168,7 @@ std::vector<kir::Expr*> UnrollPass::runPass(
   for (auto expr : exprs) {
     mutated_exprs.push_back(unroll_pass.applyReplacements(expr));
   }
-  
+
   return mutated_exprs;
 }
 

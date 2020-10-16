@@ -1,8 +1,8 @@
 
+#include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
-#include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 
 #include <unordered_set>
@@ -29,7 +29,7 @@ class LocalSyncInserter {
     for (auto expr : exprs) {
       sync_inserter.handle(expr);
     }
-  }  
+  }
 
   const auto& initial() const {
     return initial_;
@@ -222,7 +222,7 @@ std::vector<kir::Expr*> insertThreadSynchronization(
     const std::vector<kir::Expr*>& exprs) {
   FUSER_PERF_SCOPE("insertThreadSynchronization");
   LocalSyncInserter::insertSyncs(exprs);
-  return exprs;  
+  return exprs;
 }
 
 } // namespace cuda

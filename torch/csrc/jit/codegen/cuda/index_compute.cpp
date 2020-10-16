@@ -58,7 +58,7 @@ class ContigIDs : public OptInDispatch {
 
   void handle(Merge* merge) override {
     const auto gpu_lower = GpuLower::current();
-    
+
     // If either input is non-contiguous so is output.
     const auto inner = merge->inner();
     const auto outer = merge->outer();
@@ -537,7 +537,7 @@ generateIndexAndExtentMap(
     std::deque<const TensorView*> c2p_tv_stack,
     std::deque<kir::ForLoop*> loops,
     const std::unordered_map<kir::ForLoop*, kir::Val*>& loop_to_ind_map,
-  const std::vector<bool>& last_tv_root_contiguity) {
+    const std::vector<bool>& last_tv_root_contiguity) {
   if (c2p_tv_stack.empty())
     return std::make_pair(
         std::unordered_map<kir::IterDomain*, kir::Val*>(),
@@ -1287,7 +1287,7 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     }
   }
 
-  return { root_inds, use_rfactor };
+  return {root_inds, use_rfactor};
 }
 
 } // namespace cuda

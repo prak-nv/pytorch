@@ -1,6 +1,6 @@
 
-#include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
+#include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 
 #include <iostream>
@@ -133,4 +133,3 @@ void ExpressionEvaluator::visit(const BinaryOp* binary_op) {
 } // namespace fuser
 } // namespace jit
 } // namespace torch
-

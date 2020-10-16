@@ -160,7 +160,7 @@ at::Tensor inferAndAlloc(
   FUSER_PERF_SCOPE("inferAndAlloc");
 
   std::vector<int64_t> sizes;
-  
+
   const auto domain = tv->domain();
   const auto maybe_rfactor_domain =
       domain->hasRFactor() ? domain->rfactorDomain() : domain->rootDomain();
@@ -334,16 +334,10 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
         "Cannot allocate global buffers that are not tensors.");
     if (!alloc->zeroInit()) {
       global_buffers.empty_buffers.push_back(inferAndAlloc(
-          alloc->buffer()->as<kir::TensorView>(),
-          expr_eval,
-          options_,
-          false));
+          alloc->buffer()->as<kir::TensorView>(), expr_eval, options_, false));
     } else {
       global_buffers.zero_buffers.push_back(inferAndAlloc(
-          alloc->buffer()->as<kir::TensorView>(),
-          expr_eval,
-          options_,
-          true));
+          alloc->buffer()->as<kir::TensorView>(), expr_eval, options_, true));
     }
   }
 
@@ -356,10 +350,11 @@ std::vector<at::Tensor> FusionExecutor::allocOutputs(
   const auto kernel = lowered_.kernel();
   std::vector<at::Tensor> outputs;
   for (auto output : kernel->outputs()) {
-    TORCH_INTERNAL_ASSERT(output->isA<kir::TensorView>(),
+    TORCH_INTERNAL_ASSERT(
+        output->isA<kir::TensorView>(),
         "Cannot allocate outputs that are not tensors.");
-    outputs.push_back(
-        inferAndAlloc(output->as<kir::TensorView>(), expr_eval, options_, false));
+    outputs.push_back(inferAndAlloc(
+        output->as<kir::TensorView>(), expr_eval, options_, false));
   }
   return outputs;
 }

@@ -192,7 +192,7 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
 
   // Get rid of any reductions which are bcasted
   output_preds &= bcast_reset_mask;
-  
+
   // Similarly, drop non-relevant source tensors
   maskSouceMap(src_map, bcast_reset_mask);
 

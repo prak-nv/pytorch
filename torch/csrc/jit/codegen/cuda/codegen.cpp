@@ -1,8 +1,8 @@
 
 #include <torch/csrc/jit/codegen/cuda/codegen.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/type.h>
 #include <torch/csrc/jit/codegen/cuda/utils.h>
 

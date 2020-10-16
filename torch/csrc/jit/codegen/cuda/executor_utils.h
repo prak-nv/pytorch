@@ -8,11 +8,11 @@
 
 #include <torch/csrc/jit/ir/ir.h>
 
-#include <torch/csrc/jit/codegen/cuda/kernel.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/kernel.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 
 namespace torch {

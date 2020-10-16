@@ -340,7 +340,7 @@ static const char* thread_size2string(ParallelType t) {
     case ParallelType::TIDx:
       return "blockDim.x";
     default:
-      TORCH_INTERNAL_ASSERT(false, "Could not find size of the thread type ", t);
+      TORCH_INTERNAL_ASSERT(false, "Unexpected parallel type", t);
   }
 }
 

@@ -1,17 +1,17 @@
 
+#include <torch/csrc/jit/codegen/cuda/lower_loops.h>
 #include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
-#include <torch/csrc/jit/codegen/cuda/lower_loops.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 
 #include <algorithm>
-#include <numeric>
 #include <deque>
+#include <numeric>
 
 namespace torch {
 namespace jit {
@@ -389,7 +389,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
   }
 
   kir::Expr* alloc_expr = nullptr;
-  
+
   // Place the allocation for out
   if (!fusion_->hasInput(out) && !fusion_->hasOutput(out)) {
     alloc_expr = pushAlloc(out);

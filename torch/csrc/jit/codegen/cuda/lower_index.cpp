@@ -53,7 +53,7 @@ void IndexLowering::visit(const kir::IfThenElse* ite) {
   auto new_ite =
       ir_builder_.create<kir::IfThenElse>(ite->cond(), prev_scope_expr);
   pushBack(new_ite);
-  
+
   active_scope_expr_ = new_ite;
   active_scope_ = &new_ite->thenBody();
 
@@ -100,8 +100,7 @@ void IndexLowering::visit(const kir::BinaryOp* bop) {
   const auto lhs = lowerSrcIndex(bop->lhs(), bop->out());
   const auto rhs = lowerSrcIndex(bop->rhs(), bop->out());
   const auto out = lowerDstIndex(bop->out());
-  pushBack(
-      ir_builder_.create<kir::BinaryOp>(bop->operation(), out, lhs, rhs));
+  pushBack(ir_builder_.create<kir::BinaryOp>(bop->operation(), out, lhs, rhs));
 }
 
 void IndexLowering::visit(const kir::TernaryOp* top) {
@@ -131,9 +130,7 @@ void allocateGridReductionFlag(
   // this grid reduction expression.
   if (current_scope_expr->isA<kir::IfThenElse>()) {
     scope_utils::insertBefore(
-        current_scope_expr->parentScope(),
-        current_scope_expr,
-        flag_var);
+        current_scope_expr->parentScope(), current_scope_expr, flag_var);
   } else {
     TORCH_INTERNAL_ASSERT(current_scope_expr->isA<kir::ForLoop>());
     current_scope_expr->as<kir::ForLoop>()->body().push_back(flag_var);
@@ -217,8 +214,8 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
             }),
         sync_ids.end());
 
-    kir::Val* sync_size = sync_ids.empty() ?
-      ir_builder_.create<kir::Int>(1) : sync_ids[0]->rawExtent();
+    kir::Val* sync_size = sync_ids.empty() ? ir_builder_.create<kir::Int>(1)
+                                           : sync_ids[0]->rawExtent();
 
     for (size_t i = 1; i < sync_ids.size(); i++) {
       sync_size = ir_builder_.mulExpr(sync_size, sync_ids[i]->rawExtent());
@@ -261,8 +258,7 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
   }
 
   if (!is_block_reduce && !is_grid_reduce) {
-    pushBack(ir_builder_.create<kir::BinaryOp>(
-        rop->operation(), out, out, in));
+    pushBack(ir_builder_.create<kir::BinaryOp>(rop->operation(), out, out, in));
   }
 }
 

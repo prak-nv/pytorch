@@ -107,7 +107,7 @@ void GpuLower::lower() {
 
   // Compute thread predicates
   ThreadPredicateMap preds(fusion_);
-  
+
   // Set the kernel inputs & outputs
   for (auto input : fusion_->inputs()) {
     kernel_->addInput(GpuLower::lowerValue(input));

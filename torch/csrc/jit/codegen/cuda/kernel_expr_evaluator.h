@@ -17,7 +17,7 @@ namespace kir {
 //! Calculate Kernel IR expressions
 //!
 //! How to evaluate Kernel IR expressions:
-//! 
+//!
 //! ```cpp
 //!   kir::ExpressionEvaluator eval;
 //!   eval.bind(symbolic_value, concrete_value);
@@ -28,7 +28,7 @@ namespace kir {
 //!   } else {
 //!     ... expression can't be evaluated ...
 //!   }
-//! ``` 
+//! ```
 //!
 class TORCH_CUDA_API ExpressionEvaluator : private IrVisitor {
  public:
