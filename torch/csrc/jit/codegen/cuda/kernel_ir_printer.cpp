@@ -260,7 +260,8 @@ void IrPrinter::visit(const kir::Allocate* node) {
            << "size=" << gen(node->size()) << ", "
            << "zero_init=" << boolLiteral(node->zeroInit()) << ")\n";
   if (node->alias() != nullptr) {
-    indent() << kTab << kTab << ".alias=" << gen(node->alias()->buffer());
+    indent() << kTab << kTab << ".alias=" << gen(node->alias()->buffer())
+             << "\n";
   }
 }
 

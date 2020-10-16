@@ -83,7 +83,7 @@ class AllocateReuseModifier {
       //$$$ isn't output same at tv?
       TORCH_CHECK(tv == output);
 
-      const auto alloc_it = map_tv_to_allocations_.find(output->id());
+      const auto alloc_it = map_tv_to_allocations_.find(output->name());
       TORCH_INTERNAL_ASSERT(alloc_it != map_tv_to_allocations_.end());
       const auto output_alloc = alloc_it->second;
 
@@ -123,7 +123,7 @@ class AllocateReuseModifier {
           first_tv_input = input_tv;
         }
 
-        const auto input_alloc = map_tv_to_allocations_[input_tv->id()];
+        const auto input_alloc = map_tv_to_allocations_[input_tv->name()];
 
         // input_alloc == nullptr implies that input_tv is a kernel input
         if (input_alloc != nullptr) {
@@ -155,7 +155,8 @@ class AllocateReuseModifier {
       const auto output = expr->outputs()[0]->as<kir::TensorView>();
       map_tv_to_origin_expr_[output] = expr;
 
-      const bool has_allocation = map_tv_to_allocations_.find(output->id()) !=
+      //$$$ dup lookup
+      const bool has_allocation = map_tv_to_allocations_.find(output->name()) !=
           map_tv_to_allocations_.end();
 
       if (has_allocation) {
@@ -163,7 +164,7 @@ class AllocateReuseModifier {
 
         bool local_valid = false;
         if (output->memoryType() == MemoryType::Local) {
-          const auto allocation = map_tv_to_allocations_[output->id()];
+          const auto allocation = map_tv_to_allocations_[output->name()];
           const auto register_size =
               expr_evaluator_.evaluate(allocation->size());
           if (register_size.has_value()) {
@@ -195,7 +196,7 @@ class AllocateReuseModifier {
 
   void handle(kir::Allocate* allocate) {
     if (auto tv = dynamic_cast<const kir::TensorView*>(allocate->buffer())) {
-      map_tv_to_allocations_[tv->id()] = allocate;
+      map_tv_to_allocations_[tv->name()] = allocate;
     }
   }
 
@@ -230,7 +231,7 @@ class AllocateReuseModifier {
   std::unordered_map<const kir::TensorView*, size_t> map_tv_to_last_usage_;
 
   // Map TensorView name to Allocate node
-  std::unordered_map<kir::ValueId, kir::Allocate*> map_tv_to_allocations_;
+  std::unordered_map<StmtNameType, kir::Allocate*> map_tv_to_allocations_;
 
   // Track candidate TensorViews whose Allocate nodes
   // could potentially alias another Allocate node
