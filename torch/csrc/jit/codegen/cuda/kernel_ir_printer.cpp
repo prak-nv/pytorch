@@ -259,6 +259,9 @@ void IrPrinter::visit(const kir::Allocate* node) {
            << "mem_type=" << node->memoryType() << ", "
            << "size=" << gen(node->size()) << ", "
            << "zero_init=" << boolLiteral(node->zeroInit()) << ")\n";
+  if (node->alias() != nullptr) {
+    indent() << kTab << kTab << ".alias=" << gen(node->alias()->buffer());
+  }
 }
 
 void IrPrinter::visit(const kir::Sync* node) {
