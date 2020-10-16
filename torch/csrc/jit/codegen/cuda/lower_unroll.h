@@ -93,7 +93,6 @@ class TORCH_CUDA_API UnrollPass {
 
   // As we generate inline predicates check if we actually generated a
   // non-trivial one.
-  // $$$ really needed?
   bool non_trivial_pred_found_ = false;
 };
 

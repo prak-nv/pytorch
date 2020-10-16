@@ -80,7 +80,7 @@ class Passkey {
 //! Kernel IR visitor interface
 class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
  public:
-  //$$$ virtual void unhandled(const Node* node) {}
+  // TODO(kir): use Node* instead of void*
   virtual void unhandled(const void* node) {}
 
   // Values
@@ -184,7 +184,7 @@ class TORCH_CUDA_API Val : public Node {
   }
 
   void setDefinition(Expr* expr) {
-    //$$$ TORCH_INTERNAL_ASSERT(definition_ == nullptr);
+    // TODO(kir): extra checks on changing existing definitions?
     definition_ = expr;
   }
 
