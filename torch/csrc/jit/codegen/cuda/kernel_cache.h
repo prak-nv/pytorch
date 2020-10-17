@@ -52,6 +52,9 @@ class TORCH_CUDA_API InputsIdLookup {
   }
 
  private:
+  // TODO: mutex guard this guy;
+  std::string encoding_;
+
   //! entry stored in `encoding_lookup_` to implement LRU
   struct EncodingEntry {
     size_t id;

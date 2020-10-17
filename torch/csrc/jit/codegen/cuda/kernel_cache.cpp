@@ -206,36 +206,44 @@ at::DimVector inversePermutation(
   }
 }
 
+template <typename T, typename CONTAINER>
+void encode_buf(T value, CONTAINER& buffer) {
+  char* v = reinterpret_cast<char*>(&value);
+  for (int i = 0; i < sizeof(T); i++) {
+    buffer.push_back(*(v++));
+  }
+}
+
 } // namespace
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<IValue>& inputs) {
   IdLookupReturn ret;
 
-  std::stringstream encoded_inputs;
+  encoding_.clear();
   for (const auto& input : inputs) {
     if (input.isTensor()) {
       auto input_tensor = input.toTensor();
 
-      encoded_inputs << ";";
-      auto sep = "";
       for (auto size : input_tensor.sizes()) {
-        encoded_inputs << sep << size;
-        sep = ",";
+        encode_buf(size, encoding_);
+        encoding_.push_back(' ');
       }
-      encoded_inputs << "@";
-      sep = "";
+      encoding_.push_back('X');
+      encoding_.push_back(' ');
       for (auto stride : input_tensor.strides()) {
-        encoded_inputs << sep << stride;
-        sep = ",";
+        encode_buf(stride, encoding_);
+        encoding_.push_back(' ');
       }
-      encoded_inputs << "@" << input_tensor.device().str();
+      encoding_.push_back('d');
+      encode_buf(input_tensor.device().index(), encoding_);
     } else {
       // encode s for scalar;
-      encoded_inputs << ";s";
+      encoding_.push_back('s');
     }
+    encoding_.push_back(';');
   }
-  auto& id_iter_pair = encoding_lookup_[encoded_inputs.str()];
+  auto& id_iter_pair = encoding_lookup_[encoding_];
 
   // short-cut to leave LRU entry as is;
   if (id_iter_pair.lru_iter == used_entry_.begin()) {
@@ -260,7 +268,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 
   ret.id = id_iter_pair.id;
   id_iter_pair.lru_iter =
-      used_entry_.insert(used_entry_.begin(), encoded_inputs.str());
+      used_entry_.insert(used_entry_.begin(), encoding_);
   return ret;
 }
 
