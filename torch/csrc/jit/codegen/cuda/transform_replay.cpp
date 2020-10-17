@@ -230,7 +230,6 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
   auto replay_root_map =
       root_map.mapConsumerToProducer(consumer, producer,
                                      consumer_CA_root_ids);
-  //if (replay_root_map.size() != replay_root_map_old.size()) {
   if (replay_root_map != replay_root_map_old) {
     std::stringstream ss;
     ss << "\tConsumer: " << consumer << "\n";
@@ -462,7 +461,6 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
       root_map.mapProducerToConsumer(producer,
                                      consumer,
                                      producer_CA_root_ids);
-  //if (replay_root_map_old.size() != replay_root_map.size()) {
   if (replay_root_map != replay_root_map_old) {
     std::stringstream ss;
     ss << "\tProducer: " << producer << "\n";
