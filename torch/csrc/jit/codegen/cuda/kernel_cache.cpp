@@ -220,6 +220,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<IValue>& inputs) {
   IdLookupReturn ret;
 
+  std::lock_guard<std::mutex> guard(mutex_);
   encoding_.clear();
   for (const auto& input : inputs) {
     if (input.isTensor()) {

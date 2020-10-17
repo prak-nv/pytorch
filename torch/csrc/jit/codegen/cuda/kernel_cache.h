@@ -7,6 +7,7 @@
 #include <c10/util/ArrayRef.h>
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
+#include <mutex>
 #include <type_traits>
 #include <unordered_map>
 
@@ -32,6 +33,8 @@ class TORCH_CUDA_API InputsIdLookup {
   explicit InputsIdLookup(size_t max_cache_size = 10)
       : max_cache_size_(max_cache_size){};
 
+  InputsIdLookup(const InputsIdLookup&) = delete;
+
   //! struct to hold return value for lookupId.
   struct IdLookupReturn {
     size_t id = 0;
@@ -54,6 +57,7 @@ class TORCH_CUDA_API InputsIdLookup {
  private:
   // TODO: mutex guard this guy;
   std::string encoding_;
+  std::mutex mutex_;
 
   //! entry stored in `encoding_lookup_` to implement LRU
   struct EncodingEntry {
