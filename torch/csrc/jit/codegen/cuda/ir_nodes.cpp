@@ -187,8 +187,8 @@ bool TernaryOp::sameAs(const TernaryOp* other) const {
   return true;
 }
 
-BroadcastOp::BroadcastOp(Val* _out, Val* _in)
-    : Expr(ExprType::BroadcastOp), out_(_out), in_(_in) {
+BroadcastOp::BroadcastOp(Val* _out, Val* _in, const std::vector<bool>& is_broadcast_dim)
+    : Expr(ExprType::BroadcastOp), out_(_out), in_(_in), is_broadcast_dim_(is_broadcast_dim) {
   auto out_type = _out->getValType().value();
   auto in_type = _in->getValType().value();
 
@@ -246,7 +246,8 @@ BroadcastOp::BroadcastOp(Val* _out, Val* _in)
 BroadcastOp::BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner)
     : Expr(src, ir_cloner),
       out_(ir_cloner->clone(src->out_)),
-      in_(ir_cloner->clone(src->in_)) {}
+      in_(ir_cloner->clone(src->in_)),
+      is_broadcast_dim_(src->is_broadcast_dim_) {}
 
 bool BroadcastOp::sameAs(const BroadcastOp* const other) const {
   return other->in() == in() && other->out() == out();
@@ -943,8 +944,10 @@ std::vector<std::pair<int, int>> TensorDomain::mapDomainPandC(
     // At this point, p_id and c_id must match.
     // TODO: Remove getenv.
     if (!std::getenv("SKIP_PROVING")) {
+#if 0
       TORCH_INTERNAL_ASSERT(IterDomain::proveEquivalent(p_id, c_id),
                             "Can't prove equivalence: ", p_id, ", ", c_id);
+#endif
     }
 
     dom_map.emplace_back(std::make_pair(itp, itc));
@@ -1000,29 +1003,6 @@ std::unordered_map<IterDomain*, IterDomain*> TensorDomain::mapRootPtoC(
   return root_id_map;
 }
 
-std::unordered_map<IterDomain*, IterDomain*> TensorDomain::mapRootDomains(
-    const std::vector<IterDomain*>& from,
-    const std::vector<IterDomain*>& to,
-    const std::unordered_set<IterDomain*>& filter_set) {
-  std::unordered_map<IterDomain*, IterDomain*> dom_map;
-  std::deque<IterDomain*> root_dom2_remaining({to.begin(), to.end()});
-  for (auto id1 : from) {
-    auto it = std::find_if(root_dom2_remaining.begin(), root_dom2_remaining.end(),
-                           [id1](IterDomain* id2) {
-                             return IterDomain::proveEquivalent(id1, id2);
-                           });
-    if (it != root_dom2_remaining.end()) {
-      IterDomain* matched_id = *it;
-      root_dom2_remaining.erase(it);
-      if (filter_set.find(id1) != filter_set.end()) {
-        dom_map.insert(std::make_pair(id1, matched_id));
-      }
-      continue;
-    }
-  }
-  return dom_map;
-}
-
 // pair is in order where second is the consumer of first
 std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
     const std::vector<int>& axes_) {
@@ -1071,118 +1051,6 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 namespace {
-
-//! Container class DisjointSet models equivalence relationships
-//!
-//! Each instance of this class keeps a set of equivalent classes
-//! DisjointSet::join(a,b) makes the full class of a and b equivalent
-//! DisjointSet::areEqual(a,b) checks if a and b belong same class
-//!
-//! \note The template type T is assumed to be hashable
-template <typename T>
-class DisjointSet {
- public:
-  DisjointSet() = default;
-
-  //! Joins the equivalent class that a and b belong to
-  //! areEqual(a',b') will be true for each a'=a and b'=b
-  //!
-  //! \param a An element from a equivalent class
-  //!          will create a new equivalent class if a does
-  //!          not belong to any
-  //! \param b An element from another equivalent class
-  //!          will create a new equivalent class if b does
-  //!          not belong to any
-  void join(T a, T b) {
-    // cases where either of the quiv class doesn't exist
-    if (!entry_map.count(a) && !entry_map.count(b)) {
-      createPoint(a);
-      entry_map[b] = fixedPoint(a);
-    } else if (!entry_map.count(a)) {
-      entry_map[a] = fixedPoint(b);
-    } else if (!entry_map.count(b)) {
-      entry_map[b] = fixedPoint(a);
-    } else {
-      // case where both equiv classes exist and need to join
-      const int i0 = fixedPoint(a);
-      const int i1 = fixedPoint(b);
-      int new_parent = 0;
-      int new_child = 0;
-
-      // Either order here is correct but joining larger class to smaller class
-      // tend to be faster
-      std::tie(new_parent, new_child) = (weights[i0] < weights[i1])
-          ? std::make_pair(i0, i1)
-          : std::make_pair(i1, i0);
-      weights[new_parent] += weights[new_child];
-      set_map[new_child] = new_parent;
-    }
-  }
-
-  //! Checks if a and b belong to the same equivalent class
-  //!
-  //! \param a An element from a equivalent class
-  //! \param b An element from another equivalent class
-  //! \returns Boolean value representing if a and b are
-  //!          recorded to be in the same equivalent class
-  //!          will return false if any of a or b doesn't
-  //!          have an equivalent class recorded
-  bool areEquivalent(T a, T b) const {
-    if (!entry_map.count(a) || !entry_map.count(b)) {
-      return false;
-    }
-    return fixedPoint(a) == fixedPoint(b);
-  }
-
- private:
-  // Internal fixed point implementation:
-  //  Returns the equivalent class that e belongs to
-  int fixedPoint(int e) const {
-    TORCH_INTERNAL_ASSERT(static_cast<int>(set_map.size()) > e);
-    while (set_map[e] != e) {
-      // Chasing to fixed point
-      e = set_map[e];
-    }
-    return e;
-  }
-
-  //! Utility to check the class i belongs to:
-  //!
-  //! Will create a new class if no match seen
-  //! \param e element e to find the equiv class for
-  //! \returns the equivalent class that e belongs to
-  //!
-  int fixedPoint(T e) const {
-    // Handles case when i doesn't have an equivalence class
-    TORCH_INTERNAL_ASSERT(entry_map.count(e));
-
-    // Use fixed point as a representation for the equiv class
-    return fixedPoint(entry_map.at(e));
-  }
-
-  //! Utility to create a new equiv class for i
-  //
-  //! \param i Element i to create the equiv class for
-  void createPoint(T i) {
-    entry_map[i] = next_index_;
-    set_map.push_back(next_index_++);
-    weights.push_back(1);
-  }
-
- private:
-  // Internal representation of the equivalence class as integers
-  // set_map implements the "parent" relationship
-  std::vector<int> set_map;
-  // Weights is used for preliminary perf optimization
-  std::vector<int> weights;
-
-  // Map the input of type T to its equivalence class
-  std::unordered_map<T, int> entry_map;
-
-  // Running counter for generating new index when
-  // Creating new equiv classes
-  int next_index_ = 0;
-};
 
 //! Concretize broadcast axes, i.e. identifying a non-broadcast
 //! IterDomain that the broadcast IterDomain can map to.
@@ -1285,138 +1153,11 @@ void ConcretizeDomain::concretizePwOp(const Expr* e) {
   }
 }
 
-//! Models equivalence provable by the graph
-//!
-//! This traversal processes root domains only,
-//! equalities , e.g. :
-//!    T2 [i0,i1] = T1[i2,i3] + T0[i4,i5]
-//! will prove that i2 and i4 are equal in the sense that
-//!    i2.start = i4.start, i2.extent = i4.extent
-//! Depends on ConcretizeDomain, and equalities involving
-//! broadcast domains are defined based on the concretized version
-class ProveValEqual : private IterVisitor {
- public:
-  explicit ProveValEqual(Fusion* fusion) : cd_(fusion) {
-    traverseFrom(fusion, fusion->outputs(), false);
-  }
-
-  //! Checks if two scalars are equal
-  //!
-  //! First checks if ScalarCheck has them equal,
-  //! next try to prove them equal from
-  //! the graph_traversal result
-  //!
-  //! \param a A symbolic value
-  //! \param b Another value from the same fusion
-  //! \returns Boolean representing if they are proven to be
-  //!          equal based on scalar check and graph traversal
-  bool areEqual(const Val* a, const Val* b) const {
-    if (ScalarCheck::sameAs(a, b)) {
-      return true;
-    }
-    if (eq_set_.areEquivalent(a, b)) {
-      return true;
-    }
-    return false;
-  }
-
-  //! Checks if two iterdomains are equal
-  //!
-  //! Equality defined as equal start and equal extent
-  //! true means a and b are equal
-  //! false only means that they cannot be proven equal based
-  //! on scalar check and graph traversal
-  //!
-  //! \param a An iterdomain
-  //! \param b Another iterdomain from the same fusion
-  //! \returns Boolean representing if they are proven to be
-  //!          equivalent in the sense that they have equal
-  //!          start and extent
-  bool areEquivalent(const IterDomain* a, const IterDomain* b) const {
-    if (a->sameAs(b)) {
-      return true;
-    }
-
-    // Abort on un-concretized domains, this can appear once we
-    // allow broadcast on fusion output
-    if (!cd_.canConcretize(a) || !cd_.canConcretize(b)) {
-      return false;
-    }
-
-    auto ac = cd_.concretized(a);
-    auto bc = cd_.concretized(b);
-    return areEqual(ac->start(), bc->start()) &&
-        areEqual(ac->rawExtent(), bc->rawExtent());
-  }
-
- private:
-  // Utility class to record new equality found
-  void proveId(const IterDomain* a, const IterDomain* b) {
-    if (!a->sameAs(b)) {
-      eq_set_.join(a->start(), b->start());
-      eq_set_.join(a->rawExtent(), b->rawExtent());
-    }
-  }
-
-  // Inspect a pointwise op and record the identified equality
-  void provePwOp(Expr* e) {
-    if (e->output(0)->getValType() != ValType::TensorView) {
-      return;
-    }
-
-    TORCH_INTERNAL_ASSERT(e->outputs().size() == 1);
-    TensorView* tv = e->output(0)->as<TensorView>();
-    const std::vector<IterDomain*>& io = tv->getRootDomain();
-
-    // Record equalities from output to all the inputs
-    // ignores un-concretizable broadcasts
-    for (auto* i : ir_utils::filterByType<TensorView>(e->inputs())) {
-      std::vector<IterDomain*> ii =
-          TensorDomain::noReductions(i->getMaybeRFactorDomain());
-
-      for (size_t it = 0; it < ii.size(); it++)
-        if (cd_.canConcretize(ii[it]) && cd_.canConcretize(io[it]))
-          proveId(cd_.concretized(ii[it]), cd_.concretized(io[it]));
-    }
-  }
-
-  using IterVisitor::handle;
-
-  void handle(ReductionOp* rop) override {
-    provePwOp(rop);
-  }
-
-  void handle(UnaryOp* uop) override {
-    provePwOp(uop);
-  }
-
-  void handle(BinaryOp* bop) override {
-    provePwOp(bop);
-  }
-
-  void handle(TernaryOp* top) override {
-    provePwOp(top);
-  }
-
- private:
-  ConcretizeDomain cd_;
-  DisjointSet<const Val*> eq_set_;
-};
-
 } // namespace
 
 // API call to return the concretized axis of a broadcast axis
 const IterDomain* IterDomain::concretizeDomain(const IterDomain* bcast_dom) {
   return ConcretizeDomain::getConcreteDomain(bcast_dom);
-}
-
-// API call to check if two IterDomains are equal
-// checks start and extent, contains both scalar check and graph traversal
-// broadcast domains are concretized before comparing
-bool IterDomain::proveEquivalent(const IterDomain* a, const IterDomain* b) {
-  TORCH_INTERNAL_ASSERT(a->fusion() == b->fusion());
-  ProveValEqual pve(a->fusion());
-  return pve.areEquivalent(a, b);
 }
 
 Split::Split(

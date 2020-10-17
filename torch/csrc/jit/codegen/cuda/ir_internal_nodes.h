@@ -116,7 +116,7 @@ class TORCH_CUDA_API BinaryOp : public Expr {
 class TORCH_CUDA_API BroadcastOp : public Expr {
  public:
   ~BroadcastOp() = default;
-  BroadcastOp(Val* _out, Val* _in);
+  BroadcastOp(Val* _out, Val* _in, const std::vector<bool>& is_broadcast_dim);
 
   BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner);
 
@@ -133,11 +133,20 @@ class TORCH_CUDA_API BroadcastOp : public Expr {
     return in_;
   }
 
+  bool isBroadcastDim(size_t dim) const {
+    return is_broadcast_dim_.at(dim);
+  }
+
+  const std::vector<bool> getBroadcastDimFlags() const {
+    return is_broadcast_dim_;
+  }
+
   bool sameAs(const BroadcastOp* const other) const;
 
  private:
   Val* const out_ = nullptr;
   Val* const in_ = nullptr;
+  const std::vector<bool> is_broadcast_dim_;
 };
 
 /*
@@ -260,9 +269,6 @@ class TORCH_CUDA_API IterDomain : public Val {
 
   // Run concretization pass and return the concretized domain of broadcast id
   static const IterDomain* concretizeDomain(const IterDomain* bcast_dom);
-
-  // Attempt to prove 2 IterDomains are equal in start and rawExtent
-  static bool proveEquivalent(const IterDomain* a, const IterDomain* b);
 
   bool isReduction() const {
     return getIterType() == IterType::Reduction;
@@ -539,11 +545,6 @@ class TORCH_CUDA_API TensorDomain : public Val {
         consumer,
         std::unordered_set<IterDomain*>(p_root.begin(), p_root.end()));
   }
-
-  static std::unordered_map<IterDomain*, IterDomain*> mapRootDomains(
-    const std::vector<IterDomain*>& from,
-    const std::vector<IterDomain*>& to,
-    const std::unordered_set<IterDomain*>& filter_set);
 
   // pair is in order where second is the consumer of first
   std::pair<TensorDomain*, TensorDomain*> rFactor(const std::vector<int>& axes);

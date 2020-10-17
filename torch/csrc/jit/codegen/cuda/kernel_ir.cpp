@@ -407,7 +407,7 @@ Allocate::Allocate(
       size_ = ir_builder.mulExpr(size_, domain->axis(i)->extent());
     }
   }
-
+#if 0
   if (memory_type_ == MemoryType::Local) {
     if (!size_->isConstScalar()) {
       TORCH_INTERNAL_ASSERT(
@@ -419,7 +419,7 @@ Allocate::Allocate(
           " with symbolic size.");
     }
   }
-
+#endif
   addInput(size_);
   name_ = FusionGuard::getCurFusion()->registerLoweredExpr(this);
 }
