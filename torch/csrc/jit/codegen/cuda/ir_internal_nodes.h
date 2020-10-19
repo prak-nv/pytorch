@@ -109,14 +109,16 @@ class TORCH_CUDA_API BinaryOp : public Expr {
   Val* const rhs_ = nullptr;
 };
 
-/*
- * Broadcast _in to match _out. broadcast_dims are relative to out. Where
- * broadcast_dims.size() + _in->nDims() == _out->nDims().
- */
+//! Broadcast _in to match _out. is_broadcast_dims are relative to out. Where
+//! is_broadcast_dims.size() == _out->nDims().
 class TORCH_CUDA_API BroadcastOp : public Expr {
  public:
   ~BroadcastOp() = default;
-  BroadcastOp(Val* _out, Val* _in, const std::vector<bool>& is_broadcast_dim);
+
+  //! \param _out The output tensor
+  //! \param _in The input tensor
+  //! \param is_broadcast_dims True when output dim is a new broadcast domain
+  BroadcastOp(Val* _out, Val* _in, const std::vector<bool>& is_broadcast_dims);
 
   BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner);
 
@@ -134,11 +136,11 @@ class TORCH_CUDA_API BroadcastOp : public Expr {
   }
 
   bool isBroadcastDim(size_t dim) const {
-    return is_broadcast_dim_.at(dim);
+    return is_broadcast_dims_.at(dim);
   }
 
   const std::vector<bool> getBroadcastDimFlags() const {
-    return is_broadcast_dim_;
+    return is_broadcast_dims_;
   }
 
   bool sameAs(const BroadcastOp* const other) const;
@@ -146,7 +148,13 @@ class TORCH_CUDA_API BroadcastOp : public Expr {
  private:
   Val* const out_ = nullptr;
   Val* const in_ = nullptr;
-  const std::vector<bool> is_broadcast_dim_;
+  //! The same list passed to the broadcast arithmetic op. Each
+  //! element corresponds to an IterDomain of the output tensor and is
+  //! true when the IterDomain is a new broadcast domain. Note
+  //! that the output tensor may have other broadcast domains whose
+  //! flags are false because the input tensor may already have
+  //! broadcast domains.
+  const std::vector<bool> is_broadcast_dims_;
 };
 
 /*
