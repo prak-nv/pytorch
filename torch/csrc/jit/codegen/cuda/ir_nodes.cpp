@@ -16,9 +16,9 @@ namespace cuda {
 
 namespace {
 
-class ScalarCheck : OptInDispatch {
+class ScalarCheck : OptInConstDispatch {
  public:
-  static bool sameAs(Val* v1, Val* v2) {
+  static bool sameAs(const Val* v1, const Val* v2) {
     if (v1 == v2)
       return true;
 
@@ -33,33 +33,33 @@ class ScalarCheck : OptInDispatch {
   }
 
  private:
-  void handle(Bool* b) override {
+  void handle(const Bool* b) override {
     same_ = v1_->as<Bool>()->sameAs(v2_->as<Bool>());
   }
 
-  void handle(Float* f) override {
+  void handle(const Float* f) override {
     same_ = v1_->as<Float>()->sameAs(v2_->as<Float>());
   }
 
-  void handle(Half* h) override {
+  void handle(const Half* h) override {
     same_ = v1_->as<Half>()->sameAs(v2_->as<Half>());
   }
 
-  void handle(Int* i) override {
+  void handle(const Int* i) override {
     same_ = v1_->as<Int>()->sameAs(v2_->as<Int>());
   }
 
-  void handle(NamedScalar* ns) override {
+  void handle(const NamedScalar* ns) override {
     same_ = v1_->as<NamedScalar>()->sameAs(v2_->as<NamedScalar>());
   }
 
-  ScalarCheck(Val* _v1, Val* _v2) : v1_(_v1), v2_(_v2) {
-    OptInDispatch::handle(v1_);
+  ScalarCheck(const Val* _v1, const Val* _v2) : v1_(_v1), v2_(_v2) {
+    OptInConstDispatch::handle(v1_);
   }
 
  private:
-  Val* v1_ = nullptr;
-  Val* v2_ = nullptr;
+  const Val* v1_ = nullptr;
+  const Val* v2_ = nullptr;
   bool same_ = false;
 };
 
