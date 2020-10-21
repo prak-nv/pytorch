@@ -38,10 +38,6 @@ C10_EXPORT bool complyWith(
     const at::Tensor& tensor,
     const c10::TensorTypePtr& guard_tensor_type);
 
-C10_EXPORT bool complyWith(
-    const at::Tensor& tensor,
-    const c10::TensorTypePtr& guard_tensor_type);
-
 } // namespace cuda
 } // namespace fuser
 } // namespace jit
