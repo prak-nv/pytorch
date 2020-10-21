@@ -29,10 +29,11 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.testing._internal.common_distributed import MultiProcessTestCase, \
     requires_gloo, requires_nccl, requires_nccl_version, \
     skip_if_not_multigpu, skip_if_lt_x_gpu, get_timeout, skip_if_rocm, \
-    simple_sparse_reduce_tests, skip_if_win32, create_device
+    skip_if_rocm_single_process, simple_sparse_reduce_tests, skip_if_win32, \
+    create_device
 
 from torch.testing._internal.common_utils import TestCase, load_tests, run_tests, \
-    retry_on_connect_failures, ADDRESS_IN_USE, CONNECT_TIMEOUT, TEST_WITH_TSAN
+    retry_on_connect_failures, ADDRESS_IN_USE, CONNECT_TIMEOUT, TEST_WITH_TSAN, slowTest
 
 # load_tests from common_utils is used to automatically filter tests for
 # sharding on sandcastle. This line silences flake warnings
@@ -273,6 +274,33 @@ class TCPStoreTest(TestCase, StoreTestBase):
             store1 = c10d.TCPStore(addr, port, 1, True)  # noqa: F841
             store2 = c10d.TCPStore(addr, port, 1, True)  # noqa: F841
 
+    def _test_numkeys_delkeys(self, fs):
+        # We start off with one init key in the store to coordinate workers
+        self.assertEqual(fs.num_keys(), 1)
+        fs.add("key", 1)
+        fs.add("key", 2)
+        fs.add("key", 3)
+        fs.set("key0", "value0")
+        fs.add("key3", 1)
+        fs.set("key1", "value1")
+        self.assertEqual(fs.num_keys(), 5)
+        fs.delete_key("key")
+        self.assertEqual(fs.num_keys(), 4)
+        fs.set_timeout(timedelta(seconds=2))
+        with self.assertRaises(RuntimeError):
+            fs.get("key")
+        fs.delete_key("key0")
+        fs.delete_key("key3")
+        self.assertEqual(fs.num_keys(), 2)
+        fs.set("key4", "value2")
+        self.assertEqual(fs.num_keys(), 3)
+        self.assertEqual(b"value1", fs.get("key1"))
+        self.assertEqual(b"value2", fs.get("key4"))
+
+    # https://github.com/pytorch/pytorch/issues/46064 <- takes 5+ min to finish
+    @slowTest
+    def test_numkeys_delkeys(self):
+        self._test_numkeys_delkeys(self._create_store())
 
 @skip_if_win32()
 class PrefixTCPStoreTest(TestCase, StoreTestBase):
@@ -334,11 +362,11 @@ class RendezvousTest(TestCase):
 @skip_if_win32()
 class RendezvousEnvTest(TestCase):
     @retry_on_connect_failures
+    @requires_nccl()
     def test_common_errors(self):
-        # TODO remove this hack
-        if not hasattr(c10d, "ProcessGroupNCCL"):
-            raise unittest.SkipTest("C10D is not built with NCCL process group,"
-                                    " skipping test")
+        if torch.cuda.device_count() == 0:
+            raise unittest.SkipTest("No GPUs available, skipping test")
+
         vars = {
             "WORLD_SIZE": "1",
             "RANK": "0",
@@ -579,6 +607,8 @@ class TimeoutTest(TestCase):
     @requires_nccl()
     @retry_on_connect_failures
     def test_default_store_timeout_nccl(self):
+        if torch.cuda.device_count() == 0:
+            raise unittest.SkipTest("No GPUs available, skipping test")
         self._test_default_store_timeout('nccl')
 
     @requires_gloo()
@@ -1568,13 +1598,34 @@ class ProcessGroupGlooTest(MultiProcessTestCase):
                 self.assertEqual(torch.full([10, 10], float(self.world_size)), tensor)
             del pg
 
+class ProcessGroupNCCLNoGPUTest(TestCase):
+    MAIN_PROCESS_RANK = 0
 
-@requires_nccl()
+    def setUp(self):
+        self.rank = self.MAIN_PROCESS_RANK
+        self.world_size = 1
+        self.file = tempfile.NamedTemporaryFile(delete=False)
+        self.num_gpus = torch.cuda.device_count()
+        if self.num_gpus > 0:
+            raise unittest.SkipTest("GPUs are available, skipping test")
+
+    def tearDown(self):
+        pass
+
+    @requires_nccl()
+    @skip_if_rocm_single_process
+    def test_init_no_gpus(self):
+        store = c10d.FileStore(self.file.name, self.world_size)
+        with self.assertRaisesRegex(
+                RuntimeError,
+                "ProcessGroupNCCL is only supported with GPUs, no GPUs found!"):
+            c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
+
+
 @unittest.skipIf(
     TEST_WITH_TSAN,
     "TSAN is not fork-safe since we're forking in a multi-threaded environment",
 )
-@skip_if_rocm
 class ProcessGroupNCCLTest(TestCase):
     MAIN_PROCESS_RANK = 0
 
@@ -1589,6 +1640,8 @@ class ProcessGroupNCCLTest(TestCase):
     def tearDown(self):
         pass
 
+    @requires_nccl()
+    @skip_if_rocm_single_process
     def test_empty_tensors(self):
         store = c10d.FileStore(self.file.name, self.world_size)
         pg = c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
@@ -1613,6 +1666,8 @@ class ProcessGroupNCCLTest(TestCase):
         pg.reduce_scatter(ys, xs).wait()
         self.assertEqual(0, ys[0].numel())
 
+    @requires_nccl()
+    @skip_if_rocm_single_process
     def test_broadcast_ops(self):
         store = c10d.FileStore(self.file.name, self.world_size)
         pg = c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
@@ -1635,6 +1690,8 @@ class ProcessGroupNCCLTest(TestCase):
             for i in range(self.num_gpus):
                 self.assertEqual(tensors[i], tensors[rt])
 
+    @requires_nccl()
+    @skip_if_rocm_single_process
     def test_allreduce_ops(self):
         store = c10d.FileStore(self.file.name, self.world_size)
         pg = c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
@@ -1696,6 +1753,8 @@ class ProcessGroupNCCLTest(TestCase):
             with self.assertRaisesRegex(RuntimeError, "Cannot use " + str(op) + " with NCCL"):
                 allreduce(tensors, op)
 
+    @requires_nccl()
+    @skip_if_rocm_single_process
     def test_reduce_ops(self):
         store = c10d.FileStore(self.file.name, self.world_size)
         pg = c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
@@ -1726,6 +1785,8 @@ class ProcessGroupNCCLTest(TestCase):
                 with self.assertRaisesRegex(RuntimeError, "Cannot use " + str(op) + " with NCCL"):
                     reduce(tensors, self.rank, rt, op)
 
+    @requires_nccl()
+    @skip_if_rocm_single_process
     def test_allgather_ops(self):
         store = c10d.FileStore(self.file.name, self.world_size)
         pg = c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
@@ -1751,6 +1812,8 @@ class ProcessGroupNCCLTest(TestCase):
             for s_idx, t in enumerate(device_ts):
                 self.assertEqual(torch.tensor([s_idx]), t)
 
+    @requires_nccl()
+    @skip_if_rocm_single_process
     def test_reduce_scatter_ops(self):
         store = c10d.FileStore(self.file.name, self.world_size)
         pg = c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
@@ -1828,6 +1891,8 @@ class ProcessGroupNCCLTest(TestCase):
             # TODO(#38095): Replace assertEqualIgnoreType. See issue #38095
             self.assertEqualIgnoreType(expected, output[i])
 
+    @requires_nccl()
+    @skip_if_rocm_single_process
     def test_barrier(self):
         store = c10d.FileStore(self.file.name, self.world_size)
         pg = c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
@@ -2114,6 +2179,7 @@ class DistributedDataParallelTest(MultiProcessTestCase):
 
     @requires_gloo()
     @skip_if_lt_x_gpu(4)
+    @skip_if_rocm
     def test_gloo_backend_2gpu_module(self):
         int_devices = gpus_for_rank(self.world_size)[self.rank][:2]
         devices = [torch.device("cuda:" + str(i)) for i in int_devices]
@@ -2336,6 +2402,15 @@ class DistributedDataParallelTest(MultiProcessTestCase):
     @skip_if_rocm
     def test_arbitrary_forward_return_value_grad_is_view(self):
         self._test_arbitrary_forward_return_value(gradient_as_bucket_view=True)
+
+    @requires_nccl()
+    @skip_if_not_multigpu
+    @skip_if_rocm
+    def test_ddp_with_lazy_parameters(self):
+        store = c10d.FileStore(self.file_name, self.world_size)
+        process_group = c10d.ProcessGroupNCCL(store, self.rank, self.world_size)
+        with self.assertRaisesRegex(RuntimeError, 'Modules with uninitialized parameters'):
+            DistributedDataParallel(torch.nn.LazyLinear(10), process_group=process_group)
 
     def _test_find_unused_parameters_kwarg(self, gradient_as_bucket_view=False):
         """
@@ -3769,7 +3844,6 @@ class ComputeBucketAssignmentTest(TestCase):
         self.assertEqual([[0], [1], [2, 4], [3, 5]], result)
 
 
-@skip_if_rocm
 @unittest.skipIf(TEST_WITH_TSAN, "TSAN is not fork-safe since we're forking in a multi-threaded environment")
 class NcclErrorHandlingTest(MultiProcessTestCase):
     def setUp(self):
@@ -3934,7 +4008,7 @@ class NcclErrorHandlingTest(MultiProcessTestCase):
                     return
                 else:
                     raise e
-            time.sleep(0.1)
+            time.sleep(1)
 
     @requires_nccl()
     @skip_if_lt_x_gpu(3)

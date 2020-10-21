@@ -411,11 +411,12 @@ static TensorView* newForReduction(
       (*(axes_set.rbegin())) < orig_domain.size(),
       "Error setting up reduction, reduction axis is outside nDims. Keep in mind reductions are relative to root domains, not modified views.");
 
+  auto axis_iter = axes_set.begin();
   for (size_t dim = 0; dim < orig_domain.size(); dim++) {
     bool isReduction = false;
-    if (*axes_set.begin() == dim) {
+    if (axis_iter != axes_set.end() && *axis_iter == dim) {
       isReduction = true;
-      axes_set.erase(axes_set.begin());
+      axis_iter++;
     }
 
     const IterDomain* id = orig_domain[dim];
@@ -544,7 +545,7 @@ TensorView* broadcast(
   TensorView* out_tensor = new TensorView(
       new TensorDomain(out_domain, std::vector<bool>(out_domain.size(), true)),
       inp->getDataType().value());
-  new BroadcastOp(out_tensor, inp);
+  new BroadcastOp(out_tensor, inp, is_broadcast_dim);
   return out_tensor;
 }
 

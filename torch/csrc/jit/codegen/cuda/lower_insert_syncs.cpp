@@ -1,4 +1,3 @@
-
 #include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
 #include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
@@ -62,9 +61,6 @@ class LocalSyncInserter final : private OptOutDispatch {
 
   void handle(Expr* expr) final {
     if (ir_utils::isTVOp(expr)) {
-      // Alias Allocations
-      const auto output = expr->output(0)->as<TensorView>();
-
       // For this SyncInserter
       (!initial_sync_) ? hasOutputSmemExpr(expr, initial_)
                        : hasInputSmemExpr(expr, final_);

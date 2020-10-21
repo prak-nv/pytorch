@@ -2,12 +2,14 @@
 #include <ATen/core/dispatch/OperatorOptions.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/runtime/custom_operator.h>
+#include <torch/csrc/jit/runtime/register_ops_utils.h>
 
 namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static std::atomic<bool> cuda_fusion_guard_mode{true};
 
 std::atomic<bool>& getCudaFusionGuardMode() {
@@ -38,6 +40,11 @@ void fuseGraph(std::shared_ptr<Graph>& graph) {
       getFuserInterface()->fn_fuse_graph != nullptr,
       "Running the CUDA fuser requires a CUDA build.");
   getFuserInterface()->fn_fuse_graph(graph);
+}
+
+bool canFuseNode(const Node* node) {
+  return getFuserInterface()->fn_can_fuse_n_ != nullptr &&
+      getFuserInterface()->fn_can_fuse_n_(node);
 }
 
 //! [ Note -- type guard logic in CudaFusionGuard ]
@@ -76,8 +83,6 @@ void fuseGraph(std::shared_ptr<Graph>& graph) {
 bool complyWith(
     const at::Tensor& tensor,
     const c10::TensorTypePtr& guard_tensor_type) {
-  FUSER_PERF_SCOPE("CudaFusionGuard::complyWith");
-
   // guard broadcast semantics, contiguity & stride order;
   TORCH_INTERNAL_ASSERT(
       guard_tensor_type && guard_tensor_type->dim().has_value());
@@ -159,7 +164,7 @@ bool complyWith(
     // check c, we go along semantic ordered dimensions
     // check broadcast / size-1:
     bool guard_bcast = sizes[j].has_value() && sizes[j].value() == 1;
-    if (guard_bcast ^ (t_sizes[j] == 1)) {
+    if (guard_bcast != (t_sizes[j] == 1)) {
       return false;
     }
   }
@@ -172,6 +177,7 @@ bool complyWith(
 
 namespace {
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 RegisterOperators reg_fusion({
     Operator(
         prim::CudaFusionGroup,
@@ -180,15 +186,18 @@ RegisterOperators reg_fusion({
             fuser::cuda::runFusionGroup(node, *stack);
           };
         },
-        c10::AliasAnalysisKind::INTERNAL_SPECIAL_CASE),
+        aliasAnalysisSpecialCase()),
 });
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 RegisterOperators reg_guard({
     Operator(
-        prim::CudaFusionGuard,
+        "prim::CudaFusionGuard(...) -> bool",
+        // prim::CudaFusionGuard returns a fresh Boolean type without aliasing.
+        // if we would ever return refined tensor, which would change aliasing
+        // analysis, we should update aliasdb pass.
         [](const Node* node) -> Operation {
           return [node](Stack* stack) {
-            FUSER_PERF_SCOPE("CudaFusionGuard");
             // TODO: check latency here!!!!
             std::vector<TypePtr> types = node->tys(attr::types);
             const auto num_inputs = types.size();
@@ -200,7 +209,7 @@ RegisterOperators reg_guard({
               return;
             }
 
-            for (int i = 0; i < num_inputs; i++) {
+            for (size_t i = 0; i < num_inputs; i++) {
               const c10::TensorTypePtr& guard_tensor_type =
                   types[i]->cast<TensorType>();
 
@@ -220,7 +229,7 @@ RegisterOperators reg_guard({
             return;
           };
         },
-        c10::AliasAnalysisKind::INTERNAL_SPECIAL_CASE),
+        aliasAnalysisFromSchema()),
 });
 } // namespace
 

@@ -1,4 +1,3 @@
-
 #include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
 #include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
@@ -179,8 +178,8 @@ class AllocateReuseModifier final : private OptOutDispatch {
           auto inferred_register_size =
               eval_evaluator_.inferValue(allocation->size());
           if (inferred_register_size.has_value()) {
-            local_valid =
-                inferred_register_size.value() > register_size_threshold_;
+            local_valid = inferred_register_size.value() >
+                static_cast<int64_t>(register_size_threshold_);
           }
         }
 

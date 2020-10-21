@@ -3,12 +3,16 @@ import os
 
 import torch
 
-from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR, skipIfRocm
+from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR
 from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithSeed
 
 from test_jit import JitTestCase, RUN_CUDA
 import itertools
 import numpy as np
+
+os.environ['PYTORCH_CUDA_FUSER_DISABLE_FALLBACK'] = '1'
+os.environ['PYTORCH_CUDA_FUSER_DISABLE_FMA'] = '1'
+os.environ['PYTORCH_CUDA_FUSER_JIT_OPT_LEVEL'] = '0'
 
 if GRAPH_EXECUTOR == ProfilingMode.PROFILING:
     torch._C._jit_set_texpr_fuser_enabled(False)
@@ -575,7 +579,6 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    @skipIfRocm
     def test_binary_ops_permutation(self):
         # note that num_dim is exclusive from len(x), so we are not reducing
         # to single element (codegen limitation at this moment)
@@ -617,7 +620,6 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    @skipIfRocm
     def test_reduction(self):
         for x in ([7, 8, 12], [12, 8, 7, 9, 15], [128, 16, 8, 32]):
             # note that num_dim is exclusive from len(x), so we are not reducing
@@ -631,7 +633,6 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    @skipIfRocm
     def test_reduction_permutation(self):
         x = [7, 8, 12]
         # note that num_dim is exclusive from len(x), so we are not reducing
@@ -684,7 +685,6 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    @skipIfRocm
     def test_reduction_dtype(self):
         def t(x: torch.Tensor):
             o = torch.mul(x, 1.0)
@@ -703,7 +703,6 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    @skipIfRocm
     def test_reduction_half(self):
         def t(x: torch.Tensor):
             o = torch.mul(x, 1.0)
@@ -722,7 +721,6 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    @skipIfRocm
     def test_pw_single_reduction_partition(self):
         sizes = [8, 8, 8]
         dtype = torch.float
@@ -747,7 +745,6 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    @skipIfRocm
     def test_single_reduction_broadcast(self):
         dtype = torch.float
         device = "cuda"
@@ -768,6 +765,20 @@ class TestCudaFuser(JitTestCase):
         self.assertEqual(o, jit_o)
         self.assertGraphContains(t_jit.graph_for(x, y, z), FUSION_GUARD)
 
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_profiling_node(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn(4, 8, 8, 8, dtype=dtype, device=device)
+
+        def repro(x: torch.Tensor, alpha: float):
+            o = torch.rand_like(x)
+            o = torch.add(o, alpha)
+            return o
+        repro_jit = torch.jit.script(repro)
+        self._run_helper(repro_jit, repro, x, 0.6)
 
 class TestPassManagerCudaFuser(JitTestCase):
 

@@ -46,11 +46,11 @@ static std::atomic<bool> executor_mode{true};
 static std::atomic<bool> profiling_mode{false};
 #else
 static std::atomic<bool> executor_mode{true};
-static std::atomic<bool> profiling_mode{false};
+static std::atomic<bool> profiling_mode{true};
 #endif
 
 static std::atomic<size_t> num_profiled_runs{1};
-static std::atomic<size_t> bailout_depth{1};
+static std::atomic<size_t> bailout_depth{20}; // NOLINT
 
 std::atomic<bool>& getProfilingMode() {
   return profiling_mode;
@@ -254,7 +254,7 @@ void runDiffGraphPasses(std::shared_ptr<Graph>& graph) {
       BatchMM(graph);
       GRAPH_DEBUG("After BatchMM, before Fusion\n", *graph);
 
-      FuseTensorExprs(graph);
+      FuseTensorExprs(graph, getFusionGroupInlining() ? 2 : 1);
       GRAPH_DEBUG(
           "After Fusion, before RemoveTensorTypeSpecializations\n", *graph);
 
@@ -313,7 +313,7 @@ void runNoGradOptimizations(std::shared_ptr<Graph>& graph) {
       BatchMM(graph);
       GRAPH_DEBUG("After BatchMM, before Fusion\n", *graph);
 
-      FuseTensorExprs(graph);
+      FuseTensorExprs(graph, getFusionGroupInlining() ? 2 : 1);
       GRAPH_DEBUG(
           "After Fusion, before RemoveTensorTypeSpecializations\n", *graph);
 
@@ -452,6 +452,21 @@ ExecutionPlan ProfilingGraphExecutorImpl::getPlanFor(
     size_t remaining_bailout_depth) {
   std::lock_guard<std::mutex> lock(compile_mutex);
   GRAPH_DEBUG("Running ProfilingGraphExecutorImpl ", this);
+
+  // no opt mode
+  if (!getGraphExecutorOptimize()) {
+    if (!fallback_plan_) {
+      auto copy = graph->copy();
+      GRAPH_DEBUG(
+          "Before LowerGradOf (beginning of runNooptPassPipeline)\n", *graph);
+      LowerGradOf(*copy);
+      GRAPH_DEBUG("After LowerGradOf, before RemoveExpands\n", *graph);
+      RemoveExpands(copy);
+      fallback_plan_ = ExecutionPlan(copy, function_name_);
+      GRAPH_DUMP("NoOpt Graph: ", copy);
+    }
+    return *fallback_plan_;
+  }
 
   // if tensorExprFuserEnabled() returns true we need to persist the very first
   // time ProfilingGraphExecutorImpl is called, so we can update it correctly

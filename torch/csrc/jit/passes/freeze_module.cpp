@@ -11,25 +11,6 @@ namespace torch {
 namespace jit {
 
 namespace {
-ModulePtr getModulePtrForGetAttrNode(
-    const Node* node,
-    const std::shared_ptr<Graph>& graph,
-    const Module& graph_input_module) {
-  std::vector<std::string> names;
-  names.clear();
-  while (!(node->outputs()[0]->type() == graph->inputs()[0]->type())) {
-    TORCH_INTERNAL_ASSERT(
-        node->kind() == prim::GetAttr, "Expected prim::GetAttr nodes");
-    names.insert(names.begin(), node->s(attr::name));
-    node = node->inputs()[0]->node();
-  }
-  // Copy/paste from quantization/helper.h
-  Module m = graph_input_module;
-  for (const auto& p : names) {
-    m = m.attr(p).toModule();
-  }
-  return m._ivalue();
-}
 
 class AttributePropagator {
  public:
@@ -42,7 +23,14 @@ class AttributePropagator {
     // explicitly.
     auto checkName = [this](std::string& name) {
       if (module_.hasattr(name)) {
-        insertMutableAttr(name, module_.attr(name), module_._ivalue());
+        auto attr = module_.attr(name);
+
+        // Freezing client wants to presever this submodule. When cleaning
+        // the frozen module, make sure it will be preserved entirely.
+        if (attr.isModule()) {
+          preservedSubModule_.insert(attr.toModule()._ivalue());
+        }
+        insertMutableAttr(name, attr, module_._ivalue());
         return true;
       }
 
@@ -503,7 +491,7 @@ class AttributePropagator {
         return true;
       }
     }
-    return false;
+    return preservedSubModule_.count(subModule._ivalue());
   }
 
   void removeExtraWaitCalls(Block* b) {
@@ -546,7 +534,7 @@ class AttributePropagator {
     removeUnusedAttrs();
   }
 
-  // Prepraring for clean up phase. At this point, record all  subModules that
+  // Prepraring for clean up phase. At this point, record all subModules that
   // contains mutable attributes.
   void recordReferencedAttrs(std::shared_ptr<Graph>& graph) {
     std::stack<Block*> blocks({graph->block()});
@@ -560,12 +548,27 @@ class AttributePropagator {
         }
         if (n->kind() == prim::GetAttr) {
           auto& name = n->s(attr::name);
-          auto mptr =
-              getModulePtrForGetAttrNode(n->input(0)->node(), graph, module_);
-          auto module = Module(mptr);
-          if (module.type() == n->inputs()[0]->type() && module.hasattr(name)) {
-            auto attr = module.attr(name);
-            insertMutableAttr(name, attr, mptr);
+          // For now, use all module ivalues which are the same type
+          // and could be the module that this GetAttr resolves to
+          // TODO: we could attempt to follow the GetAttr chain and
+          // find the exact ivalue, we would have to be careful
+          // that the chain does not contain any attributes which
+          // get written to (setAttr calls)
+          for (auto& mptr : modules) {
+            auto module = Module(mptr);
+            if (module.type() == n->inputs()[0]->type()) {
+              TORCH_INTERNAL_ASSERT(module.hasattr(name));
+              auto module = Module(mptr);
+              auto attr = module.attr(name);
+              // TODO: this could be insertReferencedAttr to be more clear,
+              // these are attributes we could not inline, which include
+              // other reasons besides mutation (unsupported constant,
+              // getAttr resolving to non-getAttr node, etc)
+              insertMutableAttr(name, attr, mptr);
+              if (attr.isModule()) {
+                modules.insert(attr.toModule()._ivalue());
+              }
+            }
           }
         } else if (n->kind() == prim::fork) {
           applyToForkSubgraph(
@@ -682,6 +685,9 @@ class AttributePropagator {
 
   // Contains user specified methods to be preserved in frozen module.
   std::unordered_set<Function*> preservedMethods_;
+
+  // Contains user specified sub module to be preserve in frozen module.
+  std::unordered_set<ModulePtr> preservedSubModule_;
 
   // Track all used attributes ivalues that can be aliased.
   IValue::HashAliasedIValues usedAttrs_;
