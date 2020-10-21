@@ -30,7 +30,7 @@ bool hasMatchingDomains(const std::vector<DomainKey>& domains,
 
 bool safeToJoin(const std::unordered_set<DomainKey, DomainKeyHash>& domains,
                 const DisjointSet<DomainKey, DomainKeyHash>& eq_set,
-                const FindIncompatibleDomains& inconsistent_domains) {
+                const UnmappableReductionDomains& inconsistent_domains) {
   //std::cerr << "safeTojoin?: " << domains << std::endl;
   if (domains.size() <= 1) {
     return true;
@@ -78,19 +78,20 @@ std::ostream& DomainKey::print(std::ostream& os) const {
   return os << ss.str();
 }
 
-FindIncompatibleDomains::FindIncompatibleDomains() {
+UnmappableReductionDomains::UnmappableReductionDomains() {
   Fusion* fusion = FusionGuard::getCurFusion();
   traverse(fusion);
 }
 
-void FindIncompatibleDomains::handle(ReductionOp* op) {
+void UnmappableReductionDomains::handle(ReductionOp* op) {
+  // Builds a map from reduction domains to consumer domains.
   TensorView* out_tv = op->out()->as<TensorView>();
   std::vector<DomainKey> reduction_keys;
   for (const auto id: out_tv->getMaybeRFactorDomain()) {
     if (id->isReduction()) {
       DomainKey key(out_tv->domain(), id);
       reduction_keys.push_back(key);
-      inconsistent_domains_.insert({key, {}});
+      reduction_domains_.insert({key, {}});
     }
   }
   auto use_chains = DependencyCheck::getAllUseChains(out_tv);
@@ -100,17 +101,17 @@ void FindIncompatibleDomains::handle(ReductionOp* op) {
       for (const auto& id: root_domain) {
         DomainKey consumer_key(tv->domain(), id);
         for (const auto& reduction_key: reduction_keys) {
-          inconsistent_domains_.at(reduction_key).insert(consumer_key);
+          reduction_domains_.at(reduction_key).insert(consumer_key);
         }
       }
     }
   }
 }
 
-bool FindIncompatibleDomains::isReductionOutputMerged(
+bool UnmappableReductionDomains::isReductionOutputMerged(
     const std::vector<DomainKey>& consumer_domains,
     const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const {
-  for (const auto& kv: inconsistent_domains_) {
+  for (const auto& kv: reduction_domains_) {
     const auto& reducion_domain = kv.first;
     const auto& incompatible_domains = kv.second;
     //std::cerr << "Inconsistent reduction: " << reducion_domain << std::endl;

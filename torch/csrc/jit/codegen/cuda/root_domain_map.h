@@ -10,6 +10,15 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+//! Represents an iteration domain of a TensorDomain. Only used for
+//! root domain mapping.
+//!
+//! Note that an IterDomain object may be reused
+//! across multiple TensorDomains, but an IterDomain in a
+//! TensorDomain may not be necessarily mappable to the same
+//! IterDomain used in a different TensorDomain. Thus, for the purpose
+//! of root domain mapping, an iteration domain needs to be identified
+//! with an IterDomain and its TensorDomain.
 class DomainKey {
  public:
   DomainKey() = default;
@@ -40,11 +49,20 @@ struct DomainKeyHash {
   }
 };
 
-class TORCH_CUDA_API FindIncompatibleDomains : private IterVisitor {
+//! A helper class to find all DomainKeys that are consumers of
+//! reduction outputs. Such consumer IterDomains may not be mapped to
+//! the producer reduction domain since the corresponding reduction
+//! loop must be closed before any of the consumers can appear.
+class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
  public:
-  FindIncompatibleDomains();
-  virtual ~FindIncompatibleDomains() = default;
+  UnmappableReductionDomains();
+  virtual ~UnmappableReductionDomains() = default;
 
+  //! Returns true when mapping consumer domains would cause a
+  //! reduction output domain to be mapped with a consumer domain of
+  //! the redution. It needs to be avoided as computing consumers of
+  //! reduction outputs within the corresponding reduction loop is not
+  //! possible. This routine is used to build root domain mappings.
   bool isReductionOutputMerged(const std::vector<DomainKey>& consumer_domains,
                                const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const;
 
@@ -53,62 +71,70 @@ class TORCH_CUDA_API FindIncompatibleDomains : private IterVisitor {
   void handle(ReductionOp* op) override;
 
  private:
-  std::unordered_map<DomainKey, std::unordered_set<DomainKey, DomainKeyHash>, DomainKeyHash> inconsistent_domains_;
+  //! Map from Reduction output DomainKeys to consumer DomainKeys
+  std::unordered_map<DomainKey, std::unordered_set<DomainKey, DomainKeyHash>, DomainKeyHash> reduction_domains_;
 };
 
-//! Models equivalence provable by the graph
+//! Models root-domain mappings for computeAt
 //!
-//! This traversal processes root domains only,
-//! equalities , e.g. :
+//! Two iteration domains are mapped when computeAt of one iteration
+//! domain is possible at another iteration domain. Consider a simple
+//! example:
 //!    T2 [i0,i1] = T1[i2,i3] + T0[i4,i5]
-//! will prove that i2 and i4 are equal in the sense that
-//!    i2.start = i4.start, i2.extent = i4.extent
-//! Depends on ConcretizeDomain, and equalities involving
-//! broadcast domains are defined based on the concretized version
+//! This will create mappings between i0, i2 and i4.
 class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
  public:
+  //! Create a DisjointSet of root IterDomains by traversing the
+  //! current fusion entirely. IterDomains that can be mapped each
+  //! other with computeAt are grouped into the same subset in the
+  //! DisjointSet.
   explicit RootDomainMap();
 
-// API call to check if two IterDomains are equal
-// checks start and extent, contains both scalar check and graph traversal
-// broadcast domains are concretized before comparing
-
-  //! Checks if two iterdomains are equal
+  //! Check if two iterdomains can be mapped to each other
   //!
-  //! Equality defined as equal start and equal extent
-  //! true means a and b are equal
-  //! false only means that they cannot be proven equal based
-  //! on scalar check and graph traversal
-  //!
-  //! \param a An iterdomain
-  //! \param b Another iterdomain from the same fusion
-  //! \returns Boolean representing if they are proven to be
-  //!          equivalent in the sense that they have equal
-  //!          start and extent
+  //! \param td_a A TensorDomain
+  //! \param id_a An IterDomain in td_a
+  //! \param td_b Another TensorDomain
+  //! \param id_b An IterDomain in td_b
+  //! \returns Boolean representing if they are mapped
   bool canMap(const TensorDomain* td_a, const IterDomain* id_a,
               const TensorDomain* td_b, const IterDomain* id_b) const;
 
+  //! Return a map from a producer TensorDomain to a consumer
+  //! TensorDomain
+  //!
+  //! \param producer A producer TensorDomain
+  //! \param consumer A consumer TensorDomain
+  //! \param root_dims_to_map Maps only producer root domains in this set
   std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
       const TensorDomain* producer, const TensorDomain* consumer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
 
+  //! Return a map from a consumer TensorDomain to a producer
+  //! TensorDomain
+  //!
+  //! \param consumer A consumer TensorDomain  
+  //! \param producer A producer TensorDomain
+  //! \param root_dims_to_map Maps only consumer root domains in this set
   std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
       const TensorDomain* consumer, const TensorDomain* producer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
 
+  //! Print out mappings
   std::ostream& print(std::ostream& os) const;
 
  private:
-  // Utility class to record new equality found
-  void proveId(const DomainKey& producer,
-               const DomainKey& consumer) {
+  //! Set a pair of producer-consumer domains as mappable
+  void proveId(const DomainKey& producer, const DomainKey& consumer) {
     eq_set_.join(producer, consumer);
   }
 
+  //! Track a pair of producer-consumer domains as potentially mappable.
   void attemptToProveId(const TensorDomain* producer_td, const IterDomain* producer_id,
                         const TensorDomain* consumer_td, const IterDomain* consumer_id);
 
-  // Inspect a pointwise or reduction op and record the identified equality
+  //! Map pointwise IterDomains from inputs of expressions to outputs.
+  //! Do not map reduction IterDomains in inputs.
   void provePointwiseOrReductionOp(Expr* e);
 
   using BackwardVisitor::handle;
@@ -133,10 +159,21 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
 
   void handle(BroadcastOp* op) override;
 
+  //! Maps all consumers with a producer.
+  //! This is called for each of TensorViews in a backward traversal,
+  //! recursively building mappings from the output tensors to the
+  //! input tensors.
   bool mapAllConsumers(const DomainKey& producer_key);
 
   void handle(TensorView* tv) override;
 
+  //! Return a map between root IterDomains of a producer-consumer
+  //! pair.
+  //!
+  //! \param producer A producer TensorDomain
+  //! \param consumer A consumer TensorDomain
+  //! \param root_dims_to_map Maps only from IterDomains in this set
+  //! \param producer_to_consumer Maps from producer to consumer if true
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer, const TensorDomain* consumer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map,
@@ -144,9 +181,10 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
 
  private:
   DisjointSet<DomainKey, DomainKeyHash> eq_set_;
+  //! Keep track of what we want to try and map. Set in attemptToProveId.
   std::unordered_map<DomainKey, std::unordered_set<DomainKey, DomainKeyHash>, DomainKeyHash> pending_map_;
   std::unordered_set<Expr*> visited_;
-  FindIncompatibleDomains incompatible_domains_;
+  UnmappableReductionDomains incompatible_domains_;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const RootDomainMap& map) {
