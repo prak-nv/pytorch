@@ -7741,6 +7741,96 @@ TEST(NVFuserTest, FusionGroupGuardRelaxedCheck_CUDA) {
   TORCH_CHECK(complyWith(t1, tensor_type));
 }
 
+TEST(NVFuserTest, FusionDisjointSet_CUDA) {
+  DisjointSet<int> set;
+
+  const std::set<int> group_x({0, 1, 2});
+  const std::set<int> group_y({3, 4, 5});
+  const std::set<int> group_z({6, 7, 8});
+  const std::vector<std::set<int>> groups({group_x, group_y, group_z});
+  std::set<int> group_all;
+  std::for_each(groups.begin(), groups.end(), [&](const auto& g) {
+    group_all.insert(g.begin(), g.end());
+  });
+
+  // Initially, nothing should be considered equivalent
+  for (auto i : group_all) {
+    for (auto j : group_all) {
+      TORCH_CHECK(!set.areEquivalent(i, j));
+    }
+  }
+
+  // Sets values in group_x are equivalent
+  for (auto i : group_x) {
+    for (auto j : group_x) {
+      set.join(i, j);
+    }
+  }
+
+  // All values in group_x shoudl be equivalent with each other
+  for (auto i : group_x) {
+    for (auto j : group_x) {
+      TORCH_CHECK(set.areEquivalent(i, j));
+    }
+  }
+  // But nothing else should be equivalent
+  for (auto i : group_all) {
+    for (auto j : group_y) {
+      TORCH_CHECK(!set.areEquivalent(i, j));
+    }
+    for (auto j : group_z) {
+      TORCH_CHECK(!set.areEquivalent(i, j));
+    }
+  }
+
+  // Sets values in group_y are equivalent
+  for (auto i : group_y) {
+    for (auto j : group_y) {
+      set.join(i, j);
+    }
+  }
+
+  // group_x should be still equivalent
+  for (auto i : group_x) {
+    for (auto j : group_x) {
+      TORCH_CHECK(set.areEquivalent(i, j));
+    }
+  }
+  // group_y should be now equivalent
+  for (auto i : group_y) {
+    for (auto j : group_y) {
+      TORCH_CHECK(set.areEquivalent(i, j));
+    }
+  }
+  // But group_z should not be equivalent with anything yet
+  for (auto i : group_all) {
+    for (auto j : group_z) {
+      TORCH_CHECK(!set.areEquivalent(i, j));
+    }
+  }
+
+  // Sets values in group_z are equivalent
+  for (auto i : group_z) {
+    for (auto j : group_z) {
+      set.join(i, j);
+    }
+  }
+
+  // Now each of the three groups should be equivalent within each
+  // group
+  for (size_t gi = 0; gi < groups.size(); ++gi) {
+    for (size_t gj = 0; gj < groups.size(); ++gj) {
+      for (auto i : groups[gi]) {
+        for (auto j : groups[gj]) {
+          TORCH_CHECK(
+              (gi == gj && set.areEquivalent(i, j)) ||
+              (gi != gj && !set.areEquivalent(i, j)));
+        }
+      }
+    }
+  }
+}
+
 TEST(NVFuserTest, TMP) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -7974,96 +8064,6 @@ TEST(NVFuserTest, TMP5) {
   auto t8 = t7 + t1;
   TORCH_CHECK(t8.allclose(cg_output));
 #endif
-}
-
-TEST(NVFuserTest, FusionDisjointSet_CUDA) {
-  DisjointSet<int> set;
-
-  const std::set<int> group_x({0, 1, 2});
-  const std::set<int> group_y({3, 4, 5});
-  const std::set<int> group_z({6, 7, 8});
-  const std::vector<std::set<int>> groups({group_x, group_y, group_z});
-  std::set<int> group_all;
-  std::for_each(groups.begin(), groups.end(), [&](const auto& g) {
-    group_all.insert(g.begin(), g.end());
-  });
-
-  // Initially, nothing should be considered equivalent
-  for (auto i : group_all) {
-    for (auto j : group_all) {
-      TORCH_CHECK(!set.areEquivalent(i, j));
-    }
-  }
-
-  // Sets values in group_x are equivalent
-  for (auto i : group_x) {
-    for (auto j : group_x) {
-      set.join(i, j);
-    }
-  }
-
-  // All values in group_x shoudl be equivalent with each other
-  for (auto i : group_x) {
-    for (auto j : group_x) {
-      TORCH_CHECK(set.areEquivalent(i, j));
-    }
-  }
-  // But nothing else should be equivalent
-  for (auto i : group_all) {
-    for (auto j : group_y) {
-      TORCH_CHECK(!set.areEquivalent(i, j));
-    }
-    for (auto j : group_z) {
-      TORCH_CHECK(!set.areEquivalent(i, j));
-    }
-  }
-
-  // Sets values in group_y are equivalent
-  for (auto i : group_y) {
-    for (auto j : group_y) {
-      set.join(i, j);
-    }
-  }
-
-  // group_x should be still equivalent
-  for (auto i : group_x) {
-    for (auto j : group_x) {
-      TORCH_CHECK(set.areEquivalent(i, j));
-    }
-  }
-  // group_y should be now equivalent
-  for (auto i : group_y) {
-    for (auto j : group_y) {
-      TORCH_CHECK(set.areEquivalent(i, j));
-    }
-  }
-  // But group_z should not be equivalent with anything yet
-  for (auto i : group_all) {
-    for (auto j : group_z) {
-      TORCH_CHECK(!set.areEquivalent(i, j));
-    }
-  }
-
-  // Sets values in group_z are equivalent
-  for (auto i : group_z) {
-    for (auto j : group_z) {
-      set.join(i, j);
-    }
-  }
-
-  // Now each of the three groups should be equivalent within each
-  // group
-  for (size_t gi = 0; gi < groups.size(); ++gi) {
-    for (size_t gj = 0; gj < groups.size(); ++gj) {
-      for (auto i : groups[gi]) {
-        for (auto j : groups[gj]) {
-          TORCH_CHECK(
-              (gi == gj && set.areEquivalent(i, j)) ||
-              (gi != gj && !set.areEquivalent(i, j)));
-        }
-      }
-    }
-  }
 }
 
 } // namespace jit
