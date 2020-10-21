@@ -255,11 +255,7 @@ BroadcastOp::BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner)
     : Expr(src, ir_cloner),
       out_(ir_cloner->clone(src->out_)),
       in_(ir_cloner->clone(src->in_)),
-<<<<<<< HEAD
-      is_broadcast_dim_(src->is_broadcast_dim_) {}
-=======
       is_broadcast_dims_(src->is_broadcast_dims_) {}
->>>>>>> Add bcast flags to BroadcastOp
 
 bool BroadcastOp::sameAs(const BroadcastOp* const other) const {
   return other->in() == in() && other->out() == out();
