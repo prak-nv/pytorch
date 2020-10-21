@@ -17,7 +17,7 @@ namespace cuda {
 //! DisjointSet::areEqual(a,b) checks if a and b belong same class
 //!
 //! \note The template type T is assumed to be hashable
-template <typename T, typename Hash=std::hash<T>>
+template <typename T, typename Hash = std::hash<T>>
 class DisjointSet {
  public:
   DisjointSet() = default;
@@ -87,7 +87,7 @@ class DisjointSet {
 
   std::ostream& print(std::ostream& os) const {
     std::unordered_map<int, std::unordered_set<T, Hash>> fixedPointMap;
-    for (const auto& kv: entry_map) {
+    for (const auto& kv : entry_map) {
       int fixed_point = fixedPoint(kv.first);
       auto it = fixedPointMap.find(fixed_point);
       if (it == fixedPointMap.end()) {
@@ -96,9 +96,9 @@ class DisjointSet {
       it->second.insert(kv.first);
     }
     os << "{\n";
-    for (const auto& kv: fixedPointMap) {
+    for (const auto& kv : fixedPointMap) {
       os << "\t{ ";
-      for (const auto& val: kv.second) {
+      for (const auto& val : kv.second) {
         os << val << " ";
       }
       os << "}\n";

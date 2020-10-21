@@ -1,7 +1,7 @@
 #pragma once
 
-#include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/disjoint_set.h>
+#include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
@@ -45,7 +45,8 @@ inline std::ostream& operator<<(std::ostream& os, const DomainKey& key) {
 
 struct DomainKeyHash {
   std::size_t operator()(const DomainKey& key) const {
-    return std::hash<const TensorDomain*>{}(key.td()) ^ std::hash<const IterDomain*>{}(key.id());
+    return std::hash<const TensorDomain*>{}(key.td()) ^
+        std::hash<const IterDomain*>{}(key.id());
   }
 };
 
@@ -63,8 +64,9 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
   //! the redution. It needs to be avoided as computing consumers of
   //! reduction outputs within the corresponding reduction loop is not
   //! possible. This routine is used to build root domain mappings.
-  bool isReductionOutputMerged(const std::vector<DomainKey>& consumer_domains,
-                               const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const;
+  bool isReductionOutputMerged(
+      const std::vector<DomainKey>& consumer_domains,
+      const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const;
 
  private:
   using IterVisitor::handle;
@@ -72,7 +74,11 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
 
  private:
   //! Map from Reduction output DomainKeys to consumer DomainKeys
-  std::unordered_map<DomainKey, std::unordered_set<DomainKey, DomainKeyHash>, DomainKeyHash> reduction_domains_;
+  std::unordered_map<
+      DomainKey,
+      std::unordered_set<DomainKey, DomainKeyHash>,
+      DomainKeyHash>
+      reduction_domains_;
 };
 
 //! Models root-domain mappings for computeAt
@@ -97,8 +103,11 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
   //! \param td_b Another TensorDomain
   //! \param id_b An IterDomain in td_b
   //! \returns Boolean representing if they are mapped
-  bool canMap(const TensorDomain* td_a, const IterDomain* id_a,
-              const TensorDomain* td_b, const IterDomain* id_b) const;
+  bool canMap(
+      const TensorDomain* td_a,
+      const IterDomain* id_a,
+      const TensorDomain* td_b,
+      const IterDomain* id_b) const;
 
   //! Return a map from a producer TensorDomain to a consumer
   //! TensorDomain
@@ -107,17 +116,19 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
   //! \param consumer A consumer TensorDomain
   //! \param root_dims_to_map Maps only producer root domains in this set
   std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
-      const TensorDomain* producer, const TensorDomain* consumer,
+      const TensorDomain* producer,
+      const TensorDomain* consumer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
 
   //! Return a map from a consumer TensorDomain to a producer
   //! TensorDomain
   //!
-  //! \param consumer A consumer TensorDomain  
+  //! \param consumer A consumer TensorDomain
   //! \param producer A producer TensorDomain
   //! \param root_dims_to_map Maps only consumer root domains in this set
   std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
-      const TensorDomain* consumer, const TensorDomain* producer,
+      const TensorDomain* consumer,
+      const TensorDomain* producer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
 
   //! Print out mappings
@@ -130,8 +141,11 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
   }
 
   //! Track a pair of producer-consumer domains as potentially mappable.
-  void attemptToProveId(const TensorDomain* producer_td, const IterDomain* producer_id,
-                        const TensorDomain* consumer_td, const IterDomain* consumer_id);
+  void attemptToProveId(
+      const TensorDomain* producer_td,
+      const IterDomain* producer_id,
+      const TensorDomain* consumer_td,
+      const IterDomain* consumer_id);
 
   //! Map pointwise IterDomains from inputs of expressions to outputs.
   //! Do not map reduction IterDomains in inputs.
@@ -175,14 +189,19 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
   //! \param root_dims_to_map Maps only from IterDomains in this set
   //! \param producer_to_consumer Maps from producer to consumer if true
   std::unordered_map<IterDomain*, IterDomain*> map(
-      const TensorDomain* producer, const TensorDomain* consumer,
+      const TensorDomain* producer,
+      const TensorDomain* consumer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map,
       bool producer_to_consumer) const;
 
  private:
   DisjointSet<DomainKey, DomainKeyHash> eq_set_;
   //! Keep track of what we want to try and map. Set in attemptToProveId.
-  std::unordered_map<DomainKey, std::unordered_set<DomainKey, DomainKeyHash>, DomainKeyHash> pending_map_;
+  std::unordered_map<
+      DomainKey,
+      std::unordered_set<DomainKey, DomainKeyHash>,
+      DomainKeyHash>
+      pending_map_;
   std::unordered_set<Expr*> visited_;
   UnmappableReductionDomains incompatible_domains_;
 };

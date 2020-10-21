@@ -677,7 +677,10 @@ struct CreateExprProducer : public OptInDispatch {
   }
 
   void handle(BroadcastOp* broadcast_expr) final {
-    new BroadcastOp(broadcast_expr->out(), producer_, broadcast_expr->getBroadcastDimFlags());
+    new BroadcastOp(
+        broadcast_expr->out(),
+        producer_,
+        broadcast_expr->getBroadcastDimFlags());
   }
 
  private:

@@ -1069,7 +1069,7 @@ class ConcretizeDomain : private BackwardVisitor {
   //! API call to run the concretize pass and return the
   //! axis that bcast_dom concretizes to
   //!
-  static IterDomain* getConcreteDomain(IterDomain* bcast_dom) {
+  static const IterDomain* getConcreteDomain(IterDomain* bcast_dom) {
     ConcretizeDomain cd(bcast_dom->fusion());
 
     // Remove this assertion once we support broadcast on output
@@ -1154,7 +1154,7 @@ void ConcretizeDomain::concretizePwOp(Expr* e) {
 } // namespace
 
 // API call to return the concretized axis of a broadcast axis
-IterDomain* IterDomain::concretizeDomain(IterDomain* bcast_dom) {
+const IterDomain* IterDomain::concretizeDomain(IterDomain* bcast_dom) {
   return ConcretizeDomain::getConcreteDomain(bcast_dom);
 }
 
