@@ -6,7 +6,7 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
 #include <torch/csrc/jit/codegen/cuda/transform_rfactor.h>
-#include <torch/csrc/jit/codegen/cuda/utils.h>
+#include <torch/csrc/jit/codegen/cuda/disjoint_set.h>
 
 #include <sstream>
 
