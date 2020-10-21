@@ -5977,6 +5977,188 @@ TEST(NVFuserTest, FusionSmemDynamicPersistentSoftmax2D_CUDA) {
       t1.sub(outputs[0]).abs().max());
 }
 
+TEST(NVFuserTest, FusionPersistentMagicSchedulerSoftmax_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* input = makeDummyTensor(2);
+  fusion.addInput(input);
+
+  TensorView* max_val =
+      reductionOp(BinaryOpType::Max, {-1}, new Float(FLT_MIN), input); // (M)
+  TensorView* bcast_max = broadcast(max_val, {false, true}); // (M, B)
+  TensorView* x_max_sub = sub(input, bcast_max); // (M, N)
+  TensorView* exp = unaryOp(UnaryOpType::Exp, x_max_sub); // (M, N)
+  TensorView* sum_exp = sum(exp, {-1}); // (M, R)
+  TensorView* bcast_sum = broadcast(sum_exp, {false, true}); // (M, B)
+  TensorView* output = div(exp, bcast_sum); // (M, N)
+
+  fusion.addOutput(output);
+
+  std::vector<TensorView*> reduction_tensors({max_val, sum_exp});
+  std::vector<TensorView*> other_tensors(
+      {bcast_max, x_max_sub, exp, bcast_sum, output});
+
+  const int dimx = 1024;
+  const int dimy = 4096;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dimx, dimy}, options);
+
+  auto reduction_tv = sum_exp;
+  auto reduction_params = getReductionHeuristics(&fusion, {t0}, reduction_tv);
+  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+
+  scheduleMultipleReduction(
+      &fusion, reduction_params.value(), reduction_tensors, other_tensors);
+
+  torch::jit::fuser::cuda::FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t0}, LaunchParams(dimx, -1, -1, 128, -1, -1));
+
+  auto t1 = at::_softmax(t0, -1, false);
+  TORCH_CHECK(
+      t1.allclose(outputs[0], 1e-5, 1e-5),
+      "Error of: ",
+      t1.sub(outputs[0]).abs().max());
+}
+
+TEST(NVFuserTest, FusionPersistentMagicSchedulerBatchNormalization_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Set up your input tensor views
+  auto input = makeDummyTensor(2);
+  Float* gamma = new Float();
+  Float* beta = new Float();
+  Float* eps = new Float();
+  Int* N = new Int();
+  fusion.addInput(input);
+  fusion.addInput(gamma);
+  fusion.addInput(beta);
+  fusion.addInput(eps);
+  fusion.addInput(N);
+
+  // Reduction
+  auto x_sum = sum(input, {-1}); // (M, R)
+  // Broadcast
+  auto x_sum_bcast = broadcast(x_sum, {false, true}); // (M, B)
+  // Pwise
+  auto x_mean = div(x_sum_bcast, N); // (M, B)
+  auto x_mean_sub = sub(input, x_mean); // (M, N)
+  auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub); // (M, N)
+  // Reduction
+  auto var_sum = sum(x_mean_sub_pow, {-1}); // (M, R)
+  // Broadcast
+  auto var_sum_bcast = broadcast(var_sum, {false, true}); // (M, B)
+  // Pwise
+  auto var = div(var_sum_bcast, N); // (M, B)
+  auto var_eps = add(var, eps); // (M, B)
+  auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps); // (M, B)
+  auto norm = mul(x_mean_sub, rvar);
+  auto norm_gamma = mul(norm, gamma);
+  auto output = add(norm_gamma, beta);
+  fusion.addOutput(output);
+
+  std::vector<TensorView*> reduction_tensors({x_sum, var_sum});
+  std::vector<TensorView*> rfactor_tensors;
+  std::vector<TensorView*> other_tensors({x_mean,
+                                          x_sum_bcast,
+                                          x_mean_sub,
+                                          x_mean_sub_pow,
+                                          var_sum_bcast,
+                                          var,
+                                          var_eps,
+                                          rvar,
+                                          norm,
+                                          norm_gamma,
+                                          output});
+
+  const float kGamma = 1.0f;
+  const float kBeta = 0.0f;
+  const float kEps = 1e-5;
+  const int dimx = 128;
+  const int dimy = 512;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dimx, dimy}, options);
+
+  auto reduction_tv = x_sum;
+  auto outputsOfReduction = DependencyCheck::getAllOutputsOf({reduction_tv});
+  auto tv_entries = ir_utils::filterByType<TensorView>(outputsOfReduction);
+  std::vector<TensorView*> tvOutputsOfReduction(
+      tv_entries.begin(), tv_entries.end());
+
+  auto reduction_params = getReductionHeuristics(
+      &fusion, {t0, kGamma, kBeta, kEps, dimy}, reduction_tv);
+  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+
+  // scheduleReduction(
+  //&fusion, reduction_params.value(), reduction_tv, tvOutputsOfReduction);
+  // TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+
+  auto rparams = reduction_params.value();
+
+  // 1) Automatically cache input in shared memory
+  auto cache_input = input->cache_after();
+  other_tensors.push_back(cache_input);
+  cache_input->setMemoryType(MemoryType::Shared);
+
+  // 3) For each reduction, apply reduction heuristics
+  for (auto tensor : reduction_tensors) {
+    tensor->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
+    auto reduction_tv_rf = tensor->rFactor({-2});
+    rfactor_tensors.push_back(reduction_tv_rf);
+  }
+
+  // 5) Other Tensor Splits
+  for (auto tensor : other_tensors) {
+    tensor->split(-1, NamedScalar::getParallelDim(ParallelType::TIDx));
+  }
+
+  // 6) ComputeAt Structure
+  input->computeAt(output, 1);
+
+  // 7) Local Memory - Non-Constant Size
+  // Use shared memory => Simplier => Multiple Uses OR non-successive operations
+  // Compute Inline => More Efficient => Successive point-wise operations
+  x_mean_sub->setMemoryType(MemoryType::Shared);
+  x_mean_sub_pow->setMemoryType(MemoryType::Shared);
+  norm->setMemoryType(MemoryType::Shared);
+  norm_gamma->setMemoryType(MemoryType::Shared);
+
+  // 8) Parallel Binding
+  // For all TensorViews
+  for (auto tensor : other_tensors) {
+    tensor->axis(0)->parallelize(ParallelType::BIDx);
+    tensor->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+
+  // Reduction ParallelType Binding
+  for (auto tensor : reduction_tensors) {
+    tensor->axis(0)->parallelize(ParallelType::BIDx);
+    tensor->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+
+  for (auto tensor : rfactor_tensors) {
+    tensor->axis(0)->parallelize(ParallelType::BIDx);
+    tensor->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+
+  torch::jit::fuser::cuda::FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(
+      {t0, kGamma, kBeta, kEps, dimy}, LaunchParams(dimx, -1, -1, 128, -1, -1));
+
+  auto at_mu = at::mean(t0, -1).unsqueeze(1);
+  auto at_var = at::var(t0, -1).unsqueeze(1);
+  auto at_rvar = at::rsqrt(at::add(at_var, kEps));
+  auto at_norm = at::mul(at::sub(t0, at_mu), at_rvar);
+  auto at_norm_gamma_beta = at::add(at::mul(at_norm, kGamma), kBeta);
+  TORCH_CHECK(
+      at_norm_gamma_beta.allclose(outputs[0], 1e-3, 1e-3),
+      "Error of: ",
+      at_norm_gamma_beta.sub(outputs[0]).abs().max());
+}
+
 TEST(NVFuserTest, FusionPersistentSoftmaxLocalSmem_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -6330,8 +6512,6 @@ TEST(NVFuserTest, FusionSmemDynamicPersistentBatchNorm_CUDA) {
   for (auto tensor : all_tensors) {
     tensor->split(-1, tidx);
   }
-  norm_gamma->split(1, 1);
-  norm_gamma_beta->split(1, 1);
 
   // Local Sum => Block Broadcast
   TensorView* x_sum_rf = x_sum->rFactor({1});

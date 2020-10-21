@@ -38,8 +38,8 @@ void ComputeAtData::setPassPosition(unsigned int pos) {
     // the given tensor and its production should be duplicated.
     TORCH_CHECK(
         pos == current_traversal_position,
-        "Error during computeAt. ComputeAt pass wanted to set position of ",
-        tv_ref_,
+        "Error during computeAt. ComputeAt pass wanted to set position of TensorView:\t",
+        tv_ref_->name(),
         " at position ",
         pos,
         " but was already set to position ",

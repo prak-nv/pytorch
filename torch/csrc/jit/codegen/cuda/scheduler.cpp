@@ -86,7 +86,7 @@ bool scheduleFusion(Fusion* fusion, const at::ArrayRef<c10::IValue> inputs) {
   FUSER_PERF_SCOPE("scheduleFusion");
 
   FusionGuard fg(fusion);
-  // maybe has_reduction for scheudling should be done on a per output tensor
+  // maybe has_reduction for scheduling should be done on a per output tensor
   // basis.
   TORCH_INTERNAL_ASSERT(
       !fusion->hasReduction(), "This scheduler only handles pointwise ops.");
@@ -348,7 +348,7 @@ void scheduleReduction(
     std::vector<TensorView*> outs_of_red) {
   FusionGuard fg(fusion);
 
-  // We coalesc all reduction axes to the right;
+  // We coalesce all reduction axes to the right;
   mergeReduction(red_tv);
 
   // Merge all iteration dimensions
@@ -367,8 +367,10 @@ void scheduleReduction(
 
   // Scheduling the Reduction
   if (rparams.fastest_dim) {
+    std::cout << "fastest dim" << std::endl;
     // Do multiple reductions per block
     if (rparams.mul_reds_per_blk) {
+      std::cout << "multiple reductions per blk" << std::endl;
       // Reduction Splits
       //      [outputs, |rF-Leftover, X-Warp, rf-Unroll|]
       // Idx:     0     |   1(-1)      2(-2)     3(-1) |
@@ -426,6 +428,7 @@ void scheduleReduction(
       // Do a cross-warp reduction per block
     } else {
       if (rparams.cross_grid) {
+        std::cout << "cross_grid" << std::endl;
         // Reduction Splits
         //      [outputs, |rF-Leftover, X-Grid, X-Block, X-Warp, rf-Unroll|]
         // Idx:     0     |   1(-5)      2(-4)    3(-3)   4(-2)     5(-1) |
@@ -473,6 +476,7 @@ void scheduleReduction(
           }
         }
       } else {
+        std::cout << "not cross_grid" << std::endl;
         // Reduction Splits
         //      [outputs, |rF-Leftover, X-Block, X-Warp, rf-Unroll|]
         // Idx:     0     |   1(-4)       2(-3)   3(-2)     4(-1) |
@@ -674,6 +678,158 @@ void scheduleReduction(
           input->as<TensorView>()->computeAt(red_tv, -1);
         }
       }
+    }
+  }
+}
+
+void setupSharedMemory(
+    Fusion* fusion,
+    const std::vector<TensorView*>& cache_tv) {
+  auto isPointwiseOp = [](const Expr* expr) {
+    return expr->outputs().size() == 1 && ir_utils::isTV(expr->output(0)) &&
+        (expr->getExprType().value() == ExprType::BinaryOp ||
+         expr->getExprType().value() == ExprType::UnaryOp ||
+         expr->getExprType().value() == ExprType::TernaryOp);
+  };
+
+  // Place all cache TensorViews in Shared Memory
+  // All point-wise TensorViews inherit shared memory from their parents
+  std::vector<TensorView*> stack(cache_tv.begin(), cache_tv.end());
+  while (!stack.empty()) {
+    auto tv = stack.back();
+    tv->setMemoryType(MemoryType::Shared);
+    std::cout << "Origin Expr:\t" << tv->getOrigin()->getExprType().value()
+              << std::endl;
+
+    auto uses = fusion->unordered_uses(tv);
+    for (auto expr : uses) {
+      if (isPointwiseOp(expr)) {
+        auto output = expr->output(0)->as<TensorView>();
+        stack.push_back(output);
+      }
+    }
+  }
+}
+
+void scheduleMultipleReduction(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    const std::vector<TensorView*>& reduction_tv,
+    std::vector<TensorView*>& other_tv) {
+  FusionGuard fg(fusion);
+
+  for (auto tv : reduction_tv) {
+    // We coalesce all reduction axes to the right;
+    mergeReduction(tv);
+
+    // Merge all iteration dimensions
+    mergeNonReduction(tv);
+
+    // Evaluate Dimensions of Reduction TensorView
+    auto reduction_domain = tv->domain()->domain();
+    TORCH_INTERNAL_ASSERT(
+        reduction_domain.size() == 2,
+        "We coalesced all dimensions into 2 previously.");
+  }
+
+  for (auto tv : other_tv) {
+    mergeNonReduction(tv);
+  }
+
+  // Scheduling the Reduction
+  if (rparams.fastest_dim) {
+    std::cout << "fastest dim" << std::endl;
+    // Do multiple reductions per block
+    if (rparams.mul_reds_per_blk) {
+      std::cout << "multiple reductions per blk" << std::endl;
+      // Do a cross-warp reduction per block
+
+      const auto& inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
+      const auto& outputs =
+          ir_utils::filterByType<TensorView>(fusion->outputs());
+
+      // 1) Automatically cache input in shared memory
+      std::vector<TensorView*> cache_tv;
+      for (const auto input : inputs) {
+        auto cache_input = input->cache_after();
+        other_tv.push_back(cache_input);
+        cache_tv.push_back(cache_input);
+      }
+
+      // 3) For each reduction, apply reduction heuristics
+      std::vector<TensorView*> rfactor_tv;
+      for (auto tensor : reduction_tv) {
+        // Reduction Splits
+        //      [outputs, |rF-Leftover, X-Warp, rf-Unroll|]
+        // Idx:     0     |   1(-1)      2(-2)     3(-1) |
+        //                --------------------------------
+        //                Reduction Dimensions
+        // tensor->split(1, rparams.loop_unroll);
+        tensor->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
+
+        // TODO: Fix Unroll + Shared Memory Error
+        // rfactor - rF-Leftover and rf-Unroll
+        // auto reduction_tv_rf = tensor->rFactor({-3, -1});
+        auto reduction_tv_rf = tensor->rFactor({-2});
+        rfactor_tv.push_back(reduction_tv_rf);
+      }
+
+      // 5) Other Tensor Splits
+      for (auto tv : other_tv) {
+        // tensor->split(0, NamedScalar::getParallelDim(ParallelType::TIDy));
+        tv->split(-1, NamedScalar::getParallelDim(ParallelType::TIDx));
+      }
+
+      // 6) ComputeAt Structure
+      for (auto input : inputs) {
+        for (auto output : outputs) {
+          input->computeAt(output, 1);
+        }
+      }
+
+      // 7) Local Memory - Non-Constant Size
+      // Shared memory - Simplier, Multiple Uses OR non-successive operations
+      // Compute Inline - More Efficient, Successive point-wise operations
+      setupSharedMemory(fusion, cache_tv);
+
+      // 8) Parallel Binding
+      // For all TensorViews
+      for (auto tv : other_tv) {
+        tv->axis(0)->parallelize(ParallelType::BIDx);
+        tv->axis(-1)->parallelize(ParallelType::TIDx);
+      }
+
+      // Reduction ParallelType Binding
+      for (auto tv : reduction_tv) {
+        tv->axis(0)->parallelize(ParallelType::BIDx);
+        tv->axis(-1)->parallelize(ParallelType::TIDx);
+      }
+
+      for (auto tensor : rfactor_tv) {
+        tensor->axis(0)->parallelize(ParallelType::BIDx);
+        tensor->axis(-1)->parallelize(ParallelType::TIDx);
+        // TODO: Fix Unroll + Shared Memory Error
+        // tensor->axis(-2)->parallelize(ParallelType::TIDx);
+        // tensor->axis(-1)->parallelize(ParallelType::Unroll);
+      }
+    } else {
+      if (rparams.cross_grid) {
+        std::cout << "cross grid" << std::endl;
+      } else {
+        std::cout << "not cross grid" << std::endl;
+      }
+    }
+  } else {
+    std::cout << "not fastest dim" << std::endl;
+    if (rparams.cross_block) {
+      std::cout << "cross block" << std::endl;
+      if (rparams.cross_grid) {
+        std::cout << "cross_grid" << std::endl;
+      } else {
+        std::cout << "not cross grid" << std::endl;
+      }
+    } else {
+      std::cout << "not cross block" << std::endl;
     }
   }
 }

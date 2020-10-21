@@ -149,11 +149,14 @@ class AllocateReuseModifier final : private OptOutDispatch {
 
     // Assume the first argument contains the primary variable
     // Follow path along point-wise operations
+    // Check if first argument is no longer used in the Fusion
     if (!expr_inputs.empty()) {
-      auto first_input_argument_tv = expr_inputs.front()->getOrigin();
-      if (first_input_argument_tv != nullptr) {
+      auto first_input_tv = expr_inputs.front()->as<TensorView>();
+      auto first_input_origin_expr = first_input_tv->getOrigin();
+      if (first_input_origin_expr != nullptr &&
+          map_tv_to_last_usage_[first_input_tv] <= map_expr_to_pos_[expr]) {
         return findCompatibleInputAllocate(
-            output_size_str, first_input_argument_tv);
+            output_size_str, first_input_origin_expr);
       }
     }
     return nullptr;

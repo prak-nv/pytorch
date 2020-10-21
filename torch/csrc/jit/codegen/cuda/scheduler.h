@@ -17,7 +17,7 @@ TORCH_CUDA_API bool scheduleFusion(
 
 // Parameters the Reduction Heuristic Generates to describe the optimial
 // schedule. Warning: equal operator is intended for use in caching the kernel
-// associated with these reduction parameteres. It does not check if the launch
+// associated with these reduction parameters. It does not check if the launch
 // parameters are equivelent!
 struct ReductionParams {
   // Reducing inner most dimension?
@@ -66,6 +66,16 @@ TORCH_CUDA_API void scheduleReduction(
     const ReductionParams& rparams,
     TensorView* red_tv,
     std::vector<TensorView*> outs_of_red);
+
+TORCH_CUDA_API void setupSharedMemory(
+    Fusion* fusion,
+    const std::vector<TensorView*>& cache_tv);
+
+TORCH_CUDA_API void scheduleMultipleReduction(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    const std::vector<TensorView*> reduction_tv,
+    std::vector<TensorView*> other_tv);
 
 } // namespace cuda
 } // namespace fuser
