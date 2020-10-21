@@ -35,15 +35,15 @@ class DisjointSet {
     // cases where either of the quiv class doesn't exist
     if (!entry_map.count(a) && !entry_map.count(b)) {
       createPoint(a);
-      entry_map[b] = getOrCreateFixedPoint(a);
+      entry_map[b] = fixedPoint(a);
     } else if (!entry_map.count(a)) {
-      entry_map[a] = getOrCreateFixedPoint(b);
+      entry_map[a] = fixedPoint(b);
     } else if (!entry_map.count(b)) {
-      entry_map[b] = getOrCreateFixedPoint(a);
+      entry_map[b] = fixedPoint(a);
     } else {
       // case where both equiv classes exist and need to join
-      const int i0 = getOrCreateFixedPoint(a);
-      const int i1 = getOrCreateFixedPoint(b);
+      const int i0 = fixedPoint(a);
+      const int i1 = fixedPoint(b);
       int new_parent = 0;
       int new_child = 0;
 
@@ -69,13 +69,13 @@ class DisjointSet {
     if (!entry_map.count(a) || !entry_map.count(b)) {
       return false;
     }
-    return getOrCreateFixedPoint(a) == getOrCreateFixedPoint(b);
+    return fixedPoint(a) == fixedPoint(b);
   }
 
  private:
   // Internal fixed point implementation:
   //  Returns the equivalent class that e belongs to
-  int getFixedPoint(int e) const {
+  int getFixedPointForClass(int e) const {
     TORCH_INTERNAL_ASSERT(static_cast<int>(set_map.size()) > e);
     while (set_map[e] != e) {
       // Chasing to fixed point
@@ -84,18 +84,17 @@ class DisjointSet {
     return e;
   }
 
-  //! Utility to check the class i belongs to:
+  //! Utility to check the class e belongs to:
   //!
-  //! Will create a new class if no match seen
   //! \param e element e to find the equiv class for
   //! \returns the equivalent class that e belongs to
   //!
-  int getOrCreateFixedPoint(T e) const {
+  int fixedPoint(T e) const {
     // Handles case when i doesn't have an equivalence class
     TORCH_INTERNAL_ASSERT(entry_map.count(e));
 
     // Use fixed point as a representation for the equiv class
-    return getFixedPoint(entry_map.at(e));
+    return getFixedPointForClass(entry_map.at(e));
   }
 
   //! Utility to create a new equiv class for i
