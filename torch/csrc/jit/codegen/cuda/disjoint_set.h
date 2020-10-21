@@ -3,6 +3,7 @@
 #include <c10/util/Exception.h>
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace torch {

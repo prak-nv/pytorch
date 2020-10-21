@@ -11,11 +11,18 @@ namespace cuda {
 
 namespace {
 
+// Checks whether all consumers of a producer can be joined without
+// introducing unsupported mappings. Specifically, if a domain of a
+// consumer has a mapped iteration domain in another consumer that
+// does not correspond to the same producer iteration domain, mapping
+// the consumer domains would result in the producer iteration domain
+// mapped to two different consumer iteration domains, requiring
+// recomputations.
 bool hasMatchingDomains(
-    const std::vector<DomainKey>& domains,
+    const std::vector<DomainKey>& unique_domains,
     const DisjointSet<DomainKey, DomainKeyHash>& eq_set) {
-  for (const auto& key : domains) {
-    for (const auto& other_key : domains) {
+  for (const auto& key : unique_domains) {
+    for (const auto& other_key : unique_domains) {
       if (key == other_key)
         continue;
       const auto& root = other_key.td()->getRootDomain();
@@ -29,7 +36,9 @@ bool hasMatchingDomains(
   return false;
 }
 
-bool safeToJoin(
+// Checks whether all consumers of a producer can be joined without
+// introducing unsupported mappings, i.e., requiring recomputations.
+bool safeToMap(
     const std::unordered_set<DomainKey, DomainKeyHash>& domains,
     const DisjointSet<DomainKey, DomainKeyHash>& eq_set,
     const UnmappableReductionDomains& inconsistent_domains) {
@@ -49,13 +58,11 @@ bool safeToJoin(
       unique_domains.push_back(domain);
     }
   }
-  // std::cerr << "Consumer domains: " << unique_domains << std::endl;
   if (hasMatchingDomains(unique_domains, eq_set)) {
-    // std::cerr << "Has matching domains" << std::endl;
     return false;
   }
-  if (inconsistent_domains.isReductionOutputMerged(unique_domains, eq_set)) {
-    // std::cerr << "Prevented by reduction" << std::endl;
+  // Can't map if reduction output domains would be mapped
+  if (inconsistent_domains.isReductionOutputMapped(unique_domains, eq_set)) {
     return false;
   }
   return true;
@@ -112,7 +119,7 @@ void UnmappableReductionDomains::handle(ReductionOp* op) {
   }
 }
 
-bool UnmappableReductionDomains::isReductionOutputMerged(
+bool UnmappableReductionDomains::isReductionOutputMapped(
     const std::vector<DomainKey>& consumer_domains,
     const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const {
   for (const auto& kv : reduction_domains_) {
@@ -213,7 +220,7 @@ bool RootDomainMap::canMap(
   return eq_set_.areEquivalent(key_a, key_b);
 }
 
-void RootDomainMap::attemptToProveId(
+void RootDomainMap::setMaybeMapped(
     const TensorDomain* producer_td,
     const IterDomain* producer_id,
     const TensorDomain* consumer_td,
@@ -240,7 +247,7 @@ void RootDomainMap::handle(Expr* e) {
   visited_.insert(e);
 }
 
-void RootDomainMap::provePointwiseOrReductionOp(Expr* e) {
+void RootDomainMap::mapPointwiseOrReductionOp(Expr* e) {
   if (e->output(0)->getValType() != ValType::TensorView) {
     return;
   }
@@ -263,7 +270,7 @@ void RootDomainMap::provePointwiseOrReductionOp(Expr* e) {
         TensorDomain::noReductions(i->getMaybeRFactorDomain());
     TORCH_INTERNAL_ASSERT(in_root.size() == out_root.size());
     for (size_t it = 0; it < in_root.size(); it++) {
-      attemptToProveId(in_td, in_root[it], out_td, out_root[it]);
+      setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
     }
   }
 }
@@ -290,7 +297,7 @@ void RootDomainMap::handle(BroadcastOp* op) {
       ++out_it;
       continue;
     }
-    attemptToProveId(in_td, *in_it, out_td, *out_it);
+    setMaybeMapped(in_td, *in_it, out_td, *out_it);
     ++in_it;
     ++out_it;
   }
@@ -321,14 +328,14 @@ bool RootDomainMap::mapAllConsumers(const DomainKey& producer_key) {
   const auto& consumer_set = it->second;
   // All entries in key_set must be equivalent with each other.
   TORCH_INTERNAL_ASSERT(consumer_set.size() > 0);
-  bool consistent = safeToJoin(consumer_set, eq_set_, incompatible_domains_);
+  bool consistent = safeToMap(consumer_set, eq_set_, incompatible_domains_);
   if (consistent) {
     for (const auto pending_consumer : consumer_set) {
 #if 0
       std::cerr << "Equivalent Ids found: " << producer_key << " == " << pending_consumer
                 << std::endl;
 #endif
-      proveId(producer_key, pending_consumer);
+      setMapped(producer_key, pending_consumer);
     }
   }
   // This entry should never be used again, so remove it.

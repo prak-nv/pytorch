@@ -64,7 +64,7 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
   //! the redution. It needs to be avoided as computing consumers of
   //! reduction outputs within the corresponding reduction loop is not
   //! possible. This routine is used to build root domain mappings.
-  bool isReductionOutputMerged(
+  bool isReductionOutputMapped(
       const std::vector<DomainKey>& consumer_domains,
       const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const;
 
@@ -136,12 +136,12 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
 
  private:
   //! Set a pair of producer-consumer domains as mappable
-  void proveId(const DomainKey& producer, const DomainKey& consumer) {
+  void setMapped(const DomainKey& producer, const DomainKey& consumer) {
     eq_set_.join(producer, consumer);
   }
 
   //! Track a pair of producer-consumer domains as potentially mappable.
-  void attemptToProveId(
+  void setMaybeMapped(
       const TensorDomain* producer_td,
       const IterDomain* producer_id,
       const TensorDomain* consumer_td,
@@ -149,26 +149,26 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
 
   //! Map pointwise IterDomains from inputs of expressions to outputs.
   //! Do not map reduction IterDomains in inputs.
-  void provePointwiseOrReductionOp(Expr* e);
+  void mapPointwiseOrReductionOp(Expr* e);
 
   using BackwardVisitor::handle;
 
   void handle(Expr* e) override;
 
   void handle(UnaryOp* uop) override {
-    provePointwiseOrReductionOp(uop);
+    mapPointwiseOrReductionOp(uop);
   }
 
   void handle(BinaryOp* bop) override {
-    provePointwiseOrReductionOp(bop);
+    mapPointwiseOrReductionOp(bop);
   }
 
   void handle(TernaryOp* top) override {
-    provePointwiseOrReductionOp(top);
+    mapPointwiseOrReductionOp(top);
   }
 
   void handle(ReductionOp* op) override {
-    provePointwiseOrReductionOp(op);
+    mapPointwiseOrReductionOp(op);
   }
 
   void handle(BroadcastOp* op) override;
