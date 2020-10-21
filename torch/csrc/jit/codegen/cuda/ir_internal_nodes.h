@@ -276,7 +276,7 @@ class TORCH_CUDA_API IterDomain : public Val {
   static std::pair<IterDomain*, IterDomain*> split(IterDomain* in, Val* factor);
 
   // Run concretization pass and return the concretized domain of broadcast id
-  static const IterDomain* concretizeDomain(const IterDomain* bcast_dom);
+  static IterDomain* concretizeDomain(IterDomain* bcast_dom);
 
   bool isReduction() const {
     return getIterType() == IterType::Reduction;

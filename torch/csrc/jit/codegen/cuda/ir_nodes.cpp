@@ -7,7 +7,6 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
 #include <torch/csrc/jit/codegen/cuda/transform_rfactor.h>
-#include <torch/csrc/jit/codegen/cuda/utils.h>
 
 #include <sstream>
 
@@ -949,15 +948,6 @@ std::vector<std::pair<int, int>> TensorDomain::mapDomainPandC(
       continue;
     }
 
-    // At this point, p_id and c_id must match.
-    // TODO: Remove getenv.
-    if (!std::getenv("SKIP_PROVING")) {
-#if 0
-      TORCH_INTERNAL_ASSERT(IterDomain::proveEquivalent(p_id, c_id),
-                            "Can't prove equivalence: ", p_id, ", ", c_id);
-#endif
-    }
-
     dom_map.emplace_back(std::make_pair(itp, itc));
     itc++;
     itp++;
@@ -1079,7 +1069,7 @@ class ConcretizeDomain : private BackwardVisitor {
   //! API call to run the concretize pass and return the
   //! axis that bcast_dom concretizes to
   //!
-  static const IterDomain* getConcreteDomain(const IterDomain* bcast_dom) {
+  static IterDomain* getConcreteDomain(IterDomain* bcast_dom) {
     ConcretizeDomain cd(bcast_dom->fusion());
 
     // Remove this assertion once we support broadcast on output
@@ -1089,12 +1079,12 @@ class ConcretizeDomain : private BackwardVisitor {
 
   // Returns true if either id is not a broadcast or
   // the traversal has found a concretized axis for id
-  bool canConcretize(const IterDomain* id) const {
+  bool canConcretize(IterDomain* id) const {
     return !id->isBroadcast() || bcast_domain_map_.count(id);
   }
 
   // Returns the concretized id recorded from traversal
-  const IterDomain* concretized(const IterDomain* id) const {
+  IterDomain* concretized(IterDomain* id) const {
     TORCH_INTERNAL_ASSERT(canConcretize(id));
     if (!id->isBroadcast()) {
       return id;
@@ -1105,10 +1095,10 @@ class ConcretizeDomain : private BackwardVisitor {
  private:
   // Utility to inspect a pointwise operator and
   // record concretize opportunities
-  void concretizePwOp(const Expr* e);
+  void concretizePwOp(Expr* e);
 
   // Utility to record new concretize opportunity
-  void concretizeTo(const IterDomain* id, const IterDomain* To) {
+  void concretizeTo(IterDomain* id, IterDomain* To) {
     TORCH_INTERNAL_ASSERT(id->isBroadcast() && !To->isBroadcast());
     bcast_domain_map_[id] = concretized(To);
   }
@@ -1132,11 +1122,11 @@ class ConcretizeDomain : private BackwardVisitor {
   };
 
  private:
-  using MapType = std::unordered_map<const IterDomain*, const IterDomain*>;
+  using MapType = std::unordered_map<IterDomain*, IterDomain*>;
   MapType bcast_domain_map_;
 };
 
-void ConcretizeDomain::concretizePwOp(const Expr* e) {
+void ConcretizeDomain::concretizePwOp(Expr* e) {
   if (e->output(0)->getValType() != ValType::TensorView) {
     return;
   }
@@ -1164,7 +1154,7 @@ void ConcretizeDomain::concretizePwOp(const Expr* e) {
 } // namespace
 
 // API call to return the concretized axis of a broadcast axis
-const IterDomain* IterDomain::concretizeDomain(const IterDomain* bcast_dom) {
+IterDomain* IterDomain::concretizeDomain(IterDomain* bcast_dom) {
   return ConcretizeDomain::getConcreteDomain(bcast_dom);
 }
 
