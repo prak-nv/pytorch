@@ -597,14 +597,10 @@ struct CreateExprConsumer : public OptInDispatch {
   }
 
   void handle(BroadcastOp* broadcast_expr) final {
-<<<<<<< HEAD
-    new BroadcastOp(consumer_, broadcast_expr->in(), broadcast_expr->getBroadcastDimFlags());
-=======
     new BroadcastOp(
         consumer_,
         broadcast_expr->in(),
         broadcast_expr->getBroadcastDimFlags());
->>>>>>> Add bcast flags to BroadcastOp
   }
 
  private:

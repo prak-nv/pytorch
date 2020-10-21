@@ -1,7 +1,7 @@
 #pragma once
 
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
-#include <torch/csrc/jit/codegen/cuda/utils.h>
+#include <torch/csrc/jit/codegen/cuda/disjoint_set.h>
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
 

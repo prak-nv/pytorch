@@ -17,7 +17,7 @@ namespace cuda {
 //! DisjointSet::areEqual(a,b) checks if a and b belong same class
 //!
 //! \note The template type T is assumed to be hashable
-template <typename T>
+template <typename T, typename Hash=std::hash<T>>
 class DisjointSet {
  public:
   DisjointSet() = default;
@@ -72,6 +72,41 @@ class DisjointSet {
     return fixedPoint(a) == fixedPoint(b);
   }
 
+  bool contains(T a) const {
+    return entry_map.count(a) > 0;
+  }
+
+  bool insert(T a) {
+    if (!contains(a)) {
+      createPoint(a);
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  std::ostream& print(std::ostream& os) const {
+    std::unordered_map<int, std::unordered_set<T, Hash>> fixedPointMap;
+    for (const auto& kv: entry_map) {
+      int fixed_point = fixedPoint(kv.first);
+      auto it = fixedPointMap.find(fixed_point);
+      if (it == fixedPointMap.end()) {
+        it = fixedPointMap.insert({fixed_point, {}}).first;
+      }
+      it->second.insert(kv.first);
+    }
+    os << "{\n";
+    for (const auto& kv: fixedPointMap) {
+      os << "\t{ ";
+      for (const auto& val: kv.second) {
+        os << val << " ";
+      }
+      os << "}\n";
+    }
+    os << "}\n";
+    return os;
+  }
+
  private:
   // Internal fixed point implementation:
   //  Returns the equivalent class that e belongs to
@@ -114,7 +149,7 @@ class DisjointSet {
   std::vector<int> weights;
 
   // Map the input of type T to its equivalence class
-  std::unordered_map<T, int> entry_map;
+  std::unordered_map<T, int, Hash> entry_map;
 
   // Running counter for generating new index when
   // Creating new equiv classes
