@@ -118,7 +118,7 @@ class TORCH_CUDA_API BroadcastOp : public Expr {
   //! \param _out The output tensor
   //! \param _in The input tensor
   //! \param is_broadcast_dims True when output dim is a new broadcast domain
-  BroadcastOp(Val* _out, Val* _in, const std::vector<bool>& is_broadcast_dims);
+  BroadcastOp(Val* _out, Val* _in, std::vector<bool> is_broadcast_dims);
 
   BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner);
 
