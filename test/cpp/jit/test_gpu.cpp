@@ -3001,7 +3001,7 @@ TEST(NVFuserTest, FusionRFactorReplay_CUDA) {
 
 // Start off simple, block on the outer dim
 // block stride + thread all reduce + unrolling on inner dim
-TEST(NVFuserTest, FusionReduction1) {
+TEST(NVFuserTest, FusionReduction1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3059,7 +3059,7 @@ TEST(NVFuserTest, FusionReduction1) {
   TORCH_CHECK(aten_output.allclose(cg_output));
 }
 
-TEST(NVFuserTest, FusionReduction2) {
+TEST(NVFuserTest, FusionReduction2_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3128,7 +3128,7 @@ TEST(NVFuserTest, FusionReduction2) {
   TORCH_CHECK(aten_output.allclose(outputs[0]));
 }
 
-TEST(NVFuserTest, FusionReduction3) {
+TEST(NVFuserTest, FusionReduction3_CUDA) {
   // What if Z participates in the reduction with X?
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -3178,7 +3178,7 @@ TEST(NVFuserTest, FusionReduction3) {
   TORCH_CHECK(aten_output.allclose(cg_output));
 }
 
-TEST(NVFuserTest, FusionReduction4) {
+TEST(NVFuserTest, FusionReduction4_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3244,7 +3244,7 @@ TEST(NVFuserTest, FusionReduction4) {
       t5.allclose(outputs[0]), "Error of: ", t5.sub(outputs[0]).abs().max());
 }
 
-TEST(NVFuserTest, FusionReduction5) {
+TEST(NVFuserTest, FusionReduction5_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3296,7 +3296,7 @@ TEST(NVFuserTest, FusionReduction5) {
       aten_output.sub(cg_output).abs().max());
 }
 
-TEST(NVFuserTest, FusionReduction6) {
+TEST(NVFuserTest, FusionReduction6_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3468,7 +3468,7 @@ TEST(NVFuserTest, FusionBranches_CUDA) {
   TORCH_CHECK(t6.allclose(outputs[0]));
 }
 
-TEST(NVFuserTest, FusionSimpleBCast1) {
+TEST(NVFuserTest, FusionSimpleBCast1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3521,7 +3521,7 @@ TEST(NVFuserTest, FusionSimpleBCast1) {
   TORCH_CHECK(t7.allclose(outputs[0]));
 }
 
-TEST(NVFuserTest, FusionSimpleBCast2) {
+TEST(NVFuserTest, FusionSimpleBCast2_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3577,7 +3577,7 @@ TEST(NVFuserTest, FusionSimpleBCast2) {
   TORCH_CHECK(t7.allclose(cg_output));
 }
 
-TEST(NVFuserTest, FusionSimpleBCast3) {
+TEST(NVFuserTest, FusionSimpleBCast3_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3627,7 +3627,7 @@ TEST(NVFuserTest, FusionSimpleBCast3) {
   TORCH_CHECK(t3.allclose(cg_output));
 }
 
-TEST(NVFuserTest, FusionSimpleBCast4) {
+TEST(NVFuserTest, FusionSimpleBCast4_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3679,7 +3679,7 @@ TEST(NVFuserTest, FusionSimpleBCast4) {
   TORCH_CHECK(t3.allclose(cg_output));
 }
 
-TEST(NVFuserTest, FusionSimpleBCast5) {
+TEST(NVFuserTest, FusionSimpleBCast5_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3730,7 +3730,7 @@ TEST(NVFuserTest, FusionSimpleBCast5) {
   TORCH_CHECK(t4.allclose(cg_output));
 }
 
-TEST(NVFuserTest, FusionComplexBCast1) {
+TEST(NVFuserTest, FusionComplexBCast1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3783,7 +3783,7 @@ TEST(NVFuserTest, FusionComplexBCast1) {
   TORCH_CHECK(t7.allclose(outputs[0]));
 }
 
-TEST(NVFuserTest, FusionComplexBCast2) {
+TEST(NVFuserTest, FusionComplexBCast2_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
