@@ -178,12 +178,6 @@ void Fusion::clear() noexcept {
   outputs_.clear();
 
   // Lowered IR nodes
-  for (auto ptr : lowered_val_set_) {
-    delete ptr;
-  }
-  for (auto ptr : lowered_expr_set_) {
-    delete ptr;
-  }
   lowered_val_set_.clear();
   lowered_expr_set_.clear();
   lowered_origin_.clear();
@@ -357,12 +351,13 @@ void Fusion::printKernel() {
   std::cout << codegen::generateCudaKernel(GpuLower(this).kernel());
 }
 
-void Fusion::printMath() {
+void Fusion::printMath(bool from_outputs_only) {
   FUSER_PERF_SCOPE("Fusion::printMath");
 
   FusionGuard fg(this);
-  for (auto expr : exprs(true))
+  for (auto expr : exprs(from_outputs_only)) {
     std::cout << expr;
+  }
 }
 
 void Fusion::printTransforms() {
@@ -440,7 +435,7 @@ StmtNameType Fusion::registerStatement(Statement* stmt) {
   TORCH_INTERNAL_ASSERT(
       false,
       "Could not register statement as Fusion could not recognize its type.");
-  return UNINITIALIZED_STMTNAMETYPE;
+  return kInvalidStmName;
 }
 
 StmtNameType Fusion::registerLoweredVal(Val* val) {
@@ -497,16 +492,9 @@ std::unordered_set<Expr*> Fusion::unordered_uses(Val* val) const {
 }
 
 Expr* Fusion::origin(const Val* val) const {
-  // TODO(kir): remove the lowered branch
-  if (kir::isLoweredVal(val)) {
-    TORCH_INTERNAL_ASSERT(inKernelIr(val));
-    auto it = lowered_origin_.find(val);
-    return it != lowered_origin_.end() ? it->second : nullptr;
-  } else {
-    assertInFusion(val, "Cannot detect the origin of val, ");
-    auto it = origin_.find(val);
-    return it != origin_.end() ? it->second : nullptr;
-  }
+  assertInFusion(val, "Cannot detect the origin of val, ");
+  auto it = origin_.find(val);
+  return it != origin_.end() ? it->second : nullptr;
 }
 
 bool Fusion::hasInput(const Val* val) const {
