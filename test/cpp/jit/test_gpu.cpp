@@ -2210,7 +2210,7 @@ TEST(NVFuserTest, FusionBCastConcretizeRfactor_CUDA) {
 
 namespace {
 
-void checkIdProvedEquivalent(
+void checkIdMapped(
     RootDomainMap& root_map,
     TensorView* v0,
     IterDomain* id0,
@@ -2232,14 +2232,14 @@ void checkIdProvedEquivalent(
   }
 }
 
-void checkIdProvedEquivalent(
+void checkIdMapped(
     RootDomainMap& root_map,
     TensorView* v0,
     int a0,
     TensorView* v1,
     int a1,
     bool should_prove) {
-  return checkIdProvedEquivalent(
+  return checkIdMapped(
       root_map,
       v0,
       v0->getRootDomain()[a0],
@@ -2248,7 +2248,7 @@ void checkIdProvedEquivalent(
       should_prove);
 }
 
-void checkIdProvedEquivalent(
+void checkIdMapped(
     TensorView* v0,
     const std::vector<IterDomain*>& root0,
     const std::vector<bool> skip0,
@@ -2263,9 +2263,9 @@ void checkIdProvedEquivalent(
     size_t idx1 = 0;
     for (size_t j = 0; j < root1.size(); ++j) {
       if (!skip0[i] && !skip1[j] && idx0 == idx1) {
-        checkIdProvedEquivalent(map, v0, root0[i], v1, root1[j], true);
+        checkIdMapped(map, v0, root0[i], v1, root1[j], true);
       } else {
-        checkIdProvedEquivalent(map, v0, root0[i], v1, root1[j], false);
+        checkIdMapped(map, v0, root0[i], v1, root1[j], false);
       }
       if (!skip1[j])
         ++idx1;
@@ -2275,12 +2275,12 @@ void checkIdProvedEquivalent(
   }
 }
 
-void checkIdProvedEquivalent(
+void checkIdMapped(
     TensorView* v0,
     const std::vector<IterDomain*>& root0,
     TensorView* v1,
     const std::vector<IterDomain*>& root1) {
-  checkIdProvedEquivalent(
+  checkIdMapped(
       v0,
       root0,
       std::vector<bool>(root0.size(), false),
@@ -2291,7 +2291,7 @@ void checkIdProvedEquivalent(
 
 } // namespace
 
-TEST(NVFuserTest, FusionProveIdEqBasic_CUDA) {
+TEST(NVFuserTest, FusionRootMappingBasic_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2305,47 +2305,47 @@ TEST(NVFuserTest, FusionProveIdEqBasic_CUDA) {
   auto tv5 = add(tv3, tv4);
   fusion.addOutput(tv5);
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false, false},
       tv4,
       tv4->getRootDomain(),
       {true, false, false});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, false},
       tv4,
       tv4->getRootDomain(),
       {false, true, false});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {true, false},
       tv1,
       tv1->getRootDomain(),
       {true, false});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false, false},
       tv5,
       tv5->getRootDomain(),
       {true, false, false});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, false},
       tv5,
       tv5->getRootDomain(),
       {false, true, false});
-  checkIdProvedEquivalent(tv3, tv3->getRootDomain(), tv4, tv4->getRootDomain());
-  checkIdProvedEquivalent(tv3, tv3->getRootDomain(), tv5, tv5->getRootDomain());
-  checkIdProvedEquivalent(tv4, tv4->getRootDomain(), tv5, tv5->getRootDomain());
+  checkIdMapped(tv3, tv3->getRootDomain(), tv4, tv4->getRootDomain());
+  checkIdMapped(tv3, tv3->getRootDomain(), tv5, tv5->getRootDomain());
+  checkIdMapped(tv4, tv4->getRootDomain(), tv5, tv5->getRootDomain());
 }
 
-TEST(NVFuserTest, FusionProveIdEqRfactor_CUDA) {
+TEST(NVFuserTest, FusionRootMappingRfactor_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2372,58 +2372,58 @@ TEST(NVFuserTest, FusionProveIdEqRfactor_CUDA) {
 
   fusion.printMath();
 
-  checkIdProvedEquivalent(tv1, tv1->getRootDomain(), tv3, tv3->getRootDomain());
-  checkIdProvedEquivalent(
+  checkIdMapped(tv1, tv1->getRootDomain(), tv3, tv3->getRootDomain());
+  checkIdMapped(
       tv3,
       tv3->getRFactorDomain(),
       {false, false, false, true},
       tv2,
       tv2->getRootDomain(),
       {false, false, false});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, false, true},
       tv2,
       tv2->getRootDomain(),
       {false, false, true});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, false, true},
       tv5,
       tv5->getRootDomain(),
       {false, false});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv2,
       tv2->getRootDomain(),
       {false, false, true},
       tv5,
       tv5->getRootDomain(),
       {false, false});
-  checkIdProvedEquivalent(tv0, tv0->getRootDomain(), tv5, tv5->getRootDomain());
-  checkIdProvedEquivalent(
+  checkIdMapped(tv0, tv0->getRootDomain(), tv5, tv5->getRootDomain());
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false, false},
       tv1,
       tv1->getRootDomain(),
       {false, false, true});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false, false},
       tv2,
       tv2->getRootDomain(),
       {false, false, true});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false, false},
       tv3,
       tv3->getRFactorDomain(),
       {false, false, true, true});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false, false},
@@ -2432,7 +2432,7 @@ TEST(NVFuserTest, FusionProveIdEqRfactor_CUDA) {
       {false, false, true});
 }
 
-TEST(NVFuserTest, FusionProveIdEqBroadcastAndReduction_CUDA) {
+TEST(NVFuserTest, FusionRootMappingBroadcastAndReduction_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2443,15 +2443,15 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastAndReduction_CUDA) {
 
   fusion.printMath();
 
-  checkIdProvedEquivalent(tv0, tv0->getRootDomain(), tv1, tv1->getRootDomain());
-  checkIdProvedEquivalent(
+  checkIdMapped(tv0, tv0->getRootDomain(), tv1, tv1->getRootDomain());
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, true},
       tv2,
       tv2->getRootDomain(),
       {false, true});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false, true},
@@ -2460,7 +2460,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastAndReduction_CUDA) {
       {false, true});
 }
 
-TEST(NVFuserTest, FusionProveIdEqMultipleBroadcast_CUDA) {
+TEST(NVFuserTest, FusionRootMappingMultipleBroadcast_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2472,23 +2472,23 @@ TEST(NVFuserTest, FusionProveIdEqMultipleBroadcast_CUDA) {
 
   fusion.printMath();
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {true},
       tv1,
       tv1->getRootDomain(),
       {true, true});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {true},
       tv2,
       tv2->getRootDomain(),
       {true, true});
-  checkIdProvedEquivalent(tv1, tv1->getRootDomain(), tv3, tv3->getRootDomain());
-  checkIdProvedEquivalent(tv2, tv2->getRootDomain(), tv3, tv3->getRootDomain());
-  checkIdProvedEquivalent(
+  checkIdMapped(tv1, tv1->getRootDomain(), tv3, tv3->getRootDomain());
+  checkIdMapped(tv2, tv2->getRootDomain(), tv3, tv3->getRootDomain());
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {true},
@@ -2497,7 +2497,7 @@ TEST(NVFuserTest, FusionProveIdEqMultipleBroadcast_CUDA) {
       {true, true});
 }
 
-TEST(NVFuserTest, FusionProveIdEqMultipleBroadcastWithNoCommonConsumer_CUDA) {
+TEST(NVFuserTest, FusionRootMappingMultipleBroadcastWithNoCommonConsumer_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2507,21 +2507,21 @@ TEST(NVFuserTest, FusionProveIdEqMultipleBroadcastWithNoCommonConsumer_CUDA) {
   fusion.addOutput(tv1);
   fusion.addOutput(tv2);
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false},
       tv1,
       tv1->getRootDomain(),
       {false, true});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false},
       tv2,
       tv2->getRootDomain(),
       {true, false});
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, true},
@@ -2530,7 +2530,7 @@ TEST(NVFuserTest, FusionProveIdEqMultipleBroadcastWithNoCommonConsumer_CUDA) {
       {true, false});
 }
 
-TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
+TEST(NVFuserTest, FusionRootMappingBroadcastNonUniqueSize_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2546,7 +2546,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
   auto tv5 = add(tv2, tv3);
   fusion.addOutput(tv5);
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false},
@@ -2554,7 +2554,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       tv3->getRootDomain(),
       {false, true});
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false},
@@ -2562,7 +2562,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       tv1->getRootDomain(),
       {false, true});
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv0,
       tv0->getRootDomain(),
       {false},
@@ -2570,7 +2570,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       tv2->getRootDomain(),
       {false, true});
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, true},
@@ -2578,7 +2578,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       tv2->getRootDomain(),
       {false, true});
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, false},
@@ -2586,7 +2586,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       tv3->getRootDomain(),
       {false, false});
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv2,
       tv2->getRootDomain(),
       {false, false},
@@ -2594,7 +2594,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       tv3->getRootDomain(),
       {false, false});
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv3,
       tv3->getRootDomain(),
       {false, false},
@@ -2602,7 +2602,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       tv4->getRootDomain(),
       {false, false});
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv3,
       tv3->getRootDomain(),
       {false, false},
@@ -2610,7 +2610,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       tv5->getRootDomain(),
       {false, false});
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv4,
       tv4->getRootDomain(),
       {false, true},
@@ -2619,7 +2619,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
       {false, true});
 }
 
-TEST(NVFuserTest, FusionProveIdReductionDependency_CUDA) {
+TEST(NVFuserTest, FusionRootMappingReductionDependency_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2633,7 +2633,7 @@ TEST(NVFuserTest, FusionProveIdReductionDependency_CUDA) {
 
   fusion.printMath();
 
-  checkIdProvedEquivalent(
+  checkIdMapped(
       tv1,
       tv1->getRootDomain(),
       {false, true},
