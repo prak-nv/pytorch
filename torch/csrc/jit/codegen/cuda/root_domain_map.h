@@ -35,6 +35,8 @@ class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
       const TensorDomain* producer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
 
+  virtual std::ostream& print(std::ostream& os) const = 0;
+
  protected:
   //! Return a map between root IterDomains of a producer-consumer
   //! pair.
@@ -50,10 +52,17 @@ class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
       bool producer_to_consumer) const = 0;
 };
 
+inline std::ostream& operator<<(std::ostream& os, const RootDomainMap& map) {
+  return map.print(os);
+}
+
 class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
  public:
-  PairwiseRootDomainMap(const TensorView* producer,
-                        const TensorView* consumer): producer_(producer), consumer_(consumer) {}
+  explicit PairwiseRootDomainMap(
+      const TensorView* producer,
+      const TensorView* consumer);
+
+  std::ostream& print(std::ostream& os) const override;
 
  protected:
   std::unordered_map<IterDomain*, IterDomain*> map(
@@ -62,9 +71,21 @@ class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
       const std::unordered_set<const IterDomain*>& root_dims_to_map,
       bool producer_to_consumer) const override;
 
+  //! Creates mapping that does not consider the actual expression of
+  //! a producer-consumer. This is potentially unsafe.
+  PairwiseRootDomainMap() = default;
+
  private:
-  const TensorView* producer_ = nullptr;
-  const TensorView* consumer_ = nullptr;
+  const TensorView* producer_tv_ = nullptr;
+  const TensorView* consumer_tv_ = nullptr;
+  std::vector<bool> broadcast_flags_;
+};
+
+class TORCH_CUDA_API UnsafePairwiseRootDomainMap
+    : public PairwiseRootDomainMap {
+ public:
+  UnsafePairwiseRootDomainMap() : PairwiseRootDomainMap() {}
+  std::ostream& print(std::ostream& os) const override;
 };
 
 //! Represents an iteration domain of a TensorDomain. Only used for
@@ -160,6 +181,7 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
 //! This will create mappings between i0, i2 and i4.
 class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   friend class ComputeAtRootDomainMapBuilder;
+
  public:
   ComputeAtRootDomainMap();
 
@@ -176,7 +198,7 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
       const TensorDomain* td_b,
       const IterDomain* id_b) const;
 
-  std::ostream& print(std::ostream& os) const;
+  std::ostream& print(std::ostream& os) const override;
 
  private:
   //! Check if two iterdomains can be mapped to each other
@@ -220,10 +242,6 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   DisjointSet<DomainKey, DomainKeyHash> eq_set_;
   DomainKeyMap<std::unordered_set<const IterDomain*>> bcast_map_;
 };
-
-inline std::ostream& operator<<(std::ostream& os, const ComputeAtRootDomainMap& map) {
-  return map.print(os);
-}
 
 //! Create a DisjointSet of root IterDomains by traversing the
 //! current fusion entirely. IterDomains that can be mapped each

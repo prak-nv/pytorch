@@ -225,7 +225,8 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
       std::cerr << "consumer_CA_root_id: " << val << std::endl;
     }
   }
-  RootDomainMap root_map;
+  // const ComputeAtRootDomainMap root_map;
+  const UnsafePairwiseRootDomainMap root_map;
   auto replay_root_map =
       root_map.mapConsumerToProducer(consumer, producer, consumer_CA_root_ids);
   if (replay_root_map != replay_root_map_old) {
@@ -247,6 +248,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
     ss << "\n";
     std::cerr << ss.str();
     TORCH_INTERNAL_ASSERT(false);
+    // replay_root_map = replay_root_map_old;
   }
 
   // Track which root axes in producer we will send to replay
@@ -454,7 +456,8 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
       // std::cerr << "producer CA root id: " << id << std::endl;
     }
   }
-  const RootDomainMap root_map;
+  // const ComputeAtRootDomainMap root_map;
+  const UnsafePairwiseRootDomainMap root_map;
   auto replay_root_map =
       root_map.mapProducerToConsumer(producer, consumer, producer_CA_root_ids);
   if (replay_root_map != replay_root_map_old) {
@@ -477,6 +480,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
     ss << "\n";
     std::cerr << ss.str();
     TORCH_INTERNAL_ASSERT(false);
+    // replay_root_map = replay_root_map_old;
   }
 
   // Track which root axes in producer we will send to replay
