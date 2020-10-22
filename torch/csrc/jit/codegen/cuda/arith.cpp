@@ -495,7 +495,7 @@ TensorView* sum(
     TensorView* v1,
     const std::vector<int>& axes,
     bool keep_dim /*=false*/) {
-  Val* init;
+  Val* init = nullptr;
   switch (v1->getDataType().value()) {
     case (DataType::Float):
       init = new Float(0.0);
