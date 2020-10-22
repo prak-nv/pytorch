@@ -11,6 +11,65 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
+    mapProducerToConsumer(
+        const TensorDomain* producer,
+        const TensorDomain* consumer,
+        const std::unordered_set<const IterDomain*>& root_dims_to_map) const {
+  return map(producer, consumer, root_dims_to_map, true);
+}
+
+std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
+    mapConsumerToProducer(
+        const TensorDomain* consumer,
+        const TensorDomain* producer,
+        const std::unordered_set<const IterDomain*>& root_dims_to_map) const {
+  return map(producer, consumer, root_dims_to_map, false);
+}
+
+std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
+    const TensorDomain* producer,
+    const TensorDomain* consumer,
+    const std::unordered_set<const IterDomain*>& root_dims_to_map,
+    bool producer_to_consumer) const {
+  std::unordered_map<IterDomain*, IterDomain*> dom_map;
+  const auto& producer_root = producer->getMaybeRFactorDomain();
+  const auto& consumer_root = consumer->getRootDomain();
+  size_t itc = 0, itp = 0;
+  while (itc < consumer_root.size() && itp < producer_root.size()) {
+    IterDomain* producer_id = producer_root[itp];
+    IterDomain* consumer_id = consumer_root[itc];
+
+    // When the producer ID is a reduction domain, there should never
+    // be any matching domain in the consumer.
+    if (producer_id->isReduction()) {
+      itp++;
+      continue;
+    }
+
+    // When the consumer is a broadcast domain, but the producer is
+    // not, the consumer broadcast must be the new broadcast domain
+    // introduced by broadcasting the producer.
+    if (consumer_id->isBroadcast() && !producer_id->isBroadcast()) {
+      itc++;
+      continue;
+    }
+
+    IterDomain* map_key_id = producer_id;
+    IterDomain* map_value_id = consumer_id;
+    if (!producer_to_consumer) {
+      std::swap(map_key_id, map_value_id);
+    }
+
+    if (root_dims_to_map.find(map_key_id) != root_dims_to_map.end()) {
+      dom_map.insert(std::make_pair(map_key_id, map_value_id));
+    }
+    itc++;
+    itp++;
+  }
+  return dom_map;
+}
+
 namespace {
 
 template <typename T>
@@ -249,22 +308,6 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
     }
   }
   return id_map;
-}
-
-std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::
-    mapProducerToConsumer(
-        const TensorDomain* producer,
-        const TensorDomain* consumer,
-        const std::unordered_set<const IterDomain*>& root_dims_to_map) const {
-  return map(producer, consumer, root_dims_to_map, true);
-}
-
-std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::
-    mapConsumerToProducer(
-        const TensorDomain* consumer,
-        const TensorDomain* producer,
-        const std::unordered_set<const IterDomain*>& root_dims_to_map) const {
-  return map(producer, consumer, root_dims_to_map, false);
 }
 
 std::ostream& ComputeAtRootDomainMap::print(std::ostream& os) const {

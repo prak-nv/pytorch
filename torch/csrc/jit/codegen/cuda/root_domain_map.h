@@ -2,6 +2,7 @@
 
 #include <torch/csrc/jit/codegen/cuda/disjoint_set.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
+#include <torch/csrc/jit/codegen/cuda/utils.h>
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
@@ -9,6 +10,62 @@ namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
+
+class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
+ public:
+  //! Return a map from a producer TensorDomain to a consumer
+  //! TensorDomain
+  //!
+  //! \param producer A producer TensorDomain
+  //! \param consumer A consumer TensorDomain
+  //! \param root_dims_to_map Maps only producer root domains in this set
+  std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
+      const TensorDomain* producer,
+      const TensorDomain* consumer,
+      const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
+
+  //! Return a map from a consumer TensorDomain to a producer
+  //! TensorDomain
+  //!
+  //! \param consumer A consumer TensorDomain
+  //! \param producer A producer TensorDomain
+  //! \param root_dims_to_map Maps only consumer root domains in this set
+  std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
+      const TensorDomain* consumer,
+      const TensorDomain* producer,
+      const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
+
+ protected:
+  //! Return a map between root IterDomains of a producer-consumer
+  //! pair.
+  //!
+  //! \param producer A producer TensorDomain
+  //! \param consumer A consumer TensorDomain
+  //! \param root_dims_to_map Maps only from IterDomains in this set
+  //! \param producer_to_consumer Maps from producer to consumer if true
+  virtual std::unordered_map<IterDomain*, IterDomain*> map(
+      const TensorDomain* producer,
+      const TensorDomain* consumer,
+      const std::unordered_set<const IterDomain*>& root_dims_to_map,
+      bool producer_to_consumer) const = 0;
+};
+
+class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
+ public:
+  PairwiseRootDomainMap(const TensorView* producer,
+                        const TensorView* consumer): producer_(producer), consumer_(consumer) {}
+
+ protected:
+  std::unordered_map<IterDomain*, IterDomain*> map(
+      const TensorDomain* producer,
+      const TensorDomain* consumer,
+      const std::unordered_set<const IterDomain*>& root_dims_to_map,
+      bool producer_to_consumer) const override;
+
+ private:
+  const TensorView* producer_ = nullptr;
+  const TensorView* consumer_ = nullptr;
+};
 
 //! Represents an iteration domain of a TensorDomain. Only used for
 //! root domain mapping.
@@ -101,7 +158,7 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
 //! example:
 //!    T2 [i0,i1] = T1[i2,i3] + T0[i4,i5]
 //! This will create mappings between i0, i2 and i4.
-class TORCH_CUDA_API ComputeAtRootDomainMap {
+class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   friend class ComputeAtRootDomainMapBuilder;
  public:
   ComputeAtRootDomainMap();
@@ -118,28 +175,6 @@ class TORCH_CUDA_API ComputeAtRootDomainMap {
       const IterDomain* id_a,
       const TensorDomain* td_b,
       const IterDomain* id_b) const;
-
-  //! Return a map from a producer TensorDomain to a consumer
-  //! TensorDomain
-  //!
-  //! \param producer A producer TensorDomain
-  //! \param consumer A consumer TensorDomain
-  //! \param root_dims_to_map Maps only producer root domains in this set
-  std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
-      const TensorDomain* producer,
-      const TensorDomain* consumer,
-      const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
-
-  //! Return a map from a consumer TensorDomain to a producer
-  //! TensorDomain
-  //!
-  //! \param consumer A consumer TensorDomain
-  //! \param producer A producer TensorDomain
-  //! \param root_dims_to_map Maps only consumer root domains in this set
-  std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
-      const TensorDomain* consumer,
-      const TensorDomain* producer,
-      const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
 
   std::ostream& print(std::ostream& os) const;
 
@@ -179,7 +214,7 @@ class TORCH_CUDA_API ComputeAtRootDomainMap {
       const TensorDomain* producer,
       const TensorDomain* consumer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map,
-      bool producer_to_consumer) const;
+      bool producer_to_consumer) const override;
 
  private:
   DisjointSet<DomainKey, DomainKeyHash> eq_set_;
