@@ -922,21 +922,12 @@ std::vector<std::pair<int, int>> TensorDomain::mapDomainPandC(
 
   size_t itc = 0, itp = 0;
   while (itc < consumer.size() && itp < producer.size()) {
-    IterDomain* p_id = producer[itp];
-    IterDomain* c_id = consumer[itc];
-
-    // When the producer ID is a reduction domain, there should never
-    // be any matching domain in the consumer.
-    if (p_id->isReduction()) {
-      itp++;
+    if (consumer[itc]->isBroadcast() && !producer[itp]->isBroadcast()) {
+      itc++;
       continue;
     }
-
-    // When the consumer is a broadcast domain, but the producer is
-    // not, the consumer broadcast must be the new broadcast domain
-    // introduced by broadcasting the producer.
-    if (c_id->isBroadcast() && !p_id->isBroadcast()) {
-      itc++;
+    if (producer[itp]->isReduction()) {
+      itp++;
       continue;
     }
 
