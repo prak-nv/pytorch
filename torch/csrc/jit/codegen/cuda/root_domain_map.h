@@ -22,21 +22,30 @@ namespace cuda {
 class DomainKey {
  public:
   DomainKey() = default;
-  DomainKey(const TensorDomain* td, const IterDomain* id) : td_(td), id_(id) {}
+  DomainKey(
+      const TensorDomain* td,
+      const IterDomain* id,
+      const IterDomain* concrete_id = nullptr)
+      : td_(td), id_(id), concrete_id_(concrete_id) {}
   const TensorDomain* td() const {
     return td_;
   }
   const IterDomain* id() const {
     return id_;
   }
+  const IterDomain* concreteId() const {
+    return concrete_id_;
+  }
   bool operator==(const DomainKey& other) const {
-    return td() == other.td() && id() == other.id();
+    return td() == other.td() && id() == other.id() &&
+        concreteId() == other.concreteId();
   }
   std::ostream& print(std::ostream& os) const;
 
  private:
   const TensorDomain* td_ = nullptr;
   const IterDomain* id_ = nullptr;
+  const IterDomain* concrete_id_ = nullptr;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const DomainKey& key) {
@@ -49,6 +58,13 @@ struct DomainKeyHash {
         std::hash<const IterDomain*>{}(key.id());
   }
 };
+
+using DomainKeySet = std::unordered_set<DomainKey, DomainKeyHash>;
+
+template <typename Mapped>
+using DomainKeyMap = std::unordered_map<DomainKey, Mapped, DomainKeyHash>;
+
+class RootDomainMap;
 
 //! A helper class to find all DomainKeys that are consumers of
 //! reduction outputs. Such consumer IterDomains may not be mapped to
@@ -66,7 +82,8 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
   //! possible. This routine is used to build root domain mappings.
   bool isReductionOutputMapped(
       const std::vector<DomainKey>& consumer_domains,
-      const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const;
+      const RootDomainMap& root_map) const;
+  // const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const;
 
  private:
   using IterVisitor::handle;
@@ -74,11 +91,7 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
 
  private:
   //! Map from Reduction output DomainKeys to consumer DomainKeys
-  std::unordered_map<
-      DomainKey,
-      std::unordered_set<DomainKey, DomainKeyHash>,
-      DomainKeyHash>
-      reduction_domains_;
+  DomainKeyMap<DomainKeySet> reduction_domains_;
 };
 
 //! Models root-domain mappings for computeAt
@@ -147,6 +160,8 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
       const TensorDomain* consumer_td,
       const IterDomain* consumer_id);
 
+  void addToPendingList(const DomainKey& producer, const DomainKey& consumer);
+
   //! Map pointwise IterDomains from inputs of expressions to outputs.
   //! Do not map reduction IterDomains in inputs.
   void mapPointwiseOrReductionOp(Expr* e);
@@ -181,6 +196,35 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
 
   void handle(TensorView* tv) override;
 
+  bool hasMatchingDomains(const std::vector<DomainKey>& unique_domains);
+
+  bool safeToMap(const DomainKeySet& domains);
+
+  //! Check if two iterdomains can be mapped to each other
+  //!
+  //! \param key_a A DomainKey
+  //! \param td_b Another TensorDomain
+  //! \param id_b An IterDomain in td_b
+  //! \returns Boolean representing if they are mapped
+  bool canMap(
+      const DomainKey& key_a,
+      const TensorDomain* td_b,
+      const IterDomain* id_b) const;
+
+  bool canMap(const DomainKey& key_a, const DomainKey& key_b) const;
+
+  std::vector<DomainKey> getConcretizedKeys(
+      const TensorDomain* td,
+      const IterDomain* id) const;
+  std::unordered_set<const IterDomain*>& getConcretizedDomains(
+      const TensorDomain* td,
+      const IterDomain* id);
+  bool hasConcretizedDomains(const TensorDomain* td, const IterDomain* id)
+      const;
+  static DomainKey getDefaultConcretizedDomain(
+      const TensorDomain* td,
+      const IterDomain* id);
+
   //! Return a map between root IterDomains of a producer-consumer
   //! pair.
   //!
@@ -197,13 +241,10 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
  private:
   DisjointSet<DomainKey, DomainKeyHash> eq_set_;
   //! Keep track of what we want to try and map. Set in attemptToProveId.
-  std::unordered_map<
-      DomainKey,
-      std::unordered_set<DomainKey, DomainKeyHash>,
-      DomainKeyHash>
-      pending_map_;
+  DomainKeyMap<DomainKeySet> pending_map_;
   std::unordered_set<Expr*> visited_;
   UnmappableReductionDomains incompatible_domains_;
+  DomainKeyMap<std::unordered_set<const IterDomain*>> bcast_map_;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const RootDomainMap& map) {

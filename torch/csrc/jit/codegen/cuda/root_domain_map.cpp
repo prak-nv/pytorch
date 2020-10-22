@@ -4,6 +4,8 @@
 
 #include <sstream>
 
+// #define ROOT_MAPPING_DEBUG
+
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -11,61 +13,26 @@ namespace cuda {
 
 namespace {
 
-// Checks whether all consumers of a producer can be joined without
-// introducing unsupported mappings. Specifically, if a domain of a
-// consumer has a mapped iteration domain in another consumer that
-// does not correspond to the same producer iteration domain, mapping
-// the consumer domains would result in the producer iteration domain
-// mapped to two different consumer iteration domains, requiring
-// recomputations.
-bool hasMatchingDomains(
-    const std::vector<DomainKey>& unique_domains,
-    const DisjointSet<DomainKey, DomainKeyHash>& eq_set) {
-  for (const auto& key : unique_domains) {
-    for (const auto& other_key : unique_domains) {
-      if (key == other_key)
-        continue;
-      const auto& root = other_key.td()->getRootDomain();
-      if (std::any_of(root.begin(), root.end(), [&](const IterDomain* id) {
-            return eq_set.areEquivalent(key, DomainKey(other_key.td(), id));
-          })) {
-        return true;
-      }
-    }
+template <typename T>
+auto ensureMapping(
+    T& m,
+    const typename T::key_type& key,
+    const typename T::mapped_type& init_value) {
+  auto it = m.find(key);
+  if (it == m.end()) {
+    it = m.insert({key, init_value}).first;
   }
-  return false;
+  return it;
 }
 
-// Checks whether all consumers of a producer can be joined without
-// introducing unsupported mappings, i.e., requiring recomputations.
-bool safeToMap(
-    const std::unordered_set<DomainKey, DomainKeyHash>& domains,
-    const DisjointSet<DomainKey, DomainKeyHash>& eq_set,
-    const UnmappableReductionDomains& inconsistent_domains) {
-  // std::cerr << "safeTojoin?: " << domains << std::endl;
-  if (domains.size() <= 1) {
-    return true;
-  }
-  // Filter out equivalent domains
-  std::vector<DomainKey> unique_domains;
-  for (const auto& domain : domains) {
-    if (std::none_of(
-            unique_domains.begin(),
-            unique_domains.end(),
-            [&](const auto& unique_dom) {
-              return eq_set.areEquivalent(domain, unique_dom);
-            })) {
-      unique_domains.push_back(domain);
+std::vector<Val*> getLeaves(Fusion* fusion) {
+  std::vector<Val*> leaves;
+  for (Val* val : fusion->deterministic_vals()) {
+    if (!fusion->used(val)) {
+      leaves.push_back(val);
     }
   }
-  if (hasMatchingDomains(unique_domains, eq_set)) {
-    return false;
-  }
-  // Can't map if reduction output domains would be mapped
-  if (inconsistent_domains.isReductionOutputMapped(unique_domains, eq_set)) {
-    return false;
-  }
-  return true;
+  return leaves;
 }
 
 } // namespace
@@ -84,6 +51,9 @@ std::ostream& DomainKey::print(std::ostream& os) const {
     ss << id_;
   } else {
     ss << "null";
+  }
+  if (concrete_id_) {
+    ss << " (" << concrete_id_ << ")";
   }
   ss << "}";
   return os << ss.str();
@@ -121,23 +91,24 @@ void UnmappableReductionDomains::handle(ReductionOp* op) {
 
 bool UnmappableReductionDomains::isReductionOutputMapped(
     const std::vector<DomainKey>& consumer_domains,
-    const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const {
+    const RootDomainMap& root_map) const {
   for (const auto& kv : reduction_domains_) {
-    const auto& reducion_domain = kv.first;
-    const auto& incompatible_domains = kv.second;
-    // std::cerr << "Inconsistent reduction: " << reducion_domain << std::endl;
+    const DomainKey& reducion_domain = kv.first;
+    const DomainKeySet& incompatible_domains = kv.second;
     DomainKey consumer_domain_with_reduction;
     bool reduction_found = false;
-    for (const auto& consumer_domain : consumer_domains) {
-      if (eq_set.areEquivalent(reducion_domain, consumer_domain)) {
+    for (const DomainKey& consumer_domain : consumer_domains) {
+      if (root_map.canMap(
+              consumer_domain.td(),
+              consumer_domain.id(),
+              reducion_domain.td(),
+              reducion_domain.id())) {
         consumer_domain_with_reduction = consumer_domain;
-        // std::cerr << "reduction found in: " << consumer_domain << std::endl;
         reduction_found = true;
         break;
       }
     }
     if (!reduction_found) {
-      // std::cerr << "reduction not found in consumers\n";
       continue;
     }
     // Make sure no incompatible domains will be merged with the reduction
@@ -150,12 +121,12 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
               incompatible_domains.begin(),
               incompatible_domains.end(),
               [&](const DomainKey& incompatible_domain) {
-                return eq_set.areEquivalent(
-                    consumer_domain, incompatible_domain);
+                return root_map.canMap(
+                    consumer_domain.td(),
+                    consumer_domain.id(),
+                    incompatible_domain.td(),
+                    incompatible_domain.id());
               })) {
-        // Merging them will result in inconsistency
-        // std::cerr << "incompatible consumer found: " << consumer_domain <<
-        // std::endl;
         return true;
       }
     }
@@ -166,28 +137,24 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
 RootDomainMap::RootDomainMap() {
   Fusion* fusion = FusionGuard::getCurFusion();
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
-  // std::cerr << "Traversing for root domain map\n";
-  std::vector<Val*> leaves;
-  for (Val* val : fusion->deterministic_vals()) {
-    if (!fusion->used(val)) {
-      leaves.push_back(val);
-    }
-    // Register all domain keys. This simplifies the matching analysis.
-    if (val->isA<TensorView>()) {
-      auto td = val->as<TensorView>()->domain();
-      for (const auto& id : td->getRootDomain()) {
-        eq_set_.insert(DomainKey(td, id));
-      }
-      if (td->hasRFactor()) {
-        for (const auto& id : td->getRFactorDomain()) {
-          eq_set_.insert(DomainKey(td, id));
-        }
+  std::vector<Val*> leaves = getLeaves(fusion);
+  // Set concrete domains for broadcast domains that never get joined
+  // with a concrete domain. Just set its own domain as a concrete
+  // domain, which is not concrete but is sufficient for this analysis.
+  for (const TensorView* leaf_tv : ir_utils::filterByType<TensorView>(leaves)) {
+    for (const IterDomain* id : leaf_tv->getRootDomain()) {
+      if (id->isBroadcast()) {
+        auto it =
+            ensureMapping(bcast_map_, DomainKey(leaf_tv->domain(), id), {});
+        it->second.insert(id);
       }
     }
   }
   traverseFrom(fusion, leaves, false);
-  // std::cerr << "Traversal done\n";
-  // print(std::cerr);
+#ifdef ROOT_MAPPING_DEBUG
+  std::cerr << "Traversal done\n";
+  print(std::cerr);
+#endif
   if (!pending_map_.empty()) {
     std::stringstream ss;
     ss << "pending map:\n";
@@ -215,9 +182,51 @@ bool RootDomainMap::canMap(
       id_b->getOrigin() == nullptr || id_b->isRFactorProduct(),
       "Non-root domain is not supproted: ",
       id_b);
-  DomainKey key_a(td_a, id_a);
-  DomainKey key_b(td_b, id_b);
-  return eq_set_.areEquivalent(key_a, key_b);
+
+  if (hasConcretizedDomains(td_a, id_a)) {
+    for (const auto& key_a : getConcretizedKeys(td_a, id_a)) {
+      if (canMap(key_a, td_b, id_b)) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    return canMap(DomainKey(td_a, id_a), td_b, id_b);
+  }
+}
+
+bool RootDomainMap::canMap(
+    const DomainKey& key_a,
+    const TensorDomain* td_b,
+    const IterDomain* id_b) const {
+  TORCH_INTERNAL_ASSERT(
+      id_b->getOrigin() == nullptr || id_b->isRFactorProduct(),
+      "Non-root domain is not supproted: ",
+      id_b);
+
+  if (hasConcretizedDomains(td_b, id_b)) {
+    for (const auto& key_b_bc : getConcretizedKeys(td_b, id_b)) {
+      if (canMap(key_a, key_b_bc)) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    return canMap(key_a, DomainKey(td_b, id_b));
+  }
+}
+
+bool RootDomainMap::canMap(const DomainKey& key_a, const DomainKey& key_b)
+    const {
+  return key_a == key_b || eq_set_.areEquivalent(key_a, key_b);
+}
+
+void RootDomainMap::addToPendingList(
+    const DomainKey& producer,
+    const DomainKey& consumer) {
+  auto it = ensureMapping(pending_map_, producer, {});
+  auto& consumer_set = it->second;
+  consumer_set.insert(consumer);
 }
 
 void RootDomainMap::setMaybeMapped(
@@ -225,21 +234,43 @@ void RootDomainMap::setMaybeMapped(
     const IterDomain* producer_id,
     const TensorDomain* consumer_td,
     const IterDomain* consumer_id) {
-  DomainKey producer_key(producer_td, producer_id);
-  DomainKey consumer_key(consumer_td, consumer_id);
-  auto it = pending_map_.find(producer_key);
-  if (it == pending_map_.end()) {
-    // std::cerr << "Adding a new pending map set for " << producer_key <<
-    // std::endl;
-    it = pending_map_.insert({producer_key, {}}).first;
+  const DomainKey producer_key(producer_td, producer_id);
+  const DomainKey consumer_key(consumer_td, consumer_id);
+
+  if (producer_id->isBroadcast()) {
+    ensureMapping(bcast_map_, producer_key, {});
   }
-  auto& consumer_set = it->second;
-  consumer_set.insert(consumer_key);
+
+  if (hasConcretizedDomains(consumer_td, consumer_id)) {
+    TORCH_INTERNAL_ASSERT(producer_id->isBroadcast());
+    const auto consumer_bcast_domains =
+        getConcretizedKeys(consumer_td, consumer_id);
+    auto& producer_domains = getConcretizedDomains(producer_td, producer_id);
+
+    for (const auto& consumer_bcast_key : consumer_bcast_domains) {
+      const auto concrete_id = consumer_bcast_key.concreteId();
+      const DomainKey producer_bcast_key(producer_td, producer_id, concrete_id);
+      producer_domains.insert(concrete_id);
+      addToPendingList(producer_bcast_key, consumer_bcast_key);
+    }
+  } else {
+    TORCH_INTERNAL_ASSERT(
+        !consumer_id->isBroadcast(),
+        "No concrete domain found for a broadcast domain: ",
+        consumer_key);
+    auto producer_concrete_key = producer_key;
+    if (producer_id->isBroadcast()) {
+      const auto concrete_id = consumer_id;
+      auto& producer_domains = getConcretizedDomains(producer_td, producer_id);
+      producer_concrete_key = DomainKey(producer_td, producer_id, concrete_id);
+      producer_domains.insert(concrete_id);
+    }
+    addToPendingList(producer_concrete_key, consumer_key);
+  }
 }
 
 void RootDomainMap::handle(Expr* e) {
-  // std::cerr << "handle: " << e << std::endl;
-  // Expr can be visited multiple times.
+  // Avoid visiting expressions multiple times
   if (visited_.find(e) != visited_.end()) {
     return;
   }
@@ -251,8 +282,6 @@ void RootDomainMap::mapPointwiseOrReductionOp(Expr* e) {
   if (e->output(0)->getValType() != ValType::TensorView) {
     return;
   }
-
-  // std::cerr << "Visiting Expr: " << e << std::endl;
 
   // Broadcast is handled separately, so e should never be BroadcastOp.
   TORCH_INTERNAL_ASSERT(e->getExprType() != ExprType::BroadcastOp);
@@ -276,7 +305,6 @@ void RootDomainMap::mapPointwiseOrReductionOp(Expr* e) {
 }
 
 void RootDomainMap::handle(BroadcastOp* op) {
-  // std::cerr << "BroadcastOp: " << op << std::endl;
   const TensorDomain* in_td = op->in()->as<TensorView>()->domain();
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
   const auto in_root = TensorDomain::noReductions(in_td->getRootDomain());
@@ -324,16 +352,18 @@ void RootDomainMap::handle(BroadcastOp* op) {
 bool RootDomainMap::mapAllConsumers(const DomainKey& producer_key) {
   // std::cerr << "mapAllConsumers for : " << producer_key << std::endl;
   auto it = pending_map_.find(producer_key);
-  TORCH_INTERNAL_ASSERT(it != pending_map_.end());
+  if (it == pending_map_.end()) {
+    return false;
+  }
   const auto& consumer_set = it->second;
   // All entries in key_set must be equivalent with each other.
   TORCH_INTERNAL_ASSERT(consumer_set.size() > 0);
-  bool consistent = safeToMap(consumer_set, eq_set_, incompatible_domains_);
+  bool consistent = safeToMap(consumer_set);
   if (consistent) {
     for (const auto pending_consumer : consumer_set) {
-#if 0
-      std::cerr << "Equivalent Ids found: " << producer_key << " == " << pending_consumer
-                << std::endl;
+#ifdef ROOT_MAPPING_DEBUG
+      std::cerr << "Equivalent Ids found: " << producer_key
+                << " == " << pending_consumer << std::endl;
 #endif
       setMapped(producer_key, pending_consumer);
     }
@@ -344,30 +374,123 @@ bool RootDomainMap::mapAllConsumers(const DomainKey& producer_key) {
 }
 
 void RootDomainMap::handle(TensorView* tv) {
-  if (false) {
+#ifdef ROOT_MAPPING_DEBUG
+  {
     std::stringstream ss;
     ss << tv;
     std::cerr << "Visiting TensorView: " << ss.str() << std::endl;
   }
+#endif
   const TensorDomain* td = tv->domain();
   const auto root = TensorDomain::noReductions(td->getMaybeRFactorDomain());
-  std::stringstream tvstr;
-  tvstr << tv;
   for (auto id : root) {
-    const DomainKey key(td, id);
-    auto it = pending_map_.find(key);
-    if (it == pending_map_.end()) {
-      // No consumer of this ID found. Just need to add this to
-      // eq_set_ but nothing equivalent with it yet
-      // std::cerr << "No consumer found: " << key << " of " <<
-      // tvstr.str() << std::endl;
-      continue;
-    }
-    if (mapAllConsumers(key)) {
-      // std::cerr << "Mapping of " << key << " (" << tvstr.str() << ")
-      // succeeded\n";
+    if (hasConcretizedDomains(td, id)) {
+      // std::cerr << "has concretized: " << DomainKey(td, id) << "\n";
+      for (const auto& key : getConcretizedKeys(td, id)) {
+        // std::cerr << "concretized: " << key << "\n";
+        mapAllConsumers(key);
+      }
+    } else {
+      // std::cerr << "does not have concretized: " << DomainKey(td, id) <<
+      // "\n";
+      mapAllConsumers(DomainKey(td, id));
     }
   }
+}
+
+// Checks whether all consumers of a producer can be joined without
+// introducing unsupported mappings. Specifically, if a domain of a
+// consumer has a mapped iteration domain in another consumer that
+// does not correspond to the same producer iteration domain, mapping
+// the consumer domains would result in the producer iteration domain
+// mapped to two different consumer iteration domains, requiring
+// recomputations.
+bool RootDomainMap::hasMatchingDomains(
+    const std::vector<DomainKey>& unique_domains) {
+  for (const auto& key : unique_domains) {
+    for (const auto& other_key : unique_domains) {
+      if (key == other_key) {
+        continue;
+      }
+      const auto& root = other_key.td()->getRootDomain();
+      if (std::any_of(root.begin(), root.end(), [&](const IterDomain* id) {
+            return canMap(key, other_key.td(), id);
+          })) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Checks whether all consumers of a producer can be joined without
+// introducing unsupported mappings, i.e., requiring recomputations.
+bool RootDomainMap::safeToMap(const DomainKeySet& domains) {
+  // std::cerr << "safeTojoin?: " << domains << std::endl;
+  if (domains.size() <= 1) {
+    return true;
+  }
+  // Filter out equivalent domains
+  std::vector<DomainKey> unique_domains;
+  for (const auto& domain : domains) {
+    if (std::none_of(
+            unique_domains.begin(),
+            unique_domains.end(),
+            [&](const auto& unique_dom) {
+              return canMap(domain, unique_dom);
+            })) {
+      unique_domains.push_back(domain);
+    }
+  }
+  if (hasMatchingDomains(unique_domains)) {
+    return false;
+  }
+  // Can't map if reduction output domains would be mapped
+  // if (incompatible_domains_.isReductionOutputMapped(unique_domains,
+  // eq_set_)) {
+  if (incompatible_domains_.isReductionOutputMapped(unique_domains, *this)) {
+    return false;
+  }
+  return true;
+}
+
+DomainKey RootDomainMap::getDefaultConcretizedDomain(
+    const TensorDomain* td,
+    const IterDomain* id) {
+  return DomainKey(td, id, id);
+}
+
+bool RootDomainMap::hasConcretizedDomains(
+    const TensorDomain* td,
+    const IterDomain* id) const {
+  DomainKey key(td, id);
+  return bcast_map_.find(key) != bcast_map_.end();
+}
+
+std::vector<DomainKey> RootDomainMap::getConcretizedKeys(
+    const TensorDomain* td,
+    const IterDomain* id) const {
+  DomainKey key(td, id);
+  auto it = bcast_map_.find(key);
+  TORCH_INTERNAL_ASSERT(it != bcast_map_.end(), "Not found: ", key);
+  std::vector<DomainKey> domains;
+  std::transform(
+      it->second.begin(),
+      it->second.end(),
+      std::back_inserter(domains),
+      [&](const IterDomain* concrete_id) {
+        return DomainKey(td, id, concrete_id);
+      });
+  return domains;
+}
+
+std::unordered_set<const IterDomain*>& RootDomainMap::getConcretizedDomains(
+    const TensorDomain* td,
+    const IterDomain* id) {
+  DomainKey key(td, id);
+  auto it = bcast_map_.find(key);
+  TORCH_INTERNAL_ASSERT(it != bcast_map_.end(), "Not found: ", key);
+  return it->second;
 }
 
 std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::map(
@@ -384,11 +507,9 @@ std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::map(
   std::unordered_map<IterDomain*, IterDomain*> id_map;
   for (const auto& src_id : src_ids) {
     if (root_dims_to_map.find(src_id) == root_dims_to_map.end()) {
-      // std::cerr << "Not found in root_dims_to_map: " << src_id << std::endl;
       continue;
     }
     for (const auto& dst_id : dst_ids) {
-      // std::cerr << "Examining " << src_id << " == " << dst_id << std::endl;
       if (canMap(src_td, src_id, dst_td, dst_id)) {
         TORCH_INTERNAL_ASSERT(
             id_map.insert({src_id, dst_id}).second,

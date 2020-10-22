@@ -132,6 +132,9 @@ TEST(NVFuserTest, IrGraphGenerator_CUDA) {
   tv6->split(0, 4);
   tv6->axis(0)->parallelize(ParallelType::BIDx);
   tv5->reorder({{-1, 0}});
+
+  fusion.printMath();
+
   tv2->computeAt(tv6, 1);
 
   // Another checkpoint with more node types
@@ -2367,6 +2370,8 @@ TEST(NVFuserTest, FusionProveIdEqRfactor_CUDA) {
   // root=[B,I,Irf], rfactor=[B,I,Irf,Rrf]
   auto tv3 = tv2->rFactor({3});
 
+  fusion.printMath();
+
   checkIdProvedEquivalent(tv1, tv1->getRootDomain(), tv3, tv3->getRootDomain());
   checkIdProvedEquivalent(
       tv3,
@@ -2436,6 +2441,8 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastAndReduction_CUDA) {
   auto tv2 = broadcast(tv1, {false, true});
   fusion.addOutput(tv2);
 
+  fusion.printMath();
+
   checkIdProvedEquivalent(tv0, tv0->getRootDomain(), tv1, tv1->getRootDomain());
   checkIdProvedEquivalent(
       tv1,
@@ -2453,7 +2460,7 @@ TEST(NVFuserTest, FusionProveIdEqBroadcastAndReduction_CUDA) {
       {false, true});
 }
 
-TEST(NVFuserTest, FusionProveIdEqMultipleBroadcast) {
+TEST(NVFuserTest, FusionProveIdEqMultipleBroadcast_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2462,6 +2469,8 @@ TEST(NVFuserTest, FusionProveIdEqMultipleBroadcast) {
   auto tv2 = broadcast(tv0, {true, false});
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
+
+  fusion.printMath();
 
   checkIdProvedEquivalent(
       tv0,
@@ -2488,7 +2497,7 @@ TEST(NVFuserTest, FusionProveIdEqMultipleBroadcast) {
       {true, true});
 }
 
-TEST(NVFuserTest, FusionProveIdEqMultipleBroadcastWithNoCommonConsumer) {
+TEST(NVFuserTest, FusionProveIdEqMultipleBroadcastWithNoCommonConsumer_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2519,6 +2528,118 @@ TEST(NVFuserTest, FusionProveIdEqMultipleBroadcastWithNoCommonConsumer) {
       tv2,
       tv2->getRootDomain(),
       {true, false});
+}
+
+TEST(NVFuserTest, FusionProveIdEqBroadcastNonUniqueSize_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeDummyTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeDummyTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = makeDummyTensor(2);
+  fusion.addInput(tv2);
+  auto tv3 = broadcast(tv0, {false, true});
+  auto tv4 = add(tv1, tv3);
+  fusion.addOutput(tv4);
+  auto tv5 = add(tv2, tv3);
+  fusion.addOutput(tv5);
+
+  checkIdProvedEquivalent(
+      tv0,
+      tv0->getRootDomain(),
+      {false},
+      tv3,
+      tv3->getRootDomain(),
+      {false, true});
+
+  checkIdProvedEquivalent(
+      tv0,
+      tv0->getRootDomain(),
+      {false},
+      tv1,
+      tv1->getRootDomain(),
+      {false, true});
+
+  checkIdProvedEquivalent(
+      tv0,
+      tv0->getRootDomain(),
+      {false},
+      tv2,
+      tv2->getRootDomain(),
+      {false, true});
+
+  checkIdProvedEquivalent(
+      tv1,
+      tv1->getRootDomain(),
+      {false, true},
+      tv2,
+      tv2->getRootDomain(),
+      {false, true});
+
+  checkIdProvedEquivalent(
+      tv1,
+      tv1->getRootDomain(),
+      {false, false},
+      tv3,
+      tv3->getRootDomain(),
+      {false, false});
+
+  checkIdProvedEquivalent(
+      tv2,
+      tv2->getRootDomain(),
+      {false, false},
+      tv3,
+      tv3->getRootDomain(),
+      {false, false});
+
+  checkIdProvedEquivalent(
+      tv3,
+      tv3->getRootDomain(),
+      {false, false},
+      tv4,
+      tv4->getRootDomain(),
+      {false, false});
+
+  checkIdProvedEquivalent(
+      tv3,
+      tv3->getRootDomain(),
+      {false, false},
+      tv5,
+      tv5->getRootDomain(),
+      {false, false});
+
+  checkIdProvedEquivalent(
+      tv4,
+      tv4->getRootDomain(),
+      {false, true},
+      tv5,
+      tv5->getRootDomain(),
+      {false, true});
+}
+
+TEST(NVFuserTest, FusionProveIdReductionDependency_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeDummyTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, new Float(1));
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv1, tv3);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  checkIdProvedEquivalent(
+      tv1,
+      tv1->getRootDomain(),
+      {false, true},
+      tv2,
+      tv2->getRootDomain(),
+      {false, true});
 }
 
 TEST(NVFuserTest, FusionScalarInputs_CUDA) {
@@ -8163,6 +8284,50 @@ TEST(NVFuserTest, TMP5) {
   fusion.printMath();
   fusion.printKernel();
 #if 1
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::rand({numel_x}, options);
+  at::Tensor t1 = at::rand({numel_x, numel_x}, options);
+  at::Tensor cg_output = at::empty({numel_x, numel_x}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  fe.runFusion({t0, t1}, {cg_output});
+
+  auto t2 = t0 + 1.0;
+  auto t3 = t2.unsqueeze(0).expand({numel_x, numel_x});
+  auto t4 = t2.unsqueeze(0).expand({numel_x, numel_x});
+  auto t5 = t2.unsqueeze(-1).expand({numel_x, numel_x});
+  auto t6 = t3 + t4;
+  auto t7 = t5 + t6;
+  auto t8 = t7 + t1;
+  TORCH_CHECK(t8.allclose(cg_output));
+#endif
+}
+
+TEST(NVFuserTest, TMP6) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeDummyTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeDummyTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = makeDummyTensor(2);
+  fusion.addInput(tv2);
+
+  auto tv3 = broadcast(tv0, {false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+
+  fusion.printMath();
+
+  tv3->computeAt(tv4, -1);
+
+  fusion.printMath();
+  fusion.printKernel();
+#if 0
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::rand({numel_x}, options);
   at::Tensor t1 = at::rand({numel_x, numel_x}, options);
