@@ -64,7 +64,7 @@ using DomainKeySet = std::unordered_set<DomainKey, DomainKeyHash>;
 template <typename Mapped>
 using DomainKeyMap = std::unordered_map<DomainKey, Mapped, DomainKeyHash>;
 
-class RootDomainMap;
+class ComputeAtRootDomainMap;
 
 //! A helper class to find all DomainKeys that are consumers of
 //! reduction outputs. Such consumer IterDomains may not be mapped to
@@ -82,7 +82,7 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
   //! possible. This routine is used to build root domain mappings.
   bool isReductionOutputMapped(
       const std::vector<DomainKey>& consumer_domains,
-      const RootDomainMap& root_map) const;
+      const ComputeAtRootDomainMap& root_map) const;
   // const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const;
 
  private:
@@ -101,13 +101,10 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
 //! example:
 //!    T2 [i0,i1] = T1[i2,i3] + T0[i4,i5]
 //! This will create mappings between i0, i2 and i4.
-class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
+class TORCH_CUDA_API ComputeAtRootDomainMap {
+  friend class ComputeAtRootDomainMapBuilder;
  public:
-  //! Create a DisjointSet of root IterDomains by traversing the
-  //! current fusion entirely. IterDomains that can be mapped each
-  //! other with computeAt are grouped into the same subset in the
-  //! DisjointSet.
-  explicit RootDomainMap();
+  ComputeAtRootDomainMap();
 
   //! Check if two iterdomains can be mapped to each other
   //!
@@ -144,14 +141,66 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
       const TensorDomain* producer,
       const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
 
-  //! Print out mappings
   std::ostream& print(std::ostream& os) const;
 
  private:
+  //! Check if two iterdomains can be mapped to each other
+  //!
+  //! \param key_a A DomainKey
+  //! \param td_b Another TensorDomain
+  //! \param id_b An IterDomain in td_b
+  //! \returns Boolean representing if they are mapped
+  bool canMap(
+      const DomainKey& key_a,
+      const TensorDomain* td_b,
+      const IterDomain* id_b) const;
+
+  bool canMap(const DomainKey& key_a, const DomainKey& key_b) const;
+
+  std::vector<DomainKey> getConcretizedKeys(
+      const TensorDomain* td,
+      const IterDomain* id) const;
+
+  std::unordered_set<const IterDomain*>& getConcretizedDomains(
+      const TensorDomain* td,
+      const IterDomain* id);
+
+  bool hasConcretizedDomains(const TensorDomain* td, const IterDomain* id)
+      const;
+
+  //! Return a map between root IterDomains of a producer-consumer
+  //! pair.
+  //!
+  //! \param producer A producer TensorDomain
+  //! \param consumer A consumer TensorDomain
+  //! \param root_dims_to_map Maps only from IterDomains in this set
+  //! \param producer_to_consumer Maps from producer to consumer if true
+  std::unordered_map<IterDomain*, IterDomain*> map(
+      const TensorDomain* producer,
+      const TensorDomain* consumer,
+      const std::unordered_set<const IterDomain*>& root_dims_to_map,
+      bool producer_to_consumer) const;
+
+ private:
+  DisjointSet<DomainKey, DomainKeyHash> eq_set_;
+  DomainKeyMap<std::unordered_set<const IterDomain*>> bcast_map_;
+};
+
+inline std::ostream& operator<<(std::ostream& os, const ComputeAtRootDomainMap& map) {
+  return map.print(os);
+}
+
+//! Create a DisjointSet of root IterDomains by traversing the
+//! current fusion entirely. IterDomains that can be mapped each
+//! other with computeAt are grouped into the same subset in the
+//! DisjointSet.
+class TORCH_CUDA_API ComputeAtRootDomainMapBuilder : private BackwardVisitor {
+ public:
+  ComputeAtRootDomainMapBuilder(ComputeAtRootDomainMap& root_map);
+
+ private:
   //! Set a pair of producer-consumer domains as mappable
-  void setMapped(const DomainKey& producer, const DomainKey& consumer) {
-    eq_set_.join(producer, consumer);
-  }
+  void setMapped(const DomainKey& producer, const DomainKey& consumer);
 
   //! Track a pair of producer-consumer domains as potentially mappable.
   void setMaybeMapped(
@@ -188,68 +237,25 @@ class TORCH_CUDA_API RootDomainMap : private BackwardVisitor {
 
   void handle(BroadcastOp* op) override;
 
+  void handle(TensorView* tv) override;
+
   //! Maps all consumers with a producer.
   //! This is called for each of TensorViews in a backward traversal,
   //! recursively building mappings from the output tensors to the
   //! input tensors.
   bool mapAllConsumers(const DomainKey& producer_key);
 
-  void handle(TensorView* tv) override;
-
   bool hasMatchingDomains(const std::vector<DomainKey>& unique_domains);
 
   bool safeToMap(const DomainKeySet& domains);
 
-  //! Check if two iterdomains can be mapped to each other
-  //!
-  //! \param key_a A DomainKey
-  //! \param td_b Another TensorDomain
-  //! \param id_b An IterDomain in td_b
-  //! \returns Boolean representing if they are mapped
-  bool canMap(
-      const DomainKey& key_a,
-      const TensorDomain* td_b,
-      const IterDomain* id_b) const;
-
-  bool canMap(const DomainKey& key_a, const DomainKey& key_b) const;
-
-  std::vector<DomainKey> getConcretizedKeys(
-      const TensorDomain* td,
-      const IterDomain* id) const;
-  std::unordered_set<const IterDomain*>& getConcretizedDomains(
-      const TensorDomain* td,
-      const IterDomain* id);
-  bool hasConcretizedDomains(const TensorDomain* td, const IterDomain* id)
-      const;
-  static DomainKey getDefaultConcretizedDomain(
-      const TensorDomain* td,
-      const IterDomain* id);
-
-  //! Return a map between root IterDomains of a producer-consumer
-  //! pair.
-  //!
-  //! \param producer A producer TensorDomain
-  //! \param consumer A consumer TensorDomain
-  //! \param root_dims_to_map Maps only from IterDomains in this set
-  //! \param producer_to_consumer Maps from producer to consumer if true
-  std::unordered_map<IterDomain*, IterDomain*> map(
-      const TensorDomain* producer,
-      const TensorDomain* consumer,
-      const std::unordered_set<const IterDomain*>& root_dims_to_map,
-      bool producer_to_consumer) const;
-
  private:
-  DisjointSet<DomainKey, DomainKeyHash> eq_set_;
+  ComputeAtRootDomainMap& root_map_;
   //! Keep track of what we want to try and map. Set in attemptToProveId.
   DomainKeyMap<DomainKeySet> pending_map_;
   std::unordered_set<Expr*> visited_;
   UnmappableReductionDomains incompatible_domains_;
-  DomainKeyMap<std::unordered_set<const IterDomain*>> bcast_map_;
 };
-
-inline std::ostream& operator<<(std::ostream& os, const RootDomainMap& map) {
-  return map.print(os);
-}
 
 } // namespace cuda
 } // namespace fuser
