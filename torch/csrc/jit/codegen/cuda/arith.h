@@ -200,7 +200,7 @@ TORCH_CUDA_API TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
 
 TORCH_CUDA_API TensorView* sum_to(
     TensorView* v1,
-    const std::vector<Int*>& shape);
+    const std::vector<Int*>& sum_to_size);
 
 } // namespace cuda
 } // namespace fuser

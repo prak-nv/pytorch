@@ -748,32 +748,32 @@ TensorView* clamp(TensorView* in, Val* min_val, Val* max_val) {
 
 // sum_to operator
 
-TensorView* sum_to(TensorView* in, const std::vector<Int*>& shape) {
+TensorView* sum_to(TensorView* in, const std::vector<Int*>& sum_to_size) {
   const auto& root = TensorDomain::noReductions(in->getRootDomain());
 
   TORCH_CHECK(
-      root.size() >= shape.size(),
+      root.size() >= sum_to_size.size(),
       "sum_to: Error trying to reduce",
       in,
       "into a shape of size",
-      shape.size());
+      sum_to_size.size());
 
   // If no reduction is needed sum_to returns the input tv
   TensorView* out = in;
 
-  const int64_t leading_dims = root.size() - shape.size();
+  const int64_t leading_dims = root.size() - sum_to_size.size();
 
   // Generate reduction axes for leading dims
   std::vector<int> reduce_dims(leading_dims);
   std::iota(reduce_dims.begin(), reduce_dims.end(), 0);
 
-  // Generate reduction axes for dims within shape
-  std::vector<bool> inner_red_dims(shape.size(), false);
+  // Generate reduction axes for dims within sum_to_size
+  std::vector<bool> inner_red_dims(sum_to_size.size(), false);
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
   for (int i = leading_dims; i < root.size(); i++) {
-    if (shape[i - leading_dims]->isOneInt() &&
+    if (sum_to_size[i - leading_dims]->isOneInt() &&
         !root[i]->rawExtent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
       reduce_dims.push_back(i);
