@@ -17,8 +17,6 @@ namespace cuda {
 //! Each instance of this class keeps a set of equivalent classes
 //! DisjointSet::join(a,b) makes the full class of a and b equivalent
 //! DisjointSet::areEqual(a,b) checks if a and b belong same class
-//!
-//! \note The template type T is assumed to be hashable
 template <typename T, typename Hash = std::hash<T>>
 class DisjointSet {
  public:
@@ -77,17 +75,6 @@ class DisjointSet {
   //! Queries if an element exists in this set
   bool contains(T a) const {
     return entry_map.count(a) > 0;
-  }
-
-  //! Just inserts an element as its own. It is considered not
-  //! equivalent with anything else.
-  bool insert(T a) {
-    if (!contains(a)) {
-      createPoint(a);
-      return true;
-    } else {
-      return false;
-    }
   }
 
   //! Returns all elements added to this set
