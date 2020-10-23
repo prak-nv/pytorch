@@ -4,6 +4,7 @@
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
 #include <deque>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -14,6 +15,7 @@ namespace cuda {
 
 class TensorDomain;
 class TensorView;
+class ComputeAtRootDomainMap;
 
 // We're going to keep data related to the computeAt pass for each TensorView in
 // this structure, this will allow us to keep a single entry in a map from a
@@ -105,6 +107,7 @@ class ComputeAt {
   TensorView* producer_;
   TensorView* consumer_;
   unsigned int consumer_position_;
+  std::shared_ptr<ComputeAtRootDomainMap> root_map_;
 
   // Runs replayPasC and sets producer computeAt settings. Returns
   // producer_compute_at_axis.

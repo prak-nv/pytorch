@@ -22,7 +22,7 @@ class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
   std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
+      const std::unordered_set<IterDomain*>& root_dims_to_map) const;
 
   //! Return a map from a consumer TensorDomain to a producer
   //! TensorDomain
@@ -33,7 +33,7 @@ class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
   std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
       const TensorDomain* consumer,
       const TensorDomain* producer,
-      const std::unordered_set<const IterDomain*>& root_dims_to_map) const;
+      const std::unordered_set<IterDomain*>& root_dims_to_map) const;
 
   virtual std::ostream& print(std::ostream& os) const = 0;
 
@@ -48,7 +48,7 @@ class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
   virtual std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<const IterDomain*>& root_dims_to_map,
+      const std::unordered_set<IterDomain*>& root_dims_to_map,
       bool producer_to_consumer) const = 0;
 };
 
@@ -68,7 +68,7 @@ class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<const IterDomain*>& root_dims_to_map,
+      const std::unordered_set<IterDomain*>& root_dims_to_map,
       bool producer_to_consumer) const override;
 
   //! Creates mapping that does not consider the actual expression of
@@ -198,6 +198,8 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
       const TensorDomain* td_b,
       const IterDomain* id_b) const;
 
+  void setAlias(const TensorDomain* td, const TensorDomain* td_alias);
+
   std::ostream& print(std::ostream& os) const override;
 
  private:
@@ -235,12 +237,13 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
       const TensorDomain* consumer,
-      const std::unordered_set<const IterDomain*>& root_dims_to_map,
+      const std::unordered_set<IterDomain*>& root_dims_to_map,
       bool producer_to_consumer) const override;
 
  private:
   DisjointSet<DomainKey, DomainKeyHash> eq_set_;
   DomainKeyMap<std::unordered_set<const IterDomain*>> bcast_map_;
+  DomainKeySet new_broadcast_domains_;
 };
 
 //! Create a DisjointSet of root IterDomains by traversing the

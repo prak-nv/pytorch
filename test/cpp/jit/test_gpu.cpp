@@ -2211,7 +2211,7 @@ TEST(NVFuserTest, FusionBCastConcretizeRfactor_CUDA) {
 namespace {
 
 void checkIdMapped(
-    RootDomainMap& root_map,
+    ComputeAtRootDomainMap& root_map,
     TensorView* v0,
     IterDomain* id0,
     TensorView* v1,
@@ -2233,7 +2233,7 @@ void checkIdMapped(
 }
 
 void checkIdMapped(
-    RootDomainMap& root_map,
+    ComputeAtRootDomainMap& root_map,
     TensorView* v0,
     int a0,
     TensorView* v1,
@@ -2255,7 +2255,7 @@ void checkIdMapped(
     TensorView* v1,
     const std::vector<IterDomain*>& root1,
     const std::vector<bool> skip1) {
-  RootDomainMap map;
+  ComputeAtRootDomainMap map;
   TORCH_INTERNAL_ASSERT(root0.size() == skip0.size());
   TORCH_INTERNAL_ASSERT(root1.size() == skip1.size());
   size_t idx0 = 0;
@@ -3314,7 +3314,11 @@ TEST(NVFuserTest, FusionRFactorReplay_CUDA) {
 
   // Replay casp, replay new_domain2 as new_domain
   // reordered_new_domain[I0oi{16}, I0oo*I0i{32}, ir1oi{4}rf, R(R1oo*R1i{8})rf]
-  auto replay_casp = TransformReplay::replayCasP(new_domain2, new_domain, 2);
+  auto replay_casp = TransformReplay::replayCasP(
+      new_domain2,
+      new_domain,
+      2,
+      std::make_shared<UnsafePairwiseRootDomainMap>());
   TensorDomain* casp = replay_casp.first;
   // new_domain[I0oi{16}, I0oo*I0i{32}, ir1oi{4}rf, R(R1oo*R1i{8})rf]
   //       casp[I0oi{16}, I0oo*I0i{32},  R1oi{4}]
@@ -3324,7 +3328,8 @@ TEST(NVFuserTest, FusionRFactorReplay_CUDA) {
   // new_domain[I0oi{16},  I0oo*I0i{32}  ,                 ir1oi{4}rf,
   // R(R1oo*R1i{8})rf]
 
-  auto replay_pasc = TransformReplay::replayPasC(new_domain, casp, 2);
+  auto replay_pasc = TransformReplay::replayPasC(
+      new_domain, casp, 2, std::make_shared<UnsafePairwiseRootDomainMap>());
   TensorDomain* pasc = replay_pasc.first;
   // pasc      [I0oi{16}, (I0oo*I0i{32})o, I(Ioo*I0i)i{2}, ir1oi{4}rf,
   // R(R1oo*R1i{8})rf]
@@ -4729,10 +4734,8 @@ TEST(NVFuserTest, FusionSoftmaxComputeAt_CUDA) {
   fusion.addOutput(tv7);
 
   fusion.printMath();
-  // tv1->computeAt(tv7, 1);
-  // ASSERT_ANY_THROW(tv1->computeAt(tv7, -1));
-  tv1->computeAt(tv7, -1);
-  fusion.printMath();
+  tv1->computeAt(tv7, 1);
+  ASSERT_ANY_THROW(tv1->computeAt(tv7, -1));
 }
 
 // Similar to FusionReduction but uses grid reduction
@@ -6318,6 +6321,9 @@ TEST(NVFuserTest, FusionSmemDynamicPersistentSoftmax2D_CUDA) {
   exp->computeAt(softmax, 1);
   x_max_sub->computeAt(exp, 2);
 
+  fusion.printMath();
+  fusion.printKernel();
+
   softmax->axis(0)->parallelize(ParallelType::BIDx);
   for (auto tensor : all_tensors) {
     tensor->axis(-1)->parallelize(ParallelType::TIDx);
@@ -7791,9 +7797,9 @@ TEST(NVFuserTest, FusionComputeAtMultiBCast_CUDA) {
   TensorView* tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
-  // TODO: Lowering and validation run
-  tv1->computeAt(tv3, -1);
-  fusion.printMath();
+  // Not possible to do computeAt at position -1 as recomputation
+  // would be required. An exception should be thrown.
+  ASSERT_ANY_THROW(tv1->computeAt(tv3, -1));
 }
 
 TEST(NVFuserTest, FusionReductionHalf_CUDA) {
@@ -8225,28 +8231,7 @@ TEST(NVFuserTest, TMP4) {
 
   fusion.printMath();
 
-  tv0->computeAt(tv4, -1);
-
-  fusion.printMath();
-  fusion.printKernel();
-#if 0
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::rand({numel_x, numel_y}, options);
-  at::Tensor cg_output3 = at::empty({numel_x, numel_y}, options);
-  at::Tensor cg_output5 = at::empty({numel_x, numel_y}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  fe.runFusion({input}, {cg_output3, cg_output5});
-
-  auto t1 = input + 1.0;
-  auto t2 = t1 + 1.0;
-  auto t3 = t2 + 1.0;
-  auto t4 = t1 + 1.0;
-  auto t5 = t4 + 1.0;
-  TORCH_CHECK(t3.allclose(cg_output3));
-  TORCH_CHECK(t5.allclose(cg_output5));
-#endif
+  ASSERT_ANY_THROW(tv0->computeAt(tv4, -1));
 }
 
 TEST(NVFuserTest, TMP5) {
@@ -8275,29 +8260,7 @@ TEST(NVFuserTest, TMP5) {
 
   fusion.printMath();
 
-  tv0->computeAt(tv8, -1);
-
-  fusion.printMath();
-  fusion.printKernel();
-#if 1
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::rand({numel_x}, options);
-  at::Tensor t1 = at::rand({numel_x, numel_x}, options);
-  at::Tensor cg_output = at::empty({numel_x, numel_x}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  fe.runFusion({t0, t1}, {cg_output});
-
-  auto t2 = t0 + 1.0;
-  auto t3 = t2.unsqueeze(0).expand({numel_x, numel_x});
-  auto t4 = t2.unsqueeze(0).expand({numel_x, numel_x});
-  auto t5 = t2.unsqueeze(-1).expand({numel_x, numel_x});
-  auto t6 = t3 + t4;
-  auto t7 = t5 + t6;
-  auto t8 = t7 + t1;
-  TORCH_CHECK(t8.allclose(cg_output));
-#endif
+  ASSERT_ANY_THROW(tv0->computeAt(tv8, -1));
 }
 
 TEST(NVFuserTest, TMP6) {

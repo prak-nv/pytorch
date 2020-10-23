@@ -2,6 +2,7 @@
 
 #include <c10/util/Exception.h>
 
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -84,6 +85,16 @@ class DisjointSet {
     } else {
       return false;
     }
+  }
+
+  std::vector<T> getAllElements() const {
+    std::vector<T> elms(entry_map.size());
+    std::transform(
+        entry_map.begin(),
+        entry_map.end(),
+        elms.begin(),
+        [](const auto& entry_map_kv) { return entry_map_kv.first; });
+    return elms;
   }
 
   std::ostream& print(std::ostream& os) const {

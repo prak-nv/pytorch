@@ -15,7 +15,7 @@ std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
     mapProducerToConsumer(
         const TensorDomain* producer,
         const TensorDomain* consumer,
-        const std::unordered_set<const IterDomain*>& root_dims_to_map) const {
+        const std::unordered_set<IterDomain*>& root_dims_to_map) const {
   return map(producer, consumer, root_dims_to_map, true);
 }
 
@@ -23,7 +23,7 @@ std::unordered_map<IterDomain*, IterDomain*> RootDomainMap::
     mapConsumerToProducer(
         const TensorDomain* consumer,
         const TensorDomain* producer,
-        const std::unordered_set<const IterDomain*>& root_dims_to_map) const {
+        const std::unordered_set<IterDomain*>& root_dims_to_map) const {
   return map(producer, consumer, root_dims_to_map, false);
 }
 
@@ -54,7 +54,7 @@ PairwiseRootDomainMap::PairwiseRootDomainMap(
 std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     const TensorDomain* producer,
     const TensorDomain* consumer,
-    const std::unordered_set<const IterDomain*>& root_dims_to_map,
+    const std::unordered_set<IterDomain*>& root_dims_to_map,
     bool producer_to_consumer) const {
   // Sanity check that the given producer and consumer domains are
   // really the TensorDomains of the producer and consumer TensorViews
@@ -305,6 +305,33 @@ bool ComputeAtRootDomainMap::canMap(
   return key_a == key_b || eq_set_.areEquivalent(key_a, key_b);
 }
 
+void ComputeAtRootDomainMap::setAlias(
+    const TensorDomain* td,
+    const TensorDomain* td_alias) {
+  for (const auto& kv : bcast_map_) {
+    const auto& bcast_map_key = kv.first;
+    const auto& bcast_concrete_id_set = kv.second;
+    if (bcast_map_key.td() == td) {
+      DomainKey alias_key(td_alias, bcast_map_key.id());
+      bcast_map_.insert({alias_key, bcast_concrete_id_set});
+    }
+  }
+
+  for (const auto& key : eq_set_.getAllElements()) {
+    if (key.td() == td) {
+      DomainKey alias_key(td_alias, key.id(), key.concreteId());
+      eq_set_.join(key, alias_key);
+    }
+  }
+
+  for (const auto& key: new_broadcast_domains_) {
+    if (key.td() == td) {
+      DomainKey alias_key(td_alias, key.id());
+      new_broadcast_domains_.insert(alias_key);
+    }
+  }
+}
+
 bool ComputeAtRootDomainMap::hasConcretizedDomains(
     const TensorDomain* td,
     const IterDomain* id) const {
@@ -340,7 +367,7 @@ std::unordered_set<const IterDomain*>& ComputeAtRootDomainMap::
 std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
     const TensorDomain* producer,
     const TensorDomain* consumer,
-    const std::unordered_set<const IterDomain*>& root_dims_to_map,
+    const std::unordered_set<IterDomain*>& root_dims_to_map,
     bool producer_to_consumer) const {
   const auto& producer_root = producer->getMaybeRFactorDomain();
   const auto& consumer_root = consumer->getRootDomain();
@@ -349,18 +376,34 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
   const auto& src_ids = producer_to_consumer ? producer_root : consumer_root;
   const auto& dst_ids = producer_to_consumer ? consumer_root : producer_root;
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  for (const auto& src_id : src_ids) {
+  for (auto& src_id : src_ids) {
     if (root_dims_to_map.find(src_id) == root_dims_to_map.end()) {
       continue;
     }
+    bool mapping_found = false;
     for (const auto& dst_id : dst_ids) {
       if (canMap(src_td, src_id, dst_td, dst_id)) {
         TORCH_INTERNAL_ASSERT(
             id_map.insert({src_id, dst_id}).second,
             "Multiple matching ID detected for ",
             src_id);
+        mapping_found = true;
       }
     }
+    if (mapping_found) continue;
+    // Matching ID not found. It's an error unless: src_id is
+    // reduction when producer_to_consumer; or src_id is a new
+    // broadcast when !producer_to_consumer.
+    if ((producer_to_consumer && src_id->isReduction()) ||
+        (!producer_to_consumer &&
+         new_broadcast_domains_.find(DomainKey(src_td, src_id)) != new_broadcast_domains_.end())) {
+      continue;
+    }
+    TORCH_INTERNAL_ASSERT(false,
+                          "Mapping IterDomain ", src_id, " of ",
+                          src_td, " not possible as it would require recomputing the source tensor.",
+                          " Producer root: ", producer_root,
+                          ". Consumer root: ", consumer_root);
   }
   return id_map;
 }
@@ -515,6 +558,7 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
     if (bcast_dim_flags.at(std::distance(out_root.begin(), out_it))) {
       // new broadcast dim. No matching dimension in the input
       // tensor.
+      root_map_.new_broadcast_domains_.insert(DomainKey(out_td, *out_it));
       ++out_it;
       continue;
     }
@@ -539,6 +583,7 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
         *out_it,
         " of ",
         out_td);
+    root_map_.new_broadcast_domains_.insert(DomainKey(out_td, *out_it));
   }
 }
 
