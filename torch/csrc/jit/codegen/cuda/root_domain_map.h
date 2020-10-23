@@ -200,6 +200,16 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
       const TensorDomain* td_b,
       const IterDomain* id_b) const;
 
+  //! Make a TensorDomain an alias of another TensorDomain
+  //!
+  //! This is for the computeAt transformation, where TensorViews are
+  //! updated with new TensorDomains. Since they keep using the same
+  //! root doamins, the root mapping remains valid but needs to
+  //! reflect the use of new TensorDomains as aliases of the existing
+  //! ones.
+  //!
+  //! \param td An existing TensorDomain
+  //! \param td_alias An alias of td
   void setAlias(const TensorDomain* td, const TensorDomain* td_alias);
 
   std::ostream& print(std::ostream& os) const override;

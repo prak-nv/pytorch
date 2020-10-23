@@ -4,8 +4,6 @@
 
 #include <sstream>
 
-// #define ROOT_MAPPING_DEBUG
-
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -448,10 +446,6 @@ ComputeAtRootDomainMapBuilder::ComputeAtRootDomainMapBuilder(
     }
   }
   traverseFrom(fusion, leaves, false);
-#ifdef ROOT_MAPPING_DEBUG
-  std::cerr << "Traversal done\n";
-  print(std::cerr);
-#endif
   if (!pending_map_.empty()) {
     std::stringstream ss;
     ss << "pending map:\n";
@@ -606,7 +600,6 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
 
 bool ComputeAtRootDomainMapBuilder::mapAllConsumers(
     const DomainKey& producer_key) {
-  // std::cerr << "mapAllConsumers for : " << producer_key << std::endl;
   auto it = pending_map_.find(producer_key);
   if (it == pending_map_.end()) {
     return false;
@@ -617,10 +610,6 @@ bool ComputeAtRootDomainMapBuilder::mapAllConsumers(
   bool consistent = safeToMap(consumer_set);
   if (consistent) {
     for (const auto pending_consumer : consumer_set) {
-#ifdef ROOT_MAPPING_DEBUG
-      std::cerr << "Equivalent Ids found: " << producer_key
-                << " == " << pending_consumer << std::endl;
-#endif
       setMapped(producer_key, pending_consumer);
     }
   }
@@ -630,25 +619,14 @@ bool ComputeAtRootDomainMapBuilder::mapAllConsumers(
 }
 
 void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
-#ifdef ROOT_MAPPING_DEBUG
-  {
-    std::stringstream ss;
-    ss << tv;
-    std::cerr << "Visiting TensorView: " << ss.str() << std::endl;
-  }
-#endif
   const TensorDomain* td = tv->domain();
   const auto root = TensorDomain::noReductions(td->getMaybeRFactorDomain());
   for (auto id : root) {
     if (root_map_.hasConcretizedDomains(td, id)) {
-      // std::cerr << "has concretized: " << DomainKey(td, id) << "\n";
       for (const auto& key : root_map_.getConcretizedKeys(td, id)) {
-        // std::cerr << "concretized: " << key << "\n";
         mapAllConsumers(key);
       }
     } else {
-      // std::cerr << "does not have concretized: " << DomainKey(td, id) <<
-      // "\n";
       mapAllConsumers(DomainKey(td, id));
     }
   }
@@ -682,7 +660,6 @@ bool ComputeAtRootDomainMapBuilder::hasMatchingDomains(
 // Checks whether all consumers of a producer can be joined without
 // introducing unsupported mappings, i.e., requiring recomputations.
 bool ComputeAtRootDomainMapBuilder::safeToMap(const DomainKeySet& domains) {
-  // std::cerr << "safeTojoin?: " << domains << std::endl;
   if (domains.size() <= 1) {
     return true;
   }
