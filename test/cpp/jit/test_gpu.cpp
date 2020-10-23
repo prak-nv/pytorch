@@ -132,7 +132,6 @@ TEST(NVFuserTest, IrGraphGenerator_CUDA) {
   tv6->split(0, 4);
   tv6->axis(0)->parallelize(ParallelType::BIDx);
   tv5->reorder({{-1, 0}});
-
   tv2->computeAt(tv6, 1);
 
   // Another checkpoint with more node types
