@@ -266,8 +266,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   }
 
   ret.id = id_iter_pair.id;
-  id_iter_pair.lru_iter =
-      used_entry_.insert(used_entry_.begin(), encoding_);
+  id_iter_pair.lru_iter = used_entry_.insert(used_entry_.begin(), encoding_);
   return ret;
 }
 
@@ -279,17 +278,15 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
 
   if (has_reduction_) {
     FusionGuard fg(fusion_.get());
-    
+
     // Use dependency check to find the reduction tv as it returns used values
     // instead of exprs.
-    
+
     // The call is relatively heavy weight, consider caching
     auto used_vals = DependencyCheck::getAllValsBetween(
         {fusion_->inputs().begin(), fusion_->inputs().end()},
         fusion_->outputs());
-    
-    // TODO(JIE): cache the reduction node.
-    
+
     // Find the reduction tensor view, make sure there's only one
     for (auto val : used_vals) {
       if (val->getValType().value() == ValType::TensorView) {
@@ -302,7 +299,7 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
         }
       }
     }
-    
+
     TORCH_INTERNAL_ASSERT(
         reduction_tv_ != nullptr,
         "Could not find the reduction tensor view in the fusion.");
