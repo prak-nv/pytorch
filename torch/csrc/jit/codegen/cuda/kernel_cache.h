@@ -55,7 +55,8 @@ class TORCH_CUDA_API InputsIdLookup {
   }
 
  private:
-  // TODO: mutex guard this guy;
+  // string to store encoded input meta information. Reuse the buffer instead of
+  // stringtream gives few us perf gain.
   std::string encoding_;
   std::mutex mutex_;
 
@@ -166,6 +167,8 @@ class FusionExecutorCache {
   //
   //! cache fusion->hasReduction() because it's expensive;
   bool has_reduction_ = false;
+
+  //! cache reduction_tv_ to avoid searching repetitively at runtime
   TensorView* reduction_tv_ = nullptr;
 
   //! TODO: ugly logic for now. We should integrate the hashing of cache for

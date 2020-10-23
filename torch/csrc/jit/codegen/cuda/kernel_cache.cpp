@@ -313,23 +313,17 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<IValue>& inputs) {
   FUSER_PERF_SCOPE("runFusionWithInputs");
 
-  size_t unique_id;
-  int device_index;
   LaunchParams launch_params;
 
-  {
-    FUSER_PERF_SCOPE("cache lookup");
-    // get unique id `unique_id` for given input set `inputs`;
-    auto id_lookup_ret = inputs_id_lookup_.lookupId(inputs);
-    if (id_lookup_ret.eviction) {
-      FUSER_PERF_SCOPE("cache eviction");
-      evictCache(id_lookup_ret.evict_id);
-    }
-
-    unique_id = id_lookup_ret.id;
-    device_index = getCommonDeviceCUDA(inputs);
-    TORCH_CHECK(device_index >= 0, "device is not coherent for fusion inputs");
+  // get unique id `unique_id` for given input set `inputs`;
+  auto id_lookup_ret = inputs_id_lookup_.lookupId(inputs);
+  if (id_lookup_ret.eviction) {
+    evictCache(id_lookup_ret.evict_id);
   }
+
+  size_t unique_id = id_lookup_ret.id;
+  int device_index = getCommonDeviceCUDA(inputs);
+  TORCH_CHECK(device_index >= 0, "device is not coherent for fusion inputs");
 
   if (code_to_fe_lookup_.count(unique_id) == 0) {
     // enter when we get a new input set. We need to search for compatible
