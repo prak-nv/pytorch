@@ -3334,10 +3334,7 @@ TEST(NVFuserTest, FusionRFactorReplay_CUDA) {
   // Replay casp, replay new_domain2 as new_domain
   // reordered_new_domain[I0oi{16}, I0oo*I0i{32}, ir1oi{4}rf, R(R1oo*R1i{8})rf]
   auto replay_casp = TransformReplay::replayCasP(
-      new_domain2,
-      new_domain,
-      2,
-      UnsafePairwiseRootDomainMap());
+      new_domain2, new_domain, 2, UnsafePairwiseRootDomainMap());
   TensorDomain* casp = replay_casp.first;
   // new_domain[I0oi{16}, I0oo*I0i{32}, ir1oi{4}rf, R(R1oo*R1i{8})rf]
   //       casp[I0oi{16}, I0oo*I0i{32},  R1oi{4}]

@@ -766,13 +766,12 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
 
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
-  auto producerAsC =
-      TransformReplay::replayPasC(
-          producer_tv->domain(),
-          consumer_tv->domain(),
-          -1,
-          PairwiseRootDomainMap(producer_tv, consumer_tv))
-          .first;
+  auto producerAsC = TransformReplay::replayPasC(
+                         producer_tv->domain(),
+                         consumer_tv->domain(),
+                         -1,
+                         PairwiseRootDomainMap(producer_tv, consumer_tv))
+                         .first;
 
   // Make the actual producer_tv look like consumer while we do the indexing
   // math in this function
@@ -901,13 +900,12 @@ kir::TensorIndex* Index::getProducerIndex_impl(
 
   // producer_tv->domain() is not replayed as the loop strucutre we were
   // provided, so replay it to match consumer_tv which is.
-  auto producerAsC =
-      TransformReplay::replayPasC(
-          producer_tv->domain(),
-          consumer_tv->domain(),
-          -1,
-          PairwiseRootDomainMap(producer_tv, consumer_tv))
-          .first;
+  auto producerAsC = TransformReplay::replayPasC(
+                         producer_tv->domain(),
+                         consumer_tv->domain(),
+                         -1,
+                         PairwiseRootDomainMap(producer_tv, consumer_tv))
+                         .first;
 
   // Set producer_tv with the domain replayed as consumer to grab the right
   // indices. The guard will reset the domain when this scope ends.
