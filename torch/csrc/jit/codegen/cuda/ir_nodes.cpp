@@ -188,8 +188,14 @@ bool TernaryOp::sameAs(const TernaryOp* other) const {
   return true;
 }
 
-BroadcastOp::BroadcastOp(Val* _out, Val* _in)
-    : Expr(ExprType::BroadcastOp), out_(_out), in_(_in) {
+BroadcastOp::BroadcastOp(
+    Val* _out,
+    Val* _in,
+    std::vector<bool> is_broadcast_dims)
+    : Expr(ExprType::BroadcastOp),
+      out_(_out),
+      in_(_in),
+      is_broadcast_dims_(std::move(is_broadcast_dims)) {
   auto out_type = _out->getValType().value();
   auto in_type = _in->getValType().value();
 
@@ -247,7 +253,8 @@ BroadcastOp::BroadcastOp(Val* _out, Val* _in)
 BroadcastOp::BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner)
     : Expr(src, ir_cloner),
       out_(ir_cloner->clone(src->out_)),
-      in_(ir_cloner->clone(src->in_)) {}
+      in_(ir_cloner->clone(src->in_)),
+      is_broadcast_dims_(src->is_broadcast_dims_) {}
 
 bool BroadcastOp::sameAs(const BroadcastOp* const other) const {
   return other->in() == in() && other->out() == out();
@@ -263,24 +270,18 @@ ReductionOp::ReductionOp(
       init_(_init),
       out_(_out),
       in_(_in) {
-  if (_out->getValType().value() == ValType::TensorView) {
-    TORCH_INTERNAL_ASSERT(
-        _in->getValType() == ValType::TensorView &&
-            _out->getValType() == ValType::TensorView,
-        "Reduction operation was created that does not have tensor inputs and outputs.");
+  TORCH_CHECK(_out->getValType().value() == ValType::TensorView);
 
-    TORCH_INTERNAL_ASSERT(
-        TensorDomain::noReductions(
-            _in->as<TensorView>()->getMaybeRFactorDomain())
-                .size() == _out->as<TensorView>()->getRootDomain().size(),
-        "Reduction operation created with mismatched domains.");
+  TORCH_INTERNAL_ASSERT(
+      _in->getValType() == ValType::TensorView &&
+          _out->getValType() == ValType::TensorView,
+      "Reduction operation was created that does not have tensor inputs and outputs.");
 
-  } else {
-    TORCH_INTERNAL_ASSERT(
-        _in->getValType() == ValType::TensorIndex &&
-            _out->getValType() == ValType::TensorIndex,
-        "Reduction operation was created that does not have tensor inputs and outputs.");
-  }
+  TORCH_INTERNAL_ASSERT(
+      TensorDomain::noReductions(_in->as<TensorView>()->getMaybeRFactorDomain())
+              .size() == _out->as<TensorView>()->getRootDomain().size(),
+      "Reduction operation created with mismatched domains.");
+
   TORCH_INTERNAL_ASSERT(
       _init->isConstScalar(),
       "Tried to create a reduction operation whith an initial value that isn't a constant.");
@@ -345,8 +346,6 @@ IterDomain::IterDomain(
       "Cannot create an iter domain with a extent that is zero but received ",
       _extent,
       " .");
-
-  // TORCH_INTERNAL_ASSERT(!kir::isLoweredVal(_extent));
 
   name_ = fusion_->registerVal(this);
 }
