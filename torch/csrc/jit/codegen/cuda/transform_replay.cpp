@@ -383,7 +383,6 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
       producer->getRFactorDomain(),
       new_IDs,
       producer->contiguity());
-
   return {replayed, producer_compute_at_axis};
 }
 
@@ -640,7 +639,6 @@ std::pair<TensorView*, unsigned int> TransformReplay::replayCasP(
   // tensor view. When this happens, just return thet target view.
   if (consumer == producer)
     return {consumer, 0};
-
   std::pair<TensorDomain*, unsigned int> replay = replayCasP(
       consumer->domain(), producer->domain(), compute_at_axis, root_map);
   consumer->setDomain(replay.first);

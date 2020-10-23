@@ -394,8 +394,9 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
         mapping_found = true;
       }
     }
-    if (mapping_found)
+    if (mapping_found) {
       continue;
+    }
     // Matching ID not found. It's an error unless: src_id is
     // reduction when producer_to_consumer; or src_id is a new
     // broadcast when !producer_to_consumer.
