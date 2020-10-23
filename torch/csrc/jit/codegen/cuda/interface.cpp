@@ -182,10 +182,7 @@ RegisterOperators reg_fusion({
         prim::CudaFusionGroup,
         [](const Node* node) -> Operation {
           return [node](Stack* stack) {
-            auto start = std::chrono::high_resolution_clock::now();
             fuser::cuda::runFusionGroup(node, *stack);
-            auto t_duration = std::chrono::high_resolution_clock::now() - start;
-            std::cout << "\n CudaFusionGroup time: " << std::chrono::duration_cast<std::chrono::microseconds>(t_duration).count() << " us" << std::endl;
           };
         },
         aliasAnalysisSpecialCase()),
@@ -200,7 +197,6 @@ RegisterOperators reg_guard({
         // analysis, we should update aliasdb pass.
         [](const Node* node) -> Operation {
           return [node](Stack* stack) {
-            auto start = std::chrono::high_resolution_clock::now();
             // TODO: check latency here!!!!
             std::vector<TypePtr> types = node->tys(attr::types);
             const auto num_inputs = types.size();
@@ -229,8 +225,6 @@ RegisterOperators reg_guard({
             // TODO: check type and return the right flag
             // naively return true;
             push(stack, IValue(true));
-            auto t_duration = std::chrono::high_resolution_clock::now() - start;
-            std::cout << "\n CudaFusionGuard time: " << std::chrono::duration_cast<std::chrono::microseconds>(t_duration).count() << " us" << std::endl;
             return;
           };
         },

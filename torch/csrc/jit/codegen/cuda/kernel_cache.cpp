@@ -5,8 +5,6 @@
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
 #include <torch/csrc/jit/runtime/graph_executor.h>
 
-#include <chrono>
-
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -313,7 +311,6 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
 
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<IValue>& inputs) {
-  //auto start = std::chrono::high_resolution_clock::now();
   FUSER_PERF_SCOPE("runFusionWithInputs");
 
   size_t unique_id;
@@ -321,12 +318,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   LaunchParams launch_params;
 
   {
-    //auto t1 = std::chrono::high_resolution_clock::now();
     FUSER_PERF_SCOPE("cache lookup");
     // get unique id `unique_id` for given input set `inputs`;
     auto id_lookup_ret = inputs_id_lookup_.lookupId(inputs);
     if (id_lookup_ret.eviction) {
-      // printf("cache eviction\n");
       FUSER_PERF_SCOPE("cache eviction");
       evictCache(id_lookup_ret.evict_id);
     }
@@ -334,8 +329,6 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     unique_id = id_lookup_ret.id;
     device_index = getCommonDeviceCUDA(inputs);
     TORCH_CHECK(device_index >= 0, "device is not coherent for fusion inputs");
-    //auto t_duration = std::chrono::high_resolution_clock::now() - t1;
-    //std::cout << "\n cache lookup time: " << std::chrono::duration_cast<std::chrono::microseconds>(t_duration).count() << " us" << std::endl;
   }
 
   if (code_to_fe_lookup_.count(unique_id) == 0) {
@@ -432,19 +425,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     }
   }
 
-  //auto t_duration = std::chrono::high_resolution_clock::now() - start;
-  //std::cout << "\n runFusionWithInputs time: " << std::chrono::duration_cast<std::chrono::microseconds>(t_duration).count() << " us" << std::endl;
-
-  //start = std::chrono::high_resolution_clock::now();
-
-  auto ret = code_to_fe_lookup_[unique_id]->runFusion(
+  return code_to_fe_lookup_[unique_id]->runFusion(
       inputs, launch_params, unique_id);
-
-  //t_duration = std::chrono::high_resolution_clock::now() - start;
-  //std::cout << "\n runFusion time: " << std::chrono::duration_cast<std::chrono::microseconds>(t_duration).count() << " us" << std::endl;
-  return ret;
-  // return code_to_fe_lookup_[unique_id]->runFusion(
-  //     inputs, launch_params, unique_id);
 }
 
 bool GraphCache::requiresPermutation() {
