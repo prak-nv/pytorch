@@ -324,7 +324,7 @@ void ComputeAtRootDomainMap::setAlias(
     }
   }
 
-  for (const auto& key: new_broadcast_domains_) {
+  for (const auto& key : new_broadcast_domains_) {
     if (key.td() == td) {
       DomainKey alias_key(td_alias, key.id());
       new_broadcast_domains_.insert(alias_key);
@@ -390,20 +390,28 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
         mapping_found = true;
       }
     }
-    if (mapping_found) continue;
+    if (mapping_found)
+      continue;
     // Matching ID not found. It's an error unless: src_id is
     // reduction when producer_to_consumer; or src_id is a new
     // broadcast when !producer_to_consumer.
     if ((producer_to_consumer && src_id->isReduction()) ||
         (!producer_to_consumer &&
-         new_broadcast_domains_.find(DomainKey(src_td, src_id)) != new_broadcast_domains_.end())) {
+         new_broadcast_domains_.find(DomainKey(src_td, src_id)) !=
+             new_broadcast_domains_.end())) {
       continue;
     }
-    TORCH_INTERNAL_ASSERT(false,
-                          "Mapping IterDomain ", src_id, " of ",
-                          src_td, " not possible as it would require recomputing the source tensor.",
-                          " Producer root: ", producer_root,
-                          ". Consumer root: ", consumer_root);
+    TORCH_INTERNAL_ASSERT(
+        false,
+        "Mapping IterDomain ",
+        src_id,
+        " of ",
+        src_td,
+        " not possible as it would require recomputing the source tensor.",
+        " Producer root: ",
+        producer_root,
+        ". Consumer root: ",
+        consumer_root);
   }
   return id_map;
 }
