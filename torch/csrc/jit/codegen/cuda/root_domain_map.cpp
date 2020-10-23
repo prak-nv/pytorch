@@ -312,14 +312,16 @@ bool ComputeAtRootDomainMap::canMap(
 void ComputeAtRootDomainMap::setAlias(
     const TensorDomain* td,
     const TensorDomain* td_alias) {
+  auto tmp_bcast_map = bcast_map_;
   for (const auto& kv : bcast_map_) {
     const auto& bcast_map_key = kv.first;
     const auto& bcast_concrete_id_set = kv.second;
     if (bcast_map_key.td() == td) {
       DomainKey alias_key(td_alias, bcast_map_key.id());
-      bcast_map_.insert({alias_key, bcast_concrete_id_set});
+      tmp_bcast_map.insert({alias_key, bcast_concrete_id_set});
     }
   }
+  bcast_map_ = tmp_bcast_map;
 
   for (const auto& key : eq_set_.getAllElements()) {
     if (key.td() == td) {
@@ -328,12 +330,14 @@ void ComputeAtRootDomainMap::setAlias(
     }
   }
 
+  auto tmp_new_broadcast_domains = new_broadcast_domains_;
   for (const auto& key : new_broadcast_domains_) {
     if (key.td() == td) {
       DomainKey alias_key(td_alias, key.id());
-      new_broadcast_domains_.insert(alias_key);
+      tmp_new_broadcast_domains.insert(alias_key);
     }
   }
+  new_broadcast_domains_ = tmp_new_broadcast_domains;
 }
 
 bool ComputeAtRootDomainMap::hasConcretizedDomains(
