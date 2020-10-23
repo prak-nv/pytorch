@@ -133,8 +133,6 @@ TEST(NVFuserTest, IrGraphGenerator_CUDA) {
   tv6->axis(0)->parallelize(ParallelType::BIDx);
   tv5->reorder({{-1, 0}});
 
-  fusion.printMath();
-
   tv2->computeAt(tv6, 1);
 
   // Another checkpoint with more node types
@@ -2248,6 +2246,7 @@ void checkIdMapped(
     const std::vector<IterDomain*>& root1,
     const std::vector<bool> should_map1) {
   ComputeAtRootDomainMap map;
+  map.build();
   TORCH_INTERNAL_ASSERT(root0.size() == should_map0.size());
   TORCH_INTERNAL_ASSERT(root1.size() == should_map1.size());
   size_t idx0 = 0;
@@ -3338,7 +3337,7 @@ TEST(NVFuserTest, FusionRFactorReplay_CUDA) {
       new_domain2,
       new_domain,
       2,
-      std::make_shared<UnsafePairwiseRootDomainMap>());
+      UnsafePairwiseRootDomainMap());
   TensorDomain* casp = replay_casp.first;
   // new_domain[I0oi{16}, I0oo*I0i{32}, ir1oi{4}rf, R(R1oo*R1i{8})rf]
   //       casp[I0oi{16}, I0oo*I0i{32},  R1oi{4}]
@@ -3349,7 +3348,7 @@ TEST(NVFuserTest, FusionRFactorReplay_CUDA) {
   // R(R1oo*R1i{8})rf]
 
   auto replay_pasc = TransformReplay::replayPasC(
-      new_domain, casp, 2, std::make_shared<UnsafePairwiseRootDomainMap>());
+      new_domain, casp, 2, UnsafePairwiseRootDomainMap());
   TensorDomain* pasc = replay_pasc.first;
   // pasc      [I0oi{16}, (I0oo*I0i{32})o, I(Ioo*I0i)i{2}, ir1oi{4}rf,
   // R(R1oo*R1i{8})rf]
@@ -4753,7 +4752,6 @@ TEST(NVFuserTest, FusionSoftmaxComputeAt_CUDA) {
   auto tv7 = sub(tv6, tv4);
   fusion.addOutput(tv7);
 
-  fusion.printMath();
   tv1->computeAt(tv7, 1);
   ASSERT_ANY_THROW(tv1->computeAt(tv7, -1));
 }

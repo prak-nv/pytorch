@@ -186,7 +186,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
     const TensorDomain* producer,
     const TensorDomain* consumer,
     int consumer_compute_at_axis,
-    std::shared_ptr<RootDomainMap> root_map) {
+    const RootDomainMap& root_map) {
   FUSER_PERF_SCOPE("replayPasC");
 
   if (consumer_compute_at_axis < 0)
@@ -195,8 +195,6 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
       consumer_compute_at_axis >= 0 &&
           (unsigned int)consumer_compute_at_axis <= consumer->nDims(),
       "Invalid axis in transform replayPasC.");
-
-  TORCH_INTERNAL_ASSERT(root_map, "Root map must not be nullptr");
 
   // consumer ids we need to match in producer
   std::vector<IterDomain*> consumer_CA_ids(
@@ -214,32 +212,33 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
     }
   }
 
-  // Map of consumer_CA_root_ids to related producer_CA_ids
-  std::unordered_map<IterDomain*, IterDomain*> replay_root_map_old =
-      TensorDomain::mapRootCtoP(consumer, producer, consumer_CA_root_ids);
-
   auto replay_root_map =
-      root_map->mapConsumerToProducer(consumer, producer, consumer_CA_root_ids);
+      root_map.mapConsumerToProducer(consumer, producer, consumer_CA_root_ids);
 
-  if (replay_root_map != replay_root_map_old) {
-    std::stringstream ss;
-    ss << "\tConsumer: " << consumer << "\n";
-    ss << "\troot: " << consumer->getRootDomain() << "\n";
-    ss << "\tProducer: " << producer << "\n";
-    ss << "\troot: " << producer->getMaybeRFactorDomain() << "\n";
-    ss << "\tRootDomainMap: " << *root_map << "\n";
-    ss << "\treplay root map:";
-    for (auto kv : replay_root_map) {
-      ss << " " << kv.first << " -> " << kv.second;
+  // TODO: Remove checking with the old mapping
+  {
+    // Map of consumer_CA_root_ids to related producer_CA_ids
+    std::unordered_map<IterDomain*, IterDomain*> replay_root_map_old =
+        TensorDomain::mapRootCtoP(consumer, producer, consumer_CA_root_ids);
+    if (replay_root_map != replay_root_map_old) {
+      std::stringstream ss;
+      ss << "\tConsumer: " << consumer << "\n";
+      ss << "\troot: " << consumer->getRootDomain() << "\n";
+      ss << "\tProducer: " << producer << "\n";
+      ss << "\troot: " << producer->getMaybeRFactorDomain() << "\n";
+      ss << "\tRootDomainMap: " << root_map << "\n";
+      ss << "\treplay root map:";
+      for (auto kv : replay_root_map) {
+        ss << " " << kv.first << " -> " << kv.second;
+      }
+      ss << "\n";
+      ss << "\treplay root map old:";
+      for (auto kv : replay_root_map_old) {
+        ss << " " << kv.first << " -> " << kv.second;
+      }
+      ss << "\n";
+      std::cerr << ss.str();
     }
-    ss << "\n";
-    ss << "\treplay root map old:";
-    for (auto kv : replay_root_map_old) {
-      ss << " " << kv.first << " -> " << kv.second;
-    }
-    ss << "\n";
-    std::cerr << ss.str();
-    // replay_root_map = replay_root_map_old;
   }
 
   // Track which root axes in producer we will send to replay
@@ -392,13 +391,11 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
     const TensorDomain* consumer,
     const TensorDomain* producer,
     int producer_compute_at_axis,
-    std::shared_ptr<RootDomainMap> root_map) {
+    const RootDomainMap& root_map) {
   FUSER_PERF_SCOPE("replayCasP");
 
   if (producer_compute_at_axis < 0)
     producer_compute_at_axis += (int)producer->nDims() + 1;
-
-  TORCH_INTERNAL_ASSERT(root_map, "Root map must not be nullptr");
 
   TORCH_INTERNAL_ASSERT(
       producer_compute_at_axis >= 0 &&
@@ -432,32 +429,34 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
     }
   }
 
-  std::unordered_map<IterDomain*, IterDomain*> replay_root_map_old =
-      TensorDomain::mapRootPtoC(producer, consumer, producer_CA_root_ids);
-
   auto replay_root_map =
-      root_map->mapProducerToConsumer(producer, consumer, producer_CA_root_ids);
+      root_map.mapProducerToConsumer(producer, consumer, producer_CA_root_ids);
 
-  if (replay_root_map != replay_root_map_old) {
-    std::stringstream ss;
-    ss << "\tProducer: " << producer << "\n";
-    ss << "\troot: " << producer->getMaybeRFactorDomain() << "\n";
-    ss << "\tConsumer: " << consumer << "\n";
-    ss << "\troot: " << consumer->getRootDomain() << "\n";
-    ss << "\tpos: " << producer_compute_at_axis << "\n";
-    ss << "\tRootDomainMap: " << *root_map << "\n";
-    ss << "\treplay root map:";
-    for (auto kv : replay_root_map) {
-      ss << " " << kv.first << " -> " << kv.second;
+  // TODO: remove checking with the old mapping
+  {
+    std::unordered_map<IterDomain*, IterDomain*> replay_root_map_old =
+        TensorDomain::mapRootPtoC(producer, consumer, producer_CA_root_ids);
+
+    if (replay_root_map != replay_root_map_old) {
+      std::stringstream ss;
+      ss << "\tProducer: " << producer << "\n";
+      ss << "\troot: " << producer->getMaybeRFactorDomain() << "\n";
+      ss << "\tConsumer: " << consumer << "\n";
+      ss << "\troot: " << consumer->getRootDomain() << "\n";
+      ss << "\tpos: " << producer_compute_at_axis << "\n";
+      ss << "\tRootDomainMap: " << root_map << "\n";
+      ss << "\treplay root map:";
+      for (auto kv : replay_root_map) {
+        ss << " " << kv.first << " -> " << kv.second;
+      }
+      ss << "\n";
+      ss << "\treplay root map old:";
+      for (auto kv : replay_root_map_old) {
+        ss << " " << kv.first << " -> " << kv.second;
+      }
+      ss << "\n";
+      std::cerr << ss.str();
     }
-    ss << "\n";
-    ss << "\treplay root map old:";
-    for (auto kv : replay_root_map_old) {
-      ss << " " << kv.first << " -> " << kv.second;
-    }
-    ss << "\n";
-    std::cerr << ss.str();
-    // replay_root_map = replay_root_map_old;
   }
 
   // Track which root axes in producer we will send to replay
@@ -600,18 +599,22 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
 std::pair<TensorView*, unsigned int> TransformReplay::replayPasC(
     TensorView* producer,
     TensorView* consumer,
+    int compute_at_axis) {
+  // Use the pairwise root map as a default mapper
+  PairwiseRootDomainMap root_map(producer, consumer);
+  return replayPasC(producer, consumer, compute_at_axis, root_map);
+}
+
+std::pair<TensorView*, unsigned int> TransformReplay::replayPasC(
+    TensorView* producer,
+    TensorView* consumer,
     int compute_at_axis,
-    std::shared_ptr<RootDomainMap> root_map) {
+    const RootDomainMap& root_map) {
   // If this is a reduction operation, we may call transform_replay on the
 
   // tensor view. When this happens, just return thet target view.
   if (producer == consumer)
     return {producer, 0};
-
-  // Set default root map when not set
-  if (!root_map) {
-    root_map = std::make_shared<PairwiseRootDomainMap>(producer, consumer);
-  }
 
   std::pair<TensorDomain*, unsigned int> replay = replayPasC(
       producer->domain(), consumer->domain(), compute_at_axis, root_map);
@@ -622,17 +625,21 @@ std::pair<TensorView*, unsigned int> TransformReplay::replayPasC(
 std::pair<TensorView*, unsigned int> TransformReplay::replayCasP(
     TensorView* consumer,
     TensorView* producer,
+    int compute_at_axis) {
+  // Use the pairwise root map as a default mapper
+  PairwiseRootDomainMap root_map(producer, consumer);
+  return replayCasP(consumer, producer, compute_at_axis, root_map);
+}
+
+std::pair<TensorView*, unsigned int> TransformReplay::replayCasP(
+    TensorView* consumer,
+    TensorView* producer,
     int compute_at_axis,
-    std::shared_ptr<RootDomainMap> root_map) {
+    const RootDomainMap& root_map) {
   // If this is a reduction operation, we may call transform_replay on the same
   // tensor view. When this happens, just return thet target view.
   if (consumer == producer)
     return {consumer, 0};
-
-  // Set default root map when not set
-  if (!root_map) {
-    root_map = std::make_shared<PairwiseRootDomainMap>(producer, consumer);
-  }
 
   std::pair<TensorDomain*, unsigned int> replay = replayCasP(
       consumer->domain(), producer->domain(), compute_at_axis, root_map);

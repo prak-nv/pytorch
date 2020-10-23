@@ -183,7 +183,9 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   friend class ComputeAtRootDomainMapBuilder;
 
  public:
-  ComputeAtRootDomainMap();
+  //! Builds a mapping table by analyzing the current
+  //! fusion. Overwrite a previous table if any.
+  void build();
 
   //! Check if two iterdomains can be mapped to each other
   //!

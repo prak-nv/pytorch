@@ -4,7 +4,6 @@
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
 #include <algorithm>
-#include <memory>
 #include <vector>
 
 namespace torch {
@@ -129,28 +128,36 @@ class TORCH_CUDA_API TransformReplay {
       const TensorDomain* producer,
       const TensorDomain* consumer,
       int consumer_compute_at_axis,
-      std::shared_ptr<RootDomainMap> root_map);
+      const RootDomainMap& root_map);
 
   // Replay producer as consumer, returns {producer, producer_compute_at_axis}.
   static std::pair<TensorView*, unsigned int> replayPasC(
       TensorView* producer,
       TensorView* consumer,
+      int consumer_compute_at_axis);
+  static std::pair<TensorView*, unsigned int> replayPasC(
+      TensorView* producer,
+      TensorView* consumer,
       int consumer_compute_at_axis,
-      std::shared_ptr<RootDomainMap> root_map = nullptr);
+      const RootDomainMap& root_map);
 
   // Replay producer as consumer, returns {consumer, consumer_compute_at_axis}.
   static std::pair<TensorDomain*, unsigned int> replayCasP(
       const TensorDomain* consumer,
       const TensorDomain* producer,
       int producer_compute_at_axis,
-      std::shared_ptr<RootDomainMap> root_map);
+      const RootDomainMap& root_map);
 
   // Replay producer as consumer, returns {consumer, consumer_compute_at_axis}.
   static std::pair<TensorView*, unsigned int> replayCasP(
       TensorView* consumer,
       TensorView* producer,
+      int producer_compute_at_axis);
+  static std::pair<TensorView*, unsigned int> replayCasP(
+      TensorView* consumer,
+      TensorView* producer,
       int producer_compute_at_axis,
-      std::shared_ptr<RootDomainMap> root_map = nullptr);
+      const RootDomainMap& root_map);
 
   // Self replay.
   static TensorDomain* fullSelfReplay(

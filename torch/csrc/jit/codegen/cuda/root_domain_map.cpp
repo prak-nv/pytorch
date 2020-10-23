@@ -248,7 +248,11 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
   return false;
 }
 
-ComputeAtRootDomainMap::ComputeAtRootDomainMap() {
+void ComputeAtRootDomainMap::build() {
+  // Make sure we start from scratch. Throw away previous results.
+  eq_set_.clear();
+  bcast_map_.clear();
+  new_broadcast_domains_.clear();
   ComputeAtRootDomainMapBuilder builder(*this);
 }
 

@@ -225,7 +225,7 @@ unsigned int ComputeAt::backwardComputeAt_impl(
       producer, consumer, (int)consumer_compute_at_axis, root_map_);
 
   const TensorDomain* new_domain = producer->domain();
-  root_map_->setAlias(current_domain, new_domain);
+  root_map_.setAlias(current_domain, new_domain);
 
   producer_entry.setPassPosition(replay.second);
 
@@ -253,7 +253,7 @@ unsigned int ComputeAt::forwardComputeAt_impl(
       consumer, producer, (int)producer_compute_at_axis, root_map_);
 
   const TensorDomain* new_domain = consumer->domain();
-  root_map_->setAlias(current_domain, new_domain);
+  root_map_.setAlias(current_domain, new_domain);
 
   if (producer_entry.shouldSetComputeAt(producer_compute_at_axis)) {
     producer->setComputeAt(consumer, replay.second);
@@ -488,7 +488,7 @@ ComputeAt::ComputeAt(
   // call.
   setCommonConsumer();
 
-  root_map_ = std::make_shared<ComputeAtRootDomainMap>();
+  root_map_.build();
 }
 
 } // namespace cuda

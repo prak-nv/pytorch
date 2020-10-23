@@ -74,10 +74,13 @@ class DisjointSet {
     return fixedPoint(a) == fixedPoint(b);
   }
 
+  //! Queries if an element exists in this set
   bool contains(T a) const {
     return entry_map.count(a) > 0;
   }
 
+  //! Just inserts an element as its own. It is considered not
+  //! equivalent with anything else.
   bool insert(T a) {
     if (!contains(a)) {
       createPoint(a);
@@ -87,6 +90,7 @@ class DisjointSet {
     }
   }
 
+  //! Returns all elements added to this set
   std::vector<T> getAllElements() const {
     std::vector<T> elms(entry_map.size());
     std::transform(
@@ -97,6 +101,15 @@ class DisjointSet {
     return elms;
   }
 
+  //! Clears the equivalence relationships
+  void clear() {
+    set_map.clear();
+    weights.clear();
+    entry_map.clear();
+    next_index_ = 0;
+  }
+
+  //! Dumps the equivalent relationships
   std::ostream& print(std::ostream& os) const {
     std::unordered_map<int, std::unordered_set<T, Hash>> fixedPointMap;
     for (const auto& kv : entry_map) {

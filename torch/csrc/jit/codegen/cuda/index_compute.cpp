@@ -771,7 +771,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
           producer_tv->domain(),
           consumer_tv->domain(),
           -1,
-          std::make_shared<PairwiseRootDomainMap>(producer_tv, consumer_tv))
+          PairwiseRootDomainMap(producer_tv, consumer_tv))
           .first;
 
   // Make the actual producer_tv look like consumer while we do the indexing
@@ -906,7 +906,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
           producer_tv->domain(),
           consumer_tv->domain(),
           -1,
-          std::make_shared<PairwiseRootDomainMap>(producer_tv, consumer_tv))
+          PairwiseRootDomainMap(producer_tv, consumer_tv))
           .first;
 
   // Set producer_tv with the domain replayed as consumer to grab the right
