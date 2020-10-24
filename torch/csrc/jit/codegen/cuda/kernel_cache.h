@@ -27,13 +27,11 @@ namespace cuda {
 //! \note the uniqueness of the ide generated for a given input set is only
 //!   local to the instance of `InputsIdLookup`.
 //!
-class TORCH_CUDA_API InputsIdLookup {
+class TORCH_CUDA_API InputsIdLookup : public NonCopyable {
  public:
   //! constructor where maximum cache size is fixed during init
   explicit InputsIdLookup(size_t max_cache_size = 10)
       : max_cache_size_(max_cache_size){};
-
-  InputsIdLookup(const InputsIdLookup&) = delete;
 
   //! struct to hold return value for lookupId.
   struct IdLookupReturn {
@@ -58,6 +56,8 @@ class TORCH_CUDA_API InputsIdLookup {
   // string to store encoded input meta information. Reuse the buffer instead of
   // stringtream gives few us perf gain.
   std::string encoding_;
+
+  // mutex_ used to guard reused encoding_
   std::mutex mutex_;
 
   //! entry stored in `encoding_lookup_` to implement LRU

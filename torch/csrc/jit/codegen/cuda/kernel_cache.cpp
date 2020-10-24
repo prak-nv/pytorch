@@ -204,10 +204,9 @@ at::DimVector inversePermutation(
   }
 }
 
-template <typename T, typename CONTAINER>
-void encode_buf(T value, CONTAINER& buffer) {
-  char* v = reinterpret_cast<char*>(&value);
-  for (int i = 0; i < sizeof(T); i++) {
+void encodeBuffer(size_t value, std::string& buffer) {
+  const char* v = reinterpret_cast<char*>(&value);
+  for (int i = 0; i < sizeof(size_t); i++) {
     buffer.push_back(*(v++));
   }
 }
@@ -218,6 +217,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const at::ArrayRef<IValue>& inputs) {
   IdLookupReturn ret;
 
+  // lock mutex_ because we are touching encoding_
   std::lock_guard<std::mutex> guard(mutex_);
   encoding_.clear();
   for (const auto& input : inputs) {
@@ -225,17 +225,17 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
       auto input_tensor = input.toTensor();
 
       for (auto size : input_tensor.sizes()) {
-        encode_buf(size, encoding_);
+        encodeBuffer(size, encoding_);
         encoding_.push_back(' ');
       }
       encoding_.push_back('X');
       encoding_.push_back(' ');
       for (auto stride : input_tensor.strides()) {
-        encode_buf(stride, encoding_);
+        encodeBuffer(stride, encoding_);
         encoding_.push_back(' ');
       }
       encoding_.push_back('d');
-      encode_buf(input_tensor.device().index(), encoding_);
+      encodeBuffer(input_tensor.device().index(), encoding_);
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
@@ -318,8 +318,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     evictCache(id_lookup_ret.evict_id);
   }
 
-  size_t unique_id = id_lookup_ret.id;
-  int device_index = getCommonDeviceCUDA(inputs);
+  const size_t unique_id = id_lookup_ret.id;
+  const int device_index = getCommonDeviceCUDA(inputs);
   TORCH_CHECK(device_index >= 0, "device is not coherent for fusion inputs");
 
   if (code_to_fe_lookup_.count(unique_id) == 0) {
