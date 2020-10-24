@@ -404,6 +404,8 @@ static const char* supported_casts2string(
       return "__float2half";
     case supported_switch_pair(DataType::Half, DataType::Float):
       return "__half2float";
+    case supported_switch_pair(DataType::Bool, DataType::Float):
+      return "float";
     default:
       break;
   }
