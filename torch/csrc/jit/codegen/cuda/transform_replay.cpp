@@ -212,7 +212,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
     }
   }
 
-  auto replay_root_map =
+  const auto replay_root_map =
       root_map.mapConsumerToProducer(consumer, producer, consumer_CA_root_ids);
 
   // TODO: Remove checking with the old mapping
@@ -428,7 +428,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
     }
   }
 
-  auto replay_root_map =
+  const auto replay_root_map =
       root_map.mapProducerToConsumer(producer, consumer, producer_CA_root_ids);
 
   // TODO: remove checking with the old mapping
