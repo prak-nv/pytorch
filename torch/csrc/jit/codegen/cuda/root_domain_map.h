@@ -187,7 +187,8 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   //! fusion. Overwrite a previous table if any.
   void build();
 
-  //! Check if two iterdomains can be mapped to each other
+  //! Returns if key(td_a, id_a) and key(td_b, id_b) are mapped to eachother
+  //! (equivalent), or are the same key.
   //!
   //! \param td_a A TensorDomain
   //! \param id_a An IterDomain in td_a
@@ -215,7 +216,8 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   std::ostream& print(std::ostream& os) const override;
 
  private:
-  //! Check if two iterdomains can be mapped to each other
+  //! Returns if key_a and key(td_b, id_b) are mapped to eachother (equivalent),
+  //! or are the same key.
   //!
   //! \param key_a A DomainKey
   //! \param td_b Another TensorDomain
@@ -226,12 +228,18 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
       const TensorDomain* td_b,
       const IterDomain* id_b) const;
 
+  //! Returns if key_a and key_b are mapped to eachother (equivalent), or are
+  //! the same key.
   bool canMap(const DomainKey& key_a, const DomainKey& key_b) const;
 
+  //! Returns the set of (non-broadcast) DomainKeys that id in td is
+  //! broadcasted to. Can result in more than one "concrete" DomainKey.
   std::vector<DomainKey> getConcretizedKeys(
       const TensorDomain* td,
       const IterDomain* id) const;
 
+  //! Returns the set of (non-broadcast) iter domains that id in td is
+  //! broadcasted to. Can result in more than one "concrete" iter domain.
   std::unordered_set<const IterDomain*>& getConcretizedDomains(
       const TensorDomain* td,
       const IterDomain* id);
@@ -253,8 +261,14 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
       bool producer_to_consumer) const override;
 
  private:
+  //! Disjoint set of all mapped <TD, ID> keys to determine axes equivalency
   DisjointSet<DomainKey, DomainKeyHash> eq_set_;
+
+  //! All IterDomains in the mapping that are a broadcast ID
   DomainKeyMap<std::unordered_set<const IterDomain*>> bcast_map_;
+
+  //! Broadcast iter domain that does not match dimensions in its produer,
+  //! meaning it is a brand new domain in its TensorDomain.
   DomainKeySet new_broadcast_domains_;
 };
 
@@ -267,10 +281,13 @@ class TORCH_CUDA_API ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   ComputeAtRootDomainMapBuilder(ComputeAtRootDomainMap& root_map);
 
  private:
-  //! Set a pair of producer-consumer domains as mappable
+  //! Set a pair of producer-consumer domain keys as mappable
   void setMapped(const DomainKey& producer, const DomainKey& consumer);
 
-  //! Track a pair of producer-consumer domains as potentially mappable.
+  //! Track a pair of producer-consumer domains as potentially mappable. Inserts
+  //! entries into pending_map_, but does not add anything into the root_map_
+  //! (added when handle is called on a TensorView). Maybe mapped will, however,
+  //! immediately propagate broadcast iter domains.
   void setMaybeMapped(
       const TensorDomain* producer_td,
       const IterDomain* producer_id,

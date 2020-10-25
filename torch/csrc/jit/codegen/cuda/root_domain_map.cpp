@@ -488,11 +488,14 @@ void ComputeAtRootDomainMapBuilder::setMaybeMapped(
 
   if (root_map_.hasConcretizedDomains(consumer_td, consumer_id)) {
     TORCH_INTERNAL_ASSERT(producer_id->isBroadcast());
+    // Get bcast_map_ entry for consumer_id
     const auto consumer_bcast_domains =
         root_map_.getConcretizedKeys(consumer_td, consumer_id);
     auto& producer_domains =
         root_map_.getConcretizedDomains(producer_td, producer_id);
 
+    // If consumer id is broadcasted, make sure to propagate its concrete_id(s)
+    // to producer
     for (const auto& consumer_bcast_key : consumer_bcast_domains) {
       const auto concrete_id = consumer_bcast_key.concreteId();
       const DomainKey producer_bcast_key(producer_td, producer_id, concrete_id);
@@ -646,10 +649,11 @@ bool ComputeAtRootDomainMapBuilder::hasMatchingDomains(
       if (key == other_key) {
         continue;
       }
-      const auto& root = other_key.td()->getRootDomain();
-      if (std::any_of(root.begin(), root.end(), [&](const IterDomain* id) {
-            return root_map_.canMap(key, other_key.td(), id);
-          })) {
+      const auto& other_root = other_key.td()->getRootDomain();
+      if (std::any_of(
+              other_root.begin(), other_root.end(), [&](const IterDomain* id) {
+                return root_map_.canMap(key, other_key.td(), id);
+              })) {
         return true;
       }
     }
