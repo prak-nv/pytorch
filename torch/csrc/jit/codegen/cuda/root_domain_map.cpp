@@ -323,7 +323,6 @@ void ComputeAtRootDomainMap::setAlias(
 bool ComputeAtRootDomainMap::hasConcretizedDomains(
     const TensorDomain* td,
     const IterDomain* id) const {
-  DomainKey key(td, id);
   return id->isBroadcast();
 }
 
