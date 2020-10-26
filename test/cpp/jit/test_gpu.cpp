@@ -5182,14 +5182,19 @@ TEST(NVFuserTest, FusionComputeAtExprOrder1_CUDA) {
     auto tv1 = add(tv0, new Float(1));
     auto tv2 = add(tv0, new Float(1));
     TensorView* tv3 = add(tv1, tv2);
+    // Set outputs tv2 or tv1 and then tv3
     if (i == 0) {
-      tv1->computeAt(tv3, -1);
       fusion.addOutput(tv2);
     } else {
-      tv2->computeAt(tv3, -1);
       fusion.addOutput(tv1);
     }
     fusion.addOutput(tv3);
+
+    if (i == 0) {
+      tv1->computeAt(tv3, -1);
+    } else {
+      tv2->computeAt(tv3, -1);
+    }
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor input = at::rand({100}, options);
