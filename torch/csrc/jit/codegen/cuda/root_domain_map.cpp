@@ -122,16 +122,6 @@ auto ensureMapping(
   return it;
 }
 
-std::vector<Val*> getLeaves(Fusion* fusion) {
-  std::vector<Val*> leaves;
-  for (Val* val : fusion->deterministic_vals()) {
-    if (!fusion->used(val)) {
-      leaves.push_back(val);
-    }
-  }
-  return leaves;
-}
-
 } // namespace
 
 std::ostream& DomainKey::print(std::ostream& os) const {
@@ -416,20 +406,19 @@ ComputeAtRootDomainMapBuilder::ComputeAtRootDomainMapBuilder(
     : root_map_(root_map) {
   Fusion* fusion = FusionGuard::getCurFusion();
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
-  std::vector<Val*> leaves = getLeaves(fusion);
   // Set concrete domains for broadcast domains that never get joined
   // with a concrete domain. Just set its own domain as a concrete
   // domain, which is not concrete but is sufficient for this analysis.
-  for (const TensorView* leaf_tv : ir_utils::filterByType<TensorView>(leaves)) {
-    for (const IterDomain* id : leaf_tv->getRootDomain()) {
+  for (const TensorView* output_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    for (const IterDomain* id : output_tv->getRootDomain()) {
       if (id->isBroadcast()) {
         auto it = ensureMapping(
-            root_map.bcast_map_, DomainKey(leaf_tv->domain(), id), {});
+            root_map.bcast_map_, DomainKey(output_tv->domain(), id), {});
         it->second.insert(id);
       }
     }
   }
-  traverseFrom(fusion, leaves, false);
+  traverseFrom(fusion, fusion->outputs(), false);
   if (!pending_map_.empty()) {
     std::stringstream ss;
     ss << "pending map:\n";
