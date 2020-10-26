@@ -35,8 +35,6 @@ class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
       const TensorDomain* producer,
       const std::unordered_set<IterDomain*>& root_dims_to_map) const;
 
-  virtual std::ostream& print(std::ostream& os) const = 0;
-
  protected:
   //! Return a map between root IterDomains of a producer-consumer
   //! pair.
@@ -52,17 +50,23 @@ class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
       bool producer_to_consumer) const = 0;
 };
 
-inline std::ostream& operator<<(std::ostream& os, const RootDomainMap& map) {
-  return map.print(os);
-}
-
 class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
  public:
   explicit PairwiseRootDomainMap(
       const TensorView* producer,
       const TensorView* consumer);
 
-  std::ostream& print(std::ostream& os) const override;
+  const TensorView* producer() const {
+    return producer_tv_;
+  }
+
+  const TensorView* consumer() const {
+    return consumer_tv_;
+  }
+
+  const auto& broadcastFlags() const {
+    return broadcast_flags_;
+  }
 
  protected:
   std::unordered_map<IterDomain*, IterDomain*> map(
@@ -76,6 +80,8 @@ class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
   const TensorView* consumer_tv_ = nullptr;
   std::vector<bool> broadcast_flags_;
 };
+
+std::string toString(const PairwiseRootDomainMap& root_map);
 
 //! Represents an iteration domain of a TensorDomain. Only used for
 //! root domain mapping.
@@ -107,7 +113,6 @@ class DomainKey {
     return td() == other.td() && id() == other.id() &&
         concreteId() == other.concreteId();
   }
-  std::ostream& print(std::ostream& os) const;
 
  private:
   const TensorDomain* td_ = nullptr;
@@ -115,9 +120,7 @@ class DomainKey {
   const IterDomain* concrete_id_ = nullptr;
 };
 
-inline std::ostream& operator<<(std::ostream& os, const DomainKey& key) {
-  return key.print(os);
-}
+std::string toString(const DomainKey& key);
 
 struct DomainKeyHash {
   std::size_t operator()(const DomainKey& key) const {
@@ -202,8 +205,6 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   //! \param td_alias An alias of td
   void setAlias(const TensorDomain* td, const TensorDomain* td_alias);
 
-  std::ostream& print(std::ostream& os) const override;
-
  private:
   //! Returns if key_a and key(td_b, id_b) are mapped to eachother (equivalent),
   //! or are the same key.
@@ -259,7 +260,11 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   //! Broadcast iter domain that does not match dimensions in its produer,
   //! meaning it is a brand new domain in its TensorDomain.
   DomainKeySet new_broadcast_domains_;
+
+  friend std::string toString(const ComputeAtRootDomainMap&);
 };
+
+std::string toString(const ComputeAtRootDomainMap& root_map);
 
 //! Create a DisjointSet of root IterDomains by traversing the
 //! current fusion entirely. IterDomains that can be mapped each
