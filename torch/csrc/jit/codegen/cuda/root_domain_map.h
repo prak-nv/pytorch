@@ -11,6 +11,7 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+//! Generic interface for mapping root domains of a producer-consumer pair.
 class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
  public:
   //! Return a map from a producer TensorDomain to a consumer
@@ -50,8 +51,16 @@ class TORCH_CUDA_API RootDomainMap : public PolymorphicBase {
       bool producer_to_consumer) const = 0;
 };
 
+//! Maps root domains of a producer-consumer pair. This class only
+//! looks at the given pair of TensorViews and does not take into
+//! consideration the constraints of the computeAt transformation,
+//! i.e., unable to compute the same tensors multiple times. This
+//! should not be used for transformations implementing computeAt, but
+//! should be valid otherwise.
 class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
  public:
+  //! \param producer The producer tensor of a producer-consumer pair.
+  //! \param consumer The consumer tensor of a producer-consumer pair.
   explicit PairwiseRootDomainMap(
       const TensorView* producer,
       const TensorView* consumer);
@@ -64,10 +73,6 @@ class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
     return consumer_tv_;
   }
 
-  const auto& broadcastFlags() const {
-    return broadcast_flags_;
-  }
-
  protected:
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
@@ -78,7 +83,6 @@ class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
  private:
   const TensorView* producer_tv_ = nullptr;
   const TensorView* consumer_tv_ = nullptr;
-  std::vector<bool> broadcast_flags_;
 };
 
 std::string toString(const PairwiseRootDomainMap& root_map);
@@ -153,7 +157,6 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
   bool isReductionOutputMapped(
       const std::vector<DomainKey>& consumer_domains,
       const ComputeAtRootDomainMap& root_map) const;
-  // const DisjointSet<DomainKey, DomainKeyHash>& eq_set) const;
 
  private:
   using IterVisitor::handle;
@@ -233,9 +236,6 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   std::unordered_set<const IterDomain*>& getConcretizedDomains(
       const TensorDomain* td,
       const IterDomain* id);
-
-  bool hasConcretizedDomains(const TensorDomain* td, const IterDomain* id)
-      const;
 
   //! Return a map between root IterDomains of a producer-consumer
   //! pair.
