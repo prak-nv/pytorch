@@ -31,12 +31,15 @@ PairwiseRootDomainMap::PairwiseRootDomainMap(
     : producer_tv_(producer), consumer_tv_(consumer) {
   TORCH_INTERNAL_ASSERT(producer != nullptr);
   TORCH_INTERNAL_ASSERT(consumer != nullptr);
+  TORCH_INTERNAL_ASSERT(producer->fusion() == consumer->fusion());
   // Make sure they are really a producer and its consumer
   Expr* origin = consumer->getOrigin();
   TORCH_INTERNAL_ASSERT(origin != nullptr);
-  const auto& producer_exprs = producer->fusion()->unordered_exprs();
   TORCH_INTERNAL_ASSERT(
-      producer_exprs.find(origin) != producer_exprs.end(),
+      std::any_of(origin->inputs().begin(), origin->inputs().end(),
+                  [producer](const Val* input) {
+                    return input == producer;
+                  }),
       "Not a producer-consumer pair: ",
       producer,
       ", ",
