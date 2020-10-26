@@ -215,32 +215,6 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
   const auto replay_root_map =
       root_map.mapConsumerToProducer(consumer, producer, consumer_CA_root_ids);
 
-  // TODO: Remove checking with the old mapping
-  {
-    // Map of consumer_CA_root_ids to related producer_CA_ids
-    std::unordered_map<IterDomain*, IterDomain*> replay_root_map_old =
-        TensorDomain::mapRootCtoP(consumer, producer, consumer_CA_root_ids);
-    if (replay_root_map != replay_root_map_old) {
-      std::stringstream ss;
-      ss << "\tConsumer: " << consumer << "\n";
-      ss << "\troot: " << consumer->getRootDomain() << "\n";
-      ss << "\tProducer: " << producer << "\n";
-      ss << "\troot: " << producer->getMaybeRFactorDomain() << "\n";
-      ss << "\tRootDomainMap: " << root_map << "\n";
-      ss << "\treplay root map:";
-      for (auto kv : replay_root_map) {
-        ss << " " << kv.first << " -> " << kv.second;
-      }
-      ss << "\n";
-      ss << "\treplay root map old:";
-      for (auto kv : replay_root_map_old) {
-        ss << " " << kv.first << " -> " << kv.second;
-      }
-      ss << "\n";
-      std::cerr << ss.str();
-    }
-  }
-
   // Track which root axes in producer we will send to replay
   std::unordered_set<IterDomain*> producer_roots4replay;
   for (auto entry : replay_root_map) {
@@ -430,33 +404,6 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayCasP(
 
   const auto replay_root_map =
       root_map.mapProducerToConsumer(producer, consumer, producer_CA_root_ids);
-
-  // TODO: remove checking with the old mapping
-  {
-    std::unordered_map<IterDomain*, IterDomain*> replay_root_map_old =
-        TensorDomain::mapRootPtoC(producer, consumer, producer_CA_root_ids);
-
-    if (replay_root_map != replay_root_map_old) {
-      std::stringstream ss;
-      ss << "\tProducer: " << producer << "\n";
-      ss << "\troot: " << producer->getMaybeRFactorDomain() << "\n";
-      ss << "\tConsumer: " << consumer << "\n";
-      ss << "\troot: " << consumer->getRootDomain() << "\n";
-      ss << "\tpos: " << producer_compute_at_axis << "\n";
-      ss << "\tRootDomainMap: " << root_map << "\n";
-      ss << "\treplay root map:";
-      for (auto kv : replay_root_map) {
-        ss << " " << kv.first << " -> " << kv.second;
-      }
-      ss << "\n";
-      ss << "\treplay root map old:";
-      for (auto kv : replay_root_map_old) {
-        ss << " " << kv.first << " -> " << kv.second;
-      }
-      ss << "\n";
-      std::cerr << ss.str();
-    }
-  }
 
   // Track which root axes in producer we will send to replay
   std::unordered_set<IterDomain*> consumer_roots4replay;
