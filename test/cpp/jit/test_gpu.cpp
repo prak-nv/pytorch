@@ -2222,22 +2222,6 @@ void checkIdMapped(
 }
 
 void checkIdMapped(
-    ComputeAtRootDomainMap& root_map,
-    TensorView* v0,
-    int a0,
-    TensorView* v1,
-    int a1,
-    bool should_map) {
-  return checkIdMapped(
-      root_map,
-      v0,
-      v0->getRootDomain()[a0],
-      v1,
-      v1->getRootDomain()[a1],
-      should_map);
-}
-
-void checkIdMapped(
     TensorView* v0,
     const std::vector<IterDomain*>& root0,
     const std::vector<bool> should_map0,
@@ -3288,101 +3272,6 @@ TEST(NVFuserTest, FusionCastOps_CUDA) {
       "\nABS MAX DIFF: ",
       outputs[0].sub(ref_output).abs().max(),
       "\n");
-}
-
-// We want split/merge/reorder all tested both on and off rfactor domains, also
-// want compute at into the rfactor domain, and into its consumer
-TEST(NVFuserTest, FusionRFactorReplay_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  // Set up your input tensor views
-  TensorView* tv0 = makeDummyTensor(2);
-
-  // Register your inputs
-  fusion.addInput(tv0);
-
-  // Do math with it, it returns a `Val*` but can be static_casted back to
-  // TensorView
-  TensorView* tv1 = sum(tv0, {1});
-  // tv1[I0, R1]
-  tv1->split(0, 32);
-  // tv1[I0o, I0i{32}, R1]
-  tv1->split(0, 16);
-  // tv1[I0oo, I0oi{16}, I0i{32}, R1]
-  tv1->split(-1, 8);
-  // tv1[I0oo, I0oi{16}, I0i{32}, R1o, R1i{8}]
-  tv1->split(-2, 4);
-  // tv1[I0oo, I0oi{16}, I0i{32}, R1oo, R1oi{4}, R1i{8}]
-  tv1->reorder({{0, -2}, {2, -1}, {-3, 0}, {-1, 1}});
-  // tv1[R1oo, R1i{8}, I0oi{16}, R1oi{4}, I0oo, I0i{32}]
-
-  tv1->merge(0);
-  tv1->merge(-2);
-
-  // tv1[R1oo*R1i{8}, I0oi{16}, R1oi{4}, I0oo*I0i{32}]
-  TensorDomain* new_domain = TransformRFactor::runReplay(tv1->domain(), {0});
-  // new_domain[r(R1oo*R1i{8})rf, I0oi{16}, ir1oi{4}rf, I0oo*I0i{32}]
-
-  TensorDomain* new_domain2 = TransformRFactor::runReplay2(tv1->domain(), {0});
-  // new_domain2[                 I0oi{16},           , I0oo*I0i{32}, R1oi{4}]
-
-  // Move rfactor axis to end, keep iter rfactor axis
-  new_domain->reorder({{0, -1}, {2, 2}});
-
-  // Replay casp, replay new_domain2 as new_domain
-  // reordered_new_domain[I0oi{16}, I0oo*I0i{32}, ir1oi{4}rf, R(R1oo*R1i{8})rf]
-  auto replay_casp = TransformReplay::replayCasP(
-      new_domain2, new_domain, 2, UnsafePairwiseRootDomainMap());
-  TensorDomain* casp = replay_casp.first;
-  // new_domain[I0oi{16}, I0oo*I0i{32}, ir1oi{4}rf, R(R1oo*R1i{8})rf]
-  //       casp[I0oi{16}, I0oo*I0i{32},  R1oi{4}]
-
-  casp->split(1, new Int(2));
-  // casp      [I0oi{16}, (I0oo*I0i{32})o, I(Ioo*I0i)i{2}, ir1oi{4} ]
-  // new_domain[I0oi{16},  I0oo*I0i{32}  ,                 ir1oi{4}rf,
-  // R(R1oo*R1i{8})rf]
-
-  auto replay_pasc = TransformReplay::replayPasC(
-      new_domain, casp, 2, UnsafePairwiseRootDomainMap());
-  TensorDomain* pasc = replay_pasc.first;
-  // pasc      [I0oi{16}, (I0oo*I0i{32})o, I(Ioo*I0i)i{2}, ir1oi{4}rf,
-  // R(R1oo*R1i{8})rf]
-
-  TORCH_CHECK(
-      new_domain->nDims() - 1 == new_domain2->nDims(),
-      casp->nDims() == new_domain2->nDims() + 1,
-      pasc->nDims() == new_domain->nDims() + 1,
-      "Error in rfactor, number of dimensions is not correct.");
-
-  TORCH_CHECK(
-      !casp->sameAs(new_domain2) && !pasc->sameAs(new_domain) &&
-          !new_domain->sameAs(new_domain2) &&
-          !tv1->domain()->sameAs(new_domain) &&
-          !tv1->domain()->sameAs(new_domain2),
-      "Error in rfactor, number of dimensions is not correct.");
-
-  auto dom = new_domain->getRootDomain();
-  TORCH_CHECK(
-      !dom[0]->isReduction() &&
-          std::any_of(
-              dom.begin(),
-              dom.end(),
-              [](IterDomain* id) { return id->isReduction(); }) &&
-          std::any_of(
-              dom.begin(),
-              dom.end(),
-              [](IterDomain* id) { return id->isRFactorProduct(); }),
-      "Error in rFactor, there seems to be something wrong in root domain.");
-
-  auto dom2 = new_domain2->getRootDomain();
-  TORCH_CHECK(
-      !dom2[0]->isReduction() &&
-          std::any_of(
-              dom2.begin(),
-              dom2.end(),
-              [](IterDomain* id) { return id->isReduction(); }),
-      "Error in rFactor, there seems to be something wrong in root domain.");
 }
 
 // Start off simple, block on the outer dim

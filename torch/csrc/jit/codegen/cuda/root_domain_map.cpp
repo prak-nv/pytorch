@@ -78,25 +78,11 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     }
 
     // When the consumer ID is a new broadcast domain, there is no
-    // mapping for it. Note that, due to the unsafe mapping,
-    // broadcast_flags_ may be empty.
-    if (!broadcast_flags_.empty() && broadcast_flags_.at(itc)) {
+    // mapping for it.
+    if (broadcast_flags_.at(itc)) {
       TORCH_INTERNAL_ASSERT(consumer_id->isBroadcast());
       itc++;
       continue;
-    } else {
-      // This is not necessary as we have broadcast_flags_, however,
-      // for the unsafe interface, it stll helps to detect some cases,
-      // thought not complete.
-      // TODO: remove this logic.
-      //
-      // When the consumer is a broadcast domain, but the producer is
-      // not, the consumer broadcast must be the new broadcast domain
-      // introduced by broadcasting the producer.
-      if (consumer_id->isBroadcast() && !producer_id->isBroadcast()) {
-        itc++;
-        continue;
-      }
     }
 
     IterDomain* map_key_id = producer_id;
@@ -117,10 +103,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 std::ostream& PairwiseRootDomainMap::print(std::ostream& os) const {
   return os << "{producer: " << producer_tv_ << ", consumer: " << consumer_tv_
             << ", broadcast_flags: " << broadcast_flags_ << "}";
-}
-
-std::ostream& UnsafePairwiseRootDomainMap::print(std::ostream& os) const {
-  return os << "{}";
 }
 
 namespace {
@@ -342,7 +324,7 @@ bool ComputeAtRootDomainMap::hasConcretizedDomains(
     const TensorDomain* td,
     const IterDomain* id) const {
   DomainKey key(td, id);
-  return bcast_map_.find(key) != bcast_map_.end();
+  return id->isBroadcast();
 }
 
 std::vector<DomainKey> ComputeAtRootDomainMap::getConcretizedKeys(

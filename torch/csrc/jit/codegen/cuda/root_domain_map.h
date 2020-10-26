@@ -71,21 +71,10 @@ class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
       const std::unordered_set<IterDomain*>& root_dims_to_map,
       bool producer_to_consumer) const override;
 
-  //! Creates mapping that does not consider the actual expression of
-  //! a producer-consumer. This is potentially unsafe.
-  PairwiseRootDomainMap() = default;
-
  private:
   const TensorView* producer_tv_ = nullptr;
   const TensorView* consumer_tv_ = nullptr;
   std::vector<bool> broadcast_flags_;
-};
-
-class TORCH_CUDA_API UnsafePairwiseRootDomainMap
-    : public PairwiseRootDomainMap {
- public:
-  UnsafePairwiseRootDomainMap() : PairwiseRootDomainMap() {}
-  std::ostream& print(std::ostream& os) const override;
 };
 
 //! Represents an iteration domain of a TensorDomain. Only used for
