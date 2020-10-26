@@ -36,10 +36,10 @@ PairwiseRootDomainMap::PairwiseRootDomainMap(
   Expr* origin = consumer->getOrigin();
   TORCH_INTERNAL_ASSERT(origin != nullptr);
   TORCH_INTERNAL_ASSERT(
-      std::any_of(origin->inputs().begin(), origin->inputs().end(),
-                  [producer](const Val* input) {
-                    return input == producer;
-                  }),
+      std::any_of(
+          origin->inputs().begin(),
+          origin->inputs().end(),
+          [producer](const Val* input) { return input == producer; }),
       "Not a producer-consumer pair: ",
       producer,
       ", ",
@@ -409,7 +409,8 @@ ComputeAtRootDomainMapBuilder::ComputeAtRootDomainMapBuilder(
   // Set concrete domains for broadcast domains that never get joined
   // with a concrete domain. Just set its own domain as a concrete
   // domain, which is not concrete but is sufficient for this analysis.
-  for (const TensorView* output_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+  for (const TensorView* output_tv :
+       ir_utils::filterByType<TensorView>(fusion->outputs())) {
     for (const IterDomain* id : output_tv->getRootDomain()) {
       if (id->isBroadcast()) {
         auto it = ensureMapping(
