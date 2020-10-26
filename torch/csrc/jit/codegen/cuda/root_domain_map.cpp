@@ -248,7 +248,6 @@ bool ComputeAtRootDomainMap::canMap(
   if (id_a->isBroadcast()) {
     for (const auto& key_a : getConcretizedKeys(td_a, id_a)) {
       if (!canMap(key_a, td_b, id_b)) {
-        //return true;
         return false;
       }
     }
@@ -270,11 +269,9 @@ bool ComputeAtRootDomainMap::canMap(
   if (id_b->isBroadcast()) {
     for (const auto& key_b_bc : getConcretizedKeys(td_b, id_b)) {
       if (!canMap(key_a, key_b_bc)) {
-        //return true;
         return false;
       }
     }
-    //return false;
     return true;
   } else {
     return canMap(key_a, DomainKey(td_b, id_b));
