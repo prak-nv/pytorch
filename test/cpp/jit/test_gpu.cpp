@@ -2518,12 +2518,12 @@ TEST(NVFuserTest, FusionRootMappingBroadcastNonUniqueSize_CUDA) {
   auto tv5 = add(tv2, tv3);
   fusion.addOutput(tv5);
 
-  // Broadcast domains can be mapped with multiple domains with
+  // Broadcast domains can be used with multiple domains with
   // different sizes. In this test, the broadcast domain of tv3 has
   // two consumers, tv4 and tv5, which may have different sizes. Each
-  // of the consumers is mapped with the broadcast domain of tv3, but
-  // the two consumers are not mapped with each other. I.e.,
-  // tv3 <-> tv4 and tv3 <-> tv5, but not tv4 <-> tv5.
+  // of the consumers is used with the broadcast domain of tv3, but
+  // the two consumers may not have the same size, it is not possible
+  // to map those domains.
   checkIdMapped(
       tv0,
       tv0->getRootDomain(),
@@ -2555,31 +2555,31 @@ TEST(NVFuserTest, FusionRootMappingBroadcastNonUniqueSize_CUDA) {
   checkIdMapped(
       tv1,
       tv1->getRootDomain(),
-      {true, true},
+      {true, false},
       tv3,
       tv3->getRootDomain(),
-      {true, true});
+      {true, false});
   checkIdMapped(
       tv2,
       tv2->getRootDomain(),
-      {true, true},
+      {true, false},
       tv3,
       tv3->getRootDomain(),
-      {true, true});
+      {true, false});
   checkIdMapped(
       tv3,
       tv3->getRootDomain(),
-      {true, true},
+      {true, false},
       tv4,
       tv4->getRootDomain(),
-      {true, true});
+      {true, false});
   checkIdMapped(
       tv3,
       tv3->getRootDomain(),
-      {true, true},
+      {true, false},
       tv5,
       tv5->getRootDomain(),
-      {true, true});
+      {true, false});
   checkIdMapped(
       tv4,
       tv4->getRootDomain(),
@@ -8204,30 +8204,9 @@ TEST(NVFuserTest, FusionNonUniqueBroadcastSize_CUDA) {
   fusion.addOutput(tv4);
   fusion.addOutput(tv5);
 
-  tv3->computeAt(tv4, -1);
-
-  const int numel_x = 100;
-  const int numel_y = 200;
-  const int numel_z = 300;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::rand({numel_x}, options);
-  at::Tensor t1 = at::rand({numel_x, numel_y}, options);
-  at::Tensor t2 = at::rand({numel_x, numel_z}, options);
-
-  at::Tensor cg_output_tv4 = at::empty_like(t1, options);
-  at::Tensor cg_output_tv5 = at::empty_like(t2, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  fe.runFusion({t0, t1, t2}, {cg_output_tv4, cg_output_tv5});
-
-  auto t4 = t0.unsqueeze(-1).expand({numel_x, numel_y}) + t1;
-  auto t5 = t0.unsqueeze(-1).expand({numel_x, numel_z}) + t2;
-
-  // Validation fails as the generated kernel is not correct.
-  // TODO: do TORCH_CHECK.
-  t4.allclose(cg_output_tv4);
-  t5.allclose(cg_output_tv5);
+  // In order to do this, tv1->axis(1) and tv2->axis(1) must have the
+  // same size, but we can't prove it, so this should throw an error.
+  ASSERT_ANY_THROW(tv3->computeAt(tv4, -1));
 }
 
 } // namespace jit
