@@ -55,7 +55,7 @@ class TORCH_CUDA_API InputsIdLookup : public NonCopyable {
  private:
   // string to store encoded input meta information. Reuse the buffer instead of
   // stringtream gives few us perf gain.
-  std::string encoding_;
+  std::string encoding_; // Note: shared state, guarded by mutex_
 
   // mutex_ used to guard reused encoding_
   std::mutex mutex_;
