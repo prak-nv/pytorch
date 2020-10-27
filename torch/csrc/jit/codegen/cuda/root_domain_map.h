@@ -176,6 +176,7 @@ class TORCH_CUDA_API UnmappableReductionDomains : private IterVisitor {
 //! This will create mappings between i0, i2 and i4.
 class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   friend class ComputeAtRootDomainMapBuilder;
+  friend std::string toString(const ComputeAtRootDomainMap&);
 
  public:
   //! Builds a mapping table by analyzing the current
@@ -260,8 +261,6 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
   //! Broadcast iter domain that does not match dimensions in its produer,
   //! meaning it is a brand new domain in its TensorDomain.
   DomainKeySet new_broadcast_domains_;
-
-  friend std::string toString(const ComputeAtRootDomainMap&);
 };
 
 std::string toString(const ComputeAtRootDomainMap& root_map);
