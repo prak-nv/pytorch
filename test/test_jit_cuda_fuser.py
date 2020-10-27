@@ -822,6 +822,28 @@ class TestCudaFuser(JitTestCase):
         # have been optimized away
         self.assertGraphContainsExactly(t_jit.graph_for(x, y), FUSION_GUARD, 0)
 
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_sum_to(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([7, 4, 7], dtype=dtype, device=device)
+        y = torch.randn([7, 4, 7], dtype=dtype, device=device)
+
+        # static shape
+        def t(x: torch.Tensor, y: torch.Tensor):
+            o = torch.add(x, y)
+            o = o.sum_to_size((1, 7))
+            return o
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, y)
+        jit_o = t_jit(x, y)
+        o = t(x, y)
+        self.assertEqual(o.dtype, jit_o.dtype)
+        self.assertEqual(o, jit_o)
+        self.assertGraphContains(t_jit.graph_for(x, y), FUSION_GUARD)
+
 class TestPassManagerCudaFuser(JitTestCase):
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")

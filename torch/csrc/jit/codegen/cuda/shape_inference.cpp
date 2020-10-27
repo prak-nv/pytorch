@@ -175,6 +175,17 @@ class NaiveTypePropagator {
         node->output()->setType(type0->withScalarType(type1->scalarType()));
         break;
       }
+      case aten::sum_to_size: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+
+        // TODO: How should we handle shape/dim propagation? when size is not
+        // static
+        const auto sizes = constant_as<c10::List<int64_t>>(node->input(1));
+        TORCH_CHECK(
+            sizes.has_value(), "Shape inference cannot handle options.");
+        node->output()->setType(out_type->withSizes(sizes->vec()));
+        break;
+      }
       default:
         TORCH_CHECK(
             false,

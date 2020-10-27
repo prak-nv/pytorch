@@ -86,19 +86,9 @@ class IrParser {
       }
     }
 
-    // TODO: disable unroll to ensure rand_like generates identical output as
-    // with eager mode
-    bool disable_unroll = false;
-    bool has_reduction = false;
     // compose nodes in topo order;
     for (const JitOp* node : block->nodes()) {
       processJitNode(node);
-      if (node->kind() == aten::rand_like) {
-        disable_unroll = true;
-      }
-      if (node->kind() == aten::sum) {
-        has_reduction = true;
-      }
     }
 
     // mark output;
@@ -521,6 +511,31 @@ class IrParser {
             auto out = castOp(opt_dtype.value(), self);
             value_map.emplace(node->output()->unique(), out);
           });
+    }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
+          "aten::sum_to_size(Tensor self, int[] size) -> Tensor");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            auto self = value_map[node->input(0)->unique()];
+            auto dims_list = constant_as<c10::List<int64_t>>(node->input(1));
+            TORCH_INTERNAL_ASSERT(
+                dims_list.has_value(), "requires static reduce axes");
+            std::vector<Int*> dims;
+            for (const auto dim : dims_list->vec()) {
+              dims.emplace_back(new Int(static_cast<int>(dim)));
+            }
+            auto out = sum_to(self->as<TensorView>(), dims);
+            value_map.emplace(node->output()->unique(), out);
+          },
+          [](const Node* node) -> bool {
+            // we only support static reduction sizes;
+            return node->inputs()[1]->node()->kind() == prim::Constant;
+          },
+          true);
     }
   }
 
