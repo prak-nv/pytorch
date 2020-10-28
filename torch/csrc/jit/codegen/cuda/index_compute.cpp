@@ -772,6 +772,13 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
                          -1,
                          PairwiseRootDomainMap(producer_tv, consumer_tv))
                          .first;
+  {
+    if (producer_tv->name() == 1) {
+      std::stringstream ss;
+      ss << producerAsC;
+      std::cerr << "getProducerIndex_impl: producerAsC" << producerAsC << std::endl;
+    }
+  }
 
   // Make the actual producer_tv look like consumer while we do the indexing
   // math in this function
@@ -906,6 +913,14 @@ kir::TensorIndex* Index::getProducerIndex_impl(
                          -1,
                          PairwiseRootDomainMap(producer_tv, consumer_tv))
                          .first;
+
+  {
+    if (producer_tv->name() == 1) {
+      std::stringstream ss;
+      ss << producerAsC;
+      std::cerr << "getProducerIndex_impl: producerAsC" << producerAsC << std::endl;
+    }
+  }
 
   // Set producer_tv with the domain replayed as consumer to grab the right
   // indices. The guard will reset the domain when this scope ends.

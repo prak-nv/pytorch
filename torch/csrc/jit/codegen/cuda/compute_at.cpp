@@ -76,10 +76,12 @@ void ComputeAtData::validateNewComputeAt() const {
       ".");
   auto mismatch = BestEffortReplay::findFirstMismatchedID(
       tv_ref_->domain(), original_domain_);
+  std::stringstream ss;
+  ss << tv_ref_;
   TORCH_CHECK(
       mismatch >= (int)original_compute_at_position,
       "Invalid computeAt detected. This computeAt call would invalidate the set computeAt on ",
-      tv_ref_,
+      ss.str(),
       " as the previous set computeAt was on the domain ",
       original_domain_,
       " with a computeAt position of ",

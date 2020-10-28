@@ -326,6 +326,12 @@ class TORCH_CUDA_API IterDomain : public Val {
   }
 
   void parallelize(ParallelType t) {
+    {
+      std::stringstream ss;
+      ss << "Parallelize: " << this << " with " << t;
+      std::cout << ss.str() << std::endl;
+    }
+    
     parallel_type_ = t;
 
     TORCH_CHECK(

@@ -141,6 +141,10 @@ std::vector<IterDomain*>::size_type TensorView::nDims() const {
 IterDomain* TensorView::axis(int pos) const {
   TORCH_INTERNAL_ASSERT(
       nDims() > 0, "Tried to access an axis in a 0-dim TensorView");
+
+  std::stringstream ss;
+  ss << "axis: T" << name() << ", " << pos;
+  
   if (pos < 0)
     pos += domain()->nDims();
   TORCH_CHECK(
@@ -149,6 +153,10 @@ IterDomain* TensorView::axis(int pos) const {
       pos,
       " in domain: ",
       domain());
+  
+  ss << ", " << (void*)domain()->axis(pos);
+  //std::cout << ss.str() << std::endl;
+  
   return domain()->axis(pos);
 }
 
@@ -260,6 +268,14 @@ TensorView* TensorView::computeAt(TensorView* consumer, int axis) {
   // Make sure this and consumer are not the same tensor, that's illegal
   TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
 
+  if (true) {
+    //fusion()->printMath();
+    //std::cout << std::endl;
+    std::stringstream ss;
+    ss << "CA: T" << name() << " at T" << consumer->name() << ", " << axis;
+    std::cout << ss.str() << std::endl;
+  }
+
   // We support negative axes, so increment it by consumer->nDims() + 1 and make
   // sure the result is within consumer->nDims() + 1. being at consumer->nDims()
   // means producer will be computed inline with consumer, hence the +1.
@@ -275,6 +291,12 @@ TensorView* TensorView::computeAt(TensorView* consumer, int axis) {
 }
 
 TensorView* TensorView::split(int axis, Val* factor) {
+  {
+    std::stringstream ss;
+    ss << "Split1: T" << name() << ", " << axis << ", " << factor;
+    std::cout << ss.str() << std::endl;
+  }
+  
   // Only check things associated with axis, factor will be validated in
   // IterDomain
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim TensorView");
@@ -296,12 +318,22 @@ TensorView* TensorView::split(int axis, Val* factor) {
 }
 
 TensorView* TensorView::split(int axis, unsigned int factor) {
+  {
+    std::stringstream ss;
+    ss << "Split2: T" << name() << ", " << axis << ", " << factor;
+    std::cout << ss.str() << std::endl;
+  }
   domain()->split(axis, new Int(factor));
   return this;
 }
 
 // Merge "axis" and "axis+1" into 1 dimension
 TensorView* TensorView::merge(int axis_o, int axis_i) {
+  {
+    std::stringstream ss;
+    ss << "Merge: T" << name() << ", " << axis_o << ", " << axis_i;
+    std::cout << ss.str() << std::endl;
+  }
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
   if (axis_o < 0)
     axis_o += domain()->nDims();
@@ -326,6 +358,15 @@ TensorView* TensorView::merge(int axis_o, int axis_i) {
 }
 
 TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
+  {
+    std::stringstream ss;
+    ss << "Reorder: T" << name();
+    for (const auto kv: old2new_) {
+      ss << ", " << kv.first << " -> " << kv.second;
+    }
+    std::cout << ss.str() << std::endl;
+  }
+  
   TORCH_INTERNAL_ASSERT(
       !(nDims() == 0 && old2new_.size() > 0),
       "Tried to reorder a 0-dim TensorView");
@@ -334,6 +375,13 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
 }
 
 TensorView* TensorView::rFactor(const std::vector<int>& axes) {
+  {
+    std::stringstream ss;
+    ss << "Rfactor: T" << name();
+    ss << ", " << axes;
+    std::cout << ss.str() << std::endl;
+  }
+  
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   FusionGuard fg(fusion());
   Expr* origin_expr = fusion()->origin(this);
@@ -382,6 +430,12 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
 }
 
 TensorView* TensorView::cache_before() {
+  {
+    std::stringstream ss;
+    ss << "Cache_before: T" << name();
+    std::cout << ss.str() << std::endl;
+  }
+  
   FusionGuard fg(fusion());
 
   Expr* origin_expr = fusion()->origin(this);
@@ -463,6 +517,12 @@ TensorView* TensorView::cache_before() {
 }
 
 TensorView* TensorView::cache_after() {
+  {
+    std::stringstream ss;
+    ss << "Cache_after: T" << name();
+    std::cout << ss.str() << std::endl;
+  }
+
   FusionGuard fg(fusion());
 
   // Get all the uses for this Tensorview

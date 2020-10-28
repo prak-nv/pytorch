@@ -582,6 +582,12 @@ std::pair<TensorView*, unsigned int> TransformReplay::replayCasP(
     TensorView* producer,
     int compute_at_axis,
     const RootDomainMap& root_map) {
+
+  std::stringstream ss;
+  ss << "replayCasP: " << consumer
+     << ", " << producer;
+  std::cout << ss.str() << std::endl;
+  
   // If this is a reduction operation, we may call transform_replay on the same
   // tensor view. When this happens, just return thet target view.
   if (consumer == producer)
@@ -589,6 +595,11 @@ std::pair<TensorView*, unsigned int> TransformReplay::replayCasP(
   std::pair<TensorDomain*, unsigned int> replay = replayCasP(
       consumer->domain(), producer->domain(), compute_at_axis, root_map);
   consumer->setDomain(replay.first);
+  
+  std::stringstream ss2;
+  ss2 << "replayed: " << replay.first;
+  std::cout << ss2.str() << std::endl;
+  
   return {consumer, replay.second};
 }
 

@@ -237,6 +237,12 @@ void Fusion::removeVal(Val* val) {
 }
 
 void Fusion::addInput(Val* input) {
+  {
+    std::stringstream ss;
+    ss << "Input: " << input << std::endl;
+    std::cout << ss.str();
+  }
+  
   assertInFusion(input, "Cannot register input ");
 
   if (input->getValType().value() == ValType::TensorView) {
@@ -260,6 +266,11 @@ void Fusion::addInput(Val* input) {
 }
 
 void Fusion::addOutput(Val* output) {
+  {
+    std::stringstream ss;
+    ss << "Output: " << output << std::endl;
+    std::cout << ss.str();
+  }
   assertInFusion(output, "Cannot register output ");
   if (output->getValType().value() == ValType::TensorView) {
     auto tv = output->as<TensorView>();

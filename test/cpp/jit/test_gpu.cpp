@@ -5655,6 +5655,8 @@ TEST(NVFuserTest, FusionBroadcastReductionRepro_CUDA) {
   TensorView* tv3 = reductionOp(BinaryOpType::Add, {0, 1}, new Float(0), tv2);
   fusion.addOutput(tv3);
 
+  fusion.printMath();
+
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -5662,12 +5664,42 @@ TEST(NVFuserTest, FusionBroadcastReductionRepro_CUDA) {
   at::Tensor input1 = at::randn(tensor1_shape, options);
 
   std::vector<int64_t> reduction_axes{0, 1};
-  auto reduction_params = getReductionHeuristics(&fusion, {input0, input1}, tv3);
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion, reduction_params.value(), tv3, {});
+  c10::optional<ReductionParams> reduction_params;
+
+  if (std::getenv("MANUAL_SCHED")) {
+    tv3->merge(0, 1);
+    tv3->reorder({{0, -1}});
+    tv3->split(1, 16);
+    tv3->split(1, 4);
+    fusion.printMath();
+    tv3->reorder({{-2, -1}, {-1, -2}});
+    fusion.printMath();
+    tv3->split(0, 128);
+    auto tv5 = tv3->rFactor({-3, -1});
+    fusion.printMath();
+    tv5->computeAt(tv3, -1);
+    fusion.printMath();
+    tv1->computeAt(tv5, -1);
+    fusion.printMath();
+    tv0->computeAt(tv5, -1);
+  } else {
+    reduction_params = getReductionHeuristics(&fusion, {input0, input1}, tv3);
+    TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+    scheduleReduction(&fusion, reduction_params.value(), tv3, {});
+  }
+
+  fusion.printMath();
+  fusion.printKernel();
+
   FusionExecutor fe;
   fe.compileFusion(&fusion);
-  auto outputs = fe.runFusion({input0, input1}, reduction_params.value().lparams);
+
+  std::vector<at::Tensor> outputs;
+  if (std::getenv("MANUAL_SCHED")) {
+    outputs = fe.runFusion({input0, input1});
+  } else {
+    outputs = fe.runFusion({input0, input1}, reduction_params.value().lparams);
+  }
 
   auto aten_output = input0.add(input1).sum(reduction_axes);
 
