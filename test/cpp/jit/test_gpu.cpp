@@ -8315,17 +8315,17 @@ TEST(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto t15 = castOp(DataType::Half, t14);
   fusion.addOutput(t15);
 
-  scheduleFusion(&fusion, {t0, t2});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::manual_seed(0);
   c10::IntArrayRef input_shape{6, 512, 4096};
   c10::IntArrayRef bias_shape{4096};
   auto at_input = at::randn(input_shape, options);
   auto at_bias = at::randn(bias_shape, options);
+
+  scheduleFusion(&fusion, {at_bias, at_input});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
 
   auto outputs = fe.runFusion({at_bias, at_input});
 
@@ -8387,11 +8387,6 @@ TEST(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   auto t27 = castOp(DataType::Half, t26);
   fusion.addOutput(t27);
 
-  scheduleFusion(&fusion, {t0, t2, t4});
-
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::manual_seed(0);
   c10::IntArrayRef input_shape{6, 512, 4096};
@@ -8399,6 +8394,11 @@ TEST(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   auto at_input = at::randn(input_shape, options);
   auto at_bias = at::randn(bias_shape, options);
   auto at_grad = at::randn(input_shape, options);
+
+  scheduleFusion(&fusion, {at_grad, at_bias, at_input});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
 
   auto outputs = fe.runFusion({at_grad, at_bias, at_input});
 
