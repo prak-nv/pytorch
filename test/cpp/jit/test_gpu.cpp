@@ -8293,97 +8293,48 @@ TEST(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   const float k_079 = 0.79788456;
   const float k_004 = 0.044715;
 
-  std::vector<TensorView*> tvs;
-  // T0 (bias)
-  tvs.push_back(makeDummyTensor(1, DataType::Half));
-  fusion.addInput(tvs.back());
-  // T1
-  tvs.push_back(castOp(DataType::Float, tvs[0]));
-  // T2 (input)
-  tvs.push_back(makeDummyTensor(3, DataType::Half));
-  fusion.addInput(tvs.back());
-  // T3
-  tvs.push_back(castOp(DataType::Float, tvs[2]));
-  // T4
-  tvs.push_back(broadcast(tvs[1], {true, true, false}));
-
-  std::vector<TensorView*> outputs_in_float;
-  // T5
-  tvs.push_back(add(tvs[4], tvs[3]));
-  outputs_in_float.push_back(tvs.back());
-  auto x = tvs.back();
-  // T6
-  tvs.push_back(mul(x, new Float(0.5)));
-  outputs_in_float.push_back(tvs.back());
-  // T7
-  tvs.push_back(mul(x, new Float(k_079)));
-  outputs_in_float.push_back(tvs.back());
-  // T8
-  tvs.push_back(mul(x, new Float(k_004)));
-  outputs_in_float.push_back(tvs.back());
-  // T9
-  tvs.push_back(mul(tvs[8], x));
-  outputs_in_float.push_back(tvs.back());
-  // T10
-  tvs.push_back(add(tvs[9], new Int(1)));
-  outputs_in_float.push_back(tvs.back());
-  // T11
-  tvs.push_back(mul(tvs[7], tvs[10]));
-  outputs_in_float.push_back(tvs.back());
-  // T12
-  tvs.push_back(unaryOp(UnaryOpType::Tanh, tvs[11]));
-  outputs_in_float.push_back(tvs.back());
-  // T13
-  tvs.push_back(add(tvs[12], new Float(1)));
-  outputs_in_float.push_back(tvs.back());
-  // T14
-  tvs.push_back(mul(tvs[6], tvs[13]));
-  outputs_in_float.push_back(tvs.back());
-
-  TORCH_CHECK(tvs.size() == 15);
-  TORCH_CHECK(outputs_in_float.size() == 10);
-
-  // outputs are cast and set as output in the reverse order
-  std::reverse(outputs_in_float.begin(), outputs_in_float.end());
-
-  for (auto output_in_float : outputs_in_float) {
-    tvs.push_back(castOp(DataType::Half, output_in_float));
-    fusion.addOutput(tvs.back());
-  }
-
-  TORCH_CHECK(tvs.size() == 25);
+  // bias vector
+  auto t0 = makeDummyTensor(1, DataType::Half);
+  fusion.addInput(t0);
+  auto t1 = castOp(DataType::Float, t0);
+  // input tensor
+  auto t2 = makeDummyTensor(3, DataType::Half);
+  fusion.addInput(t2);
+  auto t3 = castOp(DataType::Float, t2);
+  auto t4 = broadcast(t1, {true, true, false});
+  auto t5 = add(t4, t3);
+  auto t6 = mul(t5, new Float(0.5));
+  auto t7 = mul(t5, new Float(k_079));
+  auto t8 = mul(t5, new Float(k_004));
+  auto t9 = mul(t8, t5);
+  auto t10 = add(t9, new Int(1));
+  auto t11 = mul(t7, t10);
+  auto t12 = unaryOp(UnaryOpType::Tanh, t11);
+  auto t13 = add(t12, new Float(1));
+  auto t14 = mul(t6, t13);
+  auto t15 = castOp(DataType::Half, t14);
+  fusion.addOutput(t15);
 
   // Scheduling
-  for (auto output : ir_utils::filterByType<TensorView>(fusion.outputs())) {
-    output->merge(-2, -1);
-    output->merge(-2, -1);
-  }
-  for (auto output : ir_utils::filterByType<TensorView>(fusion.outputs())) {
-    output->split(0, 128);
-    output->split(0, 1);
-  }
+  t15->merge(-2, -1);
+  t15->merge(-2, -1);
+  t15->split(0, 128);
+  t15->split(0, 1);
 
-  // computeAt and parallelization
-  for (auto output : ir_utils::filterByType<TensorView>(fusion.outputs())) {
-    // There seems to be a bug in computeAt. For t15 and t24, doing
-    // computeAt in this order seems to be a workaround.
-    // TODO: Investigate what causes this behavior.
-    if (output == tvs[15] || output == tvs[24]) {
-      tvs[2]->computeAt(output, -1);
-      tvs[0]->computeAt(output, -1);
-    } else {
-      tvs[0]->computeAt(output, -1);
-      tvs[2]->computeAt(output, -1);
-    }
-    output->axis(0)->parallelize(ParallelType::BIDx);
-    output->axis(1)->parallelize(ParallelType::Unroll);
-    output->axis(2)->parallelize(ParallelType::TIDx);
-  }
+  // computeAt
+  t2->computeAt(t15, -1);
+  t0->computeAt(t15, -1);
+
+  // Parallelization
+  t15->axis(0)->parallelize(ParallelType::BIDx);
+  t15->axis(1)->parallelize(ParallelType::Unroll);
+  t15->axis(2)->parallelize(ParallelType::TIDx);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::manual_seed(0);
   c10::IntArrayRef input_shape{6, 512, 4096};
   c10::IntArrayRef bias_shape{4096};
   auto at_input = at::randn(input_shape, options);
@@ -8398,7 +8349,7 @@ TEST(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto at_out_half = at_out.to(c10::ScalarType::Half);
 
   TORCH_CHECK(
-      at_out_half.allclose(outputs.front()),
+      at_out_half.allclose(outputs.front(), 1e-04, 1e-04),
       "Error of: ",
       at_out_half.sub(outputs.front()).abs().max());
 }
@@ -8411,85 +8362,56 @@ TEST(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   const float k_004 = 0.044715;
   const float k_010 = 0.1070322243;
 
-  std::vector<TensorView*> tvs;
-  // T0 (gradient)
-  tvs.push_back(makeDummyTensor(3, DataType::Half));
-  fusion.addInput(tvs.back());
-  // T1
-  tvs.push_back(castOp(DataType::Float, tvs[0]));
-  // T2 (bias)
-  tvs.push_back(makeDummyTensor(1, DataType::Half));
-  fusion.addInput(tvs.back());
-  // T3
-  tvs.push_back(castOp(DataType::Float, tvs[2]));
-  // T4 (input)
-  tvs.push_back(makeDummyTensor(3, DataType::Half));
-  fusion.addInput(tvs.back());
-  // T5
-  tvs.push_back(castOp(DataType::Float, tvs[4]));
-  // T6
-  tvs.push_back(broadcast(tvs[3], {true, true, false}));
-  // T7
-  tvs.push_back(add(tvs[6], tvs[5]));
-  // T8
-  tvs.push_back(mul(tvs[7], new Float(k_079)));
-  // T9
-  tvs.push_back(mul(tvs[7], new Float(k_004)));
-  // T10
-  tvs.push_back(mul(tvs[9], tvs[7]));
-  // T11
-  tvs.push_back(add(tvs[10], new Int(1)));
-  // T12
-  tvs.push_back(mul(tvs[8], tvs[11]));
-  // T13
-  tvs.push_back(unaryOp(UnaryOpType::Tanh, tvs[12]));
-  // T14
-  tvs.push_back(mul(tvs[7], new Float(0.5)));
-  // T15
-  tvs.push_back(mul(tvs[13], tvs[13]));
-  // T16
-  tvs.push_back(unaryOp(UnaryOpType::Neg, tvs[15]));
-  // T17
-  tvs.push_back(add(tvs[16], new Int(1)));
-  // T18
-  tvs.push_back(mul(tvs[7], new Float(k_010)));
-  // T19
-  tvs.push_back(mul(tvs[18], tvs[7]));
-  // T20
-  tvs.push_back(add(tvs[19], new Float(k_079)));
-  // T21
-  tvs.push_back(mul(tvs[17], tvs[20]));
-  // T22
-  tvs.push_back(mul(tvs[14], tvs[21]));
-  // T23
-  tvs.push_back(add(tvs[13], new Int(1)));
-  // T24
-  tvs.push_back(mul(tvs[23], new Float(0.5)));
-  // T25
-  tvs.push_back(add(tvs[22], tvs[24]));
-  // T26
-  tvs.push_back(mul(tvs[25], tvs[1]));
-  fusion.addOutput(tvs.back());
-  // T27
-  tvs.push_back(castOp(DataType::Half, tvs[26]));
-  fusion.addOutput(tvs.back());
-
-  TORCH_CHECK(tvs.size() == 28);
-
-  auto out = tvs.back();
+  // gradient tensor
+  auto t0 = makeDummyTensor(3, DataType::Half);
+  fusion.addInput(t0);
+  auto t1 = castOp(DataType::Float, t0);
+  // bias tensor
+  auto t2 = makeDummyTensor(1, DataType::Half);
+  fusion.addInput(t2);
+  auto t3 = castOp(DataType::Float, t2);
+  // input tensor
+  auto t4 = makeDummyTensor(3, DataType::Half);
+  fusion.addInput(t4);
+  auto t5 = castOp(DataType::Float, t4);
+  auto t6 = broadcast(t3, {true, true, false});
+  auto t7 = add(t6, t5);
+  auto t8 = mul(t7, new Float(k_079));
+  auto t9 = mul(t7, new Float(k_004));
+  auto t10 = mul(t9, t7);
+  auto t11 = add(t10, new Int(1));
+  auto t12 = mul(t8, t11);
+  auto t13 = unaryOp(UnaryOpType::Tanh, t12);
+  auto t14 = mul(t7, new Float(0.5));
+  auto t15 = mul(t13, t13);
+  auto t16 = unaryOp(UnaryOpType::Neg, t15);
+  auto t17 = add(t16, new Int(1));
+  auto t18 = mul(t7, new Float(k_010));
+  auto t19 = mul(t18, t7);
+  auto t20 = add(t19, new Float(k_079));
+  auto t21 = mul(t17, t20);
+  auto t22 = mul(t14, t21);
+  auto t23 = add(t13, new Int(1));
+  auto t24 = mul(t23, new Float(0.5));
+  auto t25 = add(t22, t24);
+  auto t26 = mul(t25, t1);
+  // Save float output for validation
+  fusion.addOutput(t26);
+  auto t27 = castOp(DataType::Half, t26);
+  fusion.addOutput(t27);
 
   fusion.printMath();
 
+  auto out = t27;
+  // Scheduling
   out->merge(-2, -1);
   out->merge(-2, -1);
   out->split(0, 128);
   out->split(0, 1);
-
   // computeAt
-  tvs[4]->computeAt(out, -1);
-  tvs[0]->computeAt(out, -1);
-  tvs[2]->computeAt(out, -1);
-
+  t4->computeAt(out, -1);
+  t0->computeAt(out, -1);
+  t2->computeAt(out, -1);
   // Parallelization
   out->axis(0)->parallelize(ParallelType::BIDx);
   out->axis(1)->parallelize(ParallelType::Unroll);
@@ -8499,6 +8421,7 @@ TEST(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   fe.compileFusion(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::manual_seed(0);
   c10::IntArrayRef input_shape{6, 512, 4096};
   c10::IntArrayRef bias_shape{4096};
   auto at_input = at::randn(input_shape, options);
