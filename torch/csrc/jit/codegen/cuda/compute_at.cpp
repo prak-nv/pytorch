@@ -89,8 +89,8 @@ void ComputeAtData::validateNewComputeAt() const {
 
 void ComputeAtData::setComputeAtDomain(TensorDomain* td) {
   if (new_compute_at_domain_ != original_domain_) {
-    size_t mismatch = BestEffortReplay::findFirstMismatchedID(
-        new_compute_at_domain_, td);
+    size_t mismatch =
+        BestEffortReplay::findFirstMismatchedID(new_compute_at_domain_, td);
     TORCH_INTERNAL_ASSERT(
         mismatch == new_compute_at_domain_->nDims(),
         "TensorDomain, ",

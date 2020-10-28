@@ -8346,7 +8346,7 @@ TEST(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   // outputs are cast and set as output in the reverse order
   std::reverse(outputs_in_float.begin(), outputs_in_float.end());
 
-  for (auto output_in_float: outputs_in_float) {
+  for (auto output_in_float : outputs_in_float) {
     tvs.push_back(castOp(DataType::Half, output_in_float));
     fusion.addOutput(tvs.back());
   }
@@ -8354,17 +8354,17 @@ TEST(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   TORCH_CHECK(tvs.size() == 25);
 
   // Scheduling
-  for (auto output: ir_utils::filterByType<TensorView>(fusion.outputs())) {
+  for (auto output : ir_utils::filterByType<TensorView>(fusion.outputs())) {
     output->merge(-2, -1);
     output->merge(-2, -1);
   }
-  for (auto output: ir_utils::filterByType<TensorView>(fusion.outputs())) {
+  for (auto output : ir_utils::filterByType<TensorView>(fusion.outputs())) {
     output->split(0, 128);
     output->split(0, 1);
   }
 
   // computeAt and parallelization
-  for (auto output: ir_utils::filterByType<TensorView>(fusion.outputs())) {
+  for (auto output : ir_utils::filterByType<TensorView>(fusion.outputs())) {
     // There seems to be a bug in computeAt. For t15 and t24, doing
     // computeAt in this order seems to be a workaround.
     // TODO: Investigate what causes this behavior.
@@ -8391,13 +8391,16 @@ TEST(NVFuserTest, FusionBiasGeluFwd_CUDA) {
 
   auto outputs = fe.runFusion({at_bias, at_input});
 
-  auto at_x = at_bias.to(c10::ScalarType::Float) + at_input.to(c10::ScalarType::Float);
-  auto at_out = at_x * 0.5 * (1.0 + (k_079 * at_x * (1 + k_004 * at_x * at_x)).tanh());
+  auto at_x =
+      at_bias.to(c10::ScalarType::Float) + at_input.to(c10::ScalarType::Float);
+  auto at_out =
+      at_x * 0.5 * (1.0 + (k_079 * at_x * (1 + k_004 * at_x * at_x)).tanh());
   auto at_out_half = at_out.to(c10::ScalarType::Half);
 
-  TORCH_CHECK(at_out_half.allclose(outputs.front()),
-              "Error of: ",
-              at_out_half.sub(outputs.front()).abs().max());
+  TORCH_CHECK(
+      at_out_half.allclose(outputs.front()),
+      "Error of: ",
+      at_out_half.sub(outputs.front()).abs().max());
 }
 
 TEST(NVFuserTest, FusionBiasGeluBwd_CUDA) {
@@ -8504,19 +8507,23 @@ TEST(NVFuserTest, FusionBiasGeluBwd_CUDA) {
 
   auto outputs = fe.runFusion({at_grad, at_bias, at_input});
 
-  auto at_x = at_bias.to(c10::ScalarType::Float) + at_input.to(c10::ScalarType::Float);
+  auto at_x =
+      at_bias.to(c10::ScalarType::Float) + at_input.to(c10::ScalarType::Float);
   auto at_tanh_out = (k_079 * at_x * (1 + k_004 * at_x * at_x)).tanh();
-  auto at_ff = 0.5 * at_x * ((1 - at_tanh_out * at_tanh_out) * (k_079 + k_010 * at_x * at_x))
-      + 0.5 * (1 + at_tanh_out);
+  auto at_ff = 0.5 * at_x *
+          ((1 - at_tanh_out * at_tanh_out) * (k_079 + k_010 * at_x * at_x)) +
+      0.5 * (1 + at_tanh_out);
   auto at_out = at_ff * at_grad;
   auto at_out_half = at_out.to(c10::ScalarType::Half);
 
-  TORCH_CHECK(at_out.allclose(outputs[0], 1e-05, 1e-05),
-              "Error of: ",
-              at_out.sub(outputs[0]).abs().max());
-  TORCH_CHECK(at_out_half.allclose(outputs[1], 1e-03, 1e-03),
-              "Error of: ",
-              at_out_half.sub(outputs[1]).abs().max());
+  TORCH_CHECK(
+      at_out.allclose(outputs[0], 1e-05, 1e-05),
+      "Error of: ",
+      at_out.sub(outputs[0]).abs().max());
+  TORCH_CHECK(
+      at_out_half.allclose(outputs[1], 1e-03, 1e-03),
+      "Error of: ",
+      at_out_half.sub(outputs[1]).abs().max());
 }
 
 } // namespace jit
