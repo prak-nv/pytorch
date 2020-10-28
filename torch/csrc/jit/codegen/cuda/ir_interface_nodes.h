@@ -188,147 +188,86 @@ class TVDomainGuard;
  * includes sizes, contiguity, number of dimensions, and type.
  *
  */
-class TensorViewOptions {
+struct TensorViewOptions {
  public:
-  /// Set the number of dimensions of the tensor
-  TensorViewOptions nDims(int ndims) const {
-    TensorViewOptions tvo = *this;
-    tvo.setNDims(ndims);
-    return tvo;
-  }
+  /// Number of dimensions of the tensor
+  int n_dims = 1;
 
   /// Set the data type of the tensor
-  TensorViewOptions DType(DataType dtype) const {
-    TensorViewOptions tvo = *this;
-    tvo.setDType(dtype);
-    return tvo;
-  }
+  DataType dtype = DataType::Float;
 
   /// Set if the tensor is fully contiguous. If this is set contiguity does not
   /// need to be directly set.
-  TensorViewOptions fullyContiguous(bool is_fully_contiguous) const {
-    TensorViewOptions tvo = *this;
-    tvo.setFullyContig(is_fully_contiguous);
-    return tvo;
-  }
+  bool is_fully_contiguous = false;
 
   /// Set if the tensor is constructed of fully runtime sizes. If this is set,
   /// sizes does not need to be directly set.
-  TensorViewOptions fullySymbolic(bool is_fully_symbolic) const {
-    TensorViewOptions tvo = *this;
-    tvo.setFullySymbolic(is_fully_symbolic);
-    return tvo;
-  }
+  bool is_fully_symbolic = false;
 
   /// Set the contiguity of each dimension. If specified the size of this vector
   /// will take precedence over the ndims field.
-  TensorViewOptions withContiguity(std::vector<bool> contiguity) const {
-    TensorViewOptions tvo = *this;
-    tvo.setContiguity(contiguity);
-    return tvo;
-  }
+  std::vector<bool> contiguity;
 
   // Set the size of each dimension, <0 is a symbolic size, and >0 is a compile
   // time size. If specified the size of this vector will take precedence over
   // the ndims field.
-  TensorViewOptions withSizes(std::vector<int64_t> sizes) const {
-    TensorViewOptions tvo = *this;
-    tvo.setSizes(sizes);
-    return tvo;
-  }
-
- protected:
-  int n_dims = 1;
-  DataType dtype = DataType::Float;
-  bool is_fully_contiguous = false;
-  bool is_fully_symbolic = false;
-  std::vector<bool> contiguity;
   std::vector<int64_t> sizes;
-
- protected:
-  TensorViewOptions validate() const {
-    TensorViewOptions tvo = *this;
-    // Start with validation of the provided options
-    if (!tvo.contiguity.empty() || !tvo.sizes.empty()) {
-      TORCH_INTERNAL_ASSERT(
-          tvo.contiguity.size() == tvo.sizes.size() || tvo.contiguity.empty() ||
-              tvo.sizes.empty(),
-          "Provided contiguity is of dimensionality ",
-          tvo.contiguity.size(),
-          " but sizes are of dimensionality ",
-          tvo.sizes.size(),
-          ", these must match.");
-      if (tvo.contiguity.empty()) {
-        tvo = tvo.nDims(tvo.sizes.size());
-      } else {
-        tvo = tvo.nDims(tvo.contiguity.size());
-      }
-    }
-
-    if (tvo.is_fully_contiguous && !tvo.contiguity.empty()) {
-      TORCH_INTERNAL_ASSERT(
-          std::none_of(
-              tvo.contiguity.begin(),
-              tvo.contiguity.end(),
-              std::logical_not<bool>()),
-          "Tensor options mark fully contiguous tensor, but provided contiguity information with a noncontiguous dimension.");
-    }
-
-    if (tvo.is_fully_symbolic && !tvo.sizes.empty()) {
-      TORCH_INTERNAL_ASSERT(
-          std::none_of(
-              tvo.sizes.begin(),
-              tvo.sizes.end(),
-              [](int64_t dim) { return dim >= 0; }),
-          "Tensor options mark fully symbolic tensor, but provided size information with a concrete dimension.");
-    }
-    return tvo;
-  }
-
- private:
-  void setNDims(const int ndims) {
-    this->n_dims = ndims;
-  }
-
-  void setDType(const DataType dtype) {
-    this->dtype = dtype;
-  }
-
-  void setFullyContig(const bool is_fully_contiguous) {
-    this->is_fully_contiguous = is_fully_contiguous;
-  }
-
-  void setFullySymbolic(const bool is_fully_symbolic) {
-    this->is_fully_symbolic = is_fully_symbolic;
-  }
-
-  void setContiguity(const std::vector<bool> contiguity) {
-    this->contiguity = contiguity;
-  }
-
-  void setSizes(const std::vector<int64_t> sizes) {
-    this->sizes = sizes;
-  }
-
-  friend TensorView;
 };
 
-/**
- * TensorView is our primitive Tensor Type used in code generation. It can be
- * thought of as representing physical memory, however, its dimensionality is
- * modifed as split/merge/computeAt functions are called. The history of
- * these transformations are kept and used for generating actual code referncing
- * physical memory. Generally when users are thinking of code generation in
- * reference to a Tensor, this is the class they should be interacting with.
- *
- * The reason we need both TensorView and TensorDomain is that we need to have a
- * record of both what is being computed and how it is being computed. For
- * example we may have the operation: TV3[I, J, K] = TV2[I, J, K] + TV1[I, J, K]
- * The mathematical operations here are on the tensor views TV1, TV2, and TV3.
- * This operation is a pointwise operation. To compute this pointwise operation
- * we iterate over the 3D TensorDomain [I, J, K], where K is the fastest
- * changing dimension.
- */
+namespace {
+
+void validateTVO(TensorViewOptions& tvo) {
+  // Start with validation of the provided options
+  if (!tvo.contiguity.empty() || !tvo.sizes.empty()) {
+    TORCH_INTERNAL_ASSERT(
+        tvo.contiguity.size() == tvo.sizes.size() || tvo.contiguity.empty() ||
+            tvo.sizes.empty(),
+        "Provided contiguity is of dimensionality ",
+        tvo.contiguity.size(),
+        " but sizes are of dimensionality ",
+        tvo.sizes.size(),
+        ", these must match.");
+    if (tvo.contiguity.empty()) {
+      tvo.n_dims = tvo.sizes.size();
+    } else {
+      tvo.n_dims = tvo.contiguity.size();
+    }
+  }
+
+  if (tvo.is_fully_contiguous && !tvo.contiguity.empty()) {
+    TORCH_INTERNAL_ASSERT(
+        std::none_of(
+            tvo.contiguity.begin(),
+            tvo.contiguity.end(),
+            std::logical_not<bool>()),
+        "Tensor options mark fully contiguous tensor, but provided contiguity information with a noncontiguous dimension.");
+  }
+
+  if (tvo.is_fully_symbolic && !tvo.sizes.empty()) {
+    TORCH_INTERNAL_ASSERT(
+        std::none_of(
+            tvo.sizes.begin(),
+            tvo.sizes.end(),
+            [](int64_t dim) { return dim >= 0; }),
+        "Tensor options mark fully symbolic tensor, but provided size information with a concrete dimension.");
+  }
+}
+
+} // namespace
+
+/// TensorView is our primitive Tensor Type used in code generation. It can be
+/// thought of as representing physical memory, however, its dimensionality is
+/// modifed as split/merge/computeAt functions are called. The history of
+/// these transformations are kept and used for generating actual code
+/// referncing physical memory. Generally when users are thinking of code
+/// generation in reference to a Tensor, this is the class they should be
+/// interacting with. The reason we need both TensorView and TensorDomain is
+/// that we need to have a record of both what is being computed and how it is
+/// being computed. For example we may have the operation: TV3[I, J, K] = TV2[I,
+/// J, K] + TV1[I, J, K] The mathematical operations here are on the tensor
+/// views TV1, TV2, and TV3. This operation is a pointwise operation. To compute
+/// this pointwise operation we iterate over the 3D TensorDomain [I, J, K],
+/// where K is the fastest changing dimension.
 /*
  * TODO: Need to work on the const model for TensorView, making all functions
  * that should be const, const. Gave this a try but expanded really quickly.
@@ -366,7 +305,8 @@ class TORCH_CUDA_API TensorView : public Val {
   /// at::Tensor and its use of TensorOptions.
 
   static TensorView* makeTensor(const TensorViewOptions tvo) {
-    TensorViewOptions tvo_validated = tvo.validate();
+    auto tvo_validated = tvo;
+    validateTVO(tvo_validated);
 
     auto contiguity = tvo_validated.is_fully_contiguous
         ? std::vector<bool>(tvo_validated.n_dims, true)

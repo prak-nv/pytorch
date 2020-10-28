@@ -1,4 +1,4 @@
-#if defined(USE_CUDA)
+// #if defined(USE_CUDA)
 #include <gtest/gtest.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
@@ -36,24 +36,30 @@ using namespace torch::jit::fuser::cuda;
 
 namespace {
 
-TensorView* makeContigTensor(int ndims, DataType dtype = DataType::Float) {
-  return TensorView::makeTensor(TensorViewOptions()
-                                    .nDims(ndims)
-                                    .fullySymbolic(true)
-                                    .DType(dtype)
-                                    .fullyContiguous(true));
+TensorView* makeContigTensor(int n_dims, DataType dtype = DataType::Float) {
+  TensorViewOptions tvo;
+  tvo.n_dims = n_dims;
+  tvo.dtype = dtype;
+  tvo.is_fully_symbolic = true;
+  tvo.is_fully_contiguous = true;
+  return TensorView::makeTensor(tvo);
 }
 
-TensorView* makeSymbolicTensor(int ndims, DataType dtype = DataType::Float) {
-  return TensorView::makeTensor(
-      TensorViewOptions().nDims(ndims).fullySymbolic(true).DType(dtype));
+TensorView* makeSymbolicTensor(int n_dims, DataType dtype = DataType::Float) {
+  TensorViewOptions tvo;
+  tvo.n_dims = n_dims;
+  tvo.dtype = dtype;
+  tvo.is_fully_symbolic = true;
+  return TensorView::makeTensor(tvo);
 }
 
 TensorView* makeConcreteTensor(
     std::vector<int64_t> sizes,
     DataType dtype = DataType::Float) {
-  return TensorView::makeTensor(
-      TensorViewOptions().DType(dtype).withSizes(sizes));
+  TensorViewOptions tvo;
+  tvo.dtype = dtype;
+  tvo.sizes = sizes;
+  return TensorView::makeTensor(tvo);
 }
 
 void checkIntValue(
@@ -7138,4 +7144,4 @@ TEST(NVFuserTest, FusionGroupGuardRelaxedCheck) {
 } // namespace jit
 } // namespace torch
 
-#endif // #if defined(USE_CUDA)
+// #endif // #if defined(USE_CUDA)
