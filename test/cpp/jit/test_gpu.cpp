@@ -8315,20 +8315,7 @@ TEST(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   auto t15 = castOp(DataType::Half, t14);
   fusion.addOutput(t15);
 
-  // Scheduling
-  t15->merge(-2, -1);
-  t15->merge(-2, -1);
-  t15->split(0, 128);
-  t15->split(0, 1);
-
-  // computeAt
-  t2->computeAt(t15, -1);
-  t0->computeAt(t15, -1);
-
-  // Parallelization
-  t15->axis(0)->parallelize(ParallelType::BIDx);
-  t15->axis(1)->parallelize(ParallelType::Unroll);
-  t15->axis(2)->parallelize(ParallelType::TIDx);
+  scheduleFusion(&fusion, {t0, t2});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -8400,22 +8387,7 @@ TEST(NVFuserTest, FusionBiasGeluBwd_CUDA) {
   auto t27 = castOp(DataType::Half, t26);
   fusion.addOutput(t27);
 
-  fusion.printMath();
-
-  auto out = t27;
-  // Scheduling
-  out->merge(-2, -1);
-  out->merge(-2, -1);
-  out->split(0, 128);
-  out->split(0, 1);
-  // computeAt
-  t4->computeAt(out, -1);
-  t0->computeAt(out, -1);
-  t2->computeAt(out, -1);
-  // Parallelization
-  out->axis(0)->parallelize(ParallelType::BIDx);
-  out->axis(1)->parallelize(ParallelType::Unroll);
-  out->axis(2)->parallelize(ParallelType::TIDx);
+  scheduleFusion(&fusion, {t0, t2, t4});
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
