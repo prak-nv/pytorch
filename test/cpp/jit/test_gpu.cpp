@@ -5659,6 +5659,46 @@ TEST(NVFuserTest, FusionSumToNoop_CUDA) {
       aten_output.sub(outputs[0]).abs().max());
 }
 
+TEST(NVFuserTest, FusionIssue456_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto t0 = makeDummyTensor(1);
+  fusion.addInput(t0);
+  auto t1 = makeDummyTensor(2);
+  fusion.addInput(t1);
+
+  auto t2 = broadcast(t0, {false, true});
+  auto t3 = add(t1, t2);
+  auto t4 = sum(t3, {0, 1});
+  fusion.addOutput(t4);
+
+  t4->merge(-2, -1);
+  t4->split(-1, 4);
+  auto t5 = t4->rFactor({-1});
+
+  t5->computeAt(t4, -1);
+  t0->computeAt(t5, -1);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  const int numel_x = 100;
+  const int numel_y = 200;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto at_t0 = at::randn({numel_x}, options);
+  auto at_t1 = at::randn({numel_x, numel_y}, options);
+
+  auto outputs = fe.runFusion({at_t0, at_t1});
+
+  auto at_out = (at_t0.unsqueeze(-1).expand({numel_x, numel_y}) + at_t1).sum();
+
+  TORCH_CHECK(
+      at_out.allclose(outputs[0]),
+      "Error of: ",
+      at_out.sub(outputs[0]).abs().max());
+}
+
 TEST(NVFuserTest, FusionBroadcastReductionRepro_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
