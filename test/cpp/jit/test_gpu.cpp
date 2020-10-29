@@ -5659,6 +5659,46 @@ TEST(NVFuserTest, FusionSumToNoop_CUDA) {
       aten_output.sub(outputs[0]).abs().max());
 }
 
+TEST(NVFuserTest, FusionBroadcastReductionRepro_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> tensor0_shape{7, 4, 7};
+  std::vector<int64_t> tensor1_shape{4, 7};
+
+  TensorView* tv0 = makeDummyTensor(tensor0_shape.size());
+  fusion.addInput(tv0);
+  TensorView* tv1 = makeDummyTensor(tensor1_shape.size());
+  fusion.addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  TensorView* tv3 = reductionOp(BinaryOpType::Add, {0, 1}, new Float(0), tv2);
+  fusion.addOutput(tv3);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor input0 = at::randn(tensor0_shape, options);
+  at::Tensor input1 = at::randn(tensor1_shape, options);
+
+  std::vector<int64_t> reduction_axes{0, 1};
+  auto reduction_params =
+      getReductionHeuristics(&fusion, {input0, input1}, tv3);
+  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, reduction_params.value(), tv3, {});
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs =
+      fe.runFusion({input0, input1}, reduction_params.value().lparams);
+
+  auto aten_output = input0.add(input1).sum(reduction_axes);
+
+  TORCH_CHECK(
+      aten_output.allclose(outputs[0], 1e-04, 1e-04),
+      "Error of: ",
+      aten_output.sub(outputs[0]).abs().max());
+}
+
 TEST(NVFuserTest, FusionReductionScheduler_CUDA) {
   constexpr int bid_x = 80;
   constexpr int tid_x = 4096;
