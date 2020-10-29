@@ -362,7 +362,7 @@ void ProfilingGraphExecutorImpl::runProfilingOptimizations(
       Gradient gradient = differentiate(diff_graph);
       GRAPH_DEBUG("Forward graph:\n", *(gradient.f));
       GRAPH_DEBUG("Backward graph:\n", *(gradient.df));
-      runDiffGraphPasses(gradient.f);
+      //runDiffGraphPasses(gradient.f);
       // replaces fallback graphs inserted by TE Fuser
       replaceFallbackGraphWithFallbackFunction(gradient.f->block());
       packGradient(gradient, dnode);

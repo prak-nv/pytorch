@@ -1083,30 +1083,30 @@ const std::vector<std::string> functions = {
         def dropout(input,
                     p: float,
                     train: bool):
-            use_cuda = input.is_cuda
+            #use_cuda = input.is_cuda
             # lowering is specialized for cuda because cuda fuser can efficiently fuse those operations
             # for cpu backend, where fusions are disabled, a different lowering that is more efficient
             # in the absence of fusion is used
             p1m = 1. - p
-            if train:
-                if use_cuda:
-                    mask = torch.rand_like(input, memory_format=1) < p1m
-                    res = mask.type_as(input) * input * (1./p1m)
-                else:
-                    mask = torch.empty_like(input, memory_format=1)
-                    mask.bernoulli_(p1m)
-                    res = mask * input / p1m
-            else:
-                p1m = 1.
-                res = input
-                mask = torch.empty_like(input, memory_format=1)
+            #if train:
+            #    if use_cuda:
+            mask = torch.rand_like(input, memory_format=1) < p1m
+            res = mask.type_as(input) * input * (1./p1m)
+            #    else:
+            #        mask = torch.empty_like(input, memory_format=1)
+            #        mask.bernoulli_(p1m)
+            #        res = mask * input / p1m
+            #else:
+            #    p1m = 1.
+            #    res = input
+            #    mask = torch.empty_like(input, memory_format=1)
 
             def backward(grad_output):
                 use_cuda = grad_output.is_cuda
-                if use_cuda:
-                    grad_input = AD_fused_dropout_backward(grad_output, mask, p1m)
-                else:
-                    grad_input = grad_output * mask / p1m
+                #if use_cuda:
+                grad_input = AD_fused_dropout_backward(grad_output, mask, p1m)
+                #else:
+                #    grad_input = grad_output * mask / p1m
                 return grad_input, None, None
             return res, backward
 
