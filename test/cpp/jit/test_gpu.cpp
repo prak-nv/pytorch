@@ -4323,6 +4323,96 @@ TEST(NVFuserTest, FusionAdvancedIndexing4_CUDA) {
   TORCH_CHECK(t3.allclose(outputs[0]));
 }
 
+TEST(NVFuserTest, FusionAdvancedIndexing5_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Set up your input tensor views
+  TensorView* tv0 = makeConcreteTensor({7});
+  fusion.addInput(tv0);
+  TensorView* tv1 = makeConcreteTensor({5, 7, 11});
+  fusion.addInput(tv1);
+
+  TensorView* tv2 = add(tv0, new Float(1));
+  TensorView* tv3 = broadcast(tv2, {true, false, true});
+  TensorView* tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  tv3->merge(0)->merge(0)->split(0, 2)->split(0, 3);
+  tv4->merge(0)->merge(0)->split(0, 2)->split(0, 3);
+
+  tv0->computeAt(tv4, 1);
+  tv1->computeAt(tv4, 1);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({7}, options);
+  at::Tensor t1 = at::randn({5, 7, 11}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t0, t1});
+
+  auto t2 = t0.add(1.0);
+  auto t4 = t2.unsqueeze(-1).add(t1);
+
+  TORCH_CHECK(t4.allclose(outputs[0]));
+}
+
+TEST(NVFuserTest, FusionAdvancedIndexing6_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> tensor0_shape{3, 5, 7};
+  std::vector<int64_t> tensor1_shape{5, 7};
+
+  TensorView* tv0 = makeConcreteTensor(tensor0_shape);
+  fusion.addInput(tv0);
+  TensorView* tv1 = makeConcreteTensor(tensor1_shape);
+  fusion.addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  TensorView* tv3 = reductionOp(BinaryOpType::Add, {0, 1}, new Float(0), tv2);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+  auto vals = DependencyCheck::getAllValsBetween(
+      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+  for (auto val : vals) {
+    if (val->getValType().value() == ValType::TensorView) {
+      val->as<TensorView>()->setMemoryType(MemoryType::Global);
+    }
+  }
+
+  const auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor input0 = at::randn(tensor0_shape, options);
+  at::Tensor input1 = at::randn(tensor1_shape, options);
+
+  std::vector<int64_t> reduction_axes{0, 1};
+  auto reduction_params =
+      getReductionHeuristics(&fusion, {input0, input1}, tv3);
+  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion, reduction_params.value(), tv3, {});
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs =
+      fe.runFusion({input0, input1}, reduction_params.value().lparams);
+
+  auto aten_output = input0.add(input1).sum(reduction_axes);
+
+  TORCH_CHECK(
+      aten_output.allclose(outputs[0], 1e-04, 1e-04),
+      "Error of: ",
+      aten_output.sub(outputs[0]).abs().max());
+}
+
 // Test a simple Gemm but also play around with fusion executor features
 TEST(NVFuserTest, FusionSimpleGemm_CUDA) {
   Fusion fusion;
