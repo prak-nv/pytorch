@@ -4428,6 +4428,8 @@ TEST(NVFuserTest, FusionAdvancedIndexing7_CUDA) {
   const int numel_x = 100;
   const int numel_y = 200;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::manual_seed(0);
   auto at_t0 = at::randn({numel_x}, options);
   auto at_t1 = at::randn({numel_x, numel_y}, options);
 
