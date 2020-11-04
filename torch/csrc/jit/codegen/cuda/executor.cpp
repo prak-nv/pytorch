@@ -23,7 +23,7 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-int FusionExecutor::fusion_id_counter_ = 0;
+int FusionExecutor::fusion_id_counter_ = 0; // NOLINT
 
 std::string FusionExecutor::getStructuredCode(const std::string& kernel) {
   // generating cuda code;
