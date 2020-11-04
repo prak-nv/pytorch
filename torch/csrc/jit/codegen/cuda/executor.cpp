@@ -529,7 +529,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         stream,
         kernel_arguments.getBuffer(),
         nullptr));
-    AT_CUDA_CHECK(cudaStreamSynchronize(stream));
   }
 
   return allocated_outputs;
