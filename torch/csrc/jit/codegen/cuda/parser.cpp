@@ -30,17 +30,49 @@ namespace {
 typedef Val* CgValue;
 typedef Expr* CgOp;
 
-typedef void (*ParseFuncPtr)(const Node*, std::unordered_map<size_t, CgValue>&);
-typedef bool (*MergeQueryFuncPtr)(const Node*);
-
 // TODO: add a mutex to make it thread safe.
 class IrParser {
+  struct ValueEntry {
+    ValueEntry() = default;
+    ValueEntry(CgValue val) : val_(val) {}
+
+    CgValue val() {
+      TORCH_INTERNAL_ASSERT(isValue() && !isContainer());
+      return val_;
+    }
+
+    void setVal(CgValue val) {
+      TORCH_INTERNAL_ASSERT(isValue() && !isContainer());
+      val_ = val;
+    }
+
+    const std::vector<CgValue>& vec() {
+      TORCH_INTERNAL_ASSERT(!isValue() && isContainer());
+      return vec_;
+    }
+
+    bool isValue() {
+      return val_ != nullptr;
+    }
+
+    bool isContainer() {
+      return !vec_.empty();
+    }
+
+    CgValue val_ = nullptr;
+    std::vector<CgValue> vec_;
+  };
+
+  typedef std::unordered_map<size_t, ValueEntry> ValMap;
+  typedef void (*ParseFuncPtr)(const Node*, ValMap&);
+  typedef bool (*MergeQueryFuncPtr)(const Node*);
+
   class RegistrationEntry {
    public:
     RegistrationEntry(ParseFuncPtr parse_f, MergeQueryFuncPtr merge_f = nullptr)
         : parse_f_(parse_f), merge_f_(merge_f) {}
 
-    void parse(const Node* node, std::unordered_map<size_t, CgValue>& values) {
+    void parse(const Node* node, ValMap& values) {
       parse_f_(node, values);
     }
 
@@ -72,17 +104,18 @@ class IrParser {
 
     // register all inputs;
     for (auto val : block->inputs()) {
-      TORCH_INTERNAL_ASSERT(
-          registerValue(val),
-          "Error trying to register value with code generation.");
-      fusion->addInput(value_map_[val->unique()]);
+      if (registerValue(val)) {
+        fusion->addInput(value_map_[val->unique()].val());
 
-      auto opt_dtype = value_map_[val->unique()]->getDataType();
-      // computation promotion, we cast fp16 inputs to fp32 and use promoted
-      // type in the computation.
-      if (opt_dtype.has_value() && opt_dtype.value() == DataType::Half) {
-        Val* promoted_val = castOp(DataType::Float, value_map_[val->unique()]);
-        value_map_[val->unique()] = promoted_val;
+        auto opt_dtype = value_map_[val->unique()].val()->getDataType();
+        // computation promotion, we cast fp16 inputs to fp32 and use promoted
+        // type in the computation.
+        if (opt_dtype.has_value() && opt_dtype.value() == DataType::Half) {
+          Val* promoted_val = castOp(DataType::Float, value_map_[val->unique()].val());
+          value_map_[val->unique()].setVal(promoted_val);
+        }
+      } else if (registerList(val)) {
+        // we register IntList
       }
     }
 
@@ -93,7 +126,7 @@ class IrParser {
 
     // mark output;
     for (auto jit_output : block->outputs()) {
-      TensorView* out = value_map_[jit_output->unique()]->as<TensorView>();
+      TensorView* out = value_map_[jit_output->unique()].val()->as<TensorView>();
       // demote output dtype to be match PyTorch JIT graph.
       auto tensor_type = jit_output->type()->cast<TensorType>();
       TORCH_INTERNAL_ASSERT(
@@ -172,7 +205,7 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
+             ValMap& value_map) -> void {
             using BinaryOpWithAlphaType = Val* (*)(Val*, Val*, Val*);
             static std::unordered_map<
                 Symbol,
@@ -187,9 +220,9 @@ class IrParser {
                           BinaryOpType::Sub,
                           static_cast<BinaryOpWithAlphaType>(&sub_alpha))}});
             // TODO: handle scaling factor when it's not constant 1;
-            auto lhs = value_map[node->inputs()[0]->unique()];
-            auto rhs = value_map[node->inputs()[1]->unique()];
-            auto alpha = value_map[node->inputs()[2]->unique()];
+            auto lhs = value_map[node->inputs()[0]->unique()].val();
+            auto rhs = value_map[node->inputs()[1]->unique()].val();
+            auto alpha = value_map[node->inputs()[2]->unique()].val();
 
             if (alpha->isOneInt()) {
               auto out = binaryOp(op_mapping[node->kind()].first, lhs, rhs);
@@ -231,7 +264,7 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
+             ValMap& value_map) -> void {
             static std::unordered_map<Symbol, BinaryOpType> op_mapping(
                 {{aten::div, BinaryOpType::Div},
                  {aten::mul, BinaryOpType::Mul},
@@ -249,8 +282,8 @@ class IrParser {
                  {aten::ge, BinaryOpType::GE},
                  {aten::ne, BinaryOpType::NE},
                  {aten::eq, BinaryOpType::Eq}});
-            auto lhs = value_map[node->inputs()[0]->unique()];
-            auto rhs = value_map[node->inputs()[1]->unique()];
+            auto lhs = value_map[node->inputs()[0]->unique()].val();
+            auto rhs = value_map[node->inputs()[1]->unique()].val();
 
             auto out = binaryOp(op_mapping[node->kind()], lhs, rhs);
             value_map.emplace(node->output()->unique(), out);
@@ -296,7 +329,7 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
+             ValMap& value_map) -> void {
             static std::unordered_map<Symbol, UnaryOpType> op_mapping({
                 {aten::neg, UnaryOpType::Neg},
                 {aten::abs, UnaryOpType::Abs},
@@ -330,7 +363,7 @@ class IrParser {
                 {aten::sigmoid, UnaryOpType::Sigmoid},
                 {aten::gelu, UnaryOpType::Gelu},
             });
-            auto operand = value_map[node->input()->unique()];
+            auto operand = value_map[node->input()->unique()].val();
 
             auto out = unaryOp(op_mapping[node->kind()], operand);
             value_map.emplace(node->output()->unique(), out);
@@ -343,8 +376,8 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto operand = value_map[node->inputs()[0]->unique()];
+             ValMap& value_map) -> void {
+            auto operand = value_map[node->inputs()[0]->unique()].val();
 
             auto out = unaryOp(UnaryOpType::RandLike, operand);
             value_map.emplace(node->output()->unique(), out);
@@ -357,10 +390,10 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto operand = value_map[node->inputs()[0]->unique()];
-            auto th = value_map[node->inputs()[1]->unique()];
-            auto value = value_map[node->inputs()[2]->unique()];
+             ValMap& value_map) -> void {
+            auto operand = value_map[node->inputs()[0]->unique()].val();
+            auto th = value_map[node->inputs()[1]->unique()].val();
+            auto value = value_map[node->inputs()[2]->unique()].val();
 
             auto out = threshold(operand, th, value);
             value_map.emplace(node->output()->unique(), out);
@@ -373,14 +406,14 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto operand = value_map[node->inputs()[0]->unique()];
+             ValMap& value_map) -> void {
+            auto operand = value_map[node->inputs()[0]->unique()].val();
             // TODO: we need to get a proper lower bound per dtype in operand.
             auto low = value_map.count(node->inputs()[1]->unique()) != 0
-                ? value_map[node->inputs()[1]->unique()]
+                ? value_map[node->inputs()[1]->unique()].val()
                 : new Float(std::numeric_limits<float>::min());
             auto high = value_map.count(node->inputs()[2]->unique()) != 0
-                ? value_map[node->inputs()[2]->unique()]
+                ? value_map[node->inputs()[2]->unique()].val()
                 : new Float(std::numeric_limits<float>::max());
 
             auto out = clamp(operand, low, high);
@@ -394,10 +427,10 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto condition = value_map[node->inputs()[0]->unique()];
-            auto x = value_map[node->inputs()[1]->unique()];
-            auto y = value_map[node->inputs()[2]->unique()];
+             ValMap& value_map) -> void {
+            auto condition = value_map[node->inputs()[0]->unique()].val();
+            auto x = value_map[node->inputs()[1]->unique()].val();
+            auto y = value_map[node->inputs()[2]->unique()].val();
 
             auto out = where(condition, x, y);
             value_map.emplace(node->output()->unique(), out);
@@ -413,10 +446,10 @@ class IrParser {
         registerParseRule(
             ptr_op,
             [](const Node* node,
-               std::unordered_map<size_t, CgValue>& value_map) -> void {
-              auto self = value_map[node->inputs()[0]->unique()];
-              auto end = value_map[node->inputs()[1]->unique()];
-              auto weight = value_map[node->inputs()[2]->unique()];
+               ValMap& value_map) -> void {
+              auto self = value_map[node->inputs()[0]->unique()].val();
+              auto end = value_map[node->inputs()[1]->unique()].val();
+              auto weight = value_map[node->inputs()[2]->unique()].val();
 
               auto out = lerp(self, end, weight);
               value_map.emplace(node->output()->unique(), out);
@@ -430,11 +463,11 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto self = value_map[node->inputs()[0]->unique()];
-            auto tensor1 = value_map[node->inputs()[1]->unique()];
-            auto tensor2 = value_map[node->inputs()[2]->unique()];
-            auto value = value_map[node->inputs()[3]->unique()];
+             ValMap& value_map) -> void {
+            auto self = value_map[node->inputs()[0]->unique()].val();
+            auto tensor1 = value_map[node->inputs()[1]->unique()].val();
+            auto tensor2 = value_map[node->inputs()[2]->unique()].val();
+            auto value = value_map[node->inputs()[3]->unique()].val();
 
             auto out = addcmul(self, tensor1, tensor2, value);
             value_map.emplace(node->output()->unique(), out);
@@ -447,8 +480,8 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto self = value_map[node->input(0)->unique()];
+             ValMap& value_map) -> void {
+            auto self = value_map[node->input(0)->unique()].val();
             auto dims_list = constant_as<c10::List<int64_t>>(node->input(1));
             TORCH_INTERNAL_ASSERT(
                 dims_list.has_value(),
@@ -497,15 +530,15 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto self = value_map[node->inputs()[0]->unique()];
+             ValMap& value_map) -> void {
+            auto self = value_map[node->inputs()[0]->unique()].val();
 
             // TODO: switch to PyTorch dtype as it's closer to truth.
             // For now, reality is that PyTorch IR profiling information could
             // be missing even with profiling executor, due to upstream
             // transformations between profiling runs to fusion pass.
             auto opt_dtype =
-                value_map[node->inputs()[1]->unique()]->getDataType();
+                value_map[node->inputs()[1]->unique()].val()->getDataType();
             TORCH_INTERNAL_ASSERT(opt_dtype.has_value());
 
             auto out = castOp(opt_dtype.value(), self);
@@ -519,8 +552,8 @@ class IrParser {
       registerParseRule(
           ptr_op,
           [](const Node* node,
-             std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto self = value_map[node->input(0)->unique()];
+             ValMap& value_map) -> void {
+            auto self = value_map[node->input(0)->unique()].val();
             auto dims_list = constant_as<c10::List<int64_t>>(node->input(1));
             TORCH_INTERNAL_ASSERT(
                 dims_list.has_value(), "requires static reduce axes");
@@ -575,6 +608,10 @@ class IrParser {
     return registerTensor(val) || registerScalar(val);
   }
 
+  bool registerList(const JitValue* val) {
+    TORCH_INTERNAL_ASSERT(false);
+  }
+
   bool registerScalar(const JitValue* val) {
     if (val->type()->isSubtypeOf(static_cast<c10::TypePtr>(FloatType::get()))) {
       CgValue cg_val;
@@ -610,10 +647,11 @@ class IrParser {
       // TODO: should we consider adding support for NoneType;
       return true;
     } else if (val->type()->cast<ListType>()) {
-      // TODO: we don't support list type in codegen yet;
-      // This is a WAR to allow axes of reduction to be passed as constant list;
-      // We simply ignore conversion if the scalar value is a constant;
-      return toIValue(val).has_value();
+      // For constant ListType, we don't need to register it as runtime input,
+      // because graph conversion would inline the constants
+      if (toIValue(val).has_value()) {
+        return true;
+      }
     }
     return false;
   }
@@ -633,7 +671,7 @@ class IrParser {
   std::shared_ptr<Graph> graph_;
 
   // maps from JitValue::unique() to fusion Val;
-  std::unordered_map<size_t, CgValue> value_map_;
+  std::unordered_map<size_t, ValueEntry> value_map_;
   // parsing rule registry.
   static std::unordered_map<
       Symbol,
@@ -767,7 +805,7 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
   }
 
   // we should use `OperatorSet`
-  // static reduction_to_size_operator = getOperatorForLiteral(
+  // static auto reduction_to_size_operator = getOperatorForLiteral(
   //     "aten::sum_to_size(Tensor self, int[] size) -> Tensor");
   // if (node->isMemberOf(reduction_to_size_operator) && offset == 1) {
   //   profileIntList(pr, node, offset);
