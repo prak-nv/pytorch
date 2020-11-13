@@ -1,4 +1,4 @@
-#if defined(USE_CUDA)
+// #if defined(USE_CUDA)
 #include <gtest/gtest.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
@@ -27,6 +27,8 @@
 // fuser and IR parser
 #include <torch/csrc/jit/codegen/cuda/parser.h>
 #include "torch/csrc/jit/ir/irparser.h"
+
+#include "test_gpu_validator.h"
 
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
@@ -5922,7 +5924,7 @@ TEST(NVFuserTest, FusionReductionSchedulerMultiDimFastest_CUDA) {
 TEST(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
   std::vector<bool> fp16_usage = {true, false};
   std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {320, 640};
+  std::vector<int> output_dims = {160, 320};
   std::vector<int> red_dims;
 
   // Making sure we get deterministic results
@@ -5986,12 +5988,15 @@ TEST(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
 
           auto outputs =
               fe.runFusion({input}, reduction_params.value().lparams);
-          auto aten_output = input.sum({axis});
-
-          TORCH_CHECK(
-              aten_output.allclose(outputs[0], 1e-03, 1e-03),
-              "Error of: ",
-              aten_output.sub(outputs[0]).abs().max());
+          auto aten_output = input.to(at::kDouble).sum({axis});
+          validate(
+              &fusion,
+              outputs,
+              {input},
+              {aten_output},
+              __LINE__,
+              __FILE__,
+              reduction_params.value().lparams);
         }
       }
     }
@@ -9356,4 +9361,4 @@ TEST(NVFuserTest, Issue507_CUDA) {
 } // namespace jit
 } // namespace torch
 
-#endif // #if defined(USE_CUDA)
+// #endif // #if defined(USE_CUDA)
