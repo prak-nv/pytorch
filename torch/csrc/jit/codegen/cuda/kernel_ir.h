@@ -47,6 +47,7 @@ class UnaryOp;
 class BinaryOp;
 class TernaryOp;
 class ReductionOp;
+class MultiScanOp;
 class BroadcastOp;
 
 // Statements
@@ -123,6 +124,9 @@ class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
     unhandled(node);
   }
   virtual void visit(const ReductionOp* node) {
+    unhandled(node);
+  }
+  virtual void visit(const MultiScanOp* node) {
     unhandled(node);
   }
   virtual void visit(const BroadcastOp* node) {
@@ -793,6 +797,51 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
   const BinaryOpType operation_;
   Val* const init_ = nullptr;
   Val* const out_ = nullptr;
+  Val* const in_ = nullptr;
+};
+
+class TORCH_CUDA_API MultiScanOp final : public Expr {
+  using ValPtrList = std::vector<Val*>;
+  using OpList = std::vector<BinaryOpType>;
+
+ public:
+  MultiScanOp(
+      Passkey passkey,
+      OpList operations,
+      ValPtrList inits,
+      ValPtrList outs,
+      Val* in);
+
+  void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  Val* out() const {
+    return out_.size() == 0 ? nullptr : out_[0];
+  }
+
+  Val* in() const {
+    return in_;
+  }
+
+  ValPtrList init() const {
+    return init_;
+  }
+
+  OpList operations() const {
+    return operation_;
+  }
+
+  std::unordered_map<ParallelType, IterDomain*, TypeHash>
+  getParallelReductionDomains() const;
+
+ private:
+  std::vector<IterDomain*> getReductionDomains() const;
+
+ private:
+  OpList const operation_;
+  ValPtrList const init_;
+  ValPtrList const out_;
   Val* const in_ = nullptr;
 };
 

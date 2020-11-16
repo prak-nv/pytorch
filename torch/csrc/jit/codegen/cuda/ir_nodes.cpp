@@ -287,73 +287,76 @@ MultiScanOp::MultiScanOp(
     std::vector<Val*> out,
     Val* in)
     : Expr(ExprType::MultiScanOp),
-      reduction_op_types_(reduction_op_types.begin(),reduction_op_types.end()),
-      init_(init.begin(),init.end()),
-      out_(out.begin(),out.end()),
+      reduction_op_types_(reduction_op_types.begin(), reduction_op_types.end()),
+      init_(init.begin(), init.end()),
+      out_(out.begin(), out.end()),
       in_(in) {
-
-  TORCH_INTERNAL_ASSERT(
-    std::all_of(
-      out.begin(),out.end(),
-      [](const Val* o) {return o->getValType().value() == ValType::TensorView;})
-      )
+  TORCH_INTERNAL_ASSERT(std::all_of(out.begin(), out.end(), [](const Val* o) {
+    return o->getValType().value() == ValType::TensorView;
+  }))
 
   TORCH_INTERNAL_ASSERT(
       in->getValType() == ValType::TensorView,
-   "MultiScan operation was created that does not have tensor inputs and outputs.");
+      "MultiScan operation was created that does not have tensor inputs and outputs.");
 
   TORCH_INTERNAL_ASSERT(
       std::all_of(
-        init.begin(),init.end(),
-        [](const Val* i){
-          return i->isConstScalar();
-        }
-      ),
+          init.begin(),
+          init.end(),
+          [](const Val* i) { return i->isConstScalar(); }),
       "Tried to create a reduction operation whith an initial value that isn't a constant.");
 
-  for(Val* o : out){
-    addOutput(o);  
+  for (Val* o : out) {
+    addOutput(o);
   }
   addInput(in);
   name_ = FusionGuard::getCurFusion()->registerExpr(this);
 }
 
-namespace{
-inline std::vector<Val*> cloneVector(const std::vector<Val*> in,IrCloner* ir_cloner){
+namespace {
+inline std::vector<Val*> cloneVector(
+    const std::vector<Val*> in,
+    IrCloner* ir_cloner) {
   std::vector<Val*> output_vec;
   std::transform(
-          in.begin(),
-          in.end(),
-          std::back_inserter(output_vec),
-          [ir_cloner](const Val* v){return ir_cloner->clone(v);}
-  );
+      in.begin(),
+      in.end(),
+      std::back_inserter(output_vec),
+      [ir_cloner](const Val* v) { return ir_cloner->clone(v); });
   return output_vec;
 }
 
-inline bool equalVector(const std::vector<Val*>& a, const std::vector<Val*>& b){
-  if(a.size()!=b.size()){
+inline bool equalVector(
+    const std::vector<Val*>& a,
+    const std::vector<Val*>& b) {
+  if (a.size() != b.size()) {
     return false;
   }
   std::vector<bool> equal;
-  std::transform(a.begin(),a.end(),b.begin(),std::back_inserter(equal),
-    [](const Val* a, const Val* b){return a->sameAs(b);});
-  return std::all_of(equal.begin(),equal.end(),[](bool b){return b;});
+  std::transform(
+      a.begin(),
+      a.end(),
+      b.begin(),
+      std::back_inserter(equal),
+      [](const Val* a, const Val* b) { return a->sameAs(b); });
+  return std::all_of(equal.begin(), equal.end(), [](bool b) { return b; });
 }
-} //namespace
-
+} // namespace
 
 MultiScanOp::MultiScanOp(const MultiScanOp* src, IrCloner* ir_cloner)
     : Expr(src, ir_cloner),
-      reduction_op_types_(src->reduction_op_types_.begin(),src->reduction_op_types_.end()),
-      init_(cloneVector(src->init_,ir_cloner)),
-      out_(cloneVector(src->out_,ir_cloner)),
+      reduction_op_types_(
+          src->reduction_op_types_.begin(),
+          src->reduction_op_types_.end()),
+      init_(cloneVector(src->init_, ir_cloner)),
+      out_(cloneVector(src->out_, ir_cloner)),
       in_(ir_cloner->clone(src->in_)) {}
 
 bool MultiScanOp::sameAs(const MultiScanOp* other) const {
   return (
       in()->sameAs(other->in()) &&
       getReductionOpTypes() == other->getReductionOpTypes() &&
-      equalVector(init(),other->init()));
+      equalVector(init(), other->init()));
 }
 
 ReductionOp::ReductionOp(const ReductionOp* src, IrCloner* ir_cloner)

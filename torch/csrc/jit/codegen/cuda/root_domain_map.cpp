@@ -533,7 +533,7 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
   // Broadcast is handled separately, so e should never be BroadcastOp.
   TORCH_INTERNAL_ASSERT(e->getExprType() != ExprType::BroadcastOp);
 
-  TORCH_INTERNAL_ASSERT(e->outputs().size() == 1);
+  TORCH_INTERNAL_ASSERT(e->outputs().size() >= 1);
   const TensorView* out_tv = e->output(0)->as<TensorView>();
   const TensorDomain* out_td = out_tv->domain();
   const auto& out_root = out_td->getRootDomain();

@@ -166,10 +166,11 @@ class TORCH_CUDA_API ReductionOp : public Expr {
 //! MultiScanOp operation.
 class TORCH_CUDA_API MultiScanOp : public Expr {
  public:
-  MultiScanOp(std::vector<BinaryOpType> reduction_op_types,
-    std::vector<Val*> init,
-    std::vector<Val*> out,
-    Val* in);
+  MultiScanOp(
+      std::vector<BinaryOpType> reduction_op_types,
+      std::vector<Val*> init,
+      std::vector<Val*> out,
+      Val* in);
 
   MultiScanOp(const MultiScanOp* src, IrCloner* ir_cloner);
 
@@ -197,7 +198,6 @@ class TORCH_CUDA_API MultiScanOp : public Expr {
   std::vector<Val*> const out_;
   Val* const in_ = nullptr;
 };
-
 
 class TORCH_CUDA_API TernaryOp : public Expr {
  public:

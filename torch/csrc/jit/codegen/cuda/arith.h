@@ -46,7 +46,7 @@ TORCH_CUDA_API TensorView* reductionOp(
     TensorView* v1,
     bool keep_dim = false);
 
-//!Scan the same axes and perform multiple reductions at the same time
+//! Scan the same axes and perform multiple reductions at the same time
 //!  venturing into the first multiple output Op
 //!  ** I know two reductions computedAt each other does the same thing
 TORCH_CUDA_API std::vector<TensorView*> MultiScan(

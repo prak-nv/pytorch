@@ -422,23 +422,40 @@ void LoopNestGenerator::handle(const Expr* expr) {
 
   kir::Expr* alloc_expr = nullptr;
 
-  // Place the allocation for out
-  if (!fusion_->hasInput(out) && !fusion_->hasOutput(out)) {
-    alloc_expr = pushAlloc(out);
-  }
+  //
+  //  TODO: refactor allocation for multi-output ops
+  //
 
-  //  If this is a reduction, initialize the output (open for loops to inner
-  //  most, predicate, initialize, place next after allocation if exists, close
-  //  to computeAt)
-  if (out->hasAnyReduction()) {
-    initReduction(out, expr->as<ReductionOp>()->init(), alloc_expr);
+  for (int i = 0; i < expr->outputs().size(); i++) {
+    auto o = expr->outputs()[i];
+    auto o_tv = o->as<TensorView>();
+    // Place the allocation for out
+    if (!fusion_->hasInput(o_tv) && !fusion_->hasOutput(o_tv)) {
+      alloc_expr = pushAlloc(o_tv);
+    }
+
+    //  If this is a reduction, initialize the output (open for loops to inner
+    //  most, predicate, initialize, place next after allocation if exists,
+    //  close to computeAt)
+    if (o_tv->hasAnyReduction()) {
+      if (expr->isA<ReductionOp>()) {
+        initReduction(o_tv, expr->as<ReductionOp>()->init(), alloc_expr);
+      } else if (expr->isA<MultiScanOp>()) {
+        initReduction(o_tv, expr->as<MultiScanOp>()->init()[i], alloc_expr);
+      } else {
+        TORCH_INTERNAL_ASSERT(false, "unsupported expr with reduction output");
+      }
+    }
   }
 
   //  Place the expression
   pushBack(gpu_lower->lowerExpr(expr));
 
-  // If output is a shared memory buffer, set modified status
-  modifySharedMemory(out);
+  for (auto o : expr->outputs()) {
+    // If output is a shared memory buffer, set modified status
+    auto o_tv = o->as<TensorView>();
+    modifySharedMemory(o_tv);
+  }
 
   // Reduce the loop nest structure back to computeAt
   if (out->getThisComputeAtAxis() == 0) {
@@ -460,9 +477,9 @@ void LoopNestGenerator::handle(const Expr* expr) {
 namespace {
 
 TensorView* findOutputTensor(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(
-      expr->outputs().size() <= 1, "Unexpected number of outputs");
-  if (expr->outputs().size() != 1) {
+  // TORCH_INTERNAL_ASSERT(
+  //    expr->outputs().size() <= 1, "Unexpected number of outputs");
+  if (expr->outputs().size() == 0) {
     return nullptr;
   }
   auto out = expr->output(0);
@@ -473,7 +490,7 @@ TensorView* findOutputTensor(Expr* expr) {
 }
 
 void findTargetTensor(Expr* expr, TensorView*& target, unsigned& score) {
-  TORCH_INTERNAL_ASSERT(expr->outputs().size() <= 1);
+  // TORCH_INTERNAL_ASSERT(expr->outputs().size() <= 1);
 
   TensorView* out_tv = findOutputTensor(expr);
   if (out_tv == nullptr) {

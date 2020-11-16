@@ -568,14 +568,14 @@ static std::vector<TensorView*> newForMultiScan(
     TensorView* tv,
     const std::vector<unsigned int>& axes,
     size_t num_of_ops) {
-      std::vector<TensorView*> new_vec(num_of_ops,nullptr);
-      for(int i=0;i<num_of_ops;i++){
-        new_vec[i] = newForReduction(tv,axes);
-      }
-      return new_vec;
+  std::vector<TensorView*> new_vec(num_of_ops, nullptr);
+  for (int i = 0; i < num_of_ops; i++) {
+    new_vec[i] = newForReduction(tv, axes);
+  }
+  return new_vec;
 }
 
-//!Scan the same axes and perform multiple reductions at the same time
+//! Scan the same axes and perform multiple reductions at the same time
 //!  venturing into the first multiple output Op
 //!  ** I know two reductions computedAt each other does the same thing
 std::vector<TensorView*> MultiScan(
@@ -583,7 +583,6 @@ std::vector<TensorView*> MultiScan(
     std::vector<int> axes,
     std::vector<Val*> init,
     TensorView* tv) {
-  
   TORCH_CHECK(
       TensorDomain::sameAs(tv->getRootDomain(), tv->domain()->domain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. Please set reductions before calling split/merge/computeAt.");
@@ -591,7 +590,8 @@ std::vector<TensorView*> MultiScan(
   TORCH_CHECK(tv->nDims() > 0, "Tried to reduce a 0-dim tensor");
 
   TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
-  TORCH_CHECK(init.size() == reduction_op_types.size(), "No reduction axis specified");
+  TORCH_CHECK(
+      init.size() == reduction_op_types.size(), "No reduction axis specified");
 
   // Check and collect reduction axes
   std::vector<unsigned int> uint_axes;
@@ -612,31 +612,26 @@ std::vector<TensorView*> MultiScan(
 
   // Create tensor outputs
 
+  const size_t num_of_ops = init.size();
+  std::vector<TensorView*> out = newForMultiScan(tv, uint_axes, num_of_ops);
+  std::vector<Val*> init_cast(init.size(), nullptr);
 
-  const size_t num_of_ops =init.size();
-  std::vector<TensorView*> out = newForMultiScan(tv, uint_axes,num_of_ops);
-  std::vector<Val*> init_cast(init.size(),nullptr);
-
-  std::transform(
-    init.begin(),
-    init.end(),
-    init_cast.begin(),
-    [tv ](Val* v){
-      if (v->getDataType().value() != tv->getDataType().value()){
-        return castOp(tv->getDataType().value(), v); 
-      }else{
-        return v;
-      }
+  std::transform(init.begin(), init.end(), init_cast.begin(), [tv](Val* v) {
+    if (v->getDataType().value() != tv->getDataType().value()) {
+      return castOp(tv->getDataType().value(), v);
+    } else {
+      return v;
     }
-  );
+  });
 
-  std::vector<Val*> out_as_val(num_of_ops,nullptr);
-  std::transform(out.begin(),
-                  out.end(),
-                  out_as_val.begin(),
-                  [](TensorView* tv){return tv;});
+  std::vector<Val*> out_as_val(num_of_ops, nullptr);
+  std::transform(
+      out.begin(), out.end(), out_as_val.begin(), [](TensorView* tv) {
+        return tv;
+      });
 
-  std::vector<BinaryOpType> reduction_ops (reduction_op_types.begin(),reduction_op_types.end());
+  std::vector<BinaryOpType> reduction_ops(
+      reduction_op_types.begin(), reduction_op_types.end());
   new MultiScanOp(reduction_ops, init_cast, out_as_val, tv);
 
   return out;
