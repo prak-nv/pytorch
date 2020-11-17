@@ -795,6 +795,12 @@ const std::vector<std::string> functions = {
 
             return result, backward
 
+        def gelu(self):
+            result = torch.gelu(self)
+            def backward(grad_output):
+                return 0.5 * (1. + torch.erf(self * 0.70710678)) + 0.3989423 * self * torch.exp(-0.5 * self * self) * grad_output
+            return result, backward
+
         def erfc(self):
             def backward(grad_output):
                 # Precomputed constant C = -2.0 / math.sqrt(math.pi)
@@ -1083,30 +1089,30 @@ const std::vector<std::string> functions = {
         def dropout(input,
                     p: float,
                     train: bool):
-            use_cuda = input.is_cuda
+            #use_cuda = input.is_cuda
             # lowering is specialized for cuda because cuda fuser can efficiently fuse those operations
             # for cpu backend, where fusions are disabled, a different lowering that is more efficient
             # in the absence of fusion is used
             p1m = 1. - p
-            if train:
-                if use_cuda:
-                    mask = torch.rand_like(input, memory_format=1) < p1m
-                    res = mask.type_as(input) * input * (1./p1m)
-                else:
-                    mask = torch.empty_like(input, memory_format=1)
-                    mask.bernoulli_(p1m)
-                    res = mask * input / p1m
-            else:
-                p1m = 1.
-                res = input
-                mask = torch.empty_like(input, memory_format=1)
+            #if train:
+            #    if use_cuda:
+            mask = torch.rand_like(input, memory_format=1) < p1m
+            res = mask.type_as(input) * input * (1./p1m)
+            #    else:
+            #        mask = torch.empty_like(input, memory_format=1)
+            #        mask.bernoulli_(p1m)
+            #        res = mask * input / p1m
+            #else:
+            #    p1m = 1.
+            #    res = input
+            #    mask = torch.empty_like(input, memory_format=1)
 
             def backward(grad_output):
-                use_cuda = grad_output.is_cuda
-                if use_cuda:
-                    grad_input = AD_fused_dropout_backward(grad_output, mask, p1m)
-                else:
-                    grad_input = grad_output * mask / p1m
+                #use_cuda = grad_output.is_cuda
+                #if use_cuda:
+                grad_input = AD_fused_dropout_backward(grad_output, mask, p1m)
+                #else:
+                #    grad_input = grad_output * mask / p1m
                 return grad_input, None, None
             return res, backward
 
@@ -1235,7 +1241,8 @@ const std::vector<std::string> functions = {
             result = torch.add(self, other, alpha=alpha)
             self_size, other_size = AD_sizes_if_not_equal_multi_1(self, other, result)
             def backward(grad_output):
-                grad_other = (grad_output * alpha)._grad_sum_to_size(other_size)
+                #grad_other = (grad_output * alpha)._grad_sum_to_size(other_size)
+                grad_other = (grad_output)._grad_sum_to_size(other_size)
                 grad_self = (grad_output)._grad_sum_to_size(self_size)
                 return grad_self, grad_other, None
             return result, backward
