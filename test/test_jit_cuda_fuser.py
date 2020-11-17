@@ -4,14 +4,20 @@ import random
 
 import torch
 
-from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR
+from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR, UNITTEST_ARGS
 from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithSeed
 
 from test_jit import JitTestCase, RUN_CUDA
 import itertools
 import numpy as np
 
-os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
+if '-nvfuser_do_fallback' in UNITTEST_ARGS:
+    NVFUSER_DISABLE_FALLBACK = False
+else:
+    NVFUSER_DISABLE_FALLBACK = True
+    os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
+    
+
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
 os.environ['PYTORCH_NVFUSER_JIT_OPT_LEVEL'] = '0'
 
@@ -136,6 +142,23 @@ class TestCudaFuser(JitTestCase):
         o = t(x, y, z, q)
         self.assertEqual(o, jit_o)
         self.assertGraphContains(t_jit.graph_for(x, y, z, q), FUSION_GUARD)
+    
+    @unittest.skipIf(NVFUSER_DISABLE_FALLBACK, "Compatibility test, need fallback")
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_reduction_double(self):
+        def t(x: torch.Tensor):
+            o = torch.mul(x, 1.0)
+            o = torch.add(o,x)
+            o = torch.sum(o, dim=[2], dtype=torch.double)
+            return o
+        t_jit = torch.jit.script(t)
+
+        x = torch.randn(8, 4, 16, dtype=torch.double, device="cuda")
+        jit_o = t_jit(x)
+        jit_o = t_jit(x)
+        o = t(x)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -1086,4 +1109,7 @@ class TestPassManagerCudaFuser(JitTestCase):
 
 
 if __name__ == '__main__':
-    run_tests()
+    # unittest doesn't nvfuser specific args so remove them before running
+    run_args = [arg for arg in UNITTEST_ARGS if '-nvfuser_do_fallback' not in arg]
+
+    run_tests(run_args)
