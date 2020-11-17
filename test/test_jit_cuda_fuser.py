@@ -408,6 +408,47 @@ class TestCudaFuser(JitTestCase):
                       torch.nn.functional.gelu]
         for op in operations:
             self._unary_test_helper(op)
+    
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_data_compatibility(self):
+        dtypes = [
+            
+        ]
+        operations = [torch.neg,
+                      torch.abs,
+                      torch.log,
+                      torch.log10,
+                      torch.log1p,
+                      torch.log2,
+                      torch.lgamma,
+                      torch.exp,
+                      torch.expm1,
+                      torch.erf,
+                      torch.erfc,
+                      torch.cos,
+                      torch.acos,
+                      torch.cosh,
+                      torch.sin,
+                      torch.asin,
+                      torch.tan,
+                      torch.atan,
+                      torch.sqrt,
+                      torch.rsqrt,
+                      torch.ceil,
+                      torch.floor,
+                      torch.round,
+                      torch.trunc,
+                      torch.frac,
+                      torch.reciprocal,
+                      torch.relu,
+                      torch.sigmoid,
+                      torch.tanh,
+                      torch.nn.functional.gelu]
+        for op in operations:
+            self._unary_test_helper(op)
+
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
