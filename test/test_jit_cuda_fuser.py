@@ -142,7 +142,7 @@ class TestCudaFuser(JitTestCase):
         o = t(x, y, z, q)
         self.assertEqual(o, jit_o)
         self.assertGraphContains(t_jit.graph_for(x, y, z, q), FUSION_GUARD)
-    
+
     @unittest.skipIf(NVFUSER_DISABLE_FALLBACK, "Compatibility test, need fallback")
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -150,7 +150,7 @@ class TestCudaFuser(JitTestCase):
     def test_reduction_double(self):
         def t(x: torch.Tensor):
             o = torch.mul(x, 1.0)
-            o = torch.add(o,x)
+            o = torch.add(o, x)
             o = torch.sum(o, dim=[2], dtype=torch.double)
             return o
         t_jit = torch.jit.script(t)

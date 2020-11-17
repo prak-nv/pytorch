@@ -52,12 +52,12 @@ static bool isFusableDevice(const Node* node) {
   return device->is_cuda();
 }
 
-inline bool isFuserSupportedType(std::shared_ptr<const TensorType> tensor){
+inline bool isFuserSupportedType(std::shared_ptr<const TensorType> tensor) {
   auto scalar_type = tensor->scalarType();
-  if(scalar_type.has_value()){
-    switch(scalar_type.value()){
-      //following aten_to_data_type interface
-      case at::ScalarType::Bool: 
+  if (scalar_type.has_value()) {
+    switch (scalar_type.value()) {
+      // following aten_to_data_type interface
+      case at::ScalarType::Bool:
       case at::ScalarType::Float:
       case at::ScalarType::Half:
       case at::ScalarType::Long:
@@ -71,21 +71,21 @@ inline bool isFuserSupportedType(std::shared_ptr<const TensorType> tensor){
   return true;
 }
 
-inline bool isNodeScalarDataTypeCompatible(const Node* node){
+inline bool isNodeScalarDataTypeCompatible(const Node* node) {
   for (auto output : node->outputs()) {
-      if (auto out_type = output->type()->cast<const TensorType>()){
-        if(!isFuserSupportedType(out_type)) {
-            return false;
-        }
-      }  
+    if (auto out_type = output->type()->cast<const TensorType>()) {
+      if (!isFuserSupportedType(out_type)) {
+        return false;
+      }
+    }
   }
 
-   for (auto input : node->inputs()) {
-      if (auto in_type = input->type()->cast<const TensorType>()){
-        if(!isFuserSupportedType(in_type)) {
-            return false;
-        }
-      }  
+  for (auto input : node->inputs()) {
+    if (auto in_type = input->type()->cast<const TensorType>()) {
+      if (!isFuserSupportedType(in_type)) {
+        return false;
+      }
+    }
   }
 
   return true;
@@ -94,7 +94,9 @@ inline bool isNodeScalarDataTypeCompatible(const Node* node){
 inline bool isFusableNode(const Node* node) {
   // checks if node is compatible with parser:
   // 1. if we have a parsing rule; or 2. if the node is already a fusion group.
-  return ((isNodeParsible(node)&&isNodeScalarDataTypeCompatible(node)) || node->kind() == prim::CudaFusionGroup);
+  return (
+      (isNodeParsible(node) && isNodeScalarDataTypeCompatible(node)) ||
+      node->kind() == prim::CudaFusionGroup);
 }
 
 bool hasReductionOperation(const Node* node) {
