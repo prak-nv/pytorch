@@ -42,7 +42,8 @@ kir::Bool* getPredicate(
     return ir_builder.create<kir::Bool>(true);
   }
 
-  kir::Val* pred = nullptr;
+  // TODO: Workaround for as<kir::Bool>. Need to be revisited.
+  kir::Val* pred = ir_builder.create<kir::Bool>(true);
 
   for (const auto& pt_bool : bits.getMap()) {
     if (pt_bool.second) {
