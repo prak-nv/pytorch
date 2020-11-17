@@ -5,6 +5,7 @@
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/predicate_compute.h>
@@ -58,8 +59,11 @@ void UnrollPass::handle(kir::Expr* expr) {
     if (!should_predicate) {
       return;
     }
+    // TODO: better way to detect initialization of reduction buffers?
+    const auto is_reduction_init = out_tv->definition() != expr;
+    const auto thread_pred = is_reduction_init ? nullptr : getThreadPredicate(out_tv);
     const auto pred = PredicateCompute::getInlinePredicate(
-        expr, for_loops_, getThreadPredicate(out_tv), ca_root_map_);
+        expr, for_loops_, thread_pred, ca_root_map_);
 
     // If we need a predicate, put expr inside an if then else
     if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
