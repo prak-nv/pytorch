@@ -9689,6 +9689,8 @@ TEST(NVFuserTest, Issue507_CUDA) {
   TORCH_CHECK(at_t2.allclose(outputs[0]));
 }
 
+// For more information on tiling techniques, see
+// https://github.com/NVIDIA/cutlass/blob/master/media/docs/efficient_gemm.md.
 TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -9727,12 +9729,16 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   tv0->computeAt(tv5, 3);
   tv1->computeAt(tv5, 3);
 
+  // Register blocking of input matrices
+  auto tv7 = tv2->cache_after();
+  auto tv8 = tv3->cache_after();
+
   // For the final reduction
-  TensorView* tv7 = tv5->cache_before();
+  auto tv9 = tv5->cache_before();
 
   // For streaming writes to gmem
-  TensorView* tv8 = tv7->cache_after();
-  tv8->setMemoryType(MemoryType::Shared);
+  auto tv10 = tv9->cache_after();
+  tv10->setMemoryType(MemoryType::Shared);
 
   fusion.printMath();
 
@@ -9747,23 +9753,28 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   tv3->split(-1, BDIM);
   tv3->setMemoryType(MemoryType::Shared);
 
-  // Computes outer product of M_THREAD x N_THREAD
-  tv6->split(-3, M_THREAD);
-  tv6->split(-2, N_THREAD);
-  tv6->reorder({{-3, -4}, {-4, -3}});
-  tv6->merge(-5, -4);
+  // Computes outer product of M_THREAD x N_THREAD with register
+  // blocking
+  std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8});
+  for (auto tv: intermediate_blocks) {
+    tv->split(-3, M_THREAD);
+    tv->split(-2, N_THREAD);
+    tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}, {-5, -5}});
+    tv->merge(-5, -4);
+  }
 
+  tv7->computeAt(tv4, -3);
+  tv8->computeAt(tv4, -3);
   tv4->computeAt(tv6, -1);
 
-  std::vector<TensorView*> C_tensors({tv7, tv8, tv5});
+  // Stores results back to gmem through smem
+  std::vector<TensorView*> C_tensors({tv9, tv10, tv5});
   for (auto tv: C_tensors) {
     tv->split(-2, M_THREAD);
     tv->split(-1, N_THREAD);
     tv->reorder({{-2, -3}, {-3, -2}});
     tv->merge(-4, -3);
   }
-
-  fusion.printMath();
 
   // Block binding
   tv5->axis(0)->parallelize(ParallelType::BIDx);
