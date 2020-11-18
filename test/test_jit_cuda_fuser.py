@@ -10,13 +10,13 @@ from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithS
 from test_jit import JitTestCase, RUN_CUDA
 import itertools
 import numpy as np
+import math
 
 if '-nvfuser_do_fallback' in UNITTEST_ARGS:
     NVFUSER_DISABLE_FALLBACK = False
 else:
     NVFUSER_DISABLE_FALLBACK = True
     os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
-    
 
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
 os.environ['PYTORCH_NVFUSER_JIT_OPT_LEVEL'] = '0'
@@ -409,12 +409,53 @@ class TestCudaFuser(JitTestCase):
         for op in operations:
             self._unary_test_helper(op)
     
+    def _unary_type_test_helper(self, operation,dtype,data=None):
+        shape = (4, 8, 32, 32)
+        def t(x:torch.Tensor):
+            o = x * 1.0
+            o = operation(o)
+            return o
+        
+        try:
+            if data==None:
+                x = torch.randn(shape, dtype=dtype, device="cuda") 
+            else:
+                x = torch.tensor((1,)).new_full(shape, data,dtype=dtype,device="cuda")
+            ref = t(x)
+        except Exception:
+            # same way as TE checker, if eager mode throws, ignore this test
+            return
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x)
+        jit_o = t_jit(x)
+        o = t(x)
+        self.assertEqual(o, jit_o,msg=f"""
+        failing case:
+            {dtype} {operation} {data}
+        """)
+    
+    def _type_test_special_data(self,operation,dtype):
+        special_numbers=[
+            -10,-math.pi,-1,-0.5,0,1,0.5,math.pi,10
+        ]
+        for data in special_numbers:
+            self._unary_type_test_helper(operation,dtype,data)
+        
+    @unittest.skipIf(NVFUSER_DISABLE_FALLBACK, "Compatibility test, need fallback")
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
     def test_data_compatibility(self):
         dtypes = [
-            
+            torch.int8,
+            torch.uint8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+            torch.float16,
+            torch.float32,
+            torch.float64,
+            torch.bool
         ]
         operations = [torch.neg,
                       torch.abs,
@@ -446,9 +487,10 @@ class TestCudaFuser(JitTestCase):
                       torch.sigmoid,
                       torch.tanh,
                       torch.nn.functional.gelu]
-        for op in operations:
-            self._unary_test_helper(op)
-
+        for op,dtype in itertools.product(operations,dtypes):
+            self._type_test_special_data(op,dtype) # test special numbers
+            self._unary_type_test_helper(op,dtype) # test random data
+            
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
