@@ -82,9 +82,9 @@ void UnrollPass::handle(kir::Expr* expr) {
       return;
     }
     kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-    const auto thread_pred =
-        isReductionInitExpr(expr) ? ir_builder.create<kir::Bool>(true) :
-        getThreadPredicate(out_tv);
+    const auto thread_pred = isReductionInitExpr(expr)
+        ? ir_builder.create<kir::Bool>(true)
+        : getThreadPredicate(out_tv);
     const auto pred = PredicateCompute::getInlinePredicate(
         expr, for_loops_, thread_pred, ca_root_map_);
 
