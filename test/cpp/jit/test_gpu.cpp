@@ -9717,30 +9717,41 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
 
   const int BDIM = (M_BLOCK / M_THREAD) * (N_BLOCK / N_THREAD);
 
+  // Tiles the matrices for thread blocks. Each thread block computes
+  // matrix multiplication of (M_BLOCK, K) and (K, N_BLOCK).
   tv5->split(2, N_BLOCK);
-  tv5->split(1, K_BLOCK);
   tv5->split(0, M_BLOCK);
-  // M/M_BLOCK, M_BLOCK, K/K_BLOCK, K_BLOCK, N/N_BLOCK, N_BLOCK
-  tv5->reorder({{0, 0}, {1, 3}, {2, 2}, {3, 5}, {4, 1}, {5, 4}});
+  // M/M_BLOCK, M_BLOCK, K, N/N_BLOCK, N_BLOCK
+  tv5->reorder({{0, 0}, {1, 2}, {2, 4}, {3, 1}, {4, 3}});
+  // M/M_BLOCK, N/N_BLOCK, M_BLOCK, N_BLOCK, K
+
+  // Tiles (M_BLOCK, K) * (K, N_BLOCK) by K_BLOCK
+  tv5->split(-1, K_BLOCK);
+  // M/M_BLOCK, N/N_BLOCK, M_BLOCK, N_BLOCK, K/K_BLOCK, K_BLOCK
+  tv5->reorder({{4, 2}, {2, 3}, {3, 4}});
   // M/M_BLOCK, N/N_BLOCK, K/K_BLOCK, M_BLOCK, N_BLOCK, K_BLOCK
 
+  // Factor out (M_BLOCK, K_BLOCK) * (K_BLOCK, N_BLOCK)
   TensorView* tv6 = tv5->rFactor({-1});
 
-  tv0->computeAt(tv5, 3);
-  tv1->computeAt(tv5, 3);
-
-  // Register blocking of input matrices
+  // Tensors for register blocking of input matrices
   auto tv7 = tv2->cache_after();
   auto tv8 = tv3->cache_after();
 
-  // For the final reduction
+  // For the final reduction on registers
   auto tv9 = tv5->cache_before();
 
-  // For streaming writes to gmem
+  // For streaming writes to gmem through smem
   auto tv10 = tv9->cache_after();
   tv10->setMemoryType(MemoryType::Shared);
 
-  fusion.printMath();
+  // Inlines outer M/M_BLOCK, N/N_BLOCK and K/K_BLOCK loops
+  tv0->computeAt(tv9, 3);
+  tv1->computeAt(tv9, 3);
+  tv9->computeAt(tv5, 2);
+  // The above computeAt moves K/K_BLOCK far right. Move it back to
+  // the original position.
+  tv9->reorder({{-1, -3}, {-3, -2}, {-2, -1}});
 
   // Loads a M_BLOCK x K_BLOCK block of A from gmem to smem
   tv2->merge(-3, -1);
@@ -9756,7 +9767,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   // Computes outer product of M_THREAD x N_THREAD with register
   // blocking
   std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8});
-  for (auto tv: intermediate_blocks) {
+  for (auto tv : intermediate_blocks) {
     tv->split(-3, M_THREAD);
     tv->split(-2, N_THREAD);
     tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}, {-5, -5}});
@@ -9769,7 +9780,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
 
   // Stores results back to gmem through smem
   std::vector<TensorView*> C_tensors({tv9, tv10, tv5});
-  for (auto tv: C_tensors) {
+  for (auto tv : C_tensors) {
     tv->split(-2, M_THREAD);
     tv->split(-1, N_THREAD);
     tv->reorder({{-2, -3}, {-3, -2}});
@@ -9785,15 +9796,12 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
   tv6->axis(-4)->parallelize(ParallelType::TIDx);
 
-  for (auto tv: C_tensors) {
+  for (auto tv : C_tensors) {
     tv->axis(-3)->parallelize(ParallelType::TIDx);
   }
 
-  fusion.printMath();
-  fusion.printKernel();
-
   constexpr int M = 154, K = 45, N = 1524;
-  //constexpr int M = 128, K = 128, N = 128;
+  // constexpr int M = 128, K = 128, N = 128;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
