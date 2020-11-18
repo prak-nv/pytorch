@@ -9685,56 +9685,6 @@ TEST(NVFuserTest, Issue507_CUDA) {
   TORCH_CHECK(at_t2.allclose(outputs[0]));
 }
 
-TEST(NVFuserTest, TMP) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  TensorView* tv0 = makeSymbolicTensor(2); // (N, N)
-  TensorView* tv1 = sum(tv0, {1}); // (N)
-  TensorView* tv2 = broadcast(tv1, {false, true}); // (N, 1)
-  TensorView* tv3 = makeSymbolicTensor(1); // (N)
-  TensorView* tv4 = broadcast(tv3, {true, false}); // (1, N)
-  TensorView* tv5 = mul(tv2, tv4); // (N, N)
-  fusion.addInput(tv0);
-  fusion.addInput(tv3);
-  fusion.addOutput(tv5);
-  fusion.printMath();
-  auto tv2_cache_after = tv2->cache_after();
-  auto tv5_cache_before = tv5->cache_before();
-  std::vector<TensorView*> tvs = {tv1, tv2, tv4, tv5, tv2_cache_after, tv5_cache_before};
-  constexpr int BSX = 128;
-  for (auto tv : tvs) {
-    TORCH_CHECK(
-        tv->nDims() == 2, tv, "  this scheduling assumes 2D tensors coming in");
-    tv->split(0, BSX);
-    tv->split(-1, BSX);
-    // M/BSX, BSX, N/BSX, BSX
-    tv->reorder({{0, 0}, {1, 2}, {2, 1}, {3, 3}});
-    // M/BSX, N/BSY, BSX, BSY
-  }
-  auto tv1_rf = tv1->rFactor({-3});
-  tvs.push_back(tv1_rf);
-  for (auto tv : tvs) {
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    if(!tv->axis(1)->isBroadcast())
-      tv->axis(1)->parallelize(ParallelType::BIDy);
-    tv->axis(-1)->parallelize(ParallelType::TIDx);
-    tv->axis(-2)->parallelize(ParallelType::TIDy);
-  }
-  constexpr int N = 800;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input1 = at::randn({N, N}, options);
-  at::Tensor input2 = at::randn({N}, options);
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  auto cg_outputs = fe.runFusion({input1, input2});
-  at::Tensor aten_output =
-      mul(sum(input1.to(at::kDouble), 1).unsqueeze(1), input2.to(at::kDouble).unsqueeze(0));
-#if 0
-  testValidate(
-      &fusion, cg_outputs, {input1, input2}, {aten_output}, __LINE__, __FILE__);
-#endif
-}
-
 } // namespace jit
 } // namespace torch
 
