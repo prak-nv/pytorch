@@ -408,19 +408,20 @@ class TestCudaFuser(JitTestCase):
                       torch.nn.functional.gelu]
         for op in operations:
             self._unary_test_helper(op)
-    
-    def _unary_type_test_helper(self, operation,dtype,data=None):
+
+    def _unary_type_test_helper(self, operation, dtype, data=None):
         shape = (4, 8, 32, 32)
-        def t(x:torch.Tensor):
+
+        def t(x: torch.Tensor):
             o = x * 1.0
             o = operation(o)
             return o
-        
+
         try:
-            if data==None:
-                x = torch.randn(shape, dtype=dtype, device="cuda") 
+            if data == None:
+                x = torch.randn(shape, dtype=dtype, device="cuda")
             else:
-                x = torch.tensor((1,)).new_full(shape, data,dtype=dtype,device="cuda")
+                x = torch.tensor((1,)).new_full(shape, data, dtype=dtype, device="cuda")
             ref = t(x)
         except Exception:
             # same way as TE checker, if eager mode throws, ignore this test
@@ -429,18 +430,18 @@ class TestCudaFuser(JitTestCase):
         jit_o = t_jit(x)
         jit_o = t_jit(x)
         o = t(x)
-        self.assertEqual(o, jit_o,msg=f"""
+        self.assertEqual(o, jit_o, msg=f"""
         failing case:
             {dtype} {operation} {data}
         """)
-    
-    def _type_test_special_data(self,operation,dtype):
-        special_numbers=[
-            -10,-math.pi,-1,-0.5,0,1,0.5,math.pi,10
+
+    def _type_test_special_data(self, operation, dtype):
+        special_numbers = [
+            -10, -math.pi, -1, -0.5, 0, 1, 0.5, math.pi, 10
         ]
         for data in special_numbers:
-            self._unary_type_test_helper(operation,dtype,data)
-        
+            self._unary_type_test_helper(operation, dtype, data)
+
     @unittest.skipIf(NVFUSER_DISABLE_FALLBACK, "Compatibility test, need fallback")
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -487,10 +488,9 @@ class TestCudaFuser(JitTestCase):
                       torch.sigmoid,
                       torch.tanh,
                       torch.nn.functional.gelu]
-        for op,dtype in itertools.product(operations,dtypes):
-            self._type_test_special_data(op,dtype) # test special numbers
-            self._unary_type_test_helper(op,dtype) # test random data
-            
+        for op, dtype in itertools.product(operations, dtypes):
+            self._type_test_special_data(op, dtype)  # test special numbers
+            self._unary_type_test_helper(op, dtype)  # test random data
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -685,10 +685,12 @@ class TestCudaFuser(JitTestCase):
             o = torch.relu(o)
             return o
 
-        x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute([perm0.index(i) for i in range(len(sizes))])
+        x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute(
+            [perm0.index(i) for i in range(len(sizes))])
         if broadcast_axis >= 0:
             sizes[broadcast_axis] = 1
-        y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute([perm1.index(i) for i in range(len(sizes))])
+        y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute(
+            [perm1.index(i) for i in range(len(sizes))])
         t_jit = torch.jit.script(t)
         jit_o = t_jit(x, y)
         jit_o = t_jit(x, y)
@@ -731,8 +733,10 @@ class TestCudaFuser(JitTestCase):
 
         t = MyReduction()
 
-        x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute([perm0.index(i) for i in range(len(sizes))])
-        y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute([perm1.index(i) for i in range(len(sizes))])
+        x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute(
+            [perm0.index(i) for i in range(len(sizes))])
+        y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute(
+            [perm1.index(i) for i in range(len(sizes))])
         t_jit = torch.jit.script(t)
         jit_o = t_jit(x, y)
         jit_o = t_jit(x, y)
@@ -813,7 +817,7 @@ class TestCudaFuser(JitTestCase):
             def __init__(self):
                 super(MyBatchNorm, self).__init__()
 
-            def forward(self, x: torch.Tensor, y: torch.Tensor, r_mean : torch.Tensor, r_var : torch.Tensor):
+            def forward(self, x: torch.Tensor, y: torch.Tensor, r_mean: torch.Tensor, r_var: torch.Tensor):
                 o = torch.add(x, y)
                 o = torch.nn.functional.batch_norm(o, r_mean, r_var, training=True)
                 return o

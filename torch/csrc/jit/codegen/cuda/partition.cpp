@@ -52,7 +52,8 @@ static bool isFusableDevice(const Node* node) {
   return device->is_cuda();
 }
 
-inline bool isFuserSupportedType(const std::shared_ptr<const TensorType>& tensor) {
+inline bool isFuserSupportedType(
+    const std::shared_ptr<const TensorType>& tensor) {
   auto scalar_type = tensor->scalarType();
   if (scalar_type.has_value()) {
     switch (scalar_type.value()) {
