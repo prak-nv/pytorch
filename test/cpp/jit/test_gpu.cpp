@@ -9692,6 +9692,12 @@ TEST(NVFuserTest, Issue507_CUDA) {
 // For more information on tiling techniques, see
 // https://github.com/NVIDIA/cutlass/blob/master/media/docs/efficient_gemm.md.
 TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
+  const bool cyclic = std::getenv("CYCLIC");
+
+  if (cyclic) {
+    std::cerr << "Doing cyclic distribution\n";
+  }
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -9769,14 +9775,27 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8});
   for (auto tv : intermediate_blocks) {
     tv->split(-3, M_THREAD);
-    tv->split(-2, N_THREAD);
-    tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}, {-5, -5}});
-    tv->merge(-5, -4);
+    if (cyclic) {
+      tv->split(-2, N_BLOCK / N_THREAD);
+      //tv->reorder({{-1, -3}, {-2, -1}, {-3, -2}});
+      tv->reorder({{-1, -3}, {-2, -4}, {-3, -1}, {-4, -2}, {-5, -5}});
+      tv->merge(-5, -4);
+    } else {
+      tv->split(-2, N_THREAD);
+      tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}, {-5, -5}});
+      tv->merge(-5, -4);
+    }
   }
+
+  std::cerr << "After cyclic split\n";
+  fusion.printMath();
 
   tv7->computeAt(tv4, -3);
   tv8->computeAt(tv4, -3);
   tv4->computeAt(tv6, -1);
+
+  std::cerr << "After computeAt\n";
+  fusion.printMath();
 
   // Stores results back to gmem through smem
   std::vector<TensorView*> C_tensors({tv9, tv10, tv5});
@@ -9786,6 +9805,9 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     tv->reorder({{-2, -3}, {-3, -2}});
     tv->merge(-4, -3);
   }
+
+  std::cerr << "After output split\n";
+  fusion.printMath();
 
   // Block binding
   tv5->axis(0)->parallelize(ParallelType::BIDx);
@@ -9800,6 +9822,11 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     tv->axis(-3)->parallelize(ParallelType::TIDx);
   }
 
+
+  std::cerr << "After parallelization\n";
+  fusion.printMath();
+  fusion.printKernel();
+
   constexpr int M = 154, K = 45, N = 1524;
   // constexpr int M = 128, K = 128, N = 128;
 
@@ -9813,6 +9840,236 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   auto outputs = fe.runFusion({t0, t1});
 
   at::Tensor aten_output = matmul(t0, t1);
+  TORCH_CHECK(
+      aten_output.allclose(outputs[0], 1e-5, 1e-5),
+      "Error of: ",
+      aten_output.sub(outputs[0]).abs().max());
+}
+
+TEST(NVFuserTest, FusionGemmHierarchicalTilingCyclic_CUDA) {
+  const bool cyclic = true;
+
+  if (cyclic) {
+    std::cerr << "Doing cyclic distribution\n";
+  }
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Algorithm
+  TensorView* tv0 = makeSymbolicTensor(2); // (M, K)
+  TensorView* tv1 = makeSymbolicTensor(2); // (K, N)
+  TensorView* tv2 = broadcast(tv0, {false, false, true}); // (M, K, B)
+  TensorView* tv3 = broadcast(tv1, {true, false, false}); // (B, K, N)
+  TensorView* tv4 = mul(tv2, tv3); // M, K, N
+  TensorView* tv5 = sum(tv4, {1}); // M, R, N
+
+  auto out_tv = tv5;
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(out_tv);
+
+  // Each thread block computes a M_BLOCK x N_BLOCK elements
+  const int M_BLOCK = 64;
+  const int N_BLOCK = 64;
+  const int K_BLOCK = 8;
+
+  // Each thread computes a block of M_THREAD x N_THREAD elements
+  const int M_THREAD = 4;
+  const int N_THREAD = 4;
+
+  const int BDIM = (M_BLOCK / M_THREAD) * (N_BLOCK / N_THREAD);
+
+  // Tiles the matrices for thread blocks. Each thread block computes
+  // matrix multiplication of (M_BLOCK, K) and (K, N_BLOCK).
+  out_tv->split(2, N_BLOCK);
+  out_tv->split(0, M_BLOCK);
+  // M/M_BLOCK, M_BLOCK, K, N/N_BLOCK, N_BLOCK
+  out_tv->reorder({{0, 0}, {1, 2}, {2, 4}, {3, 1}, {4, 3}});
+  // M/M_BLOCK, N/N_BLOCK, M_BLOCK, N_BLOCK, K
+
+  // Tiles (M_BLOCK, K) * (K, N_BLOCK) by K_BLOCK
+  out_tv->split(-1, K_BLOCK);
+  // M/M_BLOCK, N/N_BLOCK, M_BLOCK, N_BLOCK, K/K_BLOCK, K_BLOCK
+  out_tv->reorder({{4, 2}, {2, 3}, {3, 4}});
+  // M/M_BLOCK, N/N_BLOCK, K/K_BLOCK, M_BLOCK, N_BLOCK, K_BLOCK
+
+  // Factor out (M_BLOCK, K_BLOCK) * (K_BLOCK, N_BLOCK)
+  //TensorView* tv6 = out_tv->rFactor({-1});
+
+  // Tensors for register blocking of input matrices
+  auto tv7 = tv2->cache_after();
+  auto tv8 = tv3->cache_after();
+
+#if 0
+  // For the final reduction on registers
+  auto tv9 = tv5->cache_before();
+
+  // For streaming writes to gmem through smem
+  auto tv10 = tv9->cache_after();
+  tv10->setMemoryType(MemoryType::Shared);
+#endif
+
+  // Inlines outer M/M_BLOCK, N/N_BLOCK and K/K_BLOCK loops
+  tv0->computeAt(out_tv, 3);
+  tv1->computeAt(out_tv, 3);
+#if 0
+  tv9->computeAt(tv5, 2);
+  // The above computeAt moves K/K_BLOCK far right. Move it back to
+  // the original position.
+  tv9->reorder({{-1, -3}, {-3, -2}, {-2, -1}});
+#endif
+
+  // Loads a M_BLOCK x K_BLOCK block of A from gmem to smem
+  tv2->merge(-3, -1);
+  tv2->split(-2, BDIM);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  // Loads a K_BLOCK x N_BLOCK block of B from gmem to smem
+  tv3->reorder({{-1, -2}, {-2, -1}});
+  tv3->merge(-2, -1);
+  tv3->split(-1, BDIM);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  // Computes outer product of M_THREAD x N_THREAD with register
+  // blocking
+  //std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7,
+  // tv8});
+  std::vector<TensorView*> intermediate_blocks({tv4, tv5, tv7, tv8});
+  for (auto tv : intermediate_blocks) {
+    tv->split(-3, M_THREAD);
+    if (cyclic) {
+      tv->split(-2, N_BLOCK / N_THREAD);
+      //tv->reorder({{-1, -3}, {-2, -1}, {-3, -2}});
+      tv->reorder({{-1, -3}, {-2, -4}, {-3, -1}, {-4, -2}, {-5, -5}});
+      tv->merge(-5, -4);
+    } else {
+      tv->split(-2, N_THREAD);
+      tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}, {-5, -5}});
+      tv->merge(-5, -4);
+    }
+  }
+
+  std::cerr << "After cyclic split\n";
+  fusion.printMath();
+  fusion.printKernel();
+
+  tv7->computeAt(tv4, -3);
+  tv8->computeAt(tv4, -3);
+  //tv4->computeAt(tv6, -1);
+
+  std::cerr << "After computeAt\n";
+  fusion.printMath();
+  fusion.printKernel();
+#if 0
+  // Stores results back to gmem through smem
+  std::vector<TensorView*> C_tensors({tv9, tv10, tv5});
+  for (auto tv : C_tensors) {
+    tv->split(-2, M_THREAD);
+    tv->split(-1, N_THREAD);
+    tv->reorder({{-2, -3}, {-3, -2}});
+    tv->merge(-4, -3);
+  }
+#endif
+
+  // Block binding
+  out_tv->axis(0)->parallelize(ParallelType::BIDx);
+  out_tv->axis(1)->parallelize(ParallelType::BIDy);
+
+  // Thread binding
+  tv2->axis(-2)->parallelize(ParallelType::TIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  tv4->axis(-4)->parallelize(ParallelType::TIDx);
+  //tv6->axis(-4)->parallelize(ParallelType::TIDx);
+
+#if 0
+  for (auto tv : C_tensors) {
+    tv->axis(-3)->parallelize(ParallelType::TIDx);
+  }
+#else
+  out_tv->axis(-4)->parallelize(ParallelType::TIDx);
+#endif
+
+  std::cerr << "After parallelization\n";
+  fusion.printMath();
+  fusion.printKernel();
+
+  constexpr int M = 154, K = 45, N = 1524;
+  // constexpr int M = 128, K = 128, N = 128;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, K}, options);
+  at::Tensor t1 = at::randn({K, N}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t0, t1});
+
+  at::Tensor aten_output = matmul(t0, t1);
+  //auto aten_output = t0.unsqueeze(-1) * t1.unsqueeze(0);
+  TORCH_CHECK(
+      aten_output.allclose(outputs[0], 1e-5, 1e-5),
+      "Error of: ",
+      aten_output.sub(outputs[0]).abs().max());
+}
+
+TEST(NVFuserTest, FusionTMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 64, N = 64, K = 8;
+
+  auto tv0 = makeConcreteTensor({M, K});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({K, N});
+  fusion.addInput(tv1);
+
+  //auto tv2 = add(tv0, new Float(1));
+  auto tv2 = broadcast(tv0, {false, false, true});
+  auto tv3 = broadcast(tv1, {true, false, false});
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  const int BSX = 4;
+
+  tv4->split(2, N/BSX);
+  tv4->split(0, BSX);
+  tv4->merge(0, 4);
+  tv4->reorder({{2, 1}, {1, 2}});
+
+  fusion.printMath();
+
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+
+  tv2->merge(0, 1);
+  tv2->split(0, (M/BSX) * (N/BSX));
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  tv3->merge(1, 2);
+  tv3->split(1, (M/BSX) * (N/BSX));
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  //tv2->computeAt(tv3, -1);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, K}, options);
+  at::Tensor t1 = at::randn({K, N}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t0, t1});
+
+  auto aten_output = t0.unsqueeze(-1) + t1.unsqueeze(0);
   TORCH_CHECK(
       aten_output.allclose(outputs[0], 1e-5, 1e-5),
       "Error of: ",
