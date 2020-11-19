@@ -554,18 +554,20 @@ class IrParser {
           [](const Node* node,
              ValMap& value_map) -> void {
             auto self = value_map[node->input(0)->unique()].val();
-            auto dims_list = constant_as<c10::List<int64_t>>(node->input(1));
-            TORCH_INTERNAL_ASSERT(
-                dims_list.has_value(), "requires static reduce axes");
-            std::vector<Int*> dims;
-            for (const auto dim : dims_list->vec()) {
-              dims.emplace_back(new Int(static_cast<int>(dim)));
+            if (auto dims_list = constant_as<c10::List<int64_t>>(node->input(1))) {
+              std::vector<Int*> dims;
+              for (const auto dim : dims_list->vec()) {
+                dims.emplace_back(new Int(static_cast<int>(dim)));
+              }
+              auto out = sum_to(self->as<TensorView>(), dims);
+              value_map.emplace(node->output()->unique(), out);
+            } else {
+              // TODO: removing size-1 at this moment
+              
             }
-            auto out = sum_to(self->as<TensorView>(), dims);
-            value_map.emplace(node->output()->unique(), out);
           },
           [](const Node* node) -> bool {
-            // we only support static reduction sizes;
+            // we only support static reduction sizes
             return node->inputs()[1]->node()->kind() == prim::Constant;
           },
           true);
