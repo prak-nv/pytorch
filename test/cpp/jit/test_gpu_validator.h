@@ -18,7 +18,7 @@ struct ValidationConstants {
       {{4, 1.51992e-06},      {8, 2.23704e-06},      {16, 2.95788e-06},
        {32, 4.4778e-06},      {64, 6.75395e-06},     {128, 8.57934e-06},
        {256, 1.30594e-05},    {512, 2.19122e-05},    {1024, 3.3451e-05},
-       {2048, 5.78476e-05},   {4096, 0.000108292},   {8192, 8.58976e-05},
+       {2048, 5.78476e-05},   {4096, 0.000108292},   {8192, 0.00012207},
        {16384, 0.000136882},  {32768, 0.000248561},  {65536, 0.000407594},
        {131072, 0.000500901}, {262144, 0.000923019}, {524288, 0.00156909},
        {1048576, 0.00223107}, {2097152, 0.00343043}}};
@@ -175,9 +175,11 @@ class TORCH_CUDA_API ReductionSizeMapper : private IterVisitor {
 
     int64_t inp_reduction_elements = 1;
     for (auto inp : expr->inputs()) {
-      if (auto tv = inp->as<TensorView>()) {
-        inp_reduction_elements =
-            std::max(inp_reduction_elements, reduction_map.at(tv));
+      if (inp->isA<TensorView>()) {
+        if (auto tv = inp->as<TensorView>()) {
+          inp_reduction_elements =
+              std::max(inp_reduction_elements, reduction_map.at(tv));
+        }
       }
     }
 
@@ -199,20 +201,44 @@ class TORCH_CUDA_API ReductionSizeMapper : private IterVisitor {
 ExpressionEvaluator bindInputsAndLaunchParams(
     Fusion* fusion,
     const at::ArrayRef<IValue>& aten_inputs,
-    const LaunchParams& lparams) {
+    const LaunchParams& launch_constraints) {
   auto expr_eval = executor_utils::bindFusionInputs(aten_inputs, fusion);
   for (auto val : fusion->vals()) {
     if (!val->isA<TensorView>()) {
       continue;
     }
 
+    // Roughly taken from executor.cpp/computeLaunchParams
     auto tv = val->as<TensorView>();
     for (auto id : tv->domain()->domain()) {
       if (!(id->isThread() && id->rawExtent()->getOrigin() == nullptr)) {
         continue;
       }
-      if (lparams.getDim(id->getParallelType()) != -1) {
-        expr_eval.bind(id->rawExtent(), lparams.getDim(id->getParallelType()));
+
+      if (id->isBroadcast()) {
+        continue;
+      }
+
+      auto extent = id->rawExtent();
+      auto inferred_extent = expr_eval.evaluate(extent);
+      auto p_type = id->getParallelType();
+
+      if (inferred_extent.has_value()) {
+        // This value could have been inferred, make sure it was set right.
+        TORCH_CHECK(
+            inferred_extent.value() == launch_constraints.getDim(p_type) ||
+                launch_constraints.getRawVal(p_type) == -1,
+            "inferred that ",
+            p_type,
+            " should be set to ",
+            inferred_extent.value(),
+            " but launch constraints specified ",
+            launch_constraints.getRawVal(p_type));
+      } else {
+        // Bind the launch constraint into our evaluation context
+        if (launch_constraints.hasDim(id->getParallelType())) {
+          expr_eval.bind(extent, launch_constraints.getDim(p_type));
+        }
       }
     }
   }
@@ -227,13 +253,14 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 // on adding two tensors then summing them. This of course has an assumption
 // that we're always summing values between -2 and 2. If we start summing values
 // larger than that this approach might not hold.
-void validate(
+void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,
     const at::ArrayRef<IValue>& aten_inputs,
-    const at::ArrayRef<IValue>& aten_outputs,
+    const std::vector<at::Tensor>& aten_outputs,
     int line_number,
     const char* file_name,
+    std::string err_msg = "",
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants()) {
   FusionGuard fg(fusion);
@@ -271,14 +298,11 @@ void validate(
 
   for (size_t i = 0; i < fusion->outputs().size(); i++) {
     TORCH_INTERNAL_ASSERT(
-        fusion->outputs()[i]->isA<TensorView>(), "Mismatch of tensor inputs.");
-
-    TORCH_INTERNAL_ASSERT(
-        aten_outputs[i].isTensor(), "Mismatch of tensor inputs.");
+        fusion->outputs()[i]->isA<TensorView>(), "Mismatch of tensor outputs.");
 
     auto fusion_output_tensor = fusion_outputs[i];
     auto fusion_output_tv = fusion->outputs()[i]->as<TensorView>();
-    auto aten_output_tensor = aten_outputs[i].toTensor();
+    auto aten_output_tensor = aten_outputs[i];
 
     int64_t reduction_size = reduction_sizes.at(fusion_output_tv);
 
@@ -293,25 +317,46 @@ void validate(
     auto tolerance_values = getTolerance(
         fusion_output_tv->getDataType().value(), reduction_size, tolerances);
 
-    TORCH_INTERNAL_ASSERT(
-        aten_output_tensor.allclose(
-            fusion_output_tensor.to(aten_output_tensor.dtype()),
-            tolerance_values.second,
-            tolerance_values.first),
-        "\nValidation error at ",
-        line_number,
-        " in file ",
-        file_name,
-        ".\n  Detected abs error of: ",
-        aten_output_tensor.sub(fusion_output_tensor)
-            .abs()
-            .max()
-            .item()
-            .to<double>(),
-        "\n    absolute tolerance was set to ",
-        tolerance_values.first,
-        "\n    and relative tolerance set to ",
-        tolerance_values.second);
+    if (aten_output_tensor.is_floating_point()) {
+      TORCH_INTERNAL_ASSERT(
+          aten_output_tensor.allclose(
+              fusion_output_tensor.to(aten_output_tensor.dtype()),
+              tolerance_values.second,
+              tolerance_values.first),
+          "\n",
+          err_msg,
+          "\nValidation error in output ",
+          i,
+          " on line ",
+          line_number,
+          " in file ",
+          file_name,
+          ".\n  Detected abs error in output ",
+          i,
+          " of: ",
+          aten_output_tensor.sub(fusion_output_tensor)
+              .abs()
+              .max()
+              .item()
+              .to<double>(),
+          "\n    absolute tolerance was set to ",
+          tolerance_values.first,
+          "\n    and relative tolerance set to ",
+          tolerance_values.second);
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          aten_output_tensor.equal(
+              fusion_output_tensor.to(aten_output_tensor.dtype())),
+          "\n",
+          err_msg,
+          ".\n  Validation error in output ",
+          i,
+          " on line ",
+          line_number,
+          " in file ",
+          file_name,
+          ".\n Values are not equal and are not a floating type.");
+    }
   }
 }
 
