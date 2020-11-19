@@ -9801,9 +9801,14 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   std::vector<TensorView*> C_tensors({tv9, tv10, tv5});
   for (auto tv : C_tensors) {
     tv->split(-2, M_THREAD);
-    tv->split(-1, N_THREAD);
-    tv->reorder({{-2, -3}, {-3, -2}});
-    tv->merge(-4, -3);
+    if (cyclic) {
+      tv->split(-1, N_BLOCK / N_THREAD);
+      tv->merge(-4, -1);
+    } else {
+      tv->split(-1, N_THREAD);
+      tv->reorder({{-2, -3}, {-3, -2}});
+      tv->merge(-4, -3);
+    }
   }
 
   std::cerr << "After output split\n";
