@@ -1,4 +1,4 @@
-#if defined(USE_CUDA)
+// #if defined(USE_CUDA)
 #include <gtest/gtest.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
@@ -6036,27 +6036,34 @@ TEST(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
       auto options = at::TensorOptions()
                          .dtype((fp16 ? at::kHalf : at::kFloat))
                          .device(at::kCUDA, 0);
-      at::Tensor input = at::randn({rdim}, options);
+      at::Tensor aten_input = at::randn({rdim}, options);
+      auto aten_output = aten_input.to(at::kDouble).sum({0});
 
       std::vector<TensorView*> outputs_of_red;
       if (fp16) {
         outputs_of_red.push_back(tv1_cast);
       }
 
-      auto reduction_params = getReductionHeuristics(&fusion, {input}, tv1);
+      auto reduction_params =
+          getReductionHeuristics(&fusion, {aten_input}, tv1);
       TORCH_CHECK(reduction_params.has_value(), "Reduction is not found!");
       scheduleReduction(&fusion, reduction_params.value(), tv1, outputs_of_red);
+      auto lparams = reduction_params.value().lparams;
 
       FusionExecutor fe;
       fe.compileFusion(&fusion);
 
-      auto outputs = fe.runFusion({input}, reduction_params.value().lparams);
-      auto aten_output = input.sum({0});
+      auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
-      TORCH_CHECK(
-          aten_output.allclose(outputs[0], 1e-03, 1e-03),
-          "Error of: ",
-          aten_output.sub(outputs[0]).abs().max());
+      testValidate(
+          &fusion,
+          cg_outputs,
+          {aten_input},
+          {aten_output},
+          __LINE__,
+          __FILE__,
+          "",
+          lparams);
     }
   }
 }
@@ -6119,12 +6126,12 @@ TEST(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
           TORCH_CHECK(reduction_params.has_value(), "Reduction is not found!");
           scheduleReduction(
               &fusion, reduction_params.value(), tv1, outputs_of_red);
+          auto lparams = reduction_params.value().lparams;
 
           FusionExecutor fe;
           fe.compileFusion(&fusion);
 
-          auto cg_outputs =
-              fe.runFusion({aten_input}, reduction_params.value().lparams);
+          auto cg_outputs = fe.runFusion({aten_input}, lparams);
           auto aten_output = aten_input.to(at::kDouble).sum({axis});
           testValidate(
               &fusion,
@@ -6134,7 +6141,7 @@ TEST(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
               __LINE__,
               __FILE__,
               "",
-              reduction_params.value().lparams);
+              lparams);
         }
       }
     }
@@ -6729,24 +6736,32 @@ TEST(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
       {bcast_max, x_max_sub, exp, bcast_sum, output});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(input_shape, options);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  auto aten_output =
+      at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
 
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, {t0}, reduction_tensors);
+      getMultipleReductionHeuristics(&fusion, {aten_input}, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   scheduleMultipleReduction(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
 
+  auto lparams = reduction_params.value().lparams;
+
   torch::jit::fuser::cuda::FusionExecutor fe;
   fe.compileFusion(&fusion);
-  auto outputs = fe.runFusion({t0}, reduction_params.value().lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
-  auto t1 = at::_softmax(t0, kReductionAxis, false);
-  TORCH_CHECK(
-      t1.allclose(outputs[0], 1e-5, 1e-5),
-      "Error of: ",
-      t1.sub(outputs[0]).abs().max());
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
 }
 
 TEST(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
@@ -6804,26 +6819,32 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
                                           output});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(input_shape, options);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  auto aten_output = at::layer_norm(aten_input.to(at::kDouble), norm_shape);
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, {t0}, reduction_tensors);
+      getMultipleReductionHeuristics(&fusion, {aten_input}, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   scheduleMultipleReduction(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
+  auto lparams = reduction_params.value().lparams;
 
   torch::jit::fuser::cuda::FusionExecutor fe;
   fe.compileFusion(&fusion);
-  auto outputs = fe.runFusion({t0}, reduction_params.value().lparams);
+  auto cg_outputs = fe.runFusion({aten_input}, lparams);
 
-  auto result = at::layer_norm(t0, norm_shape);
-  TORCH_CHECK(
-      result.allclose(outputs[0], 1e-4, 1e-4),
-      "Error of: ",
-      result.sub(outputs[0]).abs().max());
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
 }
 
 TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
@@ -6915,27 +6936,13 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
   at::Tensor tmean = at::zeros({input_shape[1]}, options);
   at::Tensor tvar = at::ones({input_shape[1]}, options);
 
-  // Check reduction axis is same for all reductions
-  // Generate Launch Parameters
-  auto reduction_params = getMultipleReductionHeuristics(
-      &fusion, {t0, tweight, tbias}, reduction_tensors);
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  auto at_weight = c10::optional<at::Tensor>(tweight.to(at::kDouble));
+  auto at_bias = c10::optional<at::Tensor>(tbias.to(at::kDouble));
+  auto at_running_mean = c10::optional<at::Tensor>(tmean.to(at::kDouble));
+  auto at_running_var = c10::optional<at::Tensor>(tvar.to(at::kDouble));
 
-  scheduleMultipleReduction(
-      &fusion, reduction_params.value(), reduction_tensors, other_tensors);
-
-  torch::jit::fuser::cuda::FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  auto outputs =
-      fe.runFusion({t0, tweight, tbias}, reduction_params.value().lparams);
-
-  auto at_weight = c10::optional<at::Tensor>(tweight);
-  auto at_bias = c10::optional<at::Tensor>(tbias);
-  auto at_running_mean = c10::optional<at::Tensor>(tmean);
-  auto at_running_var = c10::optional<at::Tensor>(tvar);
-
-  auto result = at::batch_norm(
-      t0,
+  auto aten_output = at::batch_norm(
+      t0.to(at::kDouble),
       at_weight,
       at_bias,
       at_running_mean,
@@ -6945,10 +6952,32 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
       kEps,
       false);
 
-  TORCH_CHECK(
-      result.allclose(outputs[0], 1e-3, 1e-3),
-      "Error of: ",
-      result.sub(outputs[0]).abs().max());
+  std::vector<IValue> aten_inputs = {t0, tweight, tbias};
+
+  // Check reduction axis is same for all reductions
+  // Generate Launch Parameters
+  auto reduction_params =
+      getMultipleReductionHeuristics(&fusion, aten_inputs, reduction_tensors);
+
+  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+
+  scheduleMultipleReduction(
+      &fusion, reduction_params.value(), reduction_tensors, other_tensors);
+  auto lparams = reduction_params.value().lparams;
+
+  torch::jit::fuser::cuda::FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
 }
 
 TEST(NVFuserTest, FusionPersistentSoftmaxLocalSmem_CUDA) {
@@ -9104,20 +9133,20 @@ TEST(NVFuserTest, FusionIssue459_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto t0 = makeSymbolicTensor(1);
-  fusion.addInput(t0);
-  auto t1 = makeSymbolicTensor(2);
-  fusion.addInput(t1);
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
 
-  auto t2 = add(t0, new Float(1));
-  auto t3 = broadcast(t2, {true, false});
-  auto t4 = add(t1, t3);
+  auto tv2 = add(tv0, new Float(1));
+  auto tv3 = broadcast(tv2, {true, false});
+  auto tv4 = add(tv1, tv3);
 
   // Create two outputs from the final arithmetic result
-  auto t5 = add(t4, new Float(1));
-  fusion.addOutput(t5);
-  auto t6 = add(t4, new Float(1));
-  fusion.addOutput(t6);
+  auto tv5 = add(tv4, new Float(1));
+  fusion.addOutput(tv5);
+  auto tv6 = add(tv4, new Float(1));
+  fusion.addOutput(tv6);
 
   // Scheduling
   for (auto output : ir_utils::filterByType<TensorView>(fusion.outputs())) {
@@ -9127,26 +9156,33 @@ TEST(NVFuserTest, FusionIssue459_CUDA) {
     output->split(0, 128);
   }
 
-  t0->computeAt(t5, -1);
+  tv0->computeAt(tv5, -1);
 
-  t6->axis(0)->parallelize(ParallelType::BIDx);
-  t6->axis(1)->parallelize(ParallelType::TIDx);
+  tv6->axis(0)->parallelize(ParallelType::BIDx);
+  tv6->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
   const int numel_x = 10;
   const int numel_y = 20;
-  auto at_t0 = at::randn({numel_x}, options);
-  auto at_t1 = at::randn({numel_y, numel_x}, options);
+  auto t0 = at::randn({numel_x}, options);
+  auto t1 = at::randn({numel_y, numel_x}, options);
+  auto aten_output = (t0 + 1).unsqueeze(0) + t1 + 1;
+
+  std::vector<IValue> aten_inputs = {t0, t1};
 
   torch::jit::fuser::cuda::FusionExecutor fe;
   fe.compileFusion(&fusion);
 
-  auto outputs = fe.runFusion({at_t0, at_t1});
+  auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto at_t5 = (at_t0 + 1).unsqueeze(0) + at_t1 + 1;
-  TORCH_CHECK(at_t5.allclose(outputs[0]));
-  TORCH_CHECK(at_t5.allclose(outputs[1]));
+  testValidate(
+      &fusion,
+      cg_outputs,
+      aten_inputs,
+      {aten_output, aten_output},
+      __LINE__,
+      __FILE__);
 }
 
 TEST(NVFuserTest, FusionSmemIndexingSimple_CUDA) {
@@ -9724,4 +9760,4 @@ TEST(NVFuserTest, Issue507_CUDA) {
 } // namespace jit
 } // namespace torch
 
-#endif // #if defined(USE_CUDA)
+// #endif // #if defined(USE_CUDA)
