@@ -305,7 +305,9 @@ LaunchParams FusionExecutor::computeLaunchParams(
       const auto val = expr_eval.evaluate(extent);
       TORCH_INTERNAL_ASSERT(
           val.has_value(),
-          "Tried to evaluate the extent to set launch bounds but could not.");
+          "Tried to evaluate the extent of ",
+          p_type,
+          " to set launch bounds but could not.");
       launch_params.bind(*val, p_type);
     }
   }
@@ -511,6 +513,15 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     kernel_arguments.appendPhiloxRNGSeed(rand_offset);
   }
 
+  cudaEvent_t start_event = {};
+  cudaEvent_t finish_event = {};
+
+  if (measure_kernel_time_) {
+    cudaEventCreate(&start_event);
+    cudaEventCreate(&finish_event);
+    cudaEventRecord(start_event);
+  }
+
   if (execute_kernel_) {
     FUSER_PERF_SCOPE("cuLaunchKernel");
     AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
@@ -525,6 +536,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         stream,
         kernel_arguments.getBuffer(),
         nullptr));
+  }
+
+  if (measure_kernel_time_) {
+    cudaEventRecord(finish_event);
+    cudaEventSynchronize(start_event);
+    cudaEventSynchronize(finish_event);
+    cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event);
   }
 
   return allocated_outputs;

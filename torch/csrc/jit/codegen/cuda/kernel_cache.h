@@ -62,7 +62,7 @@ class TORCH_CUDA_API InputsIdLookup : public NonCopyable {
 
   //! entry stored in `encoding_lookup_` to implement LRU
   struct EncodingEntry {
-    size_t id;
+    size_t id = 0;
     std::list<std::string>::iterator lru_iter;
   };
 
@@ -169,7 +169,7 @@ class FusionExecutorCache {
   bool has_reduction_ = false;
 
   //! cache reduction_tv_ to avoid searching repetitively at runtime
-  TensorView* reduction_tv_ = nullptr;
+  std::vector<TensorView*> reduction_tv_;
 
   //! TODO: ugly logic for now. We should integrate the hashing of cache for
   //!       different kernels. (alternatively we could do so in scheduler).
