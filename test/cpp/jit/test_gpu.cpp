@@ -2792,10 +2792,10 @@ TEST(NVFuserTest, FusionScalarInputs_CUDA) {
   at::Scalar test(fl0);
 
   std::vector<IValue> aten_inputs = {t0,
-       t1,
-       at::Scalar(fl0),
-       at::Scalar(fl1),
-       at::Scalar(fl2),
+                                     t1,
+                                     at::Scalar(fl0),
+                                     at::Scalar(fl1),
+                                     at::Scalar(fl2),
                                      at::Scalar(fl3)};
 
   FusionExecutor fe;
@@ -2998,7 +2998,7 @@ void test_op(
       __LINE__,
       __FILE__,
       op_msg);
-  }
+}
 
 /*
  *  Templatized Helper Function that uses variadic templates to
