@@ -35,12 +35,14 @@ typedef bool (*MergeQueryFuncPtr)(const Node*);
 
 // TODO: add a mutex to make it thread safe.
 class IrParser {
-
-  enum class OperatorType {ElementWise, Reduction, Normalization};
+  enum class OperatorType { ElementWise, Reduction, Normalization };
 
   class RegistrationEntry {
    public:
-    RegistrationEntry(ParseFuncPtr parse_f, MergeQueryFuncPtr merge_f = nullptr, OperatorType type = OperatorType::ElementWise)
+    RegistrationEntry(
+        ParseFuncPtr parse_f,
+        MergeQueryFuncPtr merge_f = nullptr,
+        OperatorType type = OperatorType::ElementWise)
         : parse_f_(parse_f), merge_f_(merge_f), type_(type) {}
 
     void parse(const Node* node, std::unordered_map<size_t, CgValue>& values) {
@@ -612,9 +614,7 @@ class IrParser {
             }
             value_map.emplace(node->output()->unique(), output);
           },
-          [](const Node* node) -> bool {
-            return true;
-          },
+          [](const Node* node) -> bool { return true; },
           OperatorType::Normalization);
     }
 
@@ -690,9 +690,7 @@ class IrParser {
             }
             value_map.emplace(node->output()->unique(), output);
           },
-          [](const Node* node) -> bool {
-            return true;
-          },
+          [](const Node* node) -> bool { return true; },
           OperatorType::Normalization);
     }
 
@@ -729,7 +727,7 @@ class IrParser {
           },
           [](const Node* node) -> bool {
             if (!node->inputs()[2]->type()->isSubtypeOf(
-              static_cast<c10::TypePtr>(NoneType::get()))) {
+                    static_cast<c10::TypePtr>(NoneType::get()))) {
               return false;
             }
             return true;
@@ -921,7 +919,9 @@ std::unordered_map<
     IrParser::jit_operator_registry_;
 bool IrParser::init_registry_ = true;
 
-bool anyInBlock(const Block* block, std::function<bool(const Node*)> fn) {
+bool anyInBlock(
+    const Block* block,
+    const std::function<bool(const Node*)>& fn) {
   for (auto node : block->nodes()) {
     if (fn(node)) {
       return true;
