@@ -9763,6 +9763,25 @@ TEST(NVFuserTest, Issue507_CUDA) {
       &fusion, cg_outputs, {aten_input}, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, Issue530_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  tv2->split(1, 4);
+  tv2->merge(0, -1);
+
+  fusion.printMath();
+  fusion.printKernel();
+}
+
 } // namespace jit
 } // namespace torch
 
