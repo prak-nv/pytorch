@@ -9692,10 +9692,10 @@ TEST(NVFuserTest, Issue507_CUDA) {
 // For more information on tiling techniques, see
 // https://github.com/NVIDIA/cutlass/blob/master/media/docs/efficient_gemm.md.
 TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
-  const bool cyclic = std::getenv("CYCLIC");
+  const bool cyclic = std::getenv("NO_CYCLIC") == nullptr;
 
   if (cyclic) {
-    std::cerr << "Doing cyclic distribution\n";
+    std::cerr << "Cyclic distribution\n";
   }
 
   Fusion fusion;
@@ -9764,8 +9764,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   // Tiling step 2: Tiling input SMEM buffers
 
   // Loads a M_BLOCK x K_BLOCK block of A from gmem to smem
-  // This creates a loop even for a broadcast axis (issue #530)
-  //tv2->merge(-2, -1)->merge(-2, -1);
+  tv2->reorder({{-3, -2}, {-2, -3}});
   tv2->merge(-3, -2);
   tv2->split(-2, BDIM);
   tv2->setMemoryType(MemoryType::Shared);
@@ -9813,19 +9812,8 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   fusion.printMath();
 
   // Tiling step 4: Stores results back to gmem through smem
-  std::vector<TensorView*> C_tensors({tv5});
-  for (auto tv : C_tensors) {
-    if (cyclic) {
-      tv->split(-2, M_BLOCK / M_THREAD);
-      tv->split(-1, N_BLOCK / N_THREAD);
-      tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}});
-    } else {
-      tv->split(-2, M_THREAD);
-      tv->split(-1, N_THREAD);
-      tv->reorder({{-2, -3}, {-3, -2}});
-    }
-    tv->merge(-4, -3);
-  }
+  tv5->merge(-2, -1);
+  tv5->split(-1, BDIM);
 
   std::cerr << "Tiling step 4 done\n";
   fusion.printMath();
@@ -9839,7 +9827,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   tv3->axis(-2)->parallelize(ParallelType::TIDx);
   tv8->axis(-3)->parallelize(ParallelType::TIDx);
   tv9->axis(2)->parallelize(ParallelType::TIDx);
-  tv5->axis(2)->parallelize(ParallelType::TIDx);
+  tv5->axis(-1)->parallelize(ParallelType::TIDx);
 
   std::cerr << "After parallelization\n";
   fusion.printMath();
