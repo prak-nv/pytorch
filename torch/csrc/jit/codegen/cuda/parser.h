@@ -36,6 +36,8 @@ TORCH_CUDA_API bool isReductionNode(const Node* node);
 TORCH_CUDA_API bool hasNormalizationNode(const Block* block);
 TORCH_CUDA_API bool isNormalizationNode(const Node* node);
 
+TORCH_CUDA_API bool isElementWiseNode(const Node* node);
+
 // returns whether or not a parsing function exists for the given node type.
 TORCH_CUDA_API bool isNodeParsible(const Node* node);
 

@@ -181,6 +181,24 @@ class IrParser {
     return false;
   }
 
+  static bool isElementWiseNode(const Node* node) {
+    if (init_registry_) {
+      // TODO: mutex this guy;
+      registerJitOperator();
+      init_registry_ = false;
+    }
+
+    auto iter = jit_operator_registry_.find(node->kind());
+    if (iter != jit_operator_registry_.end()) {
+      for (auto& pair_op_func : iter->second) {
+        if (node->matches(pair_op_func.first->schema())) {
+          return pair_op_func.second.isType(OperatorType::ElementWise);
+        }
+      }
+    }
+    return false;
+  }
+
   // TODO: is_reduction is too hacky here. we should categorize operation types
   //       based on their memory accessing pattern, which would affect fusion
   //       strategy and partition logic.
@@ -933,6 +951,10 @@ bool hasNormalizationNode(const Block* block) {
 
 bool isNormalizationNode(const Node* node) {
   return IrParser::isNormalizationNode(node);
+}
+
+bool isElementWiseNode(const Node* node) {
+  return IrParser::isElementWiseNode(node);
 }
 
 bool isNodeParsible(const Node* node) {
