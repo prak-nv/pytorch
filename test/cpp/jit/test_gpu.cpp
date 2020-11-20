@@ -9764,12 +9764,13 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   // Tiling step 2: Tiling input SMEM buffers
 
   // Loads a M_BLOCK x K_BLOCK block of A from gmem to smem
+  // This creates a loop even for a broadcast axis (issue #530)
+  //tv2->merge(-2, -1)->merge(-2, -1);
   tv2->merge(-3, -2);
   tv2->split(-2, BDIM);
   tv2->setMemoryType(MemoryType::Shared);
 
   // Loads a K_BLOCK x N_BLOCK block of B from gmem to smem
-  //tv3->reorder({{-1, -2}, {-2, -1}});
   tv3->merge(-3, -1);
   tv3->split(-2, BDIM);
   tv3->setMemoryType(MemoryType::Shared);
@@ -9779,30 +9780,40 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
 
   // Tiling step 3: Computes outer product of M_THREAD x N_THREAD with
   // register blocking
-  std::vector<TensorView*> intermediate_blocks({tv4, tv8, tv6, tv7});
+  std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8, tv9});
   for (auto tv : intermediate_blocks) {
     if (cyclic) {
+      // ..., M_BLOCK, N_BLOCK
       tv->split(-2, M_BLOCK / M_THREAD);
+      // ..., M_THREAD, M_BLOCK / M_THREAD, N_BLOCK
       tv->split(-1, N_BLOCK / N_THREAD);
+      // ..., M_THREAD, M_BLOCK / M_THREAD, N_THREAD, N_BLOCK / N_THREAD
       tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}});
+      // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
       tv->merge(-4, -3);
+      // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
     } else {
-      tv->split(-3, M_THREAD);
-      tv->split(-2, N_THREAD);
-      tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}, {-5, -5}});
-      tv->merge(-5, -4);
+      // ..., M_BLOCK, N_BLOCK
+      tv->split(-2, M_THREAD);
+      // ..., M_BLOCK / M_THREAD, M_THREAD, N_BLOCK
+      tv->split(-1, N_THREAD);
+      // ..., M_BLOCK / M_THREAD, M_THREAD, N_BLOCK / N_THREAD, N_THREAD
+      tv->reorder({{-2, -3}, {-3, -2}});
+      // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
+      tv->merge(-4, -3);
+      // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
     }
   }
 
-  tv6->computeAt(tv4, 5);
-  tv7->computeAt(tv4, 5);
+  tv6->computeAt(tv4, -3);
+  tv7->computeAt(tv4, -3);
   tv4->computeAt(tv8, -1);
 
   std::cerr << "Tiling step 3 done\n";
   fusion.printMath();
 
   // Tiling step 4: Stores results back to gmem through smem
-  std::vector<TensorView*> C_tensors({tv9, tv5});
+  std::vector<TensorView*> C_tensors({tv5});
   for (auto tv : C_tensors) {
     if (cyclic) {
       tv->split(-2, M_BLOCK / M_THREAD);
@@ -9827,9 +9838,8 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
   tv3->axis(-2)->parallelize(ParallelType::TIDx);
   tv8->axis(-3)->parallelize(ParallelType::TIDx);
-  for (auto tv : C_tensors) {
-    tv->axis(2)->parallelize(ParallelType::TIDx);
-  }
+  tv9->axis(2)->parallelize(ParallelType::TIDx);
+  tv5->axis(2)->parallelize(ParallelType::TIDx);
 
   std::cerr << "After parallelization\n";
   fusion.printMath();
