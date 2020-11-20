@@ -9833,7 +9833,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   fusion.printMath();
   fusion.printKernel();
 
-  //constexpr int M = 154, K = 45, N = 1524;
+  // constexpr int M = 154, K = 45, N = 1524;
   constexpr int M = 128, K = 128, N = 128;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
