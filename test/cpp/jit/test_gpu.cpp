@@ -9738,36 +9738,38 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   // M/M_BLOCK, N/N_BLOCK, K/K_BLOCK, M_BLOCK, N_BLOCK, K_BLOCK
 
   // Factor out (M_BLOCK, K_BLOCK) * (K_BLOCK, N_BLOCK)
-  TensorView* tv6 = tv5->rFactor({-1});
+  //TensorView* tv6 = tv5->rFactor({-1});
+  TensorView* tv6 = tv5->cache_before();
 
   // Tensors for register blocking of input matrices
   auto tv7 = tv2->cache_after();
   auto tv8 = tv3->cache_after();
 
-  // For the final reduction on registers
   auto tv9 = tv5->cache_before();
+  tv9->setMemoryType(MemoryType::Shared);
 
-  // For streaming writes to gmem through smem
-  auto tv10 = tv9->cache_after();
-  tv10->setMemoryType(MemoryType::Shared);
+  fusion.printMath();
 
-  // Inlines outer M/M_BLOCK, N/N_BLOCK and K/K_BLOCK loops
-  tv0->computeAt(tv9, 3);
-  tv1->computeAt(tv9, 3);
-  tv9->computeAt(tv5, 2);
+  tv6->computeAt(tv5, 2);
   // The above computeAt moves K/K_BLOCK far right. Move it back to
   // the original position.
-  tv9->reorder({{-1, -3}, {-3, -2}, {-2, -1}});
+  tv6->reorder({{-1, -3}, {-2, -4}, {-3, -1}, {-4, -2}});
+
+  // Inlines outer M/M_BLOCK, N/N_BLOCK and K/K_BLOCK loops
+  tv0->computeAt(tv6, 3);
+  tv1->computeAt(tv6, 3);
+
+  fusion.printMath();
 
   // Loads a M_BLOCK x K_BLOCK block of A from gmem to smem
-  tv2->merge(-3, -1);
+  tv2->merge(-3, -2);
   tv2->split(-2, BDIM);
   tv2->setMemoryType(MemoryType::Shared);
 
   // Loads a K_BLOCK x N_BLOCK block of B from gmem to smem
-  tv3->reorder({{-1, -2}, {-2, -1}});
-  tv3->merge(-2, -1);
-  tv3->split(-1, BDIM);
+  //tv3->reorder({{-1, -2}, {-2, -1}});
+  tv3->merge(-3, -1);
+  tv3->split(-2, BDIM);
   tv3->setMemoryType(MemoryType::Shared);
 
   std::cerr << "Before intermediate tensor split\n";
@@ -9778,10 +9780,10 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8});
   for (auto tv : intermediate_blocks) {
     if (cyclic) {
-      tv->split(-3, M_BLOCK / M_THREAD);
-      tv->split(-2, N_BLOCK / N_THREAD);
-      tv->reorder({{-1, -3}, {-2, -4}, {-3, -1}, {-4, -5}, {-5, -2}});
-      tv->merge(-5, -4);
+      tv->split(-2, M_BLOCK / M_THREAD);
+      tv->split(-1, N_BLOCK / N_THREAD);
+      tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}});
+      tv->merge(-4, -3);
     } else {
       tv->split(-3, M_THREAD);
       tv->split(-2, N_THREAD);
@@ -9793,15 +9795,15 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   std::cerr << "After cyclic split\n";
   fusion.printMath();
 
-  tv7->computeAt(tv4, -3);
-  tv8->computeAt(tv4, -3);
+  tv7->computeAt(tv4, 5);
+  tv8->computeAt(tv4, 5);
   tv4->computeAt(tv6, -1);
 
   std::cerr << "After computeAt\n";
   fusion.printMath();
 
   // Stores results back to gmem through smem
-  std::vector<TensorView*> C_tensors({tv9, tv10, tv5});
+  std::vector<TensorView*> C_tensors({tv9, tv5});
   for (auto tv : C_tensors) {
     if (cyclic) {
       tv->split(-2, M_BLOCK / M_THREAD);
@@ -9824,11 +9826,11 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
 
   // Thread binding
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
-  tv3->axis(-1)->parallelize(ParallelType::TIDx);
-  tv6->axis(-4)->parallelize(ParallelType::TIDx);
+  tv3->axis(-2)->parallelize(ParallelType::TIDx);
+  tv6->axis(-3)->parallelize(ParallelType::TIDx);
 
   for (auto tv : C_tensors) {
-    tv->axis(-3)->parallelize(ParallelType::TIDx);
+    tv->axis(2)->parallelize(ParallelType::TIDx);
   }
 
   std::cerr << "After parallelization\n";
