@@ -885,20 +885,22 @@ class IrParser {
   std::unordered_map<size_t, CgValue> value_map_;
   // parsing rule registry.
   static std::unordered_map<std::string, RegistrationEntry>
-      jit_operator_registry_;
+      jit_operator_registry_; // NOLINT
 
   // pointing cached entry stored in `jit_operator_registry_`
   static std::unordered_map<const FunctionSchema*, const RegistrationEntry*>
-      cached_registry_lookup_;
+      cached_registry_lookup_; // NOLINT
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   static bool init_registry_;
 };
 
 std::unordered_map<std::string, IrParser::RegistrationEntry>
-    IrParser::jit_operator_registry_;
+    IrParser::jit_operator_registry_; // NOLINT
 std::unordered_map<const FunctionSchema*, const IrParser::RegistrationEntry*>
-    IrParser::cached_registry_lookup_;
+    IrParser::cached_registry_lookup_; // NOLINT
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 bool IrParser::init_registry_ = true;
 
 bool anyInBlock(
