@@ -45,18 +45,19 @@ class IrParser {
         OperatorType type = OperatorType::ElementWise)
         : parse_f_(parse_f), merge_f_(merge_f), type_(type) {}
 
-    void parse(const Node* node, std::unordered_map<size_t, CgValue>& values) {
+    void parse(const Node* node, std::unordered_map<size_t, CgValue>& values)
+        const {
       parse_f_(node, values);
     }
 
-    bool isCompatible(const Node* node) {
+    bool isCompatible(const Node* node) const {
       if (merge_f_ == nullptr) {
         return true;
       }
       return merge_f_(node);
     }
 
-    bool isType(OperatorType type) {
+    bool isType(OperatorType type) const {
       return type_ == type;
     }
 
@@ -68,10 +69,7 @@ class IrParser {
 
  public:
   IrParser(std::shared_ptr<Graph> graph) : graph_(std::move(graph)) {
-    if (init_registry_) {
-      registerJitOperator();
-      init_registry_ = false;
-    }
+    initRegistry();
   }
 
   // Fuses pointwise ops with loop unrolling (factor = 4).
@@ -127,78 +125,69 @@ class IrParser {
     return fusion;
   }
 
-  static bool canParseNode(const Node* node) {
+  // return nullptr if entry does not exist
+  static const RegistrationEntry* lookupInRegistry(const Node* node) {
+    auto schema_ptr = node->maybeSchema();
+    if (schema_ptr != nullptr) {
+      // search cached entry first
+      auto cache_it = cached_registry_lookup_.find(schema_ptr);
+      if (cache_it != cached_registry_lookup_.end()) {
+        return cache_it->second;
+      } else {
+        // match signature
+        auto schema_str = canonicalSchemaString(*schema_ptr);
+
+        auto iter = jit_operator_registry_.find(schema_str);
+        if (iter != jit_operator_registry_.end()) {
+          // update cache entry
+          cached_registry_lookup_.insert(cache_it, {schema_ptr, &iter->second});
+          return &iter->second;
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  static void initRegistry() {
     if (init_registry_) {
       // TODO: mutex this guy;
       registerJitOperator();
       init_registry_ = false;
     }
+  }
+
+  static bool canParseNode(const Node* node) {
+    initRegistry();
 
     // match signature.
-    auto iter = jit_operator_registry_.find(node->kind());
-    if (iter == jit_operator_registry_.end()) {
+    auto schema_ptr = node->maybeSchema();
+    if (schema_ptr == nullptr) {
       return false;
     }
-    for (auto& pair_op_func : iter->second) {
-      if (node->matches(pair_op_func.first->schema())) {
-        return pair_op_func.second.isCompatible(node);
-      }
-    }
-    return false;
+    auto reg_entry = lookupInRegistry(node);
+    return reg_entry != nullptr && reg_entry->isCompatible(node);
   }
 
   static bool isReductionNode(const Node* node) {
-    if (init_registry_) {
-      // TODO: mutex this guy;
-      registerJitOperator();
-      init_registry_ = false;
-    }
+    initRegistry();
 
-    auto iter = jit_operator_registry_.find(node->kind());
-    if (iter != jit_operator_registry_.end()) {
-      for (auto& pair_op_func : iter->second) {
-        if (node->matches(pair_op_func.first->schema())) {
-          return pair_op_func.second.isType(OperatorType::Reduction);
-        }
-      }
-    }
-    return false;
+    auto reg_entry = lookupInRegistry(node);
+    return reg_entry != nullptr && reg_entry->isType(OperatorType::Reduction);
   }
 
   static bool isNormalizationNode(const Node* node) {
-    if (init_registry_) {
-      // TODO: mutex this guy;
-      registerJitOperator();
-      init_registry_ = false;
-    }
+    initRegistry();
 
-    auto iter = jit_operator_registry_.find(node->kind());
-    if (iter != jit_operator_registry_.end()) {
-      for (auto& pair_op_func : iter->second) {
-        if (node->matches(pair_op_func.first->schema())) {
-          return pair_op_func.second.isType(OperatorType::Normalization);
-        }
-      }
-    }
-    return false;
+    auto reg_entry = lookupInRegistry(node);
+    return reg_entry != nullptr &&
+        reg_entry->isType(OperatorType::Normalization);
   }
 
   static bool isElementWiseNode(const Node* node) {
-    if (init_registry_) {
-      // TODO: mutex this guy;
-      registerJitOperator();
-      init_registry_ = false;
-    }
+    initRegistry();
 
-    auto iter = jit_operator_registry_.find(node->kind());
-    if (iter != jit_operator_registry_.end()) {
-      for (auto& pair_op_func : iter->second) {
-        if (node->matches(pair_op_func.first->schema())) {
-          return pair_op_func.second.isType(OperatorType::ElementWise);
-        }
-      }
-    }
-    return false;
+    auto reg_entry = lookupInRegistry(node);
+    return reg_entry != nullptr && reg_entry->isType(OperatorType::ElementWise);
   }
 
   // TODO: is_reduction is too hacky here. we should categorize operation types
@@ -209,11 +198,10 @@ class IrParser {
       ParseFuncPtr parse_fn,
       MergeQueryFuncPtr merge_query_fn = nullptr,
       OperatorType type = OperatorType::ElementWise) {
-    jit_operator_registry_[Symbol::fromQualString(op->schema().name())]
-        .emplace_back(
-            std::piecewise_construct,
-            std::forward_as_tuple(op),
-            std::forward_as_tuple(parse_fn, merge_query_fn, type));
+    jit_operator_registry_.emplace(
+        std::piecewise_construct,
+        std::forward_as_tuple(canonicalSchemaString(op->schema())),
+        std::forward_as_tuple(parse_fn, merge_query_fn, type));
   }
 
  private:
@@ -821,22 +809,12 @@ class IrParser {
             *node);
       }
     } else {
-      auto iter = IrParser::jit_operator_registry_.find(node->kind());
-      // make sure we have a parser for the op;
+      auto reg_entry = lookupInRegistry(node);
       TORCH_INTERNAL_ASSERT(
-          iter != IrParser::jit_operator_registry_.end(),
-          "CudaFusionGroup Parser doesn't handle operator kind(): ",
-          node->kind().toDisplayString());
-      for (auto& pair_op_func : iter->second) {
-        if (node->matches(pair_op_func.first->schema())) {
-          pair_op_func.second.parse(node, value_map_);
-          return;
-        }
-      }
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "CudaFusionGroup Parser doesn't recognize operator overload:",
+          reg_entry != nullptr,
+          "CudaFusionGroup Parser doesn't handle node: ",
           canonicalSchemaString(node->schema()));
+      reg_entry->parse(node, value_map_);
     }
   }
 
@@ -904,19 +882,21 @@ class IrParser {
   // maps from JitValue::unique() to fusion Val;
   std::unordered_map<size_t, CgValue> value_map_;
   // parsing rule registry.
-  static std::unordered_map<
-      Symbol,
-      std::vector<std::pair<std::shared_ptr<Operator>, RegistrationEntry>>>
+  static std::unordered_map<std::string, RegistrationEntry>
       jit_operator_registry_;
+
+  // pointing cached entry stored in `jit_operator_registry_`
+  static std::unordered_map<const FunctionSchema*, const RegistrationEntry*>
+      cached_registry_lookup_;
+
   static bool init_registry_;
 };
 
-// TODO: add a cache from schema string to registration entry;
-std::unordered_map<
-    Symbol,
-    std::vector<
-        std::pair<std::shared_ptr<Operator>, IrParser::RegistrationEntry>>>
+std::unordered_map<std::string, IrParser::RegistrationEntry>
     IrParser::jit_operator_registry_;
+std::unordered_map<const FunctionSchema*, const IrParser::RegistrationEntry*>
+    IrParser::cached_registry_lookup_;
+
 bool IrParser::init_registry_ = true;
 
 bool anyInBlock(
