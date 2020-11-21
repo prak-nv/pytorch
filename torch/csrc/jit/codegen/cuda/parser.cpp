@@ -127,6 +127,8 @@ class IrParser {
 
   // return nullptr if entry does not exist
   static const RegistrationEntry* lookupInRegistry(const Node* node) {
+    // we need to use maybeSchema for nodes like prim::Constant, which doesn't
+    // have a schema
     auto schema_ptr = node->maybeSchema();
     if (schema_ptr != nullptr) {
       // search cached entry first
