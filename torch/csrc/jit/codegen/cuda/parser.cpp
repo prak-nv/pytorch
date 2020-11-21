@@ -891,7 +891,7 @@ class IrParser {
   static std::unordered_map<const FunctionSchema*, const RegistrationEntry*>
       cached_registry_lookup_; // NOLINT
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   static bool init_registry_;
 };
 
