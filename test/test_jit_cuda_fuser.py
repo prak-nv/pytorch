@@ -12,7 +12,7 @@ import itertools
 import numpy as np
 import math
 
-os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '0'
+os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
 os.environ['PYTORCH_NVFUSER_JIT_OPT_LEVEL'] = '0'
 
