@@ -12,12 +12,7 @@ import itertools
 import numpy as np
 import math
 
-if '-nvfuser_do_fallback' in UNITTEST_ARGS:
-    NVFUSER_DISABLE_FALLBACK = False
-else:
-    NVFUSER_DISABLE_FALLBACK = True
-    os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
-
+os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '0'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
 os.environ['PYTORCH_NVFUSER_JIT_OPT_LEVEL'] = '0'
 
@@ -143,7 +138,6 @@ class TestCudaFuser(JitTestCase):
         self.assertEqual(o, jit_o)
         self.assertGraphContains(t_jit.graph_for(x, y, z, q), FUSION_GUARD)
 
-    @unittest.skipIf(NVFUSER_DISABLE_FALLBACK, "Compatibility test, need fallback")
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
@@ -155,10 +149,15 @@ class TestCudaFuser(JitTestCase):
             return o
         t_jit = torch.jit.script(t)
 
+        prev_fallback = os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK']
+        os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '0'
+
         x = torch.randn(8, 4, 16, dtype=torch.double, device="cuda")
         jit_o = t_jit(x)
         jit_o = t_jit(x)
         o = t(x)
+
+        os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = prev_fallback
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -437,12 +436,11 @@ class TestCudaFuser(JitTestCase):
 
     def _type_test_special_data(self, operation, dtype):
         special_numbers = [
-            -10, -math.pi, -1, -0.5, 0, 1, 0.5, math.pi, 10
+            float("-inf"), -10, -math.pi, -1, -0.5, 0, 1, 0.5, math.pi, 10, float("inf"), float("nan")
         ]
         for data in special_numbers:
             self._unary_type_test_helper(operation, dtype, data)
 
-    @unittest.skipIf(NVFUSER_DISABLE_FALLBACK, "Compatibility test, need fallback")
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
@@ -488,9 +486,12 @@ class TestCudaFuser(JitTestCase):
                       torch.sigmoid,
                       torch.tanh,
                       torch.nn.functional.gelu]
+        prev_fallback = os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK']
+        os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '0'
         for op, dtype in itertools.product(operations, dtypes):
             self._type_test_special_data(op, dtype)  # test special numbers
             self._unary_type_test_helper(op, dtype)  # test random data
+        os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = prev_fallback
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -1196,7 +1197,4 @@ class TestPassManagerCudaFuser(JitTestCase):
 
 
 if __name__ == '__main__':
-    # unittest doesn't nvfuser specific args so remove them before running
-    run_args = [arg for arg in UNITTEST_ARGS if '-nvfuser_do_fallback' not in arg]
-
-    run_tests(run_args)
+    run_tests()
