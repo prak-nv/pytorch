@@ -85,6 +85,18 @@ class CudaFusionManager {
     return graph_cache_ids_[repr];
   };
 
+  void unregisterCacheId(std::shared_ptr<Graph>& graph) {
+    Canonicalize(graph, false);
+    auto repr = graph->toString(false);
+
+    // create new graph_cache_ids_ entry if none existed yet;
+    if (graph_cache_ids_.count(repr) > 0) {
+      int32_t kernel_id = graph_cache_ids_[repr];
+      graph_cache_.erase(kernel_id);
+      graph_cache_ids_.erase(repr);
+    }
+  }
+
   std::vector<at::Tensor> runFusionNode(
       int32_t kernel_id,
       const at::ArrayRef<IValue> inputs) {
@@ -214,36 +226,78 @@ void compileCudaFusionGroup(Node* fusion_node) {
   // This is not a critical code path, it's OK to do graph copy here;
   auto graph = fusion_node->g(attr::Subgraph)->copy();
 
-  // type propagation is needed, as the protocol only requires scalar type on
-  // input tensors.
-  // Note that even for Profiling Executor, scalar type could still be missing,
-  // especially for output tensor from a given node (as profiling node only
-  // insert meta information after itself).
-  TypePropagate(graph);
+  auto compile_fusion = [&]() {
+    // type propagation is needed, as the protocol only requires scalar type on
+    // input tensors.
+    // Note that even for Profiling Executor, scalar type could still be
+    // missing, especially for output tensor from a given node (as profiling
+    // node only insert meta information after itself).
+    TypePropagate(graph);
 
-  int32_t fusion_cache_id =
-      CudaFusionManager::getManager().registerOrGetCacheId(graph);
-  fusion_node->i_(attr::cache_id, fusion_cache_id);
+    int32_t fusion_cache_id =
+        CudaFusionManager::getManager().registerOrGetCacheId(graph);
+    fusion_node->i_(attr::cache_id, fusion_cache_id);
+  };
+
+  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
+  bool use_fallback = !(disable_fb_env ? atoi(disable_fb_env) : 0);
+
+  if (!use_fallback) {
+    compile_fusion();
+  } else {
+    try {
+      compile_fusion();
+    } catch (...) {
+      TORCH_WARN(
+          "FALLBACK path has been taken. This is an indication that codegen"
+          "Failed for some reason. To debug try disable codegen fallback path"
+          "via setting the env variable"
+          "`export PYTORCH_NVFUSER_DISABLE_FALLBACK=1`");
+      CudaFusionManager::getManager().unregisterCacheId(graph);
+    }
+  }
 }
 
 void runCudaFusionGroup(const Node* fusion_node, Stack& stack) {
   FUSER_PERF_SCOPE("runCudaFusionGroup");
 
-  TORCH_CHECK(
-      fusion_node->kind() == prim::CudaFusionGroup,
-      "prim::CudaFusionGroup expected");
-  // TODO: should we support runtime compilation with updated dynamic shape;
-  //       shape inference would be needed so we can allocate output;
-  TORCH_CHECK(
-      fusion_node->hasAttribute(attr::cache_id),
-      "node prim::CudaFusionGroup has not been compiled yet");
-  int32_t kernel_id = fusion_node->i(attr::cache_id);
+  // Fallback to use if anything goes wrong
+  auto take_fallback = [&]() {
+    // copying graph here since we are eliminating shape information;
+    auto copied_graph = fusion_node->g(attr::Subgraph)->copy();
+    EraseShapeInformation(copied_graph);
+    InterpreterState{Code(copied_graph, "fallback_cuda_fuser")}.run(stack);
+  };
 
+  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
+  bool use_fallback = !(disable_fb_env ? atoi(disable_fb_env) : 0);
+
+  if (use_fallback) {
+    if (fusion_node->kind() != prim::CudaFusionGroup) {
+      take_fallback();
+      return;
+    }
+    if (!fusion_node->hasAttribute(attr::cache_id)) {
+      take_fallback();
+      return;
+    }
+  } else {
+    TORCH_CHECK(
+        fusion_node->kind() == prim::CudaFusionGroup,
+        "prim::CudaFusionGroup expected");
+    // TODO: should we support runtime compilation with updated dynamic shape;
+    //       shape inference would be needed so we can allocate output;
+    TORCH_CHECK(
+        fusion_node->hasAttribute(attr::cache_id),
+        "node prim::CudaFusionGroup has not been compiled yet");
+  }
+
+  int32_t kernel_id = fusion_node->i(attr::cache_id);
   // Currently we just construct I/O tensors for static graph;
 
   const auto nInputs = fusion_node->g(attr::Subgraph)->inputs().size();
 
-  auto execute_lambda = [&]() {
+  auto run_fusion = [&]() {
     at::ArrayRef<IValue> inputs = last(stack, nInputs);
 
     auto outputs =
@@ -256,23 +310,18 @@ void runCudaFusionGroup(const Node* fusion_node, Stack& stack) {
         std::make_move_iterator(outputs.end()));
   };
 
-  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
-  int disable_fb_flag = disable_fb_env ? atoi(disable_fb_env) : 0;
-  if (disable_fb_flag) {
-    execute_lambda();
+  if (!use_fallback) {
+    run_fusion();
   } else {
     try {
-      execute_lambda();
+      run_fusion();
     } catch (...) {
       TORCH_WARN(
-          "FALLBACK path is taken. This is an indication that codegen"
+          "FALLBACK path has been taken. This is an indication that codegen"
           "Failed for some reason. To debug try disable codegen fallback path"
           "via setting the env variable"
           "`export PYTORCH_NVFUSER_DISABLE_FALLBACK=1`");
-      // copying graph here since we are eliminating shape information;
-      auto copied_graph = fusion_node->g(attr::Subgraph)->copy();
-      EraseShapeInformation(copied_graph);
-      InterpreterState{Code(copied_graph, "fallback_cuda_fuser")}.run(stack);
+      take_fallback();
     }
   }
 }
