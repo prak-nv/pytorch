@@ -68,13 +68,14 @@ bool allCompatableTensorTypes(c10::ArrayRef<const torch::jit::Value*> values) {
 }
 
 inline bool isFusibleNode(const Node* node) {
+  if (node->kind() == prim::CudaFusionGroup)
+    return true;
   // Check we have a parsing rule
   bool isFusible = isNodeParsible(node);
   // Check if we have a tensor type it's one we support
   isFusible = isFusible && allCompatableTensorTypes(node->inputs());
   isFusible = isFusible && allCompatableTensorTypes(node->outputs());
   // Check if already part of a fusion group
-  isFusible = isFusible || node->kind() == prim::CudaFusionGroup;
   return isFusible;
 }
 

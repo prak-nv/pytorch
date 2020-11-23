@@ -4,7 +4,7 @@ import random
 
 import torch
 
-from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR, UNITTEST_ARGS
+from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR
 from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithSeed
 
 from test_jit import JitTestCase, RUN_CUDA
@@ -417,7 +417,7 @@ class TestCudaFuser(JitTestCase):
             return o
 
         try:
-            if data == None:
+            if data is None:
                 x = torch.randn(shape, dtype=dtype, device="cuda")
             else:
                 x = torch.tensor((1,)).new_full(shape, data, dtype=dtype, device="cuda")

@@ -73,7 +73,10 @@ class IrParser {
     for (auto val : block->inputs()) {
       TORCH_INTERNAL_ASSERT(
           registerValue(val),
-          "Error trying to register value with code generation.");
+          "Failure when register value: ",
+          *(val->node()),
+          " with type: ",
+          val->type());
       fusion->addInput(value_map_[val->unique()]);
 
       auto opt_dtype = value_map_[val->unique()]->getDataType();

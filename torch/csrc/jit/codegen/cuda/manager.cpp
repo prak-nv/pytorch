@@ -212,6 +212,11 @@ class CudaFusionManager {
   int32_t next_unique_id_ = 0;
 };
 
+bool useFallback() {
+  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
+  return !(disable_fb_env ? atoi(disable_fb_env) : 0);
+}
+
 } // namespace
 
 void compileCudaFusionGroup(Node* fusion_node) {
@@ -239,12 +244,7 @@ void compileCudaFusionGroup(Node* fusion_node) {
     fusion_node->i_(attr::cache_id, fusion_cache_id);
   };
 
-  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
-  bool use_fallback = !(disable_fb_env ? atoi(disable_fb_env) : 0);
-
-  if (!use_fallback) {
-    compile_fusion();
-  } else {
+  if (useFallback()) {
     try {
       compile_fusion();
     } catch (...) {
@@ -255,6 +255,8 @@ void compileCudaFusionGroup(Node* fusion_node) {
           "`export PYTORCH_NVFUSER_DISABLE_FALLBACK=1`");
       CudaFusionManager::getManager().unregisterCacheId(graph);
     }
+  } else {
+    compile_fusion();
   }
 }
 
@@ -269,19 +271,7 @@ void runCudaFusionGroup(const Node* fusion_node, Stack& stack) {
     InterpreterState{Code(copied_graph, "fallback_cuda_fuser")}.run(stack);
   };
 
-  const char* disable_fb_env = getenv("PYTORCH_NVFUSER_DISABLE_FALLBACK");
-  bool use_fallback = !(disable_fb_env ? atoi(disable_fb_env) : 0);
-
-  if (use_fallback) {
-    if (fusion_node->kind() != prim::CudaFusionGroup) {
-      take_fallback();
-      return;
-    }
-    if (!fusion_node->hasAttribute(attr::cache_id)) {
-      take_fallback();
-      return;
-    }
-  } else {
+  auto run_fusion = [&]() {
     TORCH_CHECK(
         fusion_node->kind() == prim::CudaFusionGroup,
         "prim::CudaFusionGroup expected");
@@ -290,14 +280,12 @@ void runCudaFusionGroup(const Node* fusion_node, Stack& stack) {
     TORCH_CHECK(
         fusion_node->hasAttribute(attr::cache_id),
         "node prim::CudaFusionGroup has not been compiled yet");
-  }
 
-  int32_t kernel_id = fusion_node->i(attr::cache_id);
-  // Currently we just construct I/O tensors for static graph;
+    int32_t kernel_id = fusion_node->i(attr::cache_id);
+    // Currently we just construct I/O tensors for static graph;
 
-  const auto nInputs = fusion_node->g(attr::Subgraph)->inputs().size();
+    const auto nInputs = fusion_node->g(attr::Subgraph)->inputs().size();
 
-  auto run_fusion = [&]() {
     at::ArrayRef<IValue> inputs = last(stack, nInputs);
 
     auto outputs =
@@ -310,9 +298,7 @@ void runCudaFusionGroup(const Node* fusion_node, Stack& stack) {
         std::make_move_iterator(outputs.end()));
   };
 
-  if (!use_fallback) {
-    run_fusion();
-  } else {
+  if (useFallback()) {
     try {
       run_fusion();
     } catch (...) {
@@ -323,6 +309,8 @@ void runCudaFusionGroup(const Node* fusion_node, Stack& stack) {
           "`export PYTORCH_NVFUSER_DISABLE_FALLBACK=1`");
       take_fallback();
     }
+  } else {
+    run_fusion();
   }
 }
 
