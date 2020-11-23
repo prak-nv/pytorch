@@ -9829,6 +9829,11 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   tv9->axis(2)->parallelize(ParallelType::TIDx);
   tv5->axis(-1)->parallelize(ParallelType::TIDx);
 
+  tv8->axis(-1)->parallelize(ParallelType::Unroll);
+  tv8->axis(-2)->parallelize(ParallelType::Unroll);
+  tv4->axis(-1)->parallelize(ParallelType::Unroll);
+  tv4->axis(-2)->parallelize(ParallelType::Unroll);
+
   std::cerr << "After parallelization\n";
   fusion.printMath();
   fusion.printKernel();
