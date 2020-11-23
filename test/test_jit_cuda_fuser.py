@@ -29,9 +29,9 @@ class TestCudaFuser(JitTestCase):
 
     special_values = torch.tensor(
         [float("-inf"), -10, -math.pi,
-        -1, -0.5, 0, 1, 0.5,
-        math.pi, 10, float("inf"),
-        float("nan")], dtype=torch.float, device='cuda')
+            -1, -0.5, 0, 1, 0.5,
+            math.pi, 10, float("inf"),
+            float("nan")], dtype=torch.float, device='cuda')
 
     def _getSubgraphInFusion(self, graph):
         num_node = 0
