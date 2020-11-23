@@ -27,6 +27,12 @@ FUSION_GUARD = 'prim::CudaFusionGuard'
 
 class TestCudaFuser(JitTestCase):
 
+    special_values = torch.tensor(
+        [float("-inf"), -10, -math.pi,
+        -1, -0.5, 0, 1, 0.5,
+        math.pi, 10, float("inf"),
+        float("nan")], dtype=torch.float, device='cuda')
+
     def _getSubgraphInFusion(self, graph):
         num_node = 0
         subgraph = None
@@ -420,7 +426,7 @@ class TestCudaFuser(JitTestCase):
             if data is None:
                 x = torch.randn(shape, dtype=dtype, device="cuda")
             else:
-                x = torch.tensor((1,)).new_full(shape, data, dtype=dtype, device="cuda")
+                x = special_values.to(dtype=dtype)
             ref = t(x)
         except Exception:
             # same way as TE checker, if eager mode throws, ignore this test
@@ -433,13 +439,6 @@ class TestCudaFuser(JitTestCase):
         failing case:
             {dtype} {operation} {data}
         """)
-
-    def _type_test_special_data(self, operation, dtype):
-        special_numbers = [
-            float("-inf"), -10, -math.pi, -1, -0.5, 0, 1, 0.5, math.pi, 10, float("inf"), float("nan")
-        ]
-        for data in special_numbers:
-            self._unary_type_test_helper(operation, dtype, data)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -489,7 +488,7 @@ class TestCudaFuser(JitTestCase):
         prev_fallback = os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK']
         os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '0'
         for op, dtype in itertools.product(operations, dtypes):
-            self._type_test_special_data(op, dtype)  # test special numbers
+            self._unary_type_test_helper(op, dtype)  # test special numbers
             self._unary_type_test_helper(op, dtype)  # test random data
         os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = prev_fallback
 
