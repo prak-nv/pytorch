@@ -9693,6 +9693,7 @@ TEST(NVFuserTest, Issue507_CUDA) {
 // https://github.com/NVIDIA/cutlass/blob/master/media/docs/efficient_gemm.md.
 TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   const bool cyclic = std::getenv("NO_CYCLIC") == nullptr;
+  const bool from_file = std::getenv("FROM_FILE");
 
   if (cyclic) {
     std::cerr << "Cyclic distribution\n";
@@ -9847,7 +9848,18 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   at::Tensor t1 = at::randn({K, N}, options);
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion);
+  if (from_file) {
+    auto path = std::getenv("FROM_FILE");
+    std::cerr << "Loading code from " << path << std::endl;
+    std::ifstream cuda_src(path);
+    std::stringstream buffer;
+    buffer << cuda_src.rdbuf();
+    std::string cuda_src_str = buffer.str();
+    std::cerr << "Compiling " << cuda_src_str << std::endl;
+    fe.debugCompileFusionFromStr(&fusion, cuda_src_str, "CudaCodeGen::kernel1", 1);
+  } else {
+    fe.compileFusion(&fusion);
+  }
   auto outputs = fe.runFusion({t0, t1});
 
   at::Tensor aten_output = matmul(t0, t1);
