@@ -9785,17 +9785,8 @@ TEST(NVFuserTest, FusionIssue532_CUDA) {
   tv1->split(-1, M_BLOCK / M_THREAD);
   // tv1: [M/M_BLOCK, M_THREAD, M_BLOCK / M_THREAD]
 
-  if (true) {
-    tv2->split(-1, M_THREAD);
-    // tv2: [M/M_BLOCK, M_BLOCK / M_THREAD, M_THREAD]
-  } else {
-    // This works fine
-    tv2->split(-1, M_BLOCK / M_THREAD);
-    // tv2: [M/M_BLOCK, M_THREAD, M_BLOCK / M_THREAD]
-  }
-
-  fusion.printMath();
-  fusion.printKernel();
+  tv2->split(-1, M_THREAD);
+  // tv2: [M/M_BLOCK, M_BLOCK / M_THREAD, M_THREAD]
 
   constexpr int M = 1000;
 
