@@ -19,6 +19,8 @@ Val* newScalar(ValType vtype, DataType dtype) {
       switch (dtype) {
         case DataType::Bool:
           return new Bool();
+        case DataType::Double:
+          return new Float();
         case DataType::Float:
           return new Float();
         case DataType::Half:
@@ -498,6 +500,9 @@ TensorView* sum(
     bool keep_dim /*=false*/) {
   Val* init = nullptr;
   switch (v1->getDataType().value()) {
+    case (DataType::Double):
+      init = new Double(0.0);
+      break;
     case (DataType::Float):
       init = new Float(0.0);
       break;
@@ -520,6 +525,9 @@ TensorView* max(
     bool keep_dim /*=false*/) {
   Val* init = nullptr;
   switch (v1->getDataType().value()) {
+    case (DataType::Double):
+      init = new Double(DBL_MIN);
+      break;
     case (DataType::Float):
       init = new Float(FLT_MIN);
       break;
@@ -542,6 +550,9 @@ TensorView* min(
     bool keep_dim /*=false*/) {
   Val* init = nullptr;
   switch (v1->getDataType().value()) {
+    case (DataType::Double):
+      init = new Double(DBL_MAX);
+      break;
     case (DataType::Float):
       init = new Float(FLT_MAX);
       break;
