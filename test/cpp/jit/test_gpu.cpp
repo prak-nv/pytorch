@@ -6823,6 +6823,152 @@ TEST(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
       lparams);
 }
 
+TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const float kEps = 1e-5;
+  std::vector<int64_t> shape{10, 12};
+  std::vector<int64_t> norm_shape{12};
+
+  const int M = shape.size();
+  const int N = norm_shape.size();
+
+  auto grad_out = makeSymbolicTensor(shape.size());
+  auto input = makeSymbolicTensor(shape.size());
+  auto mean = makeSymbolicTensor(norm_shape.size());
+  auto rstd = makeSymbolicTensor(norm_shape.size());
+  auto weight = makeSymbolicTensor(norm_shape.size());
+  fusion.addInput(grad_out);
+  fusion.addInput(input);
+  fusion.addInput(mean);
+  fusion.addInput(rstd);
+  fusion.addInput(weight);
+
+  const int outer_num_dims = M - N;
+  std::vector<int> reduction_axes(outer_num_dims);
+  std::vector<bool> outer_broadcast_mask(input->nDims(), false);
+  Val* outer_size = nullptr;
+  for (int idx = 0; idx < outer_num_dims; ++idx) {
+    reduction_axes[idx] = idx;
+    outer_broadcast_mask[idx] = true;
+    outer_size = (outer_size == nullptr)
+        ? input->domain()->domain()[idx]->extent()
+        : mul(outer_size, input->domain()->domain()[idx]->extent());
+  }
+
+  std::vector<bool> inner_broadcast_mask(input->nDims(), false);
+  for (int idx = 0; idx < N; ++idx) {
+    const int axis = input->nDims() - 1 - idx;
+    inner_broadcast_mask[axis] = true;
+  }
+
+  auto bcast_mean = broadcast(mean, inner_broadcast_mask);
+  auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
+  auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+  auto grad_weight = sum(mul(grad_out, x_hat), reduction_axes);
+  fusion.addOutput(grad_weight);
+
+  /*
+  auto grad_bias = sum(grad_out, reduction_axes);
+
+  auto bcast_grad_bias = broadcast(grad_bias, broadcast_mask);
+  auto bcast_grad_weight = broadcast(grad_weight, broadcast_mask);
+
+  auto N_grad_out = mul(outer_size, grad_out);
+  auto mul_output_grad_weight = mul(output, bcast_grad_weight);
+  auto inner = sub(sub(N_grad_out, bcast_grad_bias), mul_output_grad_weight);
+
+  auto bcast_weight = broadcast(weight, broadcast_mask);
+  auto bcast_rstd = broadcast(weight, broadcast_mask);
+  auto reciprocal_size = unaryOp(UnaryOpType::Reciprocal, outer_size);
+  auto outer = mul(bcast_weight, mul(reciprocal_size, bcast_rstd));
+  auto grad_in = mul(outer, inner);
+  fusion.addOutput(grad_in);
+  fusion.addOutput(grad_bias);
+  */
+
+  fusion.printMath();
+
+  std::vector<TensorView*> reduction_tensors;
+  std::vector<TensorView*> other_tensors;
+
+  auto all_values = DependencyCheck::getAllValsBetween(
+    {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+
+  for (auto tensor : ir_utils::filterByType<TensorView>(all_values)) {
+    if (tensor->hasReduction()) {
+      reduction_tensors.push_back(tensor);
+    } else if (!fusion.hasInput(tensor)) {
+      other_tensors.push_back(tensor);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_grad_out = at::randn(shape, options);
+  at::Tensor aten_input = at::randn(shape, options);
+  at::Tensor aten_weight = at::ones(norm_shape, options);
+  at::Tensor aten_bias = at::zeros(norm_shape, options);
+  auto at_weight = c10::optional<at::Tensor>(aten_weight);
+  auto at_bias = c10::optional<at::Tensor>(aten_bias);
+
+  const int red_axis = shape.size() - norm_shape.size();
+  int aten_M_Size = 1;
+  for (int axis = 0; axis < red_axis; ++axis) {
+    aten_M_Size *= shape[axis];
+  }
+  int aten_N_Size = 1;
+  for (int axis = red_axis; axis < shape.size(); ++axis) {
+    aten_N_Size *= shape[axis];
+  }
+
+  auto aten_results = at::native_layer_norm(
+      aten_input, at_weight, at_bias, aten_M_Size, aten_N_Size, kEps);
+  auto aten_output = std::get<0>(aten_results);
+  auto aten_mean = std::get<1>(aten_results);
+  auto aten_rstd = std::get<2>(aten_results);
+
+  // Check reduction axis is same for all reductions
+  // Generate Launch Parameters
+  auto reduction_params = getMultipleReductionHeuristics(
+      &fusion,
+      {aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight},
+      reduction_tensors);
+  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+
+  scheduleMultipleReduction(
+      &fusion, reduction_params.value(), reduction_tensors, other_tensors);
+  auto lparams = reduction_params.value().lparams;
+
+  torch::jit::fuser::cuda::FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(
+      {aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight}, lparams);
+
+  auto aten_gradients = at::native_layer_norm_backward(
+      aten_grad_out.to(at::kDouble),
+      aten_input.to(at::kDouble),
+      aten_mean.to(at::kDouble),
+      aten_rstd.to(at::kDouble),
+      c10::optional<at::Tensor>(aten_weight.to(at::kDouble)),
+      aten_M_Size,
+      aten_N_Size,
+      {true, true, true});
+  auto aten_grad_in = std::get<0>(aten_gradients);
+  auto aten_grad_weight = std::get<1>(aten_gradients);
+  auto aten_grad_bias = std::get<2>(aten_gradients);
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight},
+      {aten_grad_weight},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+
 TEST(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
