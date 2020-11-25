@@ -239,7 +239,7 @@ void IrPrinter::visit(const kir::UnaryOp* node) {
     } else {
       ir_str_ << node->operation();
       if (needFloatSuffix(node->operation()) &&
-        node->out()->dtype() == DataType::Float) {
+          node->out()->dtype() == DataType::Float) {
         ir_str_ << "f";
       }
     }
@@ -267,8 +267,7 @@ void IrPrinter::visit(const kir::BinaryOp* node) {
     ir_str_ << lhs << " " << *op << " " << rhs;
   } else {
     ir_str_ << operation;
-    if (needFloatSuffix(operation) &&
-        node->out()->dtype() == DataType::Float) {
+    if (needFloatSuffix(operation) && node->out()->dtype() == DataType::Float) {
       ir_str_ << "f";
     }
     ir_str_ << "(" << lhs << ", " << rhs << ")";
