@@ -6828,16 +6828,17 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   FusionGuard fg(&fusion);
 
   const float kEps = 1e-5;
-  std::vector<int64_t> shape{10, 12};
-  std::vector<int64_t> norm_shape{12};
+  std::vector<int64_t> shape{20, 67};
+  std::vector<int64_t> norm_shape{67};
 
   const int M = shape.size();
   const int N = norm_shape.size();
+  const int outer_num_dims = M - N;
 
   auto grad_out = makeSymbolicTensor(shape.size());
   auto input = makeSymbolicTensor(shape.size());
-  auto mean = makeSymbolicTensor(norm_shape.size());
-  auto rstd = makeSymbolicTensor(norm_shape.size());
+  auto mean = makeSymbolicTensor(outer_num_dims);
+  auto rstd = makeSymbolicTensor(outer_num_dims);
   auto weight = makeSymbolicTensor(norm_shape.size());
   fusion.addInput(grad_out);
   fusion.addInput(input);
@@ -6845,56 +6846,64 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   fusion.addInput(rstd);
   fusion.addInput(weight);
 
-  const int outer_num_dims = M - N;
-  std::vector<int> reduction_axes(outer_num_dims);
+  std::vector<int> outer_reduction_axes(outer_num_dims);
   std::vector<bool> outer_broadcast_mask(input->nDims(), false);
-  Val* outer_size = nullptr;
   for (int idx = 0; idx < outer_num_dims; ++idx) {
-    reduction_axes[idx] = idx;
+    outer_reduction_axes[idx] = idx;
     outer_broadcast_mask[idx] = true;
-    outer_size = (outer_size == nullptr)
-        ? input->domain()->domain()[idx]->extent()
-        : mul(outer_size, input->domain()->domain()[idx]->extent());
   }
 
+  std::vector<int> inner_reduction_axes(norm_shape.size());
   std::vector<bool> inner_broadcast_mask(input->nDims(), false);
+  Val* num_features = nullptr;
   for (int idx = 0; idx < N; ++idx) {
     const int axis = input->nDims() - 1 - idx;
+    inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;
+    num_features = (num_features == nullptr)
+        ? input->domain()->domain()[axis]->extent()
+        : mul(num_features, input->domain()->domain()[axis]->extent());
   }
+
+  /*
+  auto grad_bias = sum(grad_out, outer_reduction_axes);
+  fusion.addOutput(grad_bias);
 
   auto bcast_mean = broadcast(mean, inner_broadcast_mask);
   auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
   auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
-  auto grad_weight = sum(mul(grad_out, x_hat), reduction_axes);
+  auto grad_weight = sum(mul(grad_out, x_hat), outer_reduction_axes);
   fusion.addOutput(grad_weight);
-
-  /*
-  auto grad_bias = sum(grad_out, reduction_axes);
-
-  auto bcast_grad_bias = broadcast(grad_bias, broadcast_mask);
-  auto bcast_grad_weight = broadcast(grad_weight, broadcast_mask);
-
-  auto N_grad_out = mul(outer_size, grad_out);
-  auto mul_output_grad_weight = mul(output, bcast_grad_weight);
-  auto inner = sub(sub(N_grad_out, bcast_grad_bias), mul_output_grad_weight);
-
-  auto bcast_weight = broadcast(weight, broadcast_mask);
-  auto bcast_rstd = broadcast(weight, broadcast_mask);
-  auto reciprocal_size = unaryOp(UnaryOpType::Reciprocal, outer_size);
-  auto outer = mul(bcast_weight, mul(reciprocal_size, bcast_rstd));
-  auto grad_in = mul(outer, inner);
-  fusion.addOutput(grad_in);
-  fusion.addOutput(grad_bias);
   */
 
-  fusion.printMath();
+  auto bcast_mean = broadcast(mean, inner_broadcast_mask);
+  auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
+  auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+
+  auto* bcast_weight = broadcast(weight, outer_broadcast_mask);
+  auto* grad_x_hat = mul(grad_out, bcast_weight);
+
+  auto* a = mul(num_features, grad_x_hat);
+
+  auto* b = sum(grad_x_hat, inner_reduction_axes);
+  auto* bcast_b = broadcast(b, inner_broadcast_mask);
+
+  auto* c1 = mul(grad_x_hat, x_hat);
+  auto* c2 = sum(c1, inner_reduction_axes);
+  auto* bcast_c2 = broadcast(c2, inner_broadcast_mask);
+  auto* c3 = mul(x_hat, bcast_c2);
+
+  auto* inner = sub(sub(a, bcast_b), c3);
+
+  auto reciprocal_size = div(new Float(1), num_features);
+  auto* grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
+  fusion.addOutput(grad_in);
 
   std::vector<TensorView*> reduction_tensors;
   std::vector<TensorView*> other_tensors;
 
   auto all_values = DependencyCheck::getAllValsBetween(
-    {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
 
   for (auto tensor : ir_utils::filterByType<TensorView>(all_values)) {
     if (tensor->hasReduction()) {
@@ -6927,6 +6936,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto aten_output = std::get<0>(aten_results);
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
+  // reshape mean and rstd to outer shape
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
@@ -6962,7 +6972,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
       &fusion,
       cg_outputs,
       {aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight},
-      {aten_grad_weight},
+      {aten_grad_in},
       __LINE__,
       __FILE__,
       "",

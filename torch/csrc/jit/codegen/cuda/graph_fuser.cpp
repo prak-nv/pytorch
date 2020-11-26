@@ -773,7 +773,7 @@ struct CudaGraphFuser {
         shape_of.emplace(n->output(), size);
         continue;
       }
-      //if (n->kind() == aten::native_layer_norm) {
+      // if (n->kind() == aten::native_layer_norm) {
       if (n->kind() == c10::Symbol::fromQualString("aten::native_layer_norm")) {
         shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
         continue;
