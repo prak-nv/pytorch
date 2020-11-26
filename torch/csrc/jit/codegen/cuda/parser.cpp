@@ -725,7 +725,6 @@ class IrParser {
                 M.has_value(), "The M parameter is required.");
             const float kBatchSize = M.value();
 
-
             // N = product of [reduction_axis, input_ndims]
             // Repurposed for NvFuser such that N = norm_shape_ndims
             // so we can construct reduction_axes and broadcast_mask

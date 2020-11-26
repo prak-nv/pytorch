@@ -896,7 +896,8 @@ bool isPointwiseOp(const Expr* expr) {
   return expr->outputs().size() == 1 && ir_utils::isTV(expr->output(0)) &&
       (expr->getExprType().value() == ExprType::BinaryOp ||
        expr->getExprType().value() == ExprType::UnaryOp ||
-       expr->getExprType().value() == ExprType::TernaryOp);
+       expr->getExprType().value() == ExprType::TernaryOp ||
+       expr->getExprType().value() == ExprType::BroadcastOp);
 }
 
 bool isConstantAllocation(const TensorView* tv) {
@@ -1141,10 +1142,10 @@ void scheduleMultipleReduction(
         for (auto input : in_tv) {
           if (!fusion->unordered_uses(input).empty()) {
             for (auto output : out_tv) {
-              if (input->getRootDomain().size() ==
-                  output->getRootDomain().size()) {
-                input->computeAt(output, kComputeAtAxis);
-              }
+              // if (input->getRootDomain().size() ==
+              // output->getRootDomain().size()) {
+              input->computeAt(output, kComputeAtAxis);
+              //}
             }
           }
         }
@@ -1153,7 +1154,9 @@ void scheduleMultipleReduction(
         // Fusion input castOp replaces cache_after
         if (!has_input_casts) {
           for (const auto input : in_tv) {
-            other_tv.push_back(input->cache_after());
+            if (input->getRootDomain().size() > 1) {
+              other_tv.push_back(input->cache_after());
+            }
           }
         }
       }
@@ -1225,10 +1228,10 @@ void scheduleMultipleReduction(
         for (auto input : in_tv) {
           if (!fusion->unordered_uses(input).empty()) {
             for (auto output : out_tv) {
-              if (input->getRootDomain().size() ==
-                  output->getRootDomain().size()) {
-                input->computeAt(output, kComputeAtAxis);
-              }
+              // if (input->getRootDomain().size() ==
+              // output->getRootDomain().size()) {
+              input->computeAt(output, kComputeAtAxis);
+              //}
             }
           }
         }
@@ -1369,22 +1372,19 @@ void scheduleMultipleReduction(
     TORCH_INTERNAL_ASSERT(kBIDyAxis > 0);
     const int kTIDyAxis = kBIDyAxis + 1;
 
-
     // 3) ComputeAt structure
     // [outer-lft, BDX?, inner-lft, BDY, TDY, reduction-lft, TDX?]
-    std::cout << "Common ComputeAt" << std::endl;
     const int kComputeAtAxis = kTIDyAxis + 1;
     for (auto input : in_tv) {
       if (!fusion->unordered_uses(input).empty()) {
         for (auto output : out_tv) {
-          if (input->getRootDomain().size() == output->getRootDomain().size()) {
-            std::cout << input->name() << "\t" << output->name() << std::endl;
-            input->computeAt(output, kComputeAtAxis);
-          }
+          // if (input->getRootDomain().size() ==
+          // output->getRootDomain().size()) {
+          input->computeAt(output, kComputeAtAxis);
+          //}
         }
       }
     }
-    std::cout << "Complete Common ComputeAt" << std::endl;
 
     // 4) Find TensorViews to duplicate and computeAt inline
     auto duplicate_tv = findTensorViewsToDuplicate(fusion, other_tv);
@@ -1408,9 +1408,7 @@ void scheduleMultipleReduction(
           " is used multiple times.")
       Expr* expr = *uses.begin();
       TensorView* consumer = expr->output(0)->as<TensorView>();
-      std::cout << "Inline ComputeAt\t" << tensor->name() << "\t" << consumer->name() << std::endl;
       tensor->computeAt(consumer, -1);
-      std::cout << "Complete Inline ComputeAt" << std::endl;
     }
 
     // 6) Parallel Bindings
@@ -1453,7 +1451,6 @@ void scheduleMultipleReduction(
       }
     }
   } // end non_fastest_dim logic
-  fusion->printKernel();
 }
 
 } // namespace cuda
