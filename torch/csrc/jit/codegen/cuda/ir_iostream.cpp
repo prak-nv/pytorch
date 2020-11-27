@@ -199,23 +199,30 @@ void IrPrinter::handle(const UnaryOp* uop) {
     checkInlineable(uop);
   }
 
-  if (auto inline_uop = inline_op_str(uop->getUnaryOpType())) {
+  auto op_type = uop->getUnaryOpType();
+
+  if (auto inline_uop = inline_op_str(op_type)) {
     os_ << inline_uop.value();
     handle(uop->in());
   } else {
-    if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+    if (op_type == UnaryOpType::Cast) {
       c10::optional<std::string> cast_str = cast_func_str(std::make_pair(
           uop->in()->getDataType().value(), uop->out()->getDataType().value()));
       TORCH_INTERNAL_ASSERT(cast_str != c10::nullopt, "Unsupported Cast");
       os_ << cast_str.value();
     } else {
-      os_ << uop->getUnaryOpType();
-      if (needFloatSuffix(uop->getUnaryOpType()) &&
-          uop->out()->getDataType().value() == DataType::Float) {
+      if (maybeBooleanOperator(op_type) &&
+          uop->out()->getDataType().value() == DataType::Bool) {
+        os_ << stringifyBooleanOp(op_type);
+      } else {
+        os_ << op_type;
+      }
+      if (uop->out()->getDataType().value() == DataType::Float &&
+          needFloatSuffix(op_type)) {
         os_ << "f";
       }
     }
-    if (uop->getUnaryOpType() == UnaryOpType::RandLike) {
+    if (op_type == UnaryOpType::RandLike) {
       os_ << "(";
       os_ << "rnd";
     } else {
@@ -250,7 +257,8 @@ void IrPrinter::handle(const BinaryOp* bop) {
     checkInlineable(bop);
   }
 
-  if (auto inline_bop = inline_op_str(bop->getBinaryOpType())) {
+  auto op_type = bop->getBinaryOpType();
+  if (auto inline_bop = inline_op_str(op_type)) {
     handle(bop->lhs());
     if (istvop) {
       os_ << "\n";
@@ -259,9 +267,14 @@ void IrPrinter::handle(const BinaryOp* bop) {
     os_ << " " << inline_bop.value() << " ";
     handle(bop->rhs());
   } else {
-    os_ << bop->getBinaryOpType();
-    if (needFloatSuffix(bop->getBinaryOpType()) &&
-        bop->out()->getDataType().value() == DataType::Float) {
+    if (maybeBooleanOperator(op_type) &&
+        bop->out()->getDataType().value() == DataType::Bool) {
+      os_ << stringifyBooleanOp(op_type);
+    } else {
+      os_ << op_type;
+    }
+    if (bop->out()->getDataType().value() == DataType::Float &&
+        needFloatSuffix(op_type)) {
       os_ << "f";
     }
     os_ << "(";

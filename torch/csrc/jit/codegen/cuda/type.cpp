@@ -8,6 +8,62 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+bool isFloatingPointType(DataType dtype) {
+  switch (dtype) {
+    case DataType::Bool:
+      return false;
+    case DataType::Double:
+      return true;
+    case DataType::Float:
+      return true;
+    case DataType::Half:
+      return true;
+    case DataType::Int:
+      return false;
+    case DataType::Null:
+      TORCH_CHECK(
+          false, "Null type is not a valid argument to isFloatingPoint");
+    default:
+      TORCH_CHECK(false, "Type not supported in isFloatingPoint");
+  }
+}
+
+bool isIntegralType(DataType dtype) {
+  switch (dtype) {
+    case DataType::Bool:
+      return false;
+    case DataType::Double:
+      return false;
+    case DataType::Float:
+      return false;
+    case DataType::Half:
+      return false;
+    case DataType::Int:
+      return true;
+    case DataType::Null:
+      TORCH_CHECK(
+          false, "Null type is not a valid argument to isFloatingPoint");
+    default:
+      TORCH_CHECK(false, "Type not supported in isFloatingPoint");
+  }
+}
+
+bool isIntegerOp(const BinaryOpType bopt) {
+  return bopt >= BinaryOpType::Mod && bopt <= BinaryOpType::Xor;
+}
+
+bool isLogicalOp(const BinaryOpType bopt) {
+  return bopt >= BinaryOpType::Eq && bopt <= BinaryOpType::NE;
+}
+
+bool maybeBooleanOperator(const BinaryOpType bopt) {
+  return bopt >= BinaryOpType::And && bopt <= BinaryOpType::Or;
+}
+
+bool maybeBooleanOperator(const UnaryOpType uopt) {
+  return uopt >= UnaryOpType::Not && uopt <= UnaryOpType::Not;
+}
+
 // Return highest on list (smallest enum val)
 DataType promote_type(const DataType& t1, const DataType& t2) {
   TORCH_CHECK(
@@ -196,6 +252,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "log2";
     case UnaryOpType::Neg:
       return "neg";
+    case UnaryOpType::Not:
+      return "not";
     case UnaryOpType::RandLike:
       return "randLike";
     case UnaryOpType::Reciprocal:
@@ -227,10 +285,18 @@ static const char* unary_op_type2string(UnaryOpType t) {
   }
 }
 
+std::string stringifyBooleanOp(const UnaryOpType uopt) {
+  TORCH_INTERNAL_ASSERT(
+      uopt == UnaryOpType::Not, uopt, " is not a boolean operator.");
+  return "!";
+}
+
 static const char* unary_op_type_inline_op2string(UnaryOpType t) {
   switch (t) {
     case UnaryOpType::Neg:
       return "-";
+    case UnaryOpType::Not:
+      return "~";
     case UnaryOpType::Set:
       return "";
     default:
@@ -311,16 +377,21 @@ static const char* binary_op_type_inline_op2string(BinaryOpType t) {
       return "+";
     case BinaryOpType::Div:
       return "/";
-    case BinaryOpType::Mod:
-      return "%";
     case BinaryOpType::Mul:
       return "*";
     case BinaryOpType::Sub:
       return "-";
 
+    // Integer ops
+    case BinaryOpType::Mod:
+      return "%";
+    case BinaryOpType::Lshift:
+      return "<<";
+    case BinaryOpType::Rshift:
+      return ">>";
+    case BinaryOpType::Xor:
+      return "^";
     // Logical Ops
-    case BinaryOpType::And:
-      return "&&";
     case BinaryOpType::Eq:
       return "==";
     case BinaryOpType::GE:
@@ -333,10 +404,26 @@ static const char* binary_op_type_inline_op2string(BinaryOpType t) {
       return "<";
     case BinaryOpType::NE:
       return "!=";
+    // Assume bitwise, otherwise use stringifyBooleanOp
+    case BinaryOpType::And:
+      return "&";
+    case BinaryOpType::Or:
+      return "|";
     default:
       break;
   }
   return nullptr;
+}
+
+std::string stringifyBooleanOp(const BinaryOpType bopt) {
+  switch (bopt) {
+    case BinaryOpType::And:
+      return "&&";
+    case BinaryOpType::Or:
+      return "||";
+    default:
+      TORCH_INTERNAL_ASSERT(false, bopt, " is not a boolean operator.")
+  }
 }
 
 static const char* ternary_op_type2string(TernaryOpType t) {
@@ -439,21 +526,6 @@ static const char* supported_casts2string(
       return "float";
     default:
       return nullptr;
-  }
-}
-
-bool is_logical_op(const BinaryOpType& bot) {
-  switch (bot) {
-    case BinaryOpType::And:
-    case BinaryOpType::Eq:
-    case BinaryOpType::GE:
-    case BinaryOpType::GT:
-    case BinaryOpType::LE:
-    case BinaryOpType::LT:
-    case BinaryOpType::NE:
-      return true;
-    default:
-      return false;
   }
 }
 

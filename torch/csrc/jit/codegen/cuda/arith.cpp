@@ -243,22 +243,62 @@ TensorView* arithOpOverloads(
              vals[3]->template as<Val>())
       ->template as<TensorView>();
 }
+
+DataType getOutputType(BinaryOpType type, DataType v1_type, DataType v2_type) {
+  bool floating_input =
+      isFloatingPointType(v1_type) || isFloatingPointType(v2_type);
+  bool integer_input = isIntegralType(v1_type) || isIntegralType(v2_type);
+
+  if (isIntegerOp(type)) {
+    if (integer_input && !floating_input) {
+      return isIntegralType(v1_type) ? v1_type : v2_type;
+    } else {
+      // When we add more integer types we should return type promoted int
+      return DataType::Int;
+    }
+  } else if (isLogicalOp(type)) {
+    return DataType::Bool;
+  } else if (maybeBooleanOperator(type)) {
+    TORCH_CHECK(
+        !floating_input,
+        "Operator ",
+        type,
+        " not supported with floating point inputs.");
+    if (integer_input) {
+      // When we add more integer types we should return type promoted int
+      return DataType::Int;
+    } else {
+      return DataType::Bool;
+    }
+  } else {
+    return promote_type(v1_type, v2_type);
+  }
+}
+
 } // namespace
 
 TORCH_CUDA_API Val* binaryOp(BinaryOpType type, Val* v1, Val* v2) {
   auto vals = maybeBroadcast({v1, v2});
-  Val* out = newOutputVal({vals[0], vals[1]});
-  if (is_logical_op(type)) {
-    if (out->getDataType().value() != DataType::Bool)
-      out = newValLike(out, DataType::Bool);
-  } else if (type >= BinaryOpType::Mod) {
-    if (out->getDataType().value() != DataType::Int)
-      out = newValLike(out, DataType::Int);
+  ValType val_type =
+      promote_type(v1->getValType().value(), v2->getValType().value());
+
+  DataType dtype =
+      getOutputType(type, v1->getDataType().value(), v2->getDataType().value());
+
+  Val* out = nullptr;
+  if (val_type == ValType::TensorView) {
+    out = newOutputTV(vals, dtype);
+  } else {
+    out = newScalar(val_type, dtype);
   }
 
+  TORCH_INTERNAL_ASSERT(
+      out != nullptr,
+      "Something went wrong in type promotion, output is not valid.");
   new BinaryOp(type, out, vals[0], vals[1]);
   return out;
 }
+
 TensorView* binaryOp(BinaryOpType type, TensorView* v1, Val* v2) {
   return arithOpOverloads(type, v1, v2);
 }
