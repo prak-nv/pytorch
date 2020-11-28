@@ -2901,6 +2901,17 @@ IValue gen_aten_operand(
       } else {
         return IValue(at::empty({blocks, threads}, options));
       }
+    } else if (desc.second == DataType::Int) {
+      if (rand) {
+        auto options =
+            at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+        return IValue(
+            at::randn({blocks, threads}, options).mul(5).to(at::kLong));
+      } else {
+        auto options =
+            at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+        return IValue(at::empty({blocks, threads}, options));
+      }
     } else if (desc.second == DataType::Bool) {
       if (rand) {
         auto options =
@@ -3102,6 +3113,23 @@ TEST(NVFuserTest, FusionUnaryOps_CUDA) {
         },
         /*JIT  Func   */
         [](Val* in1) -> Val* { return unaryOp(UnaryOpType::RandLike, in1); },
+        /*Output      */ std::make_pair(ValType::TensorView, dtype),
+        /*Inputs Tuple*/
+        std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
+  }
+
+  dtypes = {DataType::Int, DataType::Bool};
+  for (auto dtype : dtypes) {
+    test_op(
+        /*blocks*/ 128,
+        /*threads*/ 64,
+        /*name*/ "bitwise_not",
+        /*Aten Func   */
+        [](std::array<IValue, 1>& vals) {
+          return at::bitwise_not(vals[0].toTensor());
+        },
+        /*JIT  Func   */
+        [](Val* in1) -> Val* { return unaryOp(UnaryOpType::Not, in1); },
         /*Output      */ std::make_pair(ValType::TensorView, dtype),
         /*Inputs Tuple*/
         std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
