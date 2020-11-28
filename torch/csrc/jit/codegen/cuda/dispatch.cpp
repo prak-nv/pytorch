@@ -54,9 +54,6 @@ void Val::dispatch(T handler, Val* val) {
         case DataType::Float:
           ptr(handler)->handle(val->as<Float>());
           return;
-        case DataType::Half:
-          ptr(handler)->handle(val->as<Half>());
-          return;
         case DataType::Int:
           ptr(handler)->handle(val->as<Int>());
           return;
@@ -134,9 +131,6 @@ void Val::constDispatch(T handler, const Val* val) {
           return;
         case DataType::Float:
           ptr(handler)->handle(val->as<Float>());
-          return;
-        case DataType::Half:
-          ptr(handler)->handle(val->as<Half>());
           return;
         case DataType::Int:
           ptr(handler)->handle(val->as<Int>());
@@ -224,8 +218,6 @@ Statement* Val::mutatorDispatch(T mutator, Val* val) {
           return ptr(mutator)->mutate(val->as<Double>());
         case DataType::Float:
           return ptr(mutator)->mutate(val->as<Float>());
-        case DataType::Half:
-          return ptr(mutator)->mutate(val->as<Half>());
         case DataType::Int:
           return ptr(mutator)->mutate(val->as<Int>());
         default:

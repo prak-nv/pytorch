@@ -139,21 +139,6 @@ void IrPrinter::handle(const Float* f) {
   }
 }
 
-void IrPrinter::handle(const Half* h) {
-  if (print_inline_ && FusionGuard::getCurFusion()->origin(h) != nullptr) {
-    os_ << "( ";
-    handle(FusionGuard::getCurFusion()->origin(h));
-    os_ << " )";
-    return;
-  }
-
-  if (h->isSymbolic()) {
-    os_ << "h" << h->name();
-  } else {
-    os_ << "__float2half(" << *(h->value()) << ")";
-  }
-}
-
 void IrPrinter::handle(const Int* i) {
   if (print_inline_) {
     if (auto def = FusionGuard::getCurFusion()->origin(i)) {

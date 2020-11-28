@@ -107,34 +107,6 @@ class TORCH_CUDA_API Float : public Val {
   const c10::optional<ScalarType> maybe_value_;
 };
 
-//! An IEEE 754 Float16 value.
-//! This value can be a symbolic value (defined after the kernel
-//! is compiled) or a constant value (inlined into the kernel definition).
-class TORCH_CUDA_API Half : public Val {
- public:
-  Half() : Val(ValType::Scalar, DataType::Half), maybe_value_{c10::nullopt} {}
-
-  explicit Half(float value)
-      : Val(ValType::Scalar, DataType::Half), maybe_value_{value} {}
-
-  Half(const Half* src, IrCloner* ir_cloner);
-
-  bool isSymbolic() const {
-    return !(maybe_value_.has_value());
-  }
-  bool isConst() const {
-    return maybe_value_.has_value();
-  }
-  c10::optional<float> value() const {
-    return maybe_value_;
-  }
-
-  bool sameAs(const Half* const other) const;
-
- private:
-  const c10::optional<float> maybe_value_;
-};
-
 //! An Int64 value. If used for indexing it's set as size_t. Otherwise it's an
 //! inlined literal in the kernel.
 class TORCH_CUDA_API Int : public Val {

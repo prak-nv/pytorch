@@ -23,8 +23,6 @@ Val* newScalar(ValType vtype, DataType dtype) {
           return new Float();
         case DataType::Float:
           return new Float();
-        case DataType::Half:
-          return new Half();
         case DataType::Int:
           return new Int();
         default:

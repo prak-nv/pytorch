@@ -177,14 +177,6 @@ void IrPrinter::visit(const kir::Float* node) {
   }
 }
 
-void IrPrinter::visit(const kir::Half* node) {
-  if (node->isConst()) {
-    ir_str_ << "half(" << *node->value() << ")";
-  } else {
-    ir_str_ << varName(node, "h");
-  }
-}
-
 void IrPrinter::visit(const kir::Int* node) {
   if (node->isConst()) {
     ir_str_ << *node->value();

@@ -257,17 +257,6 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void visit(const kir::Half* node) final {
-    const auto def = node->definition();
-    if (print_inline_ && def != nullptr) {
-      code_ << "(" << gen(def) << ")";
-    } else if (node->isConst()) {
-      code_ << "__float2half(" << *node->value() << ")";
-    } else {
-      code_ << varName(node);
-    }
-  }
-
   void visit(const kir::Int* node) final {
     const auto def = node->definition();
     if (print_inline_ && def != nullptr) {
