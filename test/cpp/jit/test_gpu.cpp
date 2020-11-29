@@ -6831,14 +6831,14 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<int64_t> shape{20, 67};
   std::vector<int64_t> norm_shape{67};
 
-  const int M = shape.size();
-  const int N = norm_shape.size();
-  const int outer_num_dims = M - N;
+  const int kM = shape.size();
+  const int kN = norm_shape.size();
+  const int kOuterNumDims = kM - kN;
 
   auto grad_out = makeSymbolicTensor(shape.size());
   auto input = makeSymbolicTensor(shape.size());
-  auto mean = makeSymbolicTensor(outer_num_dims);
-  auto rstd = makeSymbolicTensor(outer_num_dims);
+  auto mean = makeSymbolicTensor(kOuterNumDims);
+  auto rstd = makeSymbolicTensor(kOuterNumDims);
   auto weight = makeSymbolicTensor(norm_shape.size());
   fusion.addInput(grad_out);
   fusion.addInput(input);
@@ -6846,9 +6846,9 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   fusion.addInput(rstd);
   fusion.addInput(weight);
 
-  std::vector<int> outer_reduction_axes(outer_num_dims);
+  std::vector<int> outer_reduction_axes(kOuterNumDims);
   std::vector<bool> outer_broadcast_mask(input->nDims(), false);
-  for (int idx = 0; idx < outer_num_dims; ++idx) {
+  for (int idx = 0; idx < kOuterNumDims; ++idx) {
     outer_reduction_axes[idx] = idx;
     outer_broadcast_mask[idx] = true;
   }
@@ -6856,7 +6856,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<int> inner_reduction_axes(norm_shape.size());
   std::vector<bool> inner_broadcast_mask(input->nDims(), false);
   Val* num_features = nullptr;
-  for (int idx = 0; idx < N; ++idx) {
+  for (int idx = 0; idx < norm_shape.size(); ++idx) {
     const int axis = input->nDims() - 1 - idx;
     inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;
