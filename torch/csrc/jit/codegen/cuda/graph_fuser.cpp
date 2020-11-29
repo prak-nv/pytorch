@@ -283,7 +283,7 @@ struct CudaGraphFuser {
       mergeFusionGroups(group, producer->node());
       return group;
     }
-    AT_ASSERT(producer->node()->outputs().size() == 1);
+    // AT_ASSERT(producer->node()->outputs().size() == 1);
     Node* merged = mergeNodeIntoGroup(group, producer->node());
     // remaining uses of this producer can occur because we allow
     // fusion in cases where uses remain after the consumer
@@ -774,6 +774,10 @@ struct CudaGraphFuser {
         continue;
       }
       if (n->kind() == aten::native_layer_norm) {
+        shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
+        continue;
+      }
+      if (n->kind() == aten::native_layer_norm_backward) {
         shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
         continue;
       }

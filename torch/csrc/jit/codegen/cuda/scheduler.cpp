@@ -444,11 +444,11 @@ ReductionParams reductionHeuristic(
 }
 } // anonymous namespace
 
-TORCH_CUDA_API c10::optional<ReductionParams> getMultipleReductionHeuristics(
+TORCH_CUDA_API c10::optional<ReductionParams> getNormalizationHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& fusion_inputs,
     const std::vector<TensorView*>& reduction_tv) {
-  FUSER_PERF_SCOPE("scheduleMultipleReduction");
+  FUSER_PERF_SCOPE("scheduleNormalization");
   FusionGuard fg(fusion);
   if (!fusion->hasReduction()) {
     return c10::nullopt;
@@ -1066,7 +1066,7 @@ void organizeAxes(
 
 } // namespace
 
-void scheduleMultipleReduction(
+void scheduleNormalization(
     Fusion* fusion,
     const ReductionParams& rparams,
     const std::vector<TensorView*>& reduction_tv,
@@ -1139,13 +1139,11 @@ void scheduleMultipleReduction(
       if (kHasOuterAxis) {
         // 4) ComputeAt Structure
         const int kComputeAtAxis = 1;
-        for (auto input : in_tv) {
-          if (!fusion->unordered_uses(input).empty()) {
-            for (auto output : out_tv) {
-              // if (input->getRootDomain().size() ==
-              // output->getRootDomain().size()) {
+        for (auto output : out_tv) {
+          auto inputs_for_output = fusion->inputsOf(output);
+          for (auto input : in_tv) {
+            if (inputs_for_output.find(input) != inputs_for_output.end()) {
               input->computeAt(output, kComputeAtAxis);
-              //}
             }
           }
         }
@@ -1225,13 +1223,11 @@ void scheduleMultipleReduction(
       if (kHasOuterAxis) {
         // 3) ComputeAt Structure
         const int kComputeAtAxis = 1;
-        for (auto input : in_tv) {
-          if (!fusion->unordered_uses(input).empty()) {
-            for (auto output : out_tv) {
-              // if (input->getRootDomain().size() ==
-              // output->getRootDomain().size()) {
+        for (auto output : out_tv) {
+          auto inputs_for_output = fusion->inputsOf(output);
+          for (auto input : in_tv) {
+            if (inputs_for_output.find(input) != inputs_for_output.end()) {
               input->computeAt(output, kComputeAtAxis);
-              //}
             }
           }
         }
@@ -1375,13 +1371,11 @@ void scheduleMultipleReduction(
     // 3) ComputeAt structure
     // [outer-lft, BDX?, inner-lft, BDY, TDY, reduction-lft, TDX?]
     const int kComputeAtAxis = kTIDyAxis + 1;
-    for (auto input : in_tv) {
-      if (!fusion->unordered_uses(input).empty()) {
-        for (auto output : out_tv) {
-          // if (input->getRootDomain().size() ==
-          // output->getRootDomain().size()) {
+    for (auto output : out_tv) {
+      auto inputs_for_output = fusion->inputsOf(output);
+      for (auto input : in_tv) {
+        if (inputs_for_output.find(input) != inputs_for_output.end()) {
           input->computeAt(output, kComputeAtAxis);
-          //}
         }
       }
     }

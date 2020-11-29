@@ -6800,10 +6800,10 @@ TEST(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
       at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
 
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, {aten_input}, reduction_tensors);
+      getNormalizationHeuristics(&fusion, {aten_input}, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
 
   auto lparams = reduction_params.value().lparams;
@@ -6831,14 +6831,14 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<int64_t> shape{20, 67};
   std::vector<int64_t> norm_shape{67};
 
-  const int M = shape.size();
-  const int N = norm_shape.size();
-  const int outer_num_dims = M - N;
+  const size_t kM = shape.size();
+  const size_t kN = norm_shape.size();
+  const size_t kOuterNumDims = kM - kN;
 
   auto grad_out = makeSymbolicTensor(shape.size());
   auto input = makeSymbolicTensor(shape.size());
-  auto mean = makeSymbolicTensor(outer_num_dims);
-  auto rstd = makeSymbolicTensor(outer_num_dims);
+  auto mean = makeSymbolicTensor(kOuterNumDims);
+  auto rstd = makeSymbolicTensor(kOuterNumDims);
   auto weight = makeSymbolicTensor(norm_shape.size());
   fusion.addInput(grad_out);
   fusion.addInput(input);
@@ -6846,9 +6846,9 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   fusion.addInput(rstd);
   fusion.addInput(weight);
 
-  std::vector<int> outer_reduction_axes(outer_num_dims);
+  std::vector<int> outer_reduction_axes(kOuterNumDims);
   std::vector<bool> outer_broadcast_mask(input->nDims(), false);
-  for (int idx = 0; idx < outer_num_dims; ++idx) {
+  for (int idx = 0; idx < kOuterNumDims; ++idx) {
     outer_reduction_axes[idx] = idx;
     outer_broadcast_mask[idx] = true;
   }
@@ -6856,7 +6856,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<int> inner_reduction_axes(norm_shape.size());
   std::vector<bool> inner_broadcast_mask(input->nDims(), false);
   Val* num_features = nullptr;
-  for (int idx = 0; idx < N; ++idx) {
+  for (size_t idx = 0; idx < norm_shape.size(); ++idx) {
     const int axis = input->nDims() - 1 - idx;
     inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;
@@ -6903,7 +6903,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<TensorView*> other_tensors;
 
   auto all_values = DependencyCheck::getAllValsBetween(
-    {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
 
   for (auto tensor : ir_utils::filterByType<TensorView>(all_values)) {
     if (tensor->hasReduction()) {
@@ -6916,8 +6916,8 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_grad_out = at::randn(shape, options);
   at::Tensor aten_input = at::randn(shape, options);
-  at::Tensor aten_weight = at::ones(norm_shape, options);
-  at::Tensor aten_bias = at::zeros(norm_shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  at::Tensor aten_bias = at::randn(norm_shape, options);
   auto at_weight = c10::optional<at::Tensor>(aten_weight);
   auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
@@ -6940,13 +6940,13 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
-  auto reduction_params = getMultipleReductionHeuristics(
+  auto reduction_params = getNormalizationHeuristics(
       &fusion,
       {aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight},
       reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
   auto lparams = reduction_params.value().lparams;
 
@@ -7040,10 +7040,10 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, {aten_input}, reduction_tensors);
+      getNormalizationHeuristics(&fusion, {aten_input}, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
   auto lparams = reduction_params.value().lparams;
 
@@ -7172,11 +7172,11 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, aten_inputs, reduction_tensors);
+      getNormalizationHeuristics(&fusion, aten_inputs, reduction_tensors);
 
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
   auto lparams = reduction_params.value().lparams;
 
