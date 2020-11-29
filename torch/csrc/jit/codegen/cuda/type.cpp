@@ -13,9 +13,7 @@ bool isFloatingPointType(DataType dtype) {
     case DataType::Bool:
       return false;
     case DataType::Double:
-      return true;
     case DataType::Float:
-      return true;
     case DataType::Half:
       return true;
     case DataType::Int:

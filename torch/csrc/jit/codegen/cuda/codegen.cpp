@@ -63,23 +63,8 @@ class CudaKernelGenerator : private kir::IrVisitor {
               << "> " << varName(tv);
       } else {
         TORCH_INTERNAL_ASSERT(val->isScalar());
-        // All floating point arguments come in as double, all int arguments
-        // come in as int64
-
-        if (isFloatingPointType(val->dtype())) {
-          // Should always be double
-          code_ << DataType::Double;
-        } else if (val->dtype() == DataType::Bool) {
-          code_ << DataType::Bool;
-        } else {
-          // Should always be int64_t
-          code_ << DataType::Int;
-        }
-        if (val->definition() != nullptr) {
-          code_ << " " << gen(val);
-        } else {
-          code_ << " " << varName(val);
-        }
+        TORCH_INTERNAL_ASSERT(val->definition() == nullptr);
+        code_ << val->dtype() << " " << gen(val);
       }
 
       if (val != params.back()) {
