@@ -20,8 +20,8 @@ typedef Node JitOp;
 namespace fuser {
 namespace cuda {
 
-constexpr auto kNumUnaryOps = 32;
-constexpr auto kNumBinaryOps = 29;
+constexpr auto kNumUnaryOps = 31;
+constexpr auto kNumBinaryOps = 24;
 constexpr auto kNumBinaryOpsWithAlpha = 4;
 constexpr auto kNumLerpOps = 2;
 
@@ -226,11 +226,6 @@ class IrParser {
         "aten::pow(Scalar self, Tensor exponent) -> Tensor",
         "aten::remainder(Tensor self, Tensor other) -> Tensor",
         "aten::fmod(Tensor self, Tensor other) -> Tensor",
-        "aten::__and__(Tensor self, Tensor other) -> Tensor",
-        "aten::__or__(Tensor self, Tensor other) -> Tensor",
-        "aten::__xor__(Tensor self, Tensor other) -> Tensor",
-        "aten::__lshift__(Tensor self, Tensor other) -> Tensor",
-        "aten::__rshift__(Tensor self, Tensor other) -> Tensor",
         "aten::eq(Tensor self, Tensor other) -> Tensor",
         "aten::eq(Tensor self, Scalar other) -> Tensor",
         "aten::ne(Tensor self, Tensor other) -> Tensor",
@@ -265,12 +260,7 @@ class IrParser {
                  {aten::gt, BinaryOpType::GT},
                  {aten::ge, BinaryOpType::GE},
                  {aten::ne, BinaryOpType::NE},
-                 {aten::eq, BinaryOpType::Eq},
-                 {aten::__and__, BinaryOpType::And},
-                 {aten::__or__, BinaryOpType::Or},
-                 {aten::__xor__, BinaryOpType::Xor},
-                 {aten::__lshift__, BinaryOpType::Lshift},
-                 {aten::__rshift__, BinaryOpType::Rshift}});
+                 {aten::eq, BinaryOpType::Eq}});
             auto lhs = value_map[node->inputs()[0]->unique()];
             auto rhs = value_map[node->inputs()[1]->unique()];
 
@@ -307,7 +297,6 @@ class IrParser {
         "aten::floor(Tensor self) -> Tensor",
         "aten::round(Tensor self) -> Tensor",
         "aten::trunc(Tensor self) -> Tensor",
-        "aten::bitwise_not(Tensor self) -> Tensor",
         "aten::frac(Tensor self) -> Tensor",
         "aten::reciprocal(Tensor self) -> Tensor",
         "aten::relu(Tensor self) -> Tensor",
@@ -347,7 +336,6 @@ class IrParser {
                 {aten::floor, UnaryOpType::Floor},
                 {aten::round, UnaryOpType::Round},
                 {aten::trunc, UnaryOpType::Trunc},
-                {aten::bitwise_not, UnaryOpType::Not},
                 {aten::frac, UnaryOpType::Frac},
                 {aten::reciprocal, UnaryOpType::Reciprocal},
                 {aten::relu, UnaryOpType::Relu},

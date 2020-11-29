@@ -229,28 +229,22 @@ void IrPrinter::visit(const kir::TensorView* node) {
 void IrPrinter::visit(const kir::UnaryOp* node) {
   indent() << gen(node->out()) << " = ";
 
-  auto op_type = node->operation();
-
-  if (auto op = inline_op_str(op_type)) {
-    if (maybeBooleanOperator(op_type) &&
-        node->out()->dtype() == DataType::Bool) {
-      ir_str_ << stringifyBooleanOp(op_type) << gen(node->in());
-    } else {
-      ir_str_ << *op << gen(node->in());
-    }
+  if (auto op = inline_op_str(node->operation())) {
+    ir_str_ << *op << use(node->in());
   } else {
-    if (op_type == UnaryOpType::Cast) {
+    if (node->operation() == UnaryOpType::Cast) {
       const auto cast_str =
           cast_func_str({node->in()->dtype(), node->out()->dtype()});
       ir_str_ << cast_str.value();
     } else {
-      ir_str_ << op_type;
-      if (needFloatSuffix(op_type) && node->out()->dtype() == DataType::Float) {
+      ir_str_ << node->operation();
+      if (needFloatSuffix(node->operation()) &&
+          node->out()->dtype() == DataType::Float) {
         ir_str_ << "f";
       }
     }
 
-    if (op_type == UnaryOpType::RandLike) {
+    if (node->operation() == UnaryOpType::RandLike) {
       ir_str_ << "(RND";
     } else {
       ir_str_ << "(";
@@ -265,22 +259,15 @@ void IrPrinter::visit(const kir::UnaryOp* node) {
 void IrPrinter::visit(const kir::BinaryOp* node) {
   indent() << gen(node->out()) << " = ";
 
-  const auto op_type = node->operation();
+  const auto operation = node->operation();
   const auto lhs = use(node->lhs());
   const auto rhs = use(node->rhs());
 
-  if (auto op = inline_op_str(op_type)) {
-    ir_str_ << lhs << " ";
-    if (maybeBooleanOperator(op_type) &&
-        node->out()->dtype() == DataType::Bool) {
-      ir_str_ << stringifyBooleanOp(op_type);
-    } else {
-      ir_str_ << *op;
-    }
-    ir_str_ << " " << rhs;
+  if (auto op = inline_op_str(operation)) {
+    ir_str_ << lhs << " " << *op << " " << rhs;
   } else {
-    ir_str_ << op_type;
-    if (needFloatSuffix(op_type) && node->out()->dtype() == DataType::Float) {
+    ir_str_ << operation;
+    if (needFloatSuffix(operation) && node->out()->dtype() == DataType::Float) {
       ir_str_ << "f";
     }
     ir_str_ << "(" << lhs << ", " << rhs << ")";

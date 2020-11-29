@@ -65,14 +65,30 @@ class CudaKernelGenerator : private kir::IrVisitor {
         TORCH_INTERNAL_ASSERT(val->isScalar());
         // All floating point arguments come in as double, all int arguments
         // come in as int64
-
-        if (isFloatingPointType(val->dtype())) {
-          // Should always be double
+        bool isFloatingPoint;
+        switch (val->dtype()) {
+          case (DataType::Double):
+            isFloatingPoint = true;
+            break;
+          case (DataType::Float):
+            isFloatingPoint = true;
+            break;
+          case (DataType::Half):
+            isFloatingPoint = true;
+            break;
+          case (DataType::Int):
+            isFloatingPoint = false;
+            break;
+          default:
+            TORCH_INTERNAL_ASSERT(
+                false,
+                "Scalar type of ",
+                val->dtype(),
+                " is not currently supported as a scalar argument to kernels.");
+        }
+        if (isFloatingPoint) {
           code_ << DataType::Double;
-        } else if (val->dtype() == DataType::Bool) {
-          code_ << DataType::Bool;
         } else {
-          // Should always be int64_t
           code_ << DataType::Int;
         }
         if (val->definition() != nullptr) {
@@ -326,29 +342,23 @@ class CudaKernelGenerator : private kir::IrVisitor {
       code_ << " = ";
     }
 
-    auto op_type = node->operation();
-    if (auto op = inline_op_str(op_type)) {
-      if (maybeBooleanOperator(op_type) &&
-          node->out()->dtype() == DataType::Bool) {
-        code_ << stringifyBooleanOp(op_type) << gen(node->in());
-      } else {
-        code_ << *op << gen(node->in());
-      }
+    if (auto op = inline_op_str(node->operation())) {
+      code_ << *op << gen(node->in());
     } else {
-      if (op_type == UnaryOpType::Cast) {
+      if (node->operation() == UnaryOpType::Cast) {
         const auto cast_str =
             cast_func_str({node->in()->dtype(), node->out()->dtype()});
         code_ << cast_str.value();
       } else {
-        code_ << op_type;
-        if (needFloatSuffix(op_type) &&
+        code_ << node->operation();
+        if (needFloatSuffix(node->operation()) &&
             node->out()->dtype() == DataType::Float) {
           code_ << "f";
         }
       }
 
       code_ << "(";
-      if (op_type == UnaryOpType::RandLike) {
+      if (node->operation() == UnaryOpType::RandLike) {
         code_ << "rnd";
       } else {
         code_ << gen(node->in());
@@ -368,13 +378,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
       const std::string& rhs) {
     std::stringstream expr;
     if (auto op = inline_op_str(op_type)) {
-      expr << lhs << " ";
-      if (maybeBooleanOperator(op_type) && out->dtype() == DataType::Bool) {
-        expr << stringifyBooleanOp(op_type);
-      } else {
-        expr << *op;
-      }
-      expr << " " << rhs;
+      expr << lhs << " " << *op << " " << rhs;
     } else {
       expr << op_type;
       if (needFloatSuffix(op_type) && out->dtype() == DataType::Float) {
@@ -408,14 +412,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
         if (auto op = inline_op_str(op_type)) {
           code_ << "\n";
           indent() << kTab << "= " << gen(node->lhs()) << "\n";
-          indent() << kTab;
-          if (maybeBooleanOperator(op_type) &&
-              node->out()->dtype() == DataType::Bool) {
-            code_ << stringifyBooleanOp(op_type);
-          } else {
-            code_ << *op;
-          }
-          code_ << " " << gen(node->rhs());
+          indent() << kTab << *op << " " << gen(node->rhs());
         } else {
           code_ << " = " << op_type << "(\n";
           indent() << kTab << gen(node->lhs()) << ",\n";
