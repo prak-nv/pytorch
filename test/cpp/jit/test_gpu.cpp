@@ -6903,7 +6903,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<TensorView*> other_tensors;
 
   auto all_values = DependencyCheck::getAllValsBetween(
-      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+    {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
 
   for (auto tensor : ir_utils::filterByType<TensorView>(all_values)) {
     if (tensor->hasReduction()) {
@@ -6936,7 +6936,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto aten_output = std::get<0>(aten_results);
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
-  // reshape mean and rstd to outer shape
+  // TODO: reshape mean and rstd to outer shape
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
