@@ -6831,9 +6831,9 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<int64_t> shape{20, 67};
   std::vector<int64_t> norm_shape{67};
 
-  const int kM = shape.size();
-  const int kN = norm_shape.size();
-  const int kOuterNumDims = kM - kN;
+  const size_t kM = shape.size();
+  const size_t kN = norm_shape.size();
+  const size_t kOuterNumDims = kM - kN;
 
   auto grad_out = makeSymbolicTensor(shape.size());
   auto input = makeSymbolicTensor(shape.size());
@@ -6856,7 +6856,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<int> inner_reduction_axes(norm_shape.size());
   std::vector<bool> inner_broadcast_mask(input->nDims(), false);
   Val* num_features = nullptr;
-  for (int idx = 0; idx < norm_shape.size(); ++idx) {
+  for (size_t idx = 0; idx < norm_shape.size(); ++idx) {
     const int axis = input->nDims() - 1 - idx;
     inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;

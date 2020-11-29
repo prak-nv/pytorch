@@ -731,8 +731,9 @@ class IrParser {
             auto N = constant_as<int>(node->input(4));
             TORCH_INTERNAL_ASSERT(
                 N.has_value(), "The N parameter is required.");
-            const float kNormShapeNumDims = N.value();
+            const size_t kNormShapeNumDims = N.value();
 
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             auto eps = constant_as<float>(node->input(5));
             TORCH_INTERNAL_ASSERT(
                 eps.has_value(), "The EPS parameter is required.");
@@ -804,34 +805,36 @@ class IrParser {
             }
 
             // M = product of [0, reduction_axis)
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             auto M = constant_as<int>(node->input(5));
             TORCH_INTERNAL_ASSERT(
                 M.has_value(), "The M parameter is required.");
-            const float kBatchSize = M.value();
+            const size_t kBatchSize = M.value();
 
             // N = product of [reduction_axis, input_ndims]
             // Repurposed for NvFuser such that N = norm_shape_ndims
             // so we can construct reduction_axes and broadcast_mask
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             auto N = constant_as<int>(node->input(6));
             TORCH_INTERNAL_ASSERT(
                 N.has_value(), "The N parameter is required.");
-            const float kNormShapeNumDims = N.value();
+            const size_t kNormShapeNumDims = N.value();
 
-            auto output_mask_list =
-                constant_as<c10::List<bool>>(node->input(7));
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+            auto out_mask_list = constant_as<c10::List<bool>>(node->input(7));
             TORCH_INTERNAL_ASSERT(
-                output_mask_list.has_value(),
+                out_mask_list.has_value(),
                 "output mask for layer_norm_backward");
             std::vector<int> output_mask;
-            for (const auto value : output_mask_list->vec()) {
+            for (const auto value : out_mask_list->vec()) {
               output_mask.emplace_back(static_cast<int>(value));
             }
 
-            const int kOuterNumDims = input->nDims() - kNormShapeNumDims;
+            const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
             std::vector<int> outer_reduction_axes(kOuterNumDims);
             std::vector<bool> outer_broadcast_mask(input->nDims(), false);
-            for (int idx = 0; idx < kOuterNumDims; ++idx) {
+            for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
               outer_reduction_axes[idx] = idx;
               outer_broadcast_mask[idx] = true;
             }
@@ -840,7 +843,7 @@ class IrParser {
             std::vector<bool> inner_broadcast_mask(input->nDims(), false);
             Val* num_features = nullptr;
             for (int idx = 0; idx < kNormShapeNumDims; ++idx) {
-              const int axis = input->nDims() - 1 - idx;
+              const size_t axis = input->nDims() - 1 - idx;
               inner_reduction_axes[idx] = axis;
               inner_broadcast_mask[axis] = true;
               num_features = (num_features == nullptr)
