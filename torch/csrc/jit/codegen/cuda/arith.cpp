@@ -20,7 +20,6 @@ Val* newScalar(ValType vtype, DataType dtype) {
         case DataType::Bool:
           return new Bool();
         case DataType::Double:
-          return new Float();
         case DataType::Float:
           return new Float();
         case DataType::Half:

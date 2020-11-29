@@ -65,16 +65,11 @@ class CudaKernelGenerator : private kir::IrVisitor {
         TORCH_INTERNAL_ASSERT(val->isScalar());
         // All floating point arguments come in as double, all int arguments
         // come in as int64
-        bool isFloatingPoint;
+        bool isFloatingPoint = true;
         switch (val->dtype()) {
           case (DataType::Double):
-            isFloatingPoint = true;
-            break;
           case (DataType::Float):
-            isFloatingPoint = true;
-            break;
           case (DataType::Half):
-            isFloatingPoint = true;
             break;
           case (DataType::Int):
             isFloatingPoint = false;
