@@ -168,15 +168,6 @@ void IrPrinter::visit(const kir::Double* node) {
   }
 }
 
-void IrPrinter::visit(const kir::Float* node) {
-  if (node->isConst()) {
-    const int digits = std::numeric_limits<Float::ScalarType>::max_digits10;
-    ir_str_ << "float(" << std::setprecision(digits) << *node->value() << ")";
-  } else {
-    ir_str_ << varName(node, "f");
-  }
-}
-
 void IrPrinter::visit(const kir::Int* node) {
   if (node->isConst()) {
     ir_str_ << *node->value();

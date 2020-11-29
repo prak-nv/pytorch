@@ -77,36 +77,6 @@ class TORCH_CUDA_API Double : public Val {
   const c10::optional<ScalarType> maybe_value_;
 };
 
-//! A Float32 value. For now we don't have any other type besides
-//! Float32. This value can be a symbolic value (defined after the kernel
-//! is compiled) or a constant value (inlined into the kernel definition).
-class TORCH_CUDA_API Float : public Val {
- public:
-  using ScalarType = double;
-
-  Float() : Val(ValType::Scalar, DataType::Float), maybe_value_{c10::nullopt} {}
-
-  explicit Float(ScalarType value)
-      : Val(ValType::Scalar, DataType::Float), maybe_value_{value} {}
-
-  Float(const Float* src, IrCloner* ir_cloner);
-
-  bool isSymbolic() const {
-    return !(maybe_value_.has_value());
-  }
-  bool isConst() const {
-    return maybe_value_.has_value();
-  }
-  c10::optional<ScalarType> value() const {
-    return maybe_value_;
-  }
-
-  bool sameAs(const Float* const other) const;
-
- private:
-  const c10::optional<ScalarType> maybe_value_;
-};
-
 //! An Int64 value. If used for indexing it's set as size_t. Otherwise it's an
 //! inlined literal in the kernel.
 class TORCH_CUDA_API Int : public Val {

@@ -121,24 +121,6 @@ void IrPrinter::handle(const Double* d) {
   }
 }
 
-void IrPrinter::handle(const Float* f) {
-  if (print_inline_ && FusionGuard::getCurFusion()->origin(f) != nullptr) {
-    os_ << "( ";
-    handle(FusionGuard::getCurFusion()->origin(f));
-    os_ << " )";
-    return;
-  }
-
-  if (f->isSymbolic()) {
-    os_ << "f" << f->name();
-  } else {
-    os_ << "float("
-        << std::setprecision(
-               std::numeric_limits<Float::ScalarType>::max_digits10)
-        << *(f->value()) << ")";
-  }
-}
-
 void IrPrinter::handle(const Int* i) {
   if (print_inline_) {
     if (auto def = FusionGuard::getCurFusion()->origin(i)) {

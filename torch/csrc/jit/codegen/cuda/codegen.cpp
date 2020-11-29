@@ -235,23 +235,9 @@ class CudaKernelGenerator : private kir::IrVisitor {
       code_ << "(" << gen(def) << ")";
     } else if (node->isConst()) {
       const int digits = std::numeric_limits<Double::ScalarType>::max_digits10;
-      code_ << "double(" << std::setprecision(digits) << *node->value() << ")";
+      code_ << std::setprecision(digits) << *node->value();
     } else if (def == nullptr) {
-      code_ << "(double)" << varName(node);
-    } else {
       code_ << varName(node);
-    }
-  }
-
-  void visit(const kir::Float* node) final {
-    const auto def = node->definition();
-    if (print_inline_ && def != nullptr) {
-      code_ << "(" << gen(def) << ")";
-    } else if (node->isConst()) {
-      const int digits = std::numeric_limits<Float::ScalarType>::max_digits10;
-      code_ << "float(" << std::setprecision(digits) << *node->value() << ")";
-    } else if (def == nullptr) {
-      code_ << "(float) " << varName(node);
     } else {
       code_ << varName(node);
     }
@@ -526,7 +512,8 @@ class CudaKernelGenerator : private kir::IrVisitor {
       } else {
         indent() << kTab << genInline(node->predicate()) << ",\n";
       }
-      indent() << kTab << genInline(node->init()) << ");\n";
+      indent() << kTab << data_type << "(" << genInline(node->init())
+               << "));\n";
     }
   }
 
@@ -608,7 +595,8 @@ class CudaKernelGenerator : private kir::IrVisitor {
     } else {
       indent() << kTab << genInline(node->predicate()) << ",\n";
     }
-    indent() << kTab << genInline(node->reduction_op()->init()) << ");\n";
+    indent() << kTab << data_type << "("
+             << genInline(node->reduction_op()->init()) << "));\n";
   }
 
   void handleScope(const kir::Scope& scope) {

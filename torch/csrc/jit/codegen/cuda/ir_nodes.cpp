@@ -43,10 +43,6 @@ class ScalarCheck : OptInConstDispatch {
     same_ = v1_->as<Double>()->sameAs(v2_->as<Double>());
   }
 
-  void handle(const Float* f) override {
-    same_ = v1_->as<Float>()->sameAs(v2_->as<Float>());
-  }
-
   void handle(const Int* i) override {
     same_ = v1_->as<Int>()->sameAs(v2_->as<Int>());
   }
@@ -84,15 +80,6 @@ Double::Double(const Double* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
 
 bool Double::sameAs(const Double* const other) const {
-  if (isConst() && other->isConst())
-    return *value() == *(other->value());
-  return this == other;
-}
-
-Float::Float(const Float* src, IrCloner* ir_cloner)
-    : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
-
-bool Float::sameAs(const Float* const other) const {
   if (isConst() && other->isConst())
     return *value() == *(other->value());
   return this == other;

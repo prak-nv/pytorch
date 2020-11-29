@@ -77,15 +77,18 @@ DataType promote_type(const DataType& t1, const DataType& t2) {
 
 // Return highest on list (smallest enum val)
 ValType promote_type(const ValType& t1, const ValType& t2) {
-  TORCH_CHECK(
-      t1 >= ValType::TensorView && t2 >= ValType::TensorView,
-      "Expected promotable ValTypes but got: ",
-      t1,
-      " and ",
-      t2);
-  // Check that it's a promotable type (with dtype)
-  // static_assert??
-  return t1 < t2 ? t1 : t2;
+  if (t1 == ValType::TensorView || t2 == ValType::TensorView) {
+    return ValType::TensorView;
+  }
+  if (t1 == ValType::Scalar &&
+      (t2 == ValType::Scalar || t2 == ValType::NamedScalar)) {
+    return ValType::Scalar;
+  }
+  if (t2 == ValType::Scalar &&
+      (t1 == ValType::Scalar || t1 == ValType::NamedScalar)) {
+    return ValType::Scalar;
+  }
+  TORCH_CHECK(false, "Expected promotable ValTypes but got: ", t1, " and ", t2);
 }
 
 static const char* data_type2string(DataType t) {
@@ -518,6 +521,10 @@ constexpr unsigned int supported_switch_pair(DataType t1, DataType t2) {
 static const char* supported_casts2string(
     const std::pair<DataType, DataType>& t) {
   switch (supported_switch_pair(std::get<0>(t), std::get<1>(t))) {
+    case supported_switch_pair(DataType::Double, DataType::Float):
+      return "(float)";
+    case supported_switch_pair(DataType::Float, DataType::Double):
+      return "(double)";
     case supported_switch_pair(DataType::Float, DataType::Half):
       return "__float2half";
     case supported_switch_pair(DataType::Half, DataType::Float):
