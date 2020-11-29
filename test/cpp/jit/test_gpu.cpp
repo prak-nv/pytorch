@@ -6903,7 +6903,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   std::vector<TensorView*> other_tensors;
 
   auto all_values = DependencyCheck::getAllValsBetween(
-    {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
 
   for (auto tensor : ir_utils::filterByType<TensorView>(all_values)) {
     if (tensor->hasReduction()) {

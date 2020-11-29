@@ -518,7 +518,6 @@ void GraphCache::createFusion(const std::shared_ptr<Graph>& graph) {
           permuted_vec_optional_stride,
           type->requires_grad());
     }; // closing lambda
-
     for (auto input : graph->inputs()) {
       if (auto input_type = input->type()->cast<TensorType>()) {
         input->setType(type_permute_fn(input_type));

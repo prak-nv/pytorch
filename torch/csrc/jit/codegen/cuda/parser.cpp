@@ -720,7 +720,7 @@ class IrParser {
             }
 
             // M = product of [0, reduction_axis)
-            auto M = constant_as<float>(node->input(3));
+            auto M = constant_as<int>(node->input(3));
             TORCH_INTERNAL_ASSERT(
                 M.has_value(), "The M parameter is required.");
             const float kBatchSize = M.value();
@@ -728,7 +728,7 @@ class IrParser {
             // N = product of [reduction_axis, input_ndims]
             // Repurposed for NvFuser such that N = norm_shape_ndims
             // so we can construct reduction_axes and broadcast_mask
-            auto N = constant_as<float>(node->input(4));
+            auto N = constant_as<int>(node->input(4));
             TORCH_INTERNAL_ASSERT(
                 N.has_value(), "The N parameter is required.");
             const float kNormShapeNumDims = N.value();
@@ -791,7 +791,8 @@ class IrParser {
           ptr_op,
           [](const Node* node,
              std::unordered_map<size_t, CgValue>& value_map) -> void {
-            auto grad_out = value_map[node->input(0)->unique()]->as<TensorView>();
+            auto grad_out =
+                value_map[node->input(0)->unique()]->as<TensorView>();
             auto input = value_map[node->input(1)->unique()]->as<TensorView>();
             auto mean = value_map[node->input(2)->unique()]->as<TensorView>();
             auto rstd = value_map[node->input(3)->unique()]->as<TensorView>();
@@ -803,7 +804,7 @@ class IrParser {
             }
 
             // M = product of [0, reduction_axis)
-            auto M = constant_as<float>(node->input(5));
+            auto M = constant_as<int>(node->input(5));
             TORCH_INTERNAL_ASSERT(
                 M.has_value(), "The M parameter is required.");
             const float kBatchSize = M.value();
@@ -811,12 +812,13 @@ class IrParser {
             // N = product of [reduction_axis, input_ndims]
             // Repurposed for NvFuser such that N = norm_shape_ndims
             // so we can construct reduction_axes and broadcast_mask
-            auto N = constant_as<float>(node->input(6));
+            auto N = constant_as<int>(node->input(6));
             TORCH_INTERNAL_ASSERT(
                 N.has_value(), "The N parameter is required.");
             const float kNormShapeNumDims = N.value();
 
-            auto output_mask_list = constant_as<c10::List<bool>>(node->input(7));
+            auto output_mask_list =
+                constant_as<c10::List<bool>>(node->input(7));
             TORCH_INTERNAL_ASSERT(
                 output_mask_list.has_value(),
                 "output mask for layer_norm_backward");
@@ -847,7 +849,9 @@ class IrParser {
                         input->domain()->domain()[axis]->extent());
             }
 
-            // TODO: grad_bias and grad_weight are incompatible with grad_in fusion
+            // TODO: grad_bias and grad_weight are incompatible
+            // with grad_in fusion
+
             /*
             auto grad_bias = sum(grad_out, outer_reduction_axes);
             fusion.addOutput(grad_bias);
@@ -859,9 +863,10 @@ class IrParser {
             fusion.addOutput(grad_weight);
             */
 
-            auto bcast_mean = broadcast(mean, inner_broadcast_mask);
-            auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
-            auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+            // auto bcast_mean = broadcast(mean, inner_broadcast_mask);
+            // auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
+            // auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+            auto x_hat = mul(sub(input, mean), rstd);
 
             TensorView* grad_x_hat = nullptr;
             if (weight == nullptr) {
@@ -884,7 +889,8 @@ class IrParser {
             auto* inner = sub(sub(a, bcast_b), c3);
 
             auto reciprocal_size = div(new Float(1), num_features);
-            auto* grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
+            // auto* grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
+            auto* grad_in = mul(mul(reciprocal_size, rstd), inner);
 
             value_map.emplace(node->output(0)->unique(), grad_in);
           });
