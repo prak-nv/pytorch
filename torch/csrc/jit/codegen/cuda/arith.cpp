@@ -35,10 +35,11 @@ Val* newScalar(ValType vtype, DataType dtype) {
 
   TORCH_CHECK(
       false,
-      "Was expecting a scalar type, but received ValType: ",
+      "Cannot handle ValType: ",
       vtype,
       " with DataType:",
-      dtype);
+      dtype,
+      " in newScalar.");
 }
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {

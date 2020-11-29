@@ -682,22 +682,22 @@ TEST(NVFuserTest, FusionSimpleArith_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Double* f1 = new Double(1.f);
-  Double* f2 = new Double{2.f};
-  Double* f3 = new Double();
+  Double* d1 = new Double(1.f);
+  Double* d2 = new Double{2.f};
+  Double* d3 = new Double();
 
   // Disrupt the fusion to make sure guard works well
   {
     Fusion fusion2;
     FusionGuard fg(&fusion2);
 
-    Double* f1 = new Double(1.f);
-    Double* f2 = new Double(2.f);
-    add(f1, f2);
+    Double* d1 = new Double(1.f);
+    Double* d2 = new Double(2.f);
+    add(d1, d2);
     ss2 << fusion2;
   }
 
-  new BinaryOp(BinaryOpType::Add, f3, f1, f2);
+  new BinaryOp(BinaryOpType::Add, d3, d1, d2);
   ss1 << fusion;
 
   TORCH_CHECK(
@@ -1082,69 +1082,69 @@ TEST(NVFuserTest, FusionDependency_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  Double* f0 = new Double(0.f);
-  Double* f1 = new Double(1.f);
-  auto f2 = add(f0, f1);
+  Double* d0 = new Double(0.f);
+  Double* d1 = new Double(1.f);
+  auto d2 = add(d0, d1);
 
-  auto f3 = add(f2, f2);
+  auto d3 = add(d2, d2);
 
-  Double* f4 = new Double(4.f);
-  Double* f5 = new Double(5.f);
-  auto f6 = add(f4, f5);
+  Double* d4 = new Double(4.f);
+  Double* d5 = new Double(5.f);
+  auto d6 = add(d4, d5);
 
-  Double* f7 = new Double(7.f);
-  Double* f8 = new Double(8.f);
-  auto f9 = add(f7, f8);
+  Double* d7 = new Double(7.f);
+  Double* d8 = new Double(8.f);
+  auto d9 = add(d7, d8);
 
-  auto f10 = add(f6, f9);
+  auto d10 = add(d6, d9);
 
-  auto f11 = add(f3, f10);
+  auto d11 = add(d3, d10);
 
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f0, f11));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f1, f11));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f2, f11));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f3, f11));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f6, f11));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f9, f11));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f0, f2));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f2, f3));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f4, f6));
-  TORCH_CHECK(DependencyCheck::isDependencyOf(f8, f10));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d0, d11));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d1, d11));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d2, d11));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d3, d11));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d6, d11));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d9, d11));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d0, d2));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d2, d3));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d4, d6));
+  TORCH_CHECK(DependencyCheck::isDependencyOf(d8, d10));
 
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f11, f0));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f11, f1));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f11, f2));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f11, f3));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f11, f4));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f11, f5));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f2, f0));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f3, f2));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f6, f4));
-  TORCH_CHECK(!DependencyCheck::isDependencyOf(f10, f8));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d11, d0));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d11, d1));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d11, d2));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d11, d3));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d11, d4));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d11, d5));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d2, d0));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d3, d2));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d6, d4));
+  TORCH_CHECK(!DependencyCheck::isDependencyOf(d10, d8));
 
-  auto dep_chain = DependencyCheck::getSingleDependencyChain(f0, f11);
-  TORCH_CHECK(dep_chain.back() == f11);
+  auto dep_chain = DependencyCheck::getSingleDependencyChain(d0, d11);
+  TORCH_CHECK(dep_chain.back() == d11);
   dep_chain.pop_back();
-  TORCH_CHECK(dep_chain.back() == f3);
+  TORCH_CHECK(dep_chain.back() == d3);
   dep_chain.pop_back();
-  TORCH_CHECK(dep_chain.back() == f2);
-  dep_chain.pop_back();
-
-  dep_chain = DependencyCheck::getSingleDependencyChain(f6, f11);
-  TORCH_CHECK(dep_chain.back() == f11);
-  dep_chain.pop_back();
-  TORCH_CHECK(dep_chain.back() == f10);
+  TORCH_CHECK(dep_chain.back() == d2);
   dep_chain.pop_back();
 
-  dep_chain = DependencyCheck::getSingleDependencyChain(f4, f11);
-  TORCH_CHECK(dep_chain.back() == f11);
+  dep_chain = DependencyCheck::getSingleDependencyChain(d6, d11);
+  TORCH_CHECK(dep_chain.back() == d11);
   dep_chain.pop_back();
-  TORCH_CHECK(dep_chain.back() == f10);
-  dep_chain.pop_back();
-  TORCH_CHECK(dep_chain.back() == f6);
+  TORCH_CHECK(dep_chain.back() == d10);
   dep_chain.pop_back();
 
-  dep_chain = DependencyCheck::getSingleDependencyChain(f11, f2);
+  dep_chain = DependencyCheck::getSingleDependencyChain(d4, d11);
+  TORCH_CHECK(dep_chain.back() == d11);
+  dep_chain.pop_back();
+  TORCH_CHECK(dep_chain.back() == d10);
+  dep_chain.pop_back();
+  TORCH_CHECK(dep_chain.back() == d6);
+  dep_chain.pop_back();
+
+  dep_chain = DependencyCheck::getSingleDependencyChain(d11, d2);
   TORCH_CHECK(dep_chain.empty());
 }
 
@@ -2727,19 +2727,19 @@ TEST(NVFuserTest, FusionScalarInputs_CUDA) {
   TensorView* tv1 = makeSymbolicTensor(2);
   fusion.addInput(tv1);
 
-  Double* f0 = new Double();
-  fusion.addInput(f0);
-  Double* f1 = new Double();
-  fusion.addInput(f1);
-  Double* f2 = new Double();
-  fusion.addInput(f2);
-  Double* f3 = new Double();
-  fusion.addInput(f3);
-  Val* f4 = mul(f0, f1);
-  Val* f5 = sub(f2, f3);
+  Double* d0 = new Double();
+  fusion.addInput(d0);
+  Double* d1 = new Double();
+  fusion.addInput(d1);
+  Double* d2 = new Double();
+  fusion.addInput(d2);
+  Double* d3 = new Double();
+  fusion.addInput(d3);
+  Val* d4 = mul(d0, d1);
+  Val* d5 = sub(d2, d3);
 
-  TensorView* tv2 = sub(tv1, f4);
-  TensorView* tv3 = add(tv0, f5);
+  TensorView* tv2 = sub(tv1, d4);
+  TensorView* tv3 = add(tv0, d5);
   TensorView* tv4 = mul(tv3, tv2);
 
   fusion.addOutput(tv4);
@@ -2765,10 +2765,10 @@ TEST(NVFuserTest, FusionScalarInputs_CUDA) {
     }
   }
 
-  // f4 = f0 * f1
-  // f5 = f2 - f3
-  // t2 = t1 - f4
-  // t3 = t0 + f5
+  // d4 = d0 * d1
+  // d5 = d2 - d3
+  // t2 = t1 - d4
+  // t3 = t0 + d5
   // t4 = t3 * t2
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

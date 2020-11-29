@@ -61,7 +61,7 @@ void KernelArgumentHolder::push(const IValue& val) {
       arguments_.push_back(std::make_unique<DoubleArg>(scalar_val.toDouble()));
       return;
     case c10::ScalarType::Long:
-      arguments_.push_back(std::make_unique<LongArg>(scalar_val.toInt()));
+      arguments_.push_back(std::make_unique<LongArg>(scalar_val.toLong()));
       return;
     default:
       TORCH_INTERNAL_ASSERT(

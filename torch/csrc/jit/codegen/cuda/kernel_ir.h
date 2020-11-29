@@ -35,7 +35,6 @@ class Expr;
 class NamedScalar;
 class Bool;
 class Double;
-class Float;
 class Int;
 class IterDomain;
 class TensorDomain;
