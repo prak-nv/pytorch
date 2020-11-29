@@ -181,6 +181,13 @@ class NaiveTypePropagator {
         node->output()->setType(out_type);
         break;
       }
+      case aten::native_layer_norm: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+        node->output(0)->setType(out_type);
+        node->output(1)->setType(out_type);
+        node->output(2)->setType(out_type);
+        break;
+      }
       case aten::softmax: {
         auto out_type = node->input(0)->type()->cast<TensorType>();
 
