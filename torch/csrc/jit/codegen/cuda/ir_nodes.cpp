@@ -1250,8 +1250,7 @@ bool Split::sameAs(const Statement* other) const {
   if (!other->isA<Split>()) {
     return false;
   }
-  return Expr::sameAs(other) &&
-      factor()->sameAs(other->as<Split>()->factor());
+  return Expr::sameAs(other) && factor()->sameAs(other->as<Split>()->factor());
 }
 
 Merge::Merge(IterDomain* out, IterDomain* outer, IterDomain* inner)
