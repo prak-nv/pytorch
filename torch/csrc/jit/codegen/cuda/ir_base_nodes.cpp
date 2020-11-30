@@ -196,7 +196,6 @@ bool Expr::sameAs(const Statement* other) const {
       return false;
     }
   }
-  // TODO: Why outputs are not checked?
   return true;
 }
 

@@ -302,9 +302,10 @@ bool BroadcastOp::sameAs(const Statement* other) const {
     return false;
   }
   const auto other_op = other->as<BroadcastOp>();
-  // TODO: Why sameAs isn't used here?
-  // TODO: Other Exprs do not check outputs. Why it is checked here?
-  return other_op->in() == in() && other_op->out() == out();
+  if (getBroadcastDimFlags() != other_op->getBroadcastDimFlags()) {
+    return false;
+  }
+  return Expr::sameAs(other);
 }
 
 ReductionOp::ReductionOp(
@@ -1249,12 +1250,8 @@ bool Split::sameAs(const Statement* other) const {
   if (!other->isA<Split>()) {
     return false;
   }
-  const auto other_split = other->as<Split>();
-  return (
-      outer()->sameAs(other_split->outer()) &&
-      inner()->sameAs(other_split->inner()) &&
-      in()->sameAs(other_split->in()) &&
-      factor()->sameAs(other_split->factor()));
+  return Expr::sameAs(other) &&
+      factor()->sameAs(other->as<Split>()->factor());
 }
 
 Merge::Merge(IterDomain* out, IterDomain* outer, IterDomain* inner)
@@ -1278,11 +1275,7 @@ bool Merge::sameAs(const Statement* other) const {
   if (!other->isA<Merge>()) {
     return false;
   }
-  const auto other_merge = other->as<Merge>();
-  return (
-      out()->sameAs(other_merge->out()) &&
-      outer()->sameAs(other_merge->outer()) &&
-      inner()->sameAs(other_merge->inner()));
+  return Expr::sameAs(other);
 }
 
 NamedScalar::NamedScalar(const NamedScalar* src, IrCloner* ir_cloner)
@@ -1295,8 +1288,7 @@ bool NamedScalar::sameAs(const Statement* other) const {
   if (!other->isA<NamedScalar>()) {
     return false;
   }
-  const auto other_ns = other->as<NamedScalar>();
-  return other_ns->name().compare(name()) == 0;
+  return other->as<NamedScalar>()->name().compare(name()) == 0;
 }
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
