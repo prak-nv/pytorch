@@ -13,9 +13,7 @@ bool isFloatingPointType(DataType dtype) {
     case DataType::Bool:
       return false;
     case DataType::Double:
-      return true;
     case DataType::Float:
-      return true;
     case DataType::Half:
       return true;
     case DataType::Int:
@@ -31,11 +29,8 @@ bool isFloatingPointType(DataType dtype) {
 bool isIntegralType(DataType dtype) {
   switch (dtype) {
     case DataType::Bool:
-      return false;
     case DataType::Double:
-      return false;
     case DataType::Float:
-      return false;
     case DataType::Half:
       return false;
     case DataType::Int:
@@ -56,11 +51,11 @@ bool isLogicalOp(const BinaryOpType bopt) {
   return bopt >= BinaryOpType::Eq && bopt <= BinaryOpType::NE;
 }
 
-bool maybeBooleanOperator(const BinaryOpType bopt) {
+bool alsoBooleanOperator(const BinaryOpType bopt) {
   return bopt >= BinaryOpType::And && bopt <= BinaryOpType::Or;
 }
 
-bool maybeBooleanOperator(const UnaryOpType uopt) {
+bool alsoBooleanOperator(const UnaryOpType uopt) {
   return uopt >= UnaryOpType::Not && uopt <= UnaryOpType::Not;
 }
 
