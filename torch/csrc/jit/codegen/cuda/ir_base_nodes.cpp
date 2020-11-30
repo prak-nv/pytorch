@@ -176,16 +176,27 @@ Expr::Expr(const Expr* src, IrCloner* ir_cloner)
       inputs_(ir_cloner->clone(src->inputs_)),
       outputs_(ir_cloner->clone(src->outputs_)) {}
 
-bool Expr::sameAs(const Expr* const other) const {
-  if (getExprType() != other->getExprType())
-    return false;
-  if (inputs().size() != other->inputs().size() ||
-      outputs().size() != other->outputs().size())
-    return false;
-  for (size_t i = 0; i < inputs().size(); i++) {
-    if (!input(i)->sameAs(other->input(i)))
-      return false;
+bool Expr::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
   }
+  if (!other->isA<Expr>()) {
+    return false;
+  }
+  const Expr* other_expr = other->as<Expr>();
+  if (getExprType() != other_expr->getExprType()) {
+    return false;
+  }
+  if (inputs().size() != other_expr->inputs().size() ||
+      outputs().size() != other_expr->outputs().size()) {
+    return false;
+  }
+  for (size_t i = 0; i < inputs().size(); i++) {
+    if (!input(i)->sameAs(other_expr->input(i))) {
+      return false;
+    }
+  }
+  // TODO: Why outputs are not checked?
   return true;
 }
 

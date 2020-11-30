@@ -40,7 +40,7 @@ class TORCH_CUDA_API Bool : public Val {
     return maybe_value_;
   }
 
-  bool sameAs(const Bool* const other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   const c10::optional<bool> maybe_value_;
@@ -70,7 +70,7 @@ class TORCH_CUDA_API Float : public Val {
     return maybe_value_;
   }
 
-  bool sameAs(const Float* const other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   const c10::optional<ScalarType> maybe_value_;
@@ -98,7 +98,7 @@ class TORCH_CUDA_API Half : public Val {
     return maybe_value_;
   }
 
-  bool sameAs(const Half* const other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   const c10::optional<float> maybe_value_;
@@ -127,7 +127,7 @@ class TORCH_CUDA_API Int : public Val {
     return maybe_value_;
   }
 
-  bool sameAs(const Int* const other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   const c10::optional<ScalarType> maybe_value_;
