@@ -852,8 +852,9 @@ class IrParser {
                         input->domain()->domain()[axis]->extent());
             }
 
-            // TODO: grad_bias and grad_weight are incompatible
-            // with grad_in fusion
+            // TODO: grad_bias and grad_weight are disabled because
+            // they are incompabilble with grad_in fusion
+            // Requires seperate kernels
 
             /*
             auto grad_bias = sum(grad_out, outer_reduction_axes);
@@ -949,10 +950,13 @@ class IrParser {
              std::unordered_map<size_t, CgValue>& value_map) -> void {
             auto grad_output =
                 value_map[node->input(0)->unique()]->as<TensorView>();
+
             auto output = value_map[node->input(1)->unique()]->as<TensorView>();
+
             auto dim_value = constant_as<int>(node->input(2));
             TORCH_INTERNAL_ASSERT(
                 dim_value.has_value(), "dim in softmax is not valid");
+
             auto input = value_map[node->input(3)->unique()]->as<TensorView>();
 
             const int kNumberOfDims = input->nDims();

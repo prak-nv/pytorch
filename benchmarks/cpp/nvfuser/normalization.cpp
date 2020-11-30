@@ -172,10 +172,10 @@ static void MagicScheduler_Softmax(benchmark::State& benchmark_state) {
   std::vector<at::Tensor> outputs;
 
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, inputs, reduction_tensors);
+      getNormalizationHeuristics(&fusion, inputs, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
 
   FusionExecutor executor;
@@ -266,10 +266,10 @@ static void MagicScheduler_BatchNorm(benchmark::State& benchmark_state) {
   std::vector<at::Tensor> outputs;
 
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, inputs, reduction_tensors);
+      getNormalizationHeuristics(&fusion, inputs, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
 
   FusionExecutor executor;
@@ -378,10 +378,10 @@ static void MagicScheduler_LayerNorm(benchmark::State& benchmark_state) {
   std::vector<at::Tensor> outputs;
 
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, inputs, reduction_tensors);
+      getNormalizationHeuristics(&fusion, inputs, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
 
   FusionExecutor executor;
@@ -531,10 +531,10 @@ static void MagicScheduler_Softmax_Dropout(benchmark::State& benchmark_state) {
   std::vector<at::Tensor> outputs;
 
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, inputs, reduction_tensors);
+      getNormalizationHeuristics(&fusion, inputs, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
 
   FusionExecutor executor;

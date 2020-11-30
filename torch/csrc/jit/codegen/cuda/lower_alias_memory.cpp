@@ -123,9 +123,8 @@ class AllocateReuseModifier {
           first_tv_input = input_tv;
         }
 
-        const auto input_alloc = map_tv_to_allocations_[input_tv->name()];
-
         // input_alloc == nullptr implies that input_tv is a kernel input
+        const auto input_alloc = map_tv_to_allocations_[input_tv->name()];
         if (input_alloc != nullptr) {
           if (candidate_alias_tv_.find(input_tv) != candidate_alias_tv_.end() &&
               output_size_str == SymbolicSizePrinter::printSize(input_alloc) &&

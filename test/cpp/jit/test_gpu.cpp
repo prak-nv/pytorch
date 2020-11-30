@@ -6800,10 +6800,10 @@ TEST(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
       at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
 
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, {aten_input}, reduction_tensors);
+      getNormalizationHeuristics(&fusion, {aten_input}, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
 
   auto lparams = reduction_params.value().lparams;
@@ -6916,8 +6916,8 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_grad_out = at::randn(shape, options);
   at::Tensor aten_input = at::randn(shape, options);
-  at::Tensor aten_weight = at::ones(norm_shape, options);
-  at::Tensor aten_bias = at::zeros(norm_shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  at::Tensor aten_bias = at::randn(norm_shape, options);
   auto at_weight = c10::optional<at::Tensor>(aten_weight);
   auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
@@ -6940,13 +6940,13 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
-  auto reduction_params = getMultipleReductionHeuristics(
+  auto reduction_params = getNormalizationHeuristics(
       &fusion,
       {aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight},
       reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
   auto lparams = reduction_params.value().lparams;
 
@@ -7040,10 +7040,10 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, {aten_input}, reduction_tensors);
+      getNormalizationHeuristics(&fusion, {aten_input}, reduction_tensors);
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
   auto lparams = reduction_params.value().lparams;
 
@@ -7172,11 +7172,11 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params =
-      getMultipleReductionHeuristics(&fusion, aten_inputs, reduction_tensors);
+      getNormalizationHeuristics(&fusion, aten_inputs, reduction_tensors);
 
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  scheduleMultipleReduction(
+  scheduleNormalization(
       &fusion, reduction_params.value(), reduction_tensors, other_tensors);
   auto lparams = reduction_params.value().lparams;
 
