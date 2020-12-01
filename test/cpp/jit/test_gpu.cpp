@@ -8643,7 +8643,7 @@ TEST(NVFuserTest, FusionReduceImplicitBroadcast2_CUDA) {
   fe.compileFusion(&fusion);
   // no broadcasting needed, omitting the last optional argument;
   auto cg_outputs = fe.runFusion({aten_input}, lparams);
-  auto aten_output = aten_input.to(at::kDouble).sum({red_dim, 2});
+  auto aten_output = aten_input.to(at::kDouble).sum({1, 2});
 
   testValidate(
       &fusion,
@@ -8688,7 +8688,7 @@ TEST(NVFuserTest, FusionReduceImplicitBroadcast3_CUDA) {
   fe.compileFusion(&fusion);
   // no broadcasting needed, omitting the last optional argument;
   auto cg_outputs = fe.runFusion({aten_input}, lparams);
-  auto aten_output = aten_input.to(at::kDouble).sum({red_dim, 2});
+  auto aten_output = aten_input.to(at::kDouble).sum({2, 1});
 
   testValidate(
       &fusion,
@@ -9822,8 +9822,8 @@ TEST(NVFuserTest, FusionIssue532_CUDA) {
 
   // Algorithm
   TensorView* tv0 = makeSymbolicTensor(1);
-  TensorView* tv1 = add(tv0, new Float(1));
-  TensorView* tv2 = add(tv1, new Float(1));
+  TensorView* tv1 = add(tv0, new Double(1));
+  TensorView* tv2 = add(tv1, new Double(1));
   fusion.addInput(tv0);
   fusion.addOutput(tv2);
 
@@ -9864,8 +9864,8 @@ TEST(NVFuserTest, FusionLoopUnswitch_CUDA) {
 
   // Algorithm
   TensorView* tv0 = makeSymbolicTensor(1);
-  TensorView* tv1 = add(tv0, new Float(1));
-  TensorView* tv2 = add(tv1, new Float(1));
+  TensorView* tv1 = add(tv0, new Double(1));
+  TensorView* tv2 = add(tv1, new Double(1));
   fusion.addInput(tv0);
   fusion.addOutput(tv2);
 

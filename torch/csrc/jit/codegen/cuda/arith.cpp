@@ -251,8 +251,7 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
   const bool all_integer_input =
       isIntegralType(v1_dtype) && isIntegralType(v2_dtype);
 
-  if (isIntegerOp(op_type) ||
-      (maybeBooleanOperator(op_type) && integer_input)) {
+  if (isIntegerOp(op_type) || (alsoBooleanOperator(op_type) && integer_input)) {
     // If integer op or maybe bool op with integer inputs meaning binary op
     if (integer_input && all_integer_input) {
       return promote_type(v1_dtype, v2_dtype);
