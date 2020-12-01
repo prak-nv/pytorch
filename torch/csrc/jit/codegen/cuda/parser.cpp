@@ -20,8 +20,8 @@ typedef Node JitOp;
 namespace fuser {
 namespace cuda {
 
-constexpr auto kNumUnaryOps = 31;
-constexpr auto kNumBinaryOps = 24;
+constexpr auto kNumUnaryOps = 32;
+constexpr auto kNumBinaryOps = 29;
 constexpr auto kNumBinaryOpsWithAlpha = 4;
 constexpr auto kNumLerpOps = 2;
 
@@ -35,33 +35,41 @@ typedef bool (*MergeQueryFuncPtr)(const Node*);
 
 // TODO: add a mutex to make it thread safe.
 class IrParser {
+  enum class OperatorType { ElementWise, Reduction, Normalization };
+
   class RegistrationEntry {
    public:
-    RegistrationEntry(ParseFuncPtr parse_f, MergeQueryFuncPtr merge_f = nullptr)
-        : parse_f_(parse_f), merge_f_(merge_f) {}
+    RegistrationEntry(
+        ParseFuncPtr parse_f,
+        MergeQueryFuncPtr merge_f = nullptr,
+        OperatorType type = OperatorType::ElementWise)
+        : parse_f_(parse_f), merge_f_(merge_f), type_(type) {}
 
-    void parse(const Node* node, std::unordered_map<size_t, CgValue>& values) {
+    void parse(const Node* node, std::unordered_map<size_t, CgValue>& values)
+        const {
       parse_f_(node, values);
     }
 
-    bool is_compatible(const Node* node) {
+    bool isCompatible(const Node* node) const {
       if (merge_f_ == nullptr) {
         return true;
       }
       return merge_f_(node);
     }
 
+    bool isType(OperatorType type) const {
+      return type_ == type;
+    }
+
    private:
     ParseFuncPtr parse_f_;
     MergeQueryFuncPtr merge_f_;
+    OperatorType type_;
   };
 
  public:
   IrParser(std::shared_ptr<Graph> graph) : graph_(std::move(graph)) {
-    if (init_registry_) {
-      registerJitOperator();
-      init_registry_ = false;
-    }
+    initRegistry();
   }
 
   std::unique_ptr<Fusion> parse() {
@@ -119,34 +127,71 @@ class IrParser {
     return fusion;
   }
 
-  static bool canParseNode(const Node* node) {
+  // return nullptr if entry does not exist
+  static const RegistrationEntry* lookupInRegistry(const Node* node) {
+    // we need to use maybeSchema for nodes like prim::Constant, which doesn't
+    // have a schema
+    auto schema_ptr = node->maybeSchema();
+    if (schema_ptr != nullptr) {
+      // search cached entry first
+      auto cache_it = cached_registry_lookup_.find(schema_ptr);
+      if (cache_it != cached_registry_lookup_.end()) {
+        return cache_it->second;
+      } else {
+        // match signature
+        auto schema_str = canonicalSchemaString(*schema_ptr);
+
+        auto iter = jit_operator_registry_.find(schema_str);
+        if (iter != jit_operator_registry_.end()) {
+          // update cache entry
+          cached_registry_lookup_.insert(cache_it, {schema_ptr, &iter->second});
+          return &iter->second;
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  static void initRegistry() {
     if (init_registry_) {
       // TODO: mutex this guy;
       registerJitOperator();
       init_registry_ = false;
     }
+  }
+
+  static bool canParseNode(const Node* node) {
+    initRegistry();
 
     // match signature.
-    auto iter = jit_operator_registry_.find(node->kind());
-    if (iter == jit_operator_registry_.end()) {
+    auto schema_ptr = node->maybeSchema();
+    if (schema_ptr == nullptr) {
       return false;
     }
-    for (auto& pair_op_func : iter->second) {
-      if (node->matches(pair_op_func.first->schema())) {
-        return pair_op_func.second.is_compatible(node);
-      }
-    }
-    return false;
+    auto reg_entry = lookupInRegistry(node);
+    return reg_entry != nullptr && reg_entry->isCompatible(node);
   }
 
   static bool isReductionNode(const Node* node) {
-    if (init_registry_) {
-      // TODO: mutex this guy;
-      registerJitOperator();
-      init_registry_ = false;
-    }
+    initRegistry();
 
-    return jit_reduction_op_registry_.count(node->kind());
+    auto reg_entry = lookupInRegistry(node);
+    return reg_entry != nullptr && reg_entry->isType(OperatorType::Reduction);
+  }
+
+  static bool isNormalizationNode(const Node* node) {
+    initRegistry();
+
+    auto reg_entry = lookupInRegistry(node);
+    return reg_entry != nullptr &&
+        reg_entry->isType(OperatorType::Normalization);
+  }
+
+  static bool isElementWiseNode(const Node* node) {
+    initRegistry();
+
+    auto reg_entry = lookupInRegistry(node);
+    return reg_entry != nullptr && reg_entry->isType(OperatorType::ElementWise);
   }
 
   // TODO: is_reduction is too hacky here. we should categorize operation types
@@ -156,16 +201,11 @@ class IrParser {
       std::shared_ptr<Operator>& op,
       ParseFuncPtr parse_fn,
       MergeQueryFuncPtr merge_query_fn = nullptr,
-      bool is_reduction = false) {
-    jit_operator_registry_[Symbol::fromQualString(op->schema().name())]
-        .emplace_back(
-            std::piecewise_construct,
-            std::forward_as_tuple(op),
-            std::forward_as_tuple(parse_fn, merge_query_fn));
-    if (is_reduction) {
-      jit_reduction_op_registry_.emplace(
-          Symbol::fromQualString(op->schema().name()));
-    }
+      OperatorType type = OperatorType::ElementWise) {
+    jit_operator_registry_.emplace(
+        std::piecewise_construct,
+        std::forward_as_tuple(canonicalSchemaString(op->schema())),
+        std::forward_as_tuple(parse_fn, merge_query_fn, type));
   }
 
  private:
@@ -226,6 +266,11 @@ class IrParser {
         "aten::pow(Scalar self, Tensor exponent) -> Tensor",
         "aten::remainder(Tensor self, Tensor other) -> Tensor",
         "aten::fmod(Tensor self, Tensor other) -> Tensor",
+        "aten::__and__(Tensor self, Tensor other) -> Tensor",
+        "aten::__or__(Tensor self, Tensor other) -> Tensor",
+        "aten::__xor__(Tensor self, Tensor other) -> Tensor",
+        "aten::__lshift__(Tensor self, Tensor other) -> Tensor",
+        "aten::__rshift__(Tensor self, Tensor other) -> Tensor",
         "aten::eq(Tensor self, Tensor other) -> Tensor",
         "aten::eq(Tensor self, Scalar other) -> Tensor",
         "aten::ne(Tensor self, Tensor other) -> Tensor",
@@ -260,7 +305,12 @@ class IrParser {
                  {aten::gt, BinaryOpType::GT},
                  {aten::ge, BinaryOpType::GE},
                  {aten::ne, BinaryOpType::NE},
-                 {aten::eq, BinaryOpType::Eq}});
+                 {aten::eq, BinaryOpType::Eq},
+                 {aten::__and__, BinaryOpType::And},
+                 {aten::__or__, BinaryOpType::Or},
+                 {aten::__xor__, BinaryOpType::Xor},
+                 {aten::__lshift__, BinaryOpType::Lshift},
+                 {aten::__rshift__, BinaryOpType::Rshift}});
             auto lhs = value_map[node->inputs()[0]->unique()];
             auto rhs = value_map[node->inputs()[1]->unique()];
 
@@ -297,6 +347,7 @@ class IrParser {
         "aten::floor(Tensor self) -> Tensor",
         "aten::round(Tensor self) -> Tensor",
         "aten::trunc(Tensor self) -> Tensor",
+        "aten::bitwise_not(Tensor self) -> Tensor",
         "aten::frac(Tensor self) -> Tensor",
         "aten::reciprocal(Tensor self) -> Tensor",
         "aten::relu(Tensor self) -> Tensor",
@@ -336,6 +387,7 @@ class IrParser {
                 {aten::floor, UnaryOpType::Floor},
                 {aten::round, UnaryOpType::Round},
                 {aten::trunc, UnaryOpType::Trunc},
+                {aten::bitwise_not, UnaryOpType::Not},
                 {aten::frac, UnaryOpType::Frac},
                 {aten::reciprocal, UnaryOpType::Reciprocal},
                 {aten::relu, UnaryOpType::Relu},
@@ -390,10 +442,10 @@ class IrParser {
             // TODO: we need to get a proper lower bound per dtype in operand.
             auto low = value_map.count(node->inputs()[1]->unique()) != 0
                 ? value_map[node->inputs()[1]->unique()]
-                : new Float(std::numeric_limits<float>::min());
+                : new Double(std::numeric_limits<float>::min());
             auto high = value_map.count(node->inputs()[2]->unique()) != 0
                 ? value_map[node->inputs()[2]->unique()]
-                : new Float(std::numeric_limits<float>::max());
+                : new Double(std::numeric_limits<float>::max());
 
             auto out = clamp(operand, low, high);
             value_map.emplace(node->output()->unique(), out);
@@ -531,9 +583,9 @@ class IrParser {
             auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
             auto x_mean = div(x_sum_bcast, num_features);
 
-            // auto current_mean_hat = mul(x_mean, new Float(kMomentum));
+            // auto current_mean_hat = mul(x_mean, new Double(kMomentum));
             // auto rmean_bcast = broadcast(running_mean, broadcast_mask);
-            // auto mean_hat = mul(rmean_bcast, new Float(1.0 - kMomentum));
+            // auto mean_hat = mul(rmean_bcast, new Double(1.0 - kMomentum));
             // auto new_mean_hat = add(mean_hat, current_mean_hat);
 
             auto x_mean_sub = sub(input, x_mean);
@@ -544,12 +596,12 @@ class IrParser {
 
             // auto num_feature_decrement = sub(num_features, new Int(1));
             // auto unbiased_var = div(var_sum_bcast, num_feature_decrement);
-            // auto current_var_hat = mul(unbiased_var, new Float(kMomentum));
+            // auto current_var_hat = mul(unbiased_var, new Double(kMomentum));
             // auto rvar_bcast = broadcast(running_var, broadcast_mask);
-            // auto var_hat = mul(rvar_bcast, new Float(1.0 - kMomentum));
+            // auto var_hat = mul(rvar_bcast, new Double(1.0 - kMomentum));
             // auto new_var_hat = add(var_hat, current_var_hat);
 
-            auto var_eps = add(var, new Float(kEps));
+            auto var_eps = add(var, new Double(kEps));
             auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
             auto output = mul(x_mean_sub, rvar);
 
@@ -565,7 +617,9 @@ class IrParser {
               output = add(output, bias);
             }
             value_map.emplace(node->output()->unique(), output);
-          });
+          },
+          [](const Node* node) -> bool { return true; },
+          OperatorType::Normalization);
     }
 
     {
@@ -623,7 +677,7 @@ class IrParser {
             auto var_sum = sum(x_mean_sub_pow, reduction_axes);
             auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
             auto var = div(var_sum_bcast, num_features);
-            auto var_eps = add(var, new Float(kEps));
+            auto var_eps = add(var, new Double(kEps));
             auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
             auto output = mul(x_mean_sub, rvar);
 
@@ -639,7 +693,9 @@ class IrParser {
               output = add(output, bias_bcast);
             }
             value_map.emplace(node->output()->unique(), output);
-          });
+          },
+          [](const Node* node) -> bool { return true; },
+          OperatorType::Normalization);
     }
 
     {
@@ -672,7 +728,15 @@ class IrParser {
             auto* bcast_sum = broadcast(sum_exp, broadcast_mask);
             auto* output = div(exp, bcast_sum);
             value_map.emplace(node->output()->unique(), output);
-          });
+          },
+          [](const Node* node) -> bool {
+            if (!node->inputs()[2]->type()->isSubtypeOf(
+                    static_cast<c10::TypePtr>(NoneType::get()))) {
+              return false;
+            }
+            return true;
+          },
+          OperatorType::Normalization);
     }
 
     {
@@ -723,7 +787,7 @@ class IrParser {
             }
             return true;
           },
-          true);
+          OperatorType::Reduction);
     }
 
     {
@@ -762,22 +826,12 @@ class IrParser {
             *node);
       }
     } else {
-      auto iter = IrParser::jit_operator_registry_.find(node->kind());
-      // make sure we have a parser for the op;
+      auto reg_entry = lookupInRegistry(node);
       TORCH_INTERNAL_ASSERT(
-          iter != IrParser::jit_operator_registry_.end(),
-          "CudaFusionGroup Parser doesn't handle operator kind(): ",
-          node->kind().toDisplayString());
-      for (auto& pair_op_func : iter->second) {
-        if (node->matches(pair_op_func.first->schema())) {
-          pair_op_func.second.parse(node, value_map_);
-          return;
-        }
-      }
-      TORCH_INTERNAL_ASSERT(
-          false,
-          "CudaFusionGroup Parser doesn't recognize operator overload:",
+          reg_entry != nullptr,
+          "CudaFusionGroup Parser doesn't handle node: ",
           canonicalSchemaString(node->schema()));
+      reg_entry->parse(node, value_map_);
     }
   }
 
@@ -788,17 +842,17 @@ class IrParser {
   bool registerScalar(const JitValue* val) {
     if (val->type()->isSubtypeOf(static_cast<c10::TypePtr>(FloatType::get()))) {
       CgValue cg_val;
-      if (auto ival = constant_as<float>(val)) {
-        cg_val = new Float(ival.value());
+      if (auto ival = constant_as<double>(val)) {
+        cg_val = new Double(ival.value());
       } else {
-        cg_val = new Float();
+        cg_val = new Double();
       }
       value_map_.emplace(val->unique(), cg_val);
       return true;
     } else if (val->type()->isSubtypeOf(
                    static_cast<c10::TypePtr>(IntType::get()))) {
       CgValue cg_val;
-      if (auto ival = constant_as<int>(val)) {
+      if (auto ival = constant_as<int64_t>(val)) {
         cg_val = new Int(ival.value());
       } else {
         cg_val = new Int();
@@ -855,31 +909,34 @@ class IrParser {
   // maps from JitValue::unique() to fusion Val;
   std::unordered_map<size_t, CgValue> value_map_;
   // parsing rule registry.
-  static std::unordered_map<
-      Symbol,
-      std::vector<std::pair<std::shared_ptr<Operator>, RegistrationEntry>>>
-      jit_operator_registry_;
-  static std::unordered_set<Symbol> jit_reduction_op_registry_;
+  static std::unordered_map<std::string, RegistrationEntry>
+      jit_operator_registry_; // NOLINT
+
+  // pointing cached entry stored in `jit_operator_registry_`
+  static std::unordered_map<const FunctionSchema*, const RegistrationEntry*>
+      cached_registry_lookup_; // NOLINT
+
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   static bool init_registry_;
 };
 
-std::unordered_map<
-    Symbol,
-    std::vector<
-        std::pair<std::shared_ptr<Operator>, IrParser::RegistrationEntry>>>
-    IrParser::jit_operator_registry_;
-std::unordered_set<Symbol> IrParser::jit_reduction_op_registry_;
+std::unordered_map<std::string, IrParser::RegistrationEntry>
+    IrParser::jit_operator_registry_; // NOLINT
+std::unordered_map<const FunctionSchema*, const IrParser::RegistrationEntry*>
+    IrParser::cached_registry_lookup_; // NOLINT
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 bool IrParser::init_registry_ = true;
 
-} // namespace
-
-bool hasReductionNode(const Block* block) {
+bool anyInBlock(
+    const Block* block,
+    const std::function<bool(const Node*)>& fn) {
   for (auto node : block->nodes()) {
-    if (isReductionNode(node)) {
+    if (fn(node)) {
       return true;
     }
     for (auto block : node->blocks()) {
-      if (hasReductionNode(block)) {
+      if (anyInBlock(block, fn)) {
         return true;
       }
     }
@@ -887,8 +944,26 @@ bool hasReductionNode(const Block* block) {
   return false;
 }
 
+} // namespace
+
+bool hasReductionNode(const Block* block) {
+  return anyInBlock(block, isReductionNode);
+}
+
 bool isReductionNode(const Node* node) {
   return IrParser::isReductionNode(node);
+}
+
+bool hasNormalizationNode(const Block* block) {
+  return anyInBlock(block, isNormalizationNode);
+}
+
+bool isNormalizationNode(const Node* node) {
+  return IrParser::isNormalizationNode(node);
+}
+
+bool isElementWiseNode(const Node* node) {
+  return IrParser::isElementWiseNode(node);
 }
 
 bool isNodeParsible(const Node* node) {

@@ -43,14 +43,6 @@ class ScalarCheck : OptInConstDispatch {
     same_ = v1_->as<Double>()->sameAs(v2_->as<Double>());
   }
 
-  void handle(const Float* f) override {
-    same_ = v1_->as<Float>()->sameAs(v2_->as<Float>());
-  }
-
-  void handle(const Half* h) override {
-    same_ = v1_->as<Half>()->sameAs(v2_->as<Half>());
-  }
-
   void handle(const Int* i) override {
     same_ = v1_->as<Int>()->sameAs(v2_->as<Int>());
   }
@@ -105,40 +97,6 @@ bool Double::sameAs(const Statement* other) const {
   const auto other_double = other->as<Double>();
   if (isConst() && other_double->isConst())
     return *value() == *(other_double->value());
-  return false;
-}
-
-Float::Float(const Float* src, IrCloner* ir_cloner)
-    : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
-
-bool Float::sameAs(const Statement* const other) const {
-  if (this == other) {
-    return true;
-  }
-  if (!other->isA<Float>()) {
-    return false;
-  }
-  const auto other_float = other->as<Float>();
-  if (isConst() && other_float->isConst()) {
-    return *value() == *(other_float->value());
-  }
-  return false;
-}
-
-Half::Half(const Half* src, IrCloner* ir_cloner)
-    : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
-
-bool Half::sameAs(const Statement* other) const {
-  if (this == other) {
-    return true;
-  }
-  if (!other->isA<Half>()) {
-    return false;
-  }
-  const auto other_float = other->as<Half>();
-  if (isConst() && other_float->isConst()) {
-    return *value() == *(other_float->value());
-  }
   return false;
 }
 
@@ -626,6 +584,8 @@ TensorDomain::TensorDomain(
       " but needed one of size ",
       root_domain_.size());
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   domain_ = root_domain_;
   resetDomains();
 }
@@ -662,8 +622,9 @@ TensorDomain::TensorDomain(
         " is an input of domain, but it is not found in the root domain.");
   });
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   resetDomains();
-
   name_ = fusion_->registerVal(this);
 }
 
@@ -711,6 +672,8 @@ TensorDomain::TensorDomain(
         " is an input of the rfactor domain, but it is not found in the root domain.");
   });
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }
