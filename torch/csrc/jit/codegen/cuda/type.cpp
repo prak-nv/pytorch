@@ -320,13 +320,13 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::TIDx:
       return "threadIdx.x";
     case ParallelType::Vectorize:
-      return "Vectorize";
+      return "V";
     case ParallelType::Unroll:
-      return "Unroll";
+      return "UR";
     case ParallelType::Unswitch:
-      return "Unswitch";
+      return "US";
     case ParallelType::Serial:
-      return "Serial";
+      return "S";
     default:
       TORCH_INTERNAL_ASSERT(false, "Unexpected ParallelType", t);
   }
