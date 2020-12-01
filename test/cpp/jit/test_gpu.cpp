@@ -9984,6 +9984,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   at::manual_seed(0);
   at::Tensor t0 = at::randn({M, K}, options);
   at::Tensor t1 = at::randn({K, N}, options);
+  std::vector<IValue> aten_inputs = {t0, t1};
 
   FusionExecutor fe;
   if (from_file) {
@@ -9998,13 +9999,12 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   } else {
     fe.compileFusion(&fusion);
   }
-  auto outputs = fe.runFusion({t0, t1});
+  auto outputs = fe.runFusion(aten_inputs);
 
   at::Tensor aten_output = matmul(t0, t1);
-  TORCH_CHECK(
-      aten_output.allclose(outputs[0], 1e-5, 1e-5),
-      "Error of: ",
-      aten_output.sub(outputs[0]).abs().max());
+
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
 } // namespace jit
