@@ -149,7 +149,7 @@ Val* newValLike(Val* val, DataType dtype) {
   TORCH_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
-  ValType vtype = val->getValType().value();
+  const ValType vtype = val->getValType().value();
 
   if (vtype == ValType::TensorView)
     return newOutputTV({val}, dtype);
@@ -245,9 +245,9 @@ TensorView* arithOpOverloads(
 }
 
 DataType getOutputType(BinaryOpType type, DataType v1_type, DataType v2_type) {
-  bool floating_input =
+  const bool floating_input =
       isFloatingPointType(v1_type) || isFloatingPointType(v2_type);
-  bool integer_input = isIntegralType(v1_type) || isIntegralType(v2_type);
+  const bool integer_input = isIntegralType(v1_type) || isIntegralType(v2_type);
 
   if (isIntegerOp(type)) {
     if (integer_input && !floating_input) {

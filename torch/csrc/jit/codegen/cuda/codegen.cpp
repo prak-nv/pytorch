@@ -326,7 +326,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
       code_ << " = ";
     }
 
-    auto op_type = node->operation();
+    const auto op_type = node->operation();
     if (auto op = inline_op_str(op_type)) {
       if (alsoBooleanOperator(op_type) &&
           node->out()->dtype() == DataType::Bool) {
