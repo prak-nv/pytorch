@@ -10,6 +10,7 @@ from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithS
 from test_jit import JitTestCase, RUN_CUDA
 import itertools
 import numpy as np
+import math
 
 os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
@@ -25,6 +26,12 @@ FUSION_GUARD = 'prim::CudaFusionGuard'
 
 
 class TestCudaFuser(JitTestCase):
+
+    special_values = torch.tensor(
+        [float("-inf"), -10, -math.pi,
+            -1, -0.5, 0, 1, 0.5,
+            math.pi, 10, float("inf"),
+            float("nan")], dtype=torch.float, device='cuda')
 
     def _getSubgraphInFusion(self, graph):
         num_node = 0
@@ -136,6 +143,22 @@ class TestCudaFuser(JitTestCase):
         o = t(x, y, z, q)
         self.assertEqual(o, jit_o)
         self.assertGraphContains(t_jit.graph_for(x, y, z, q), FUSION_GUARD)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_reduction_double(self):
+        def t(x: torch.Tensor):
+            o = torch.mul(x, 1.0)
+            o = torch.add(o, x)
+            o = torch.sum(o, dim=[2], dtype=torch.double)
+            return o
+        t_jit = torch.jit.script(t)
+
+        x = torch.randn(8, 4, 16, dtype=torch.double, device="cuda")
+        jit_o = t_jit(x)
+        jit_o = t_jit(x)
+        o = t(x)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -386,6 +409,113 @@ class TestCudaFuser(JitTestCase):
         for op in operations:
             self._unary_test_helper(op)
 
+    def _unary_type_test_helper(self, operation, dtype, data=None):
+        shape = (4, 8, 32, 32)
+
+        def t(x: torch.Tensor):
+            o = x * 1.0
+            o = operation(o)
+            return o
+
+        try:
+            if data is None:
+                x = torch.randn(shape, dtype=dtype, device="cuda")
+            else:
+                x = special_values.to(dtype=dtype)
+            ref = t(x)
+        except Exception:
+            # same way as TE checker, if eager mode throws, ignore this test
+            return
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x)
+        jit_o = t_jit(x)
+        o = t(x)
+        self.assertEqual(o, jit_o, msg=f"""
+        failing case:
+            {dtype} {operation} {data}
+        """)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_data_compatibility(self):
+        dtypes = [
+            torch.int8,
+            torch.uint8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+            torch.float16,
+            torch.float32,
+            torch.float64,
+            torch.bool
+        ]
+        operations = [torch.neg,
+                      torch.abs,
+                      torch.log,
+                      torch.log10,
+                      torch.log1p,
+                      torch.log2,
+                      torch.lgamma,
+                      torch.exp,
+                      torch.expm1,
+                      torch.erf,
+                      torch.erfc,
+                      torch.cos,
+                      torch.acos,
+                      torch.cosh,
+                      torch.sin,
+                      torch.asin,
+                      torch.tan,
+                      torch.atan,
+                      torch.sqrt,
+                      torch.rsqrt,
+                      torch.ceil,
+                      torch.floor,
+                      torch.round,
+                      torch.trunc,
+                      torch.frac,
+                      torch.reciprocal,
+                      torch.relu,
+                      torch.sigmoid,
+                      torch.tanh,
+                      torch.nn.functional.gelu]
+        prev_fallback = os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK']
+        os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '0'
+        for op, dtype in itertools.product(operations, dtypes):
+            self._unary_type_test_helper(op, dtype)  # test special numbers
+            self._unary_type_test_helper(op, dtype)  # test random data
+        os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = prev_fallback
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_unary_bitwise(self):
+        def bit_not(x: torch.Tensor):
+            return ~(x + 0)
+
+        jitted = torch.jit.script(bit_not)
+        x = torch.randn(4, 8, 32, 32, dtype=torch.float, device="cuda").mul(5).to(torch.long)
+        jit_o = bit_not(x)
+        jit_o = bit_not(x)
+        o = bit_not(x)
+        self.assertEqual(o, jit_o)
+        jitted.graph_for(x)  # Shows up in second instance, not first
+        self.assertGraphContains(jitted.graph_for(x), FUSION_GUARD)
+
+        def bool_not(x: torch.Tensor, y: torch.Tensor):
+            return ~(x & y)
+
+        jitted = torch.jit.script(bool_not)
+        x = torch.rand(4, 8, 32, 32, dtype=torch.float, device="cuda").round().to(torch.bool)
+        y = torch.rand(4, 8, 32, 32, dtype=torch.float, device="cuda").round().to(torch.bool)
+        jit_o = bool_not(x, y)
+        jit_o = bool_not(x, y)
+        o = bool_not(x, y)
+        self.assertEqual(o, jit_o)
+        jitted.graph_for(x, y)  # Shows up in second instance, not first
+        self.assertGraphContains(jitted.graph_for(x, y), FUSION_GUARD)
+
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
@@ -406,6 +536,50 @@ class TestCudaFuser(JitTestCase):
                       torch.lt]
         for op in operations:
             self._binary_test_helper(op)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_binary_bitwise(self):
+        def jit_or(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
+            return (x & y) | z
+
+        def jit_xor(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
+            return (x & y) ^ z
+
+        def jit_lshift(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
+            return (x & y) << z
+
+        def jit_rshift(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
+            return (x & y) >> z
+
+        for jit_func in [jit_or, jit_xor, jit_lshift, jit_rshift]:
+            x = torch.randn(4, 8, 32, 32, dtype=torch.float, device="cuda").mul(5).to(torch.long)
+            y = torch.randn(4, 8, 32, 32, dtype=torch.float, device="cuda").mul(5).to(torch.long)
+            z = torch.randn(4, 8, 32, 32, dtype=torch.float, device="cuda").mul(2).to(torch.long)
+
+            jitted = torch.jit.script(jit_func)
+            jit_o = jitted(x, y, z)
+            jit_o = jitted(x, y, z)
+            o = jit_func(x, y, z)
+            self.assertEqual(o, jit_o)
+            self.assertGraphContains(jitted.graph_for(x, y, z), FUSION_GUARD)
+
+        # We shouldn't need this redefinition of the function, but otherwise it won't recompile for a new type
+        def jit_or(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
+            return x & y | z
+
+        for jit_func in [jit_or, ]:
+            x = torch.rand(4, 2, dtype=torch.float, device="cuda").round().to(torch.bool)
+            y = torch.rand(4, 2, dtype=torch.float, device="cuda").round().to(torch.bool)
+            z = torch.rand(4, 2, dtype=torch.float, device="cuda").round().to(torch.bool)
+
+            jitted = torch.jit.script(jit_func)
+            jit_o = jitted(x, y, z)
+            jit_o = jitted(x, y, z)
+            o = jit_func(x, y, z)
+            self.assertEqual(o, jit_o)
+            self.assertGraphContains(jitted.graph_for(x, y, z), FUSION_GUARD)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -579,10 +753,12 @@ class TestCudaFuser(JitTestCase):
             o = torch.relu(o)
             return o
 
-        x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute([perm0.index(i) for i in range(len(sizes))])
+        x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute(
+            [perm0.index(i) for i in range(len(sizes))])
         if broadcast_axis >= 0:
             sizes[broadcast_axis] = 1
-        y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute([perm1.index(i) for i in range(len(sizes))])
+        y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute(
+            [perm1.index(i) for i in range(len(sizes))])
         t_jit = torch.jit.script(t)
         jit_o = t_jit(x, y)
         jit_o = t_jit(x, y)
@@ -625,8 +801,10 @@ class TestCudaFuser(JitTestCase):
 
         t = MyReduction()
 
-        x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute([perm0.index(i) for i in range(len(sizes))])
-        y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute([perm1.index(i) for i in range(len(sizes))])
+        x = torch.randn([sizes[i] for i in perm0], dtype=dtype, device=device).permute(
+            [perm0.index(i) for i in range(len(sizes))])
+        y = torch.randn([sizes[i] for i in perm1], dtype=dtype, device=device).permute(
+            [perm1.index(i) for i in range(len(sizes))])
         t_jit = torch.jit.script(t)
         jit_o = t_jit(x, y)
         jit_o = t_jit(x, y)
@@ -707,7 +885,7 @@ class TestCudaFuser(JitTestCase):
             def __init__(self):
                 super(MyBatchNorm, self).__init__()
 
-            def forward(self, x: torch.Tensor, y: torch.Tensor, r_mean : torch.Tensor, r_var : torch.Tensor):
+            def forward(self, x: torch.Tensor, y: torch.Tensor, r_mean: torch.Tensor, r_var: torch.Tensor):
                 o = torch.add(x, y)
                 o = torch.nn.functional.batch_norm(o, r_mean, r_var, training=True)
                 return o

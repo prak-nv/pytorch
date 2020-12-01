@@ -39,12 +39,8 @@ class ScalarCheck : OptInConstDispatch {
     same_ = v1_->as<Bool>()->sameAs(v2_->as<Bool>());
   }
 
-  void handle(const Float* f) override {
-    same_ = v1_->as<Float>()->sameAs(v2_->as<Float>());
-  }
-
-  void handle(const Half* h) override {
-    same_ = v1_->as<Half>()->sameAs(v2_->as<Half>());
+  void handle(const Double* d) override {
+    same_ = v1_->as<Double>()->sameAs(v2_->as<Double>());
   }
 
   void handle(const Int* i) override {
@@ -80,19 +76,10 @@ bool Bool::sameAs(const Bool* const other) const {
   return this == other;
 }
 
-Float::Float(const Float* src, IrCloner* ir_cloner)
+Double::Double(const Double* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
 
-bool Float::sameAs(const Float* const other) const {
-  if (isConst() && other->isConst())
-    return *value() == *(other->value());
-  return this == other;
-}
-
-Half::Half(const Half* src, IrCloner* ir_cloner)
-    : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
-
-bool Half::sameAs(const Half* const other) const {
+bool Double::sameAs(const Double* const other) const {
   if (isConst() && other->isConst())
     return *value() == *(other->value());
   return this == other;
@@ -533,6 +520,8 @@ TensorDomain::TensorDomain(
       " but needed one of size ",
       root_domain_.size());
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   domain_ = root_domain_;
   resetDomains();
 }
@@ -569,8 +558,9 @@ TensorDomain::TensorDomain(
         " is an input of domain, but it is not found in the root domain.");
   });
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   resetDomains();
-
   name_ = fusion_->registerVal(this);
 }
 
@@ -618,6 +608,8 @@ TensorDomain::TensorDomain(
         " is an input of the rfactor domain, but it is not found in the root domain.");
   });
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }

@@ -61,8 +61,7 @@ class IterDomain;
 class TensorDomain;
 class TensorView;
 class Bool;
-class Float;
-class Half;
+class Double;
 class Int;
 class NamedScalar;
 
@@ -89,8 +88,7 @@ class TORCH_CUDA_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const TensorDomain*) {}
   virtual void handle(const TensorView*) {}
   virtual void handle(const Bool*) {}
-  virtual void handle(const Float*) {}
-  virtual void handle(const Half*) {}
+  virtual void handle(const Double*) {}
   virtual void handle(const Int*) {}
   virtual void handle(const NamedScalar*) {}
 
@@ -116,8 +114,7 @@ class TORCH_CUDA_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(TensorDomain*) {}
   virtual void handle(TensorView*) {}
   virtual void handle(Bool*) {}
-  virtual void handle(Float*) {}
-  virtual void handle(Half*) {}
+  virtual void handle(Double*) {}
   virtual void handle(Int*) {}
   virtual void handle(NamedScalar*) {}
 
@@ -151,11 +148,8 @@ class TORCH_CUDA_API OptInConstDispatch : public PolymorphicBase {
   virtual void handle(const Bool*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Bool.");
   }
-  virtual void handle(const Float*) {
-    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Float.");
-  }
-  virtual void handle(const Half*) {
-    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Half.");
+  virtual void handle(const Double*) {
+    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Double.");
   }
   virtual void handle(const Int*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Int.");
@@ -208,11 +202,8 @@ class TORCH_CUDA_API OptInDispatch : public PolymorphicBase {
   virtual void handle(Bool*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Bool.");
   }
-  virtual void handle(Float*) {
-    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Float.");
-  }
-  virtual void handle(Half*) {
-    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Half.");
+  virtual void handle(Double*) {
+    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Double.");
   }
   virtual void handle(Int*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for Int.");
@@ -280,8 +271,7 @@ class TORCH_CUDA_API OptOutMutator : public PolymorphicBase {
   virtual Statement* mutate(TensorDomain*);
   virtual Statement* mutate(TensorView*);
   virtual Statement* mutate(Bool*);
-  virtual Statement* mutate(Float*);
-  virtual Statement* mutate(Half*);
+  virtual Statement* mutate(Double*);
   virtual Statement* mutate(Int*);
   virtual Statement* mutate(NamedScalar*);
 
@@ -325,9 +315,6 @@ class TORCH_CUDA_API OptInMutator : public PolymorphicBase {
   }
   virtual Statement* mutate(Bool*) {
     TORCH_INTERNAL_ASSERT(false, "Mutate not overriden for Bool.");
-  }
-  virtual Statement* mutate(Float*) {
-    TORCH_INTERNAL_ASSERT(false, "Mutate not overriden for Float.");
   }
   virtual Statement* mutate(Int*) {
     TORCH_INTERNAL_ASSERT(false, "Mutate not overriden for Int.");

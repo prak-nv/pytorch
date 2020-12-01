@@ -60,25 +60,7 @@ void IrPrinter::handle(const TensorDomain* td) {
 
 void IrPrinter::handle(const TensorView* tv) {
   if (tv->nDims() == 0) {
-    switch (tv->getDataType().value()) {
-      case DataType::Bool:
-        os_ << "b";
-        break;
-      case DataType::Float:
-        os_ << "f";
-        break;
-      case DataType::Half:
-        os_ << "h";
-        break;
-      case DataType::Int:
-        os_ << "i";
-        break;
-      default:
-        TORCH_INTERNAL_ASSERT(
-            false, "Did not recognize type ", tv->getDataType().value());
-    }
-    os_ << tv->name();
-
+    os_ << typePrefix(tv->getDataType().value()) << tv->name();
   } else {
     os_ << "T" << tv->name();
     handle(tv->domain());
@@ -121,36 +103,21 @@ void IrPrinter::handle(const Bool* b) {
   }
 }
 
-void IrPrinter::handle(const Float* f) {
-  if (print_inline_ && FusionGuard::getCurFusion()->origin(f) != nullptr) {
+void IrPrinter::handle(const Double* d) {
+  if (print_inline_ && FusionGuard::getCurFusion()->origin(d) != nullptr) {
     os_ << "( ";
-    handle(FusionGuard::getCurFusion()->origin(f));
+    handle(FusionGuard::getCurFusion()->origin(d));
     os_ << " )";
     return;
   }
 
-  if (f->isSymbolic()) {
-    os_ << "f" << f->name();
+  if (d->isSymbolic()) {
+    os_ << "d" << d->name();
   } else {
-    os_ << "float("
+    os_ << "double("
         << std::setprecision(
-               std::numeric_limits<Float::ScalarType>::max_digits10)
-        << *(f->value()) << ")";
-  }
-}
-
-void IrPrinter::handle(const Half* h) {
-  if (print_inline_ && FusionGuard::getCurFusion()->origin(h) != nullptr) {
-    os_ << "( ";
-    handle(FusionGuard::getCurFusion()->origin(h));
-    os_ << " )";
-    return;
-  }
-
-  if (h->isSymbolic()) {
-    os_ << "h" << h->name();
-  } else {
-    os_ << "__float2half(" << *(h->value()) << ")";
+               std::numeric_limits<Double::ScalarType>::max_digits10)
+        << *(d->value()) << ")";
   }
 }
 
@@ -199,23 +166,36 @@ void IrPrinter::handle(const UnaryOp* uop) {
     checkInlineable(uop);
   }
 
-  if (auto inline_uop = inline_op_str(uop->getUnaryOpType())) {
+  auto op_type = uop->getUnaryOpType();
+
+  if (auto inline_uop = inline_op_str(op_type)) {
     os_ << inline_uop.value();
     handle(uop->in());
   } else {
-    if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+    if (op_type == UnaryOpType::Cast) {
       c10::optional<std::string> cast_str = cast_func_str(std::make_pair(
           uop->in()->getDataType().value(), uop->out()->getDataType().value()));
       TORCH_INTERNAL_ASSERT(cast_str != c10::nullopt, "Unsupported Cast");
       os_ << cast_str.value();
     } else {
-      os_ << uop->getUnaryOpType();
+      if (alsoBooleanOperator(op_type) &&
+          uop->out()->getDataType().value() == DataType::Bool) {
+        os_ << stringifyBooleanOp(op_type);
+      } else {
+        os_ << op_type;
+      }
+      if (uop->out()->getDataType().value() == DataType::Float &&
+          needFloatSuffix(op_type)) {
+        os_ << "f";
+      }
     }
-    os_ << "(";
-    if (uop->getUnaryOpType() == UnaryOpType::RandLike)
+    if (op_type == UnaryOpType::RandLike) {
+      os_ << "(";
       os_ << "rnd";
-    else
+    } else {
+      os_ << "(";
       handle(uop->in());
+    }
     os_ << ")";
   }
 
@@ -244,7 +224,8 @@ void IrPrinter::handle(const BinaryOp* bop) {
     checkInlineable(bop);
   }
 
-  if (auto inline_bop = inline_op_str(bop->getBinaryOpType())) {
+  auto op_type = bop->getBinaryOpType();
+  if (auto inline_bop = inline_op_str(op_type)) {
     handle(bop->lhs());
     if (istvop) {
       os_ << "\n";
@@ -253,7 +234,17 @@ void IrPrinter::handle(const BinaryOp* bop) {
     os_ << " " << inline_bop.value() << " ";
     handle(bop->rhs());
   } else {
-    os_ << bop->getBinaryOpType() << "(";
+    if (alsoBooleanOperator(op_type) &&
+        bop->out()->getDataType().value() == DataType::Bool) {
+      os_ << stringifyBooleanOp(op_type);
+    } else {
+      os_ << op_type;
+    }
+    if (bop->out()->getDataType().value() == DataType::Float &&
+        needFloatSuffix(op_type)) {
+      os_ << "f";
+    }
+    os_ << "(";
     handle(bop->lhs());
     if (istvop) {
       os_ << "\n";

@@ -31,7 +31,12 @@ enum class ValType {
   NamedScalar,
 };
 
-enum class DataType { Bool, Float, Half, Int, Null };
+enum class DataType { Bool, Double, Float, Half, Int, Null };
+
+// Returns if the datatype is a floating point type
+bool isFloatingPointType(DataType dtype);
+// Returns if the datatype is an integer type
+bool isIntegralType(DataType dtype);
 
 enum class ExprType {
   Invalid,
@@ -79,8 +84,14 @@ enum class UnaryOpType {
   Sqrt,
   Tan,
   Tanh,
-  Trunc
+  Trunc,
+
+  // Might be a bitwise operator or boolean operator.
+  Not
 };
+
+// Primarily for Not, which could be Not a boolean, or a bitwise not.
+bool alsoBooleanOperator(const UnaryOpType uopt);
 
 // TODO: Order of this list is important as it affects type promotion. it's not
 // in the right order now.
@@ -98,18 +109,39 @@ enum class BinaryOpType {
   Sub,
   // TypeAs,
 
-  // Logical Ops
-  // Int operations, leave position of Mod we depend on its location of first
+  // Integer output ops. If changing modify isIntegerOp
   Mod,
   CeilDiv,
-  And,
+  Lshift,
+  Rshift,
+  Xor,
+
+  // Logical Ops
+  // Int operations, leave position of Mod as first logical op see
+  // isLogicalOp(BinaryOpType bopt)
   Eq,
   GE,
   GT,
   LE,
   LT,
-  NE
+  NE,
+
+  // Maybe bitwise or boolean op, leave position of and as first bool/int
+  // op. These are ops that have different operators based on output type. See
+  // is boolean op. These ops also don't work on floating point inputs.
+  And,
+  Or
 };
+
+// Return if output of operator should be a boolean
+bool isIntegerOp(const BinaryOpType bopt);
+
+// Return if output of operator should be a boolean
+bool isLogicalOp(const BinaryOpType bopt);
+
+// Operations that could be a bitwise operation or a boolean operation depending
+// on input, for example bitwise_and is also used for boolean and in the jit
+bool alsoBooleanOperator(const BinaryOpType bopt);
 
 enum class TernaryOpType { Clamp, Threshold, Where };
 
@@ -122,6 +154,7 @@ enum class ParallelType {
   TIDx,
   Vectorize,
   Unroll,
+  Unswitch,
   Serial
 };
 
@@ -142,12 +175,18 @@ enum class IterType {
   BroadcastWithoutStride
 };
 
+// Returns if function needs an f suffix on the operator when operating on a
+// float value i.e. sin->sinf
+bool needFloatSuffix(UnaryOpType t);
+bool needFloatSuffix(BinaryOpType t);
+
 ValType promote_type(const ValType& t1, const ValType& t2);
 DataType promote_type(const DataType& t1, const DataType& t2);
-bool is_logical_op(const BinaryOpType& bot);
 
-DataType aten_to_data_type(const at::ScalarType& scalar_type);
-at::ScalarType data_type_to_aten(const DataType& data_type);
+// If type cannot be found (i.e. codegen does not support provided type) returns
+// DataType::Null
+TORCH_CUDA_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
+TORCH_CUDA_API at::ScalarType data_type_to_aten(const DataType& data_type);
 
 TORCH_CUDA_API std::ostream& operator<<(std::ostream&, const ValType);
 TORCH_CUDA_API std::ostream& operator<<(std::ostream&, const DataType);
@@ -159,8 +198,12 @@ TORCH_CUDA_API std::ostream& operator<<(std::ostream&, const ParallelType);
 TORCH_CUDA_API std::ostream& operator<<(std::ostream&, const MemoryType);
 TORCH_CUDA_API std::ostream& operator<<(std::ostream&, const IterType);
 
+std::string stringifyBooleanOp(const UnaryOpType);
+std::string stringifyBooleanOp(const BinaryOpType);
+
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
+std::string typePrefix(const DataType);
 
 TORCH_CUDA_API bool isParallelTypeThreadDim(ParallelType);
 TORCH_CUDA_API bool isParallelTypeBlockDim(ParallelType);

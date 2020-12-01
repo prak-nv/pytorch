@@ -159,20 +159,12 @@ void IrPrinter::visit(const kir::Bool* node) {
   }
 }
 
-void IrPrinter::visit(const kir::Float* node) {
+void IrPrinter::visit(const kir::Double* node) {
   if (node->isConst()) {
-    const int digits = std::numeric_limits<Float::ScalarType>::max_digits10;
-    ir_str_ << "float(" << std::setprecision(digits) << *node->value() << ")";
+    const int digits = std::numeric_limits<Double::ScalarType>::max_digits10;
+    ir_str_ << "double(" << std::setprecision(digits) << *node->value() << ")";
   } else {
-    ir_str_ << varName(node, "f");
-  }
-}
-
-void IrPrinter::visit(const kir::Half* node) {
-  if (node->isConst()) {
-    ir_str_ << "half(" << *node->value() << ")";
-  } else {
-    ir_str_ << varName(node, "h");
+    ir_str_ << varName(node, "d");
   }
 }
 
@@ -220,21 +212,31 @@ void IrPrinter::visit(const kir::TensorView* node) {
 void IrPrinter::visit(const kir::UnaryOp* node) {
   indent() << gen(node->out()) << " = ";
 
-  if (auto op = inline_op_str(node->operation())) {
-    ir_str_ << *op << use(node->in());
+  auto op_type = node->operation();
+
+  if (auto op = inline_op_str(op_type)) {
+    if (alsoBooleanOperator(op_type) &&
+        node->out()->dtype() == DataType::Bool) {
+      ir_str_ << stringifyBooleanOp(op_type) << gen(node->in());
+    } else {
+      ir_str_ << *op << gen(node->in());
+    }
   } else {
-    if (node->operation() == UnaryOpType::Cast) {
+    if (op_type == UnaryOpType::Cast) {
       const auto cast_str =
           cast_func_str({node->in()->dtype(), node->out()->dtype()});
       ir_str_ << cast_str.value();
     } else {
-      ir_str_ << node->operation();
+      ir_str_ << op_type;
+      if (needFloatSuffix(op_type) && node->out()->dtype() == DataType::Float) {
+        ir_str_ << "f";
+      }
     }
 
-    ir_str_ << "(";
-    if (node->operation() == UnaryOpType::RandLike) {
-      ir_str_ << "RND";
+    if (op_type == UnaryOpType::RandLike) {
+      ir_str_ << "(RND";
     } else {
+      ir_str_ << "(";
       ir_str_ << use(node->in());
     }
     ir_str_ << ")";
@@ -246,14 +248,25 @@ void IrPrinter::visit(const kir::UnaryOp* node) {
 void IrPrinter::visit(const kir::BinaryOp* node) {
   indent() << gen(node->out()) << " = ";
 
-  const auto operation = node->operation();
+  const auto op_type = node->operation();
   const auto lhs = use(node->lhs());
   const auto rhs = use(node->rhs());
 
-  if (auto op = inline_op_str(operation)) {
-    ir_str_ << lhs << " " << *op << " " << rhs;
+  if (auto op = inline_op_str(op_type)) {
+    ir_str_ << lhs << " ";
+    if (alsoBooleanOperator(op_type) &&
+        node->out()->dtype() == DataType::Bool) {
+      ir_str_ << stringifyBooleanOp(op_type);
+    } else {
+      ir_str_ << *op;
+    }
+    ir_str_ << " " << rhs;
   } else {
-    ir_str_ << operation << "(" << lhs << ", " << rhs << ")";
+    ir_str_ << op_type;
+    if (needFloatSuffix(op_type) && node->out()->dtype() == DataType::Float) {
+      ir_str_ << "f";
+    }
+    ir_str_ << "(" << lhs << ", " << rhs << ")";
   }
 
   ir_str_ << "\n";

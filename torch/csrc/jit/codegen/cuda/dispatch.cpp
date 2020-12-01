@@ -48,11 +48,8 @@ void Val::dispatch(T handler, Val* val) {
         case DataType::Bool:
           ptr(handler)->handle(val->as<Bool>());
           return;
-        case DataType::Float:
-          ptr(handler)->handle(val->as<Float>());
-          return;
-        case DataType::Half:
-          ptr(handler)->handle(val->as<Half>());
+        case DataType::Double:
+          ptr(handler)->handle(val->as<Double>());
           return;
         case DataType::Int:
           ptr(handler)->handle(val->as<Int>());
@@ -126,11 +123,8 @@ void Val::constDispatch(T handler, const Val* val) {
         case DataType::Bool:
           ptr(handler)->handle(val->as<Bool>());
           return;
-        case DataType::Float:
-          ptr(handler)->handle(val->as<Float>());
-          return;
-        case DataType::Half:
-          ptr(handler)->handle(val->as<Half>());
+        case DataType::Double:
+          ptr(handler)->handle(val->as<Double>());
           return;
         case DataType::Int:
           ptr(handler)->handle(val->as<Int>());
@@ -214,10 +208,8 @@ Statement* Val::mutatorDispatch(T mutator, Val* val) {
       switch (*(val->getDataType())) {
         case DataType::Bool:
           return ptr(mutator)->mutate(val->as<Bool>());
-        case DataType::Float:
-          return ptr(mutator)->mutate(val->as<Float>());
-        case DataType::Half:
-          return ptr(mutator)->mutate(val->as<Half>());
+        case DataType::Double:
+          return ptr(mutator)->mutate(val->as<Double>());
         case DataType::Int:
           return ptr(mutator)->mutate(val->as<Int>());
         default:
