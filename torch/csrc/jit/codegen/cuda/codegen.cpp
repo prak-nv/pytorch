@@ -63,23 +63,8 @@ class CudaKernelGenerator : private kir::IrVisitor {
               << "> " << varName(tv);
       } else {
         TORCH_INTERNAL_ASSERT(val->isScalar());
-        // All floating point arguments come in as double, all int arguments
-        // come in as int64
-
-        if (isFloatingPointType(val->dtype())) {
-          // Should always be double
-          code_ << DataType::Double;
-        } else if (val->dtype() == DataType::Bool) {
-          code_ << DataType::Bool;
-        } else {
-          // Should always be int64_t
-          code_ << DataType::Int;
-        }
-        if (val->definition() != nullptr) {
-          code_ << " " << gen(val);
-        } else {
-          code_ << " " << varName(val);
-        }
+        TORCH_INTERNAL_ASSERT(val->definition() == nullptr);
+        code_ << val->dtype() << " " << gen(val);
       }
 
       if (val != params.back()) {
@@ -235,34 +220,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
       code_ << "(" << gen(def) << ")";
     } else if (node->isConst()) {
       const int digits = std::numeric_limits<Double::ScalarType>::max_digits10;
-      code_ << "double(" << std::setprecision(digits) << *node->value() << ")";
-    } else if (def == nullptr) {
-      code_ << "(double)" << varName(node);
-    } else {
-      code_ << varName(node);
-    }
-  }
-
-  void visit(const kir::Float* node) final {
-    const auto def = node->definition();
-    if (print_inline_ && def != nullptr) {
-      code_ << "(" << gen(def) << ")";
-    } else if (node->isConst()) {
-      const int digits = std::numeric_limits<Float::ScalarType>::max_digits10;
-      code_ << "float(" << std::setprecision(digits) << *node->value() << ")";
-    } else if (def == nullptr) {
-      code_ << "(float) " << varName(node);
-    } else {
-      code_ << varName(node);
-    }
-  }
-
-  void visit(const kir::Half* node) final {
-    const auto def = node->definition();
-    if (print_inline_ && def != nullptr) {
-      code_ << "(" << gen(def) << ")";
-    } else if (node->isConst()) {
-      code_ << "__float2half(" << *node->value() << ")";
+      code_ << std::setprecision(digits) << *node->value();
     } else {
       code_ << varName(node);
     }
@@ -537,7 +495,8 @@ class CudaKernelGenerator : private kir::IrVisitor {
       } else {
         indent() << kTab << genInline(node->predicate()) << ",\n";
       }
-      indent() << kTab << genInline(node->init()) << ");\n";
+      indent() << kTab << data_type << "(" << genInline(node->init())
+               << "));\n";
     }
   }
 
@@ -619,7 +578,8 @@ class CudaKernelGenerator : private kir::IrVisitor {
     } else {
       indent() << kTab << genInline(node->predicate()) << ",\n";
     }
-    indent() << kTab << genInline(node->reduction_op()->init()) << ");\n";
+    indent() << kTab << data_type << "("
+             << genInline(node->reduction_op()->init()) << "));\n";
   }
 
   void handleScope(const kir::Scope& scope) {

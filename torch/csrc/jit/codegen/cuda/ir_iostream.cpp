@@ -121,39 +121,6 @@ void IrPrinter::handle(const Double* d) {
   }
 }
 
-void IrPrinter::handle(const Float* f) {
-  if (print_inline_ && FusionGuard::getCurFusion()->origin(f) != nullptr) {
-    os_ << "( ";
-    handle(FusionGuard::getCurFusion()->origin(f));
-    os_ << " )";
-    return;
-  }
-
-  if (f->isSymbolic()) {
-    os_ << "f" << f->name();
-  } else {
-    os_ << "float("
-        << std::setprecision(
-               std::numeric_limits<Float::ScalarType>::max_digits10)
-        << *(f->value()) << ")";
-  }
-}
-
-void IrPrinter::handle(const Half* h) {
-  if (print_inline_ && FusionGuard::getCurFusion()->origin(h) != nullptr) {
-    os_ << "( ";
-    handle(FusionGuard::getCurFusion()->origin(h));
-    os_ << " )";
-    return;
-  }
-
-  if (h->isSymbolic()) {
-    os_ << "h" << h->name();
-  } else {
-    os_ << "__float2half(" << *(h->value()) << ")";
-  }
-}
-
 void IrPrinter::handle(const Int* i) {
   if (print_inline_) {
     if (auto def = FusionGuard::getCurFusion()->origin(i)) {
