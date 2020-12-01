@@ -9968,10 +9968,12 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   tv9->axis(2)->parallelize(ParallelType::TIDx);
   tv5->axis(-1)->parallelize(ParallelType::TIDx);
 
-  tv8->axis(-1)->parallelize(ParallelType::Unroll);
-  tv8->axis(-2)->parallelize(ParallelType::Unroll);
-  tv4->axis(-1)->parallelize(ParallelType::Unroll);
-  tv4->axis(-2)->parallelize(ParallelType::Unroll);
+  ParallelType pt =
+      std::getenv("UNSWITCH") ? ParallelType::Unswitch : ParallelType::Unroll;
+  tv8->axis(-1)->parallelize(pt);
+  tv8->axis(-2)->parallelize(pt);
+  tv4->axis(-1)->parallelize(pt);
+  tv4->axis(-2)->parallelize(pt);
 
   std::cerr << "After parallelization\n";
   fusion.printMath();
@@ -9995,13 +9997,47 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     buffer << cuda_src.rdbuf();
     std::string cuda_src_str = buffer.str();
     std::cerr << "Compiling " << cuda_src_str << std::endl;
-    fe.debugCompileFusionFromStr(&fusion, cuda_src_str, "CudaCodeGen::kernel1", 1);
+    fe.debugCompileFusionFromStr(
+        &fusion, cuda_src_str, "CudaCodeGen::kernel1", 1);
   } else {
     fe.compileFusion(&fusion);
   }
   auto outputs = fe.runFusion(aten_inputs);
 
   at::Tensor aten_output = matmul(t0, t1);
+
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionLoopUnswitch_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Algorithm
+  TensorView* tv0 = makeSymbolicTensor(1);
+  TensorView* tv1 = add(tv0, new Float(1));
+  TensorView* tv2 = add(tv1, new Float(1));
+  fusion.addInput(tv0);
+  fusion.addOutput(tv2);
+
+  tv2->split(0, 32);
+  tv1->computeAt(tv2, -1);
+
+  tv2->axis(1)->parallelize(ParallelType::Unswitch);
+
+  constexpr int M = 1000;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  at::Tensor aten_output = t0 + 1 + 1;
 
   testValidate(
       &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
