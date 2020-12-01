@@ -9968,12 +9968,10 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   tv9->axis(2)->parallelize(ParallelType::TIDx);
   tv5->axis(-1)->parallelize(ParallelType::TIDx);
 
-  ParallelType pt =
-      std::getenv("UNSWITCH") ? ParallelType::Unswitch : ParallelType::Unroll;
-  tv8->axis(-1)->parallelize(pt);
-  tv8->axis(-2)->parallelize(pt);
-  tv4->axis(-1)->parallelize(pt);
-  tv4->axis(-2)->parallelize(pt);
+  tv8->axis(-1)->parallelize(ParallelType::Unswitch);
+  tv8->axis(-2)->parallelize(ParallelType::Unswitch);
+  tv4->axis(-1)->parallelize(ParallelType::Unswitch);
+  tv4->axis(-2)->parallelize(ParallelType::Unswitch);
 
   std::cerr << "After parallelization\n";
   fusion.printMath();
