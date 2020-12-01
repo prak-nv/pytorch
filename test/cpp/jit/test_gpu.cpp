@@ -9864,16 +9864,16 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   const bool cyclic = std::getenv("NO_CYCLIC") == nullptr;
   const bool from_file = std::getenv("FROM_FILE");
 
-  if (cyclic) {
-    std::cerr << "Cyclic distribution\n";
-  }
+  constexpr int M = 154, K = 45, N = 1524;
 
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   // Algorithm
-  TensorView* tv0 = makeSymbolicTensor(2); // (M, K)
-  TensorView* tv1 = makeSymbolicTensor(2); // (K, N)
+  // TensorView* tv0 = makeSymbolicTensor(2); // (M, K)
+  TensorView* tv0 = makeConcreteTensor({M, K}); // (M, K)
+  // TensorView* tv1 = makeSymbolicTensor(2); // (K, N)
+  TensorView* tv1 = makeConcreteTensor({K, N}); // (K, N)
   TensorView* tv2 = broadcast(tv0, {false, false, true}); // (M, K, B)
   TensorView* tv3 = broadcast(tv1, {true, false, false}); // (B, K, N)
   TensorView* tv4 = mul(tv2, tv3); // M, K, N
@@ -10008,9 +10008,6 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   fusion.printMath();
   fusion.printKernel();
 
-  // constexpr int M = 154, K = 45, N = 1524;
-  constexpr int M = 128, K = 128, N = 128;
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
   at::Tensor t0 = at::randn({M, K}, options);
@@ -10033,7 +10030,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   }
   auto outputs = fe.runFusion(aten_inputs);
 
-  at::Tensor aten_output = matmul(t0, t1);
+  auto aten_output = t0.to(at::kDouble).matmul(t1.to(at::kDouble));
 
   testValidate(
       &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
