@@ -135,7 +135,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
   }
 
   auto unroll_pred =
-      UnrollPredicate::get(for_loops_, fl, p2c_root_map_, ca_root_map_);
+      UnswitchPredicate::get(for_loops_, fl, p2c_root_map_, ca_root_map_);
 
   kir::ForLoop* parent_scope = for_loops_.empty() ? nullptr : for_loops_.back();
 
