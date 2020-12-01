@@ -10,7 +10,7 @@ namespace fuser {
 namespace cuda {
 
 void OptOutMutator::mutate(Fusion* fusion) {
-  std::vector<Expr*> orig_exprs = fusion->exprs();
+  std::vector<Expr*> orig_exprs = fusion->all_exprs();
 
   /*
    * We go through all the exprs, in topologically sorted order. We call mutate

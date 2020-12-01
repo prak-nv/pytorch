@@ -485,7 +485,7 @@ TEST(NVFuserTest, FusionClear_CUDA) {
 
   fusion.clear();
 
-  TORCH_CHECK(fusion.exprs().empty());
+  TORCH_CHECK(fusion.all_exprs().empty());
   TORCH_CHECK(fusion.vals().empty());
 
   TORCH_CHECK(fusion.inputs().empty());
@@ -648,7 +648,7 @@ TEST(NVFuserTest, FusionMove_CUDA) {
   //    standard library containers:
   //    https://en.cppreference.com/w/cpp/utility/move
   //
-  TORCH_CHECK(fusion.exprs().empty());
+  TORCH_CHECK(fusion.all_exprs().empty());
   TORCH_CHECK(fusion.vals().empty());
   TORCH_CHECK(fusion.inputs().empty());
   TORCH_CHECK(fusion.outputs().empty());
@@ -798,7 +798,7 @@ TEST(NVFuserTest, FusionTopoSort_CUDA) {
   Expr* e2 = new BinaryOp(BinaryOpType::Add, v5, v2, v4);
   Expr* e3 = new BinaryOp(BinaryOpType::Add, v6, v5, v5);
 
-  std::vector<Expr*> exprs = fusion.exprs();
+  std::vector<Expr*> exprs = fusion.all_exprs();
 
   TORCH_CHECK(exprs.size() == 4);
   TORCH_CHECK(exprs[0] == e0);
@@ -807,30 +807,30 @@ TEST(NVFuserTest, FusionTopoSort_CUDA) {
   TORCH_CHECK(exprs[3] == e3);
 
   fusion.addOutput(v2);
-  exprs = fusion.exprs(true);
+  exprs = fusion.exprs();
   TORCH_CHECK(exprs.size() == 1);
   TORCH_CHECK(exprs[0] == e0);
 
   fusion.addOutput(v5);
-  exprs = fusion.exprs(true);
+  exprs = fusion.exprs();
   TORCH_CHECK(exprs[0] == e0);
   TORCH_CHECK(exprs[1] == e1);
   TORCH_CHECK(exprs[2] == e2);
 
   fusion.addOutput(v4);
-  exprs = fusion.exprs(true);
+  exprs = fusion.exprs();
   TORCH_CHECK(exprs[0] == e0);
   TORCH_CHECK(exprs[1] == e1);
   TORCH_CHECK(exprs[2] == e2);
 
   fusion.addOutput(v3);
-  exprs = fusion.exprs(true);
+  exprs = fusion.exprs();
   TORCH_CHECK(exprs[0] == e0);
   TORCH_CHECK(exprs[1] == e1);
   TORCH_CHECK(exprs[2] == e2);
 
   fusion.addOutput(v6);
-  exprs = fusion.exprs(true);
+  exprs = fusion.exprs();
   TORCH_CHECK(exprs.size() == 4);
   TORCH_CHECK(exprs[0] == e0);
   TORCH_CHECK(exprs[1] == e1);

@@ -15,7 +15,7 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-static thread_local Fusion* ACTIVE_FUSION = nullptr; // NOLINT
+static thread_local Fusion* ACTIVE_FUSION = nullptr;
 
 FusionGuard::FusionGuard(Fusion* fusion) {
   prev_fusion = ACTIVE_FUSION;
@@ -263,8 +263,12 @@ void Fusion::assertInFusion(const Statement* stmt, const std::string& msg)
   TORCH_CHECK(inFusion(stmt), msg, " it was not found in the active fusion.");
 }
 
-std::vector<Expr*> Fusion::exprs(bool from_outputs_only) {
-  return ExprSort::getExprs(this, from_outputs_only);
+std::vector<Expr*> Fusion::exprs() {
+  return ExprSort::getExprs(this, true);
+}
+
+std::vector<Expr*> Fusion::all_exprs() {
+  return ExprSort::getExprs(this, false);
 }
 
 std::unordered_set<Val*> Fusion::inputsOf(Val* val) {
@@ -310,8 +314,9 @@ void Fusion::printMath(bool from_outputs_only) {
   FUSER_PERF_SCOPE("Fusion::printMath");
 
   FusionGuard fg(this);
+  auto exprs_for_print = from_outputs_only ? exprs() : all_exprs();
   std::cout << "\n%kernel_math {\n";
-  for (auto expr : exprs(from_outputs_only)) {
+  for (auto expr : exprs_for_print) {
     std::cout << expr;
   }
   std::cout << "}\n\n";
@@ -448,7 +453,7 @@ StmtNameType Fusion::getExprName() {
 
 // Indicate to kernel to set itself up to generate random numbers
 bool Fusion::isStochastic() {
-  for (auto expr : exprs(true))
+  for (auto expr : exprs())
     if (expr->getExprType() == ExprType::UnaryOp)
       if (expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::RandLike)
         return true;
@@ -458,7 +463,7 @@ bool Fusion::isStochastic() {
 bool Fusion::hasReduction() {
   FUSER_PERF_SCOPE("Fusion::hasReduction");
 
-  for (auto expr : exprs(true))
+  for (auto expr : exprs())
     for (auto out : expr->outputs())
       if (out->getValType() == ValType::TensorView)
         if (out->as<TensorView>()->hasReduction())

@@ -105,15 +105,14 @@ class TORCH_CUDA_API Fusion final {
   //! Throw an error if stmt is not in this fusion
   void assertInFusion(const Statement* stmt, const std::string& msg = "") const;
 
-  //! Return a list of topologically sorted expressions. We can start
-  //! by only traversing back from registered outputs, or from all terminating
-  //! Vals.
-  //!
-  //! from_outputs_only:
-  //!   True - Sort from DAG associated with registered outputs
-  //!   False - Sort from all terminating Vals.
-  //!
-  std::vector<Expr*> exprs(bool from_outputs_only = false);
+  //! Return a list of topologically sorted expressions. This only includes
+  //! exprs required to genereate registered outputs.
+  std::vector<Expr*> exprs();
+
+  //! Return a list of topologically sorted expressions. Includes all
+  //! expressions in the fusion, even those not used to generate registered
+  //! outputs.
+  std::vector<Expr*> all_exprs();
 
   //! Return a vector of fusion inputs that feed this Val
   std::unordered_set<Val*> inputsOf(Val* val);
