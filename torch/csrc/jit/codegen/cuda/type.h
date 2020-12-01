@@ -90,7 +90,8 @@ enum class UnaryOpType {
   Not
 };
 
-bool maybeBooleanOperator(const UnaryOpType uopt);
+// Primarily for Not, which could be Not a boolean, or a bitwise not.
+bool alsoBooleanOperator(const UnaryOpType uopt);
 
 // TODO: Order of this list is important as it affects type promotion. it's not
 // in the right order now.
@@ -138,8 +139,9 @@ bool isIntegerOp(const BinaryOpType bopt);
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
 
-// return if operation has a different type based on int or boolean output
-bool maybeBooleanOperator(const BinaryOpType bopt);
+// Operations that could be a bitwise operation or a boolean operation depending
+// on input, for example bitwise_and is also used for boolean and in the jit
+bool alsoBooleanOperator(const BinaryOpType bopt);
 
 enum class TernaryOpType { Clamp, Threshold, Where };
 
@@ -152,6 +154,7 @@ enum class ParallelType {
   TIDx,
   Vectorize,
   Unroll,
+  Unswitch,
   Serial
 };
 

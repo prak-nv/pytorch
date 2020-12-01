@@ -129,7 +129,7 @@ Val* newValLike(Val* val, DataType dtype) {
   TORCH_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
-  ValType vtype = val->getValType().value();
+  const ValType vtype = val->getValType().value();
 
   if (vtype == ValType::TensorView)
     return newOutputTV({val}, dtype);
@@ -264,7 +264,7 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
   } else if (isLogicalOp(op_type)) {
     // If boolean op
     return DataType::Bool;
-  } else if (maybeBooleanOperator(op_type)) {
+  } else if (alsoBooleanOperator(op_type)) {
     // If boolean op that can't have floating inputs (& or |)
     TORCH_CHECK(
         !floating_input,

@@ -284,9 +284,9 @@ class CudaKernelGenerator : private kir::IrVisitor {
       code_ << " = ";
     }
 
-    auto op_type = node->operation();
+    const auto op_type = node->operation();
     if (auto op = inline_op_str(op_type)) {
-      if (maybeBooleanOperator(op_type) &&
+      if (alsoBooleanOperator(op_type) &&
           node->out()->dtype() == DataType::Bool) {
         code_ << stringifyBooleanOp(op_type) << gen(node->in());
       } else {
@@ -327,7 +327,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     std::stringstream expr;
     if (auto op = inline_op_str(op_type)) {
       expr << lhs << " ";
-      if (maybeBooleanOperator(op_type) && out->dtype() == DataType::Bool) {
+      if (alsoBooleanOperator(op_type) && out->dtype() == DataType::Bool) {
         expr << stringifyBooleanOp(op_type);
       } else {
         expr << *op;
@@ -367,7 +367,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
           code_ << "\n";
           indent() << kTab << "= " << gen(node->lhs()) << "\n";
           indent() << kTab;
-          if (maybeBooleanOperator(op_type) &&
+          if (alsoBooleanOperator(op_type) &&
               node->out()->dtype() == DataType::Bool) {
             code_ << stringifyBooleanOp(op_type);
           } else {

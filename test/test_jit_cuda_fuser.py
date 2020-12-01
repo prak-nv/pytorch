@@ -542,16 +542,16 @@ class TestCudaFuser(JitTestCase):
                      "Requires fusion optimization pass to be effective")
     def test_binary_bitwise(self):
         def jit_or(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
-            return x & y | z
+            return (x & y) | z
 
         def jit_xor(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
-            return x & y ^ z
+            return (x & y) ^ z
 
         def jit_lshift(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
-            return x & y << z
+            return (x & y) << z
 
         def jit_rshift(x: torch.Tensor, y: torch.Tensor, z: torch.Tensor):
-            return x & y >> z
+            return (x & y) >> z
 
         for jit_func in [jit_or, jit_xor, jit_lshift, jit_rshift]:
             x = torch.randn(4, 8, 32, 32, dtype=torch.float, device="cuda").mul(5).to(torch.long)

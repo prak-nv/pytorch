@@ -215,7 +215,7 @@ void IrPrinter::visit(const kir::UnaryOp* node) {
   auto op_type = node->operation();
 
   if (auto op = inline_op_str(op_type)) {
-    if (maybeBooleanOperator(op_type) &&
+    if (alsoBooleanOperator(op_type) &&
         node->out()->dtype() == DataType::Bool) {
       ir_str_ << stringifyBooleanOp(op_type) << gen(node->in());
     } else {
@@ -254,7 +254,7 @@ void IrPrinter::visit(const kir::BinaryOp* node) {
 
   if (auto op = inline_op_str(op_type)) {
     ir_str_ << lhs << " ";
-    if (maybeBooleanOperator(op_type) &&
+    if (alsoBooleanOperator(op_type) &&
         node->out()->dtype() == DataType::Bool) {
       ir_str_ << stringifyBooleanOp(op_type);
     } else {
