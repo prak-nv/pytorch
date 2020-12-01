@@ -221,8 +221,6 @@ class CudaKernelGenerator : private kir::IrVisitor {
     } else if (node->isConst()) {
       const int digits = std::numeric_limits<Double::ScalarType>::max_digits10;
       code_ << std::setprecision(digits) << *node->value();
-    } else if (def == nullptr) {
-      code_ << varName(node);
     } else {
       code_ << varName(node);
     }

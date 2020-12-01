@@ -17,7 +17,7 @@ namespace fuser {
 namespace cuda {
 
 // TODO(kir): revisit this
-thread_local GpuLower* active_gpu_lower = nullptr;
+thread_local GpuLower* active_gpu_lower = nullptr; // NOLINT
 
 void GpuLower::replaceSymbolicSizes() {
   FUSER_PERF_SCOPE("replaceSymbolicSizes");
@@ -54,14 +54,12 @@ void GpuLower::replaceSymbolicSizes() {
       const Val* orig_size = id->extent();
 
       // Output sizes could have reduction axes, which isn't what gets output.
-      if (id->isReduction()) {
+      if (id->isReduction() ||
+          (id->getIterType() == IterType::BroadcastWithoutStride)) {
         continue;
-      } else if (id->getIterType() == IterType::BroadcastWithoutStride) {
-        continue;
-      } else if (id->getIterType() == IterType::BroadcastWithStride) {
-        dim++;
-        continue;
-      } else if (orig_size->isConstScalar()) {
+      } else if (
+          (id->getIterType() == IterType::BroadcastWithStride) ||
+          orig_size->isConstScalar()) {
         dim++;
         continue;
       }

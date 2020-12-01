@@ -520,6 +520,8 @@ TensorDomain::TensorDomain(
       " but needed one of size ",
       root_domain_.size());
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   domain_ = root_domain_;
   resetDomains();
 }
@@ -556,8 +558,9 @@ TensorDomain::TensorDomain(
         " is an input of domain, but it is not found in the root domain.");
   });
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   resetDomains();
-
   name_ = fusion_->registerVal(this);
 }
 
@@ -605,6 +608,8 @@ TensorDomain::TensorDomain(
         " is an input of the rfactor domain, but it is not found in the root domain.");
   });
 
+  // Just due to clang-tidy, correct value set in resetDomains
+  has_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }

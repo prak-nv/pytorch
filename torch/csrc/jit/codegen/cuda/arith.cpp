@@ -242,12 +242,14 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
     v1_dtype = v2_dtype;
   }
 
-  bool floating_input =
+  const bool floating_input =
       isFloatingPointType(v1_dtype) || isFloatingPointType(v2_dtype);
 
-  bool integer_input = isIntegralType(v1_dtype) || isIntegralType(v2_dtype);
+  const bool integer_input =
+      isIntegralType(v1_dtype) || isIntegralType(v2_dtype);
 
-  bool all_integer_input = isIntegralType(v1_dtype) && isIntegralType(v2_dtype);
+  const bool all_integer_input =
+      isIntegralType(v1_dtype) && isIntegralType(v2_dtype);
 
   if (isIntegerOp(op_type) ||
       (maybeBooleanOperator(op_type) && integer_input)) {
@@ -279,8 +281,8 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
 } // namespace
 
 TORCH_CUDA_API Val* binaryOp(BinaryOpType type, Val* v1, Val* v2) {
-  auto out_dtype = getOutputType(type, v1, v2);
-  auto out_vtype =
+  const auto out_dtype = getOutputType(type, v1, v2);
+  const auto out_vtype =
       promote_type(v1->getValType().value(), v2->getValType().value());
   auto vals = maybeBroadcast({v1, v2});
   Val* out = nullptr;
@@ -522,8 +524,8 @@ TensorView* reductionOp(
   }
 
   TensorView* out = newForReduction(tv, uint_axes);
-  auto out_type = out->getDataType().value();
-  auto init_type = init->getDataType().value();
+  const auto out_type = out->getDataType().value();
+  const auto init_type = init->getDataType().value();
   TORCH_CHECK(
       (isFloatingPointType(out_type) && isFloatingPointType(init_type)) ||
           (isIntegralType(out_type) && isIntegralType(init_type)) ||
@@ -818,9 +820,9 @@ TensorView* where(TensorView* v1, TensorView* v2, TensorView* v3) {
 // TERNARY OPERATIONS
 
 Val* threshold(Val* in, Val* thresh, Val* value) {
-  auto in_type = in->getDataType().value();
-  auto thresh_type = thresh->getDataType().value();
-  auto value_type = value->getDataType().value();
+  const auto in_type = in->getDataType().value();
+  const auto thresh_type = thresh->getDataType().value();
+  const auto value_type = value->getDataType().value();
   if (isFloatingPointType(in_type)) {
     TORCH_CHECK(
         isFloatingPointType(thresh_type) && isFloatingPointType(value_type),
@@ -858,9 +860,9 @@ TensorView* threshold(TensorView* in, Val* thresh, Val* value) {
 }
 
 Val* clamp(Val* in, Val* min_val, Val* max_val) {
-  auto in_type = in->getDataType().value();
-  auto min_type = min_val->getDataType().value();
-  auto max_type = max_val->getDataType().value();
+  const auto in_type = in->getDataType().value();
+  const auto min_type = min_val->getDataType().value();
+  const auto max_type = max_val->getDataType().value();
   if (isFloatingPointType(in_type)) {
     TORCH_CHECK(
         isFloatingPointType(min_type) && isFloatingPointType(max_type),
