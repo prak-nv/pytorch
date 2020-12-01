@@ -1,4 +1,4 @@
-// #if defined(USE_CUDA)
+#if defined(USE_CUDA)
 #include <gtest/gtest.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
@@ -9894,4 +9894,4 @@ TEST(NVFuserTest, FusionLoopUnswitch_CUDA) {
 } // namespace jit
 } // namespace torch
 
-// #endif // #if defined(USE_CUDA)
+#endif // #if defined(USE_CUDA)
