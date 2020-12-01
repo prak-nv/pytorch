@@ -31,7 +31,7 @@ enum class ValType {
   NamedScalar,
 };
 
-enum class DataType { Bool, Float, Half, Int, Null };
+enum class DataType { Bool, Double, Float, Half, Int, Null };
 
 enum class ExprType {
   Invalid,
@@ -142,12 +142,19 @@ enum class IterType {
   BroadcastWithoutStride
 };
 
+// Returns if function needs an f suffix on the operator when operating on a
+// float value i.e. sin->sinf
+bool needFloatSuffix(UnaryOpType t);
+bool needFloatSuffix(BinaryOpType t);
+
 ValType promote_type(const ValType& t1, const ValType& t2);
 DataType promote_type(const DataType& t1, const DataType& t2);
 bool is_logical_op(const BinaryOpType& bot);
 
-DataType aten_to_data_type(const at::ScalarType& scalar_type);
-at::ScalarType data_type_to_aten(const DataType& data_type);
+// If type cannot be found (i.e. codegen does not support provided type) returns
+// DataType::Null
+TORCH_CUDA_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
+TORCH_CUDA_API at::ScalarType data_type_to_aten(const DataType& data_type);
 
 TORCH_CUDA_API std::ostream& operator<<(std::ostream&, const ValType);
 TORCH_CUDA_API std::ostream& operator<<(std::ostream&, const DataType);
@@ -161,10 +168,11 @@ TORCH_CUDA_API std::ostream& operator<<(std::ostream&, const IterType);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
+std::string typePrefix(const DataType);
 
-bool isParallelTypeThreadDim(ParallelType);
-bool isParallelTypeBlockDim(ParallelType);
-bool isParallelTypeThread(ParallelType);
+TORCH_CUDA_API bool isParallelTypeThreadDim(ParallelType);
+TORCH_CUDA_API bool isParallelTypeBlockDim(ParallelType);
+TORCH_CUDA_API bool isParallelTypeThread(ParallelType);
 
 TORCH_CUDA_API c10::optional<std::string> inline_op_str(const UnaryOpType);
 TORCH_CUDA_API c10::optional<std::string> inline_op_str(const BinaryOpType);
