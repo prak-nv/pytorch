@@ -144,67 +144,25 @@ static const char* expr_type2string(ExprType t) {
 
 bool needFloatSuffix(UnaryOpType t) {
   switch (t) {
-    case UnaryOpType::Acos:
-      return true;
-    case UnaryOpType::Asin:
-      return true;
-    case UnaryOpType::Atan:
-      return true;
-    case UnaryOpType::Atanh:
-      return true;
-    case UnaryOpType::Ceil:
-      return true;
-    case UnaryOpType::Cos:
-      return true;
-    case UnaryOpType::Cosh:
-      return true;
-    case UnaryOpType::Exp:
-      return true;
-    case UnaryOpType::Expm1:
-      return true;
-    case UnaryOpType::Erf:
-      return true;
-    case UnaryOpType::Erfc:
-      return true;
-    case UnaryOpType::Floor:
-      return true;
-    case UnaryOpType::Lgamma:
-      return true;
-    case UnaryOpType::Log:
-      return true;
-    case UnaryOpType::Log10:
-      return true;
-    case UnaryOpType::Log1p:
-      return true;
-    case UnaryOpType::Log2:
-      return true;
-    case UnaryOpType::RandLike:
-      return true;
-    case UnaryOpType::Rsqrt:
-      return true;
-    case UnaryOpType::Round:
-      return true;
-    case UnaryOpType::Sin:
-      return true;
-    case UnaryOpType::Sinh:
-      return true;
-    case UnaryOpType::Sqrt:
-      return true;
-    case UnaryOpType::Tan:
-      return true;
-    case UnaryOpType::Tanh:
-      return true;
-    case UnaryOpType::Trunc:
-      return true;
-    default:
+    case UnaryOpType::Abs:
+    case UnaryOpType::Cast:
+    case UnaryOpType::Frac:
+    case UnaryOpType::Gelu:
+    case UnaryOpType::Neg:
+    case UnaryOpType::Relu:
+    case UnaryOpType::Reciprocal:
+    case UnaryOpType::Set:
+    case UnaryOpType::Sigmoid:
       return false;
+    default:
+      return true;
   }
 }
 
 static const char* unary_op_type2string(UnaryOpType t) {
   switch (t) {
     case UnaryOpType::Abs:
-      return "fabs";
+      return "abs";
     case UnaryOpType::Acos:
       return "acos";
     case UnaryOpType::Asin:
@@ -303,15 +261,10 @@ static const char* unary_op_type_inline_op2string(UnaryOpType t) {
 bool needFloatSuffix(BinaryOpType t) {
   switch (t) {
     case BinaryOpType::Atan2:
-      return true;
     case BinaryOpType::Div:
-      return true;
     case BinaryOpType::Fmod:
-      return true;
     case BinaryOpType::Max:
-      return true;
     case BinaryOpType::Min:
-      return true;
     case BinaryOpType::Pow:
       return true;
     default:
@@ -451,7 +404,9 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::Vectorize:
       return "V";
     case ParallelType::Unroll:
-      return "U";
+      return "UR";
+    case ParallelType::Unswitch:
+      return "US";
     case ParallelType::Serial:
       return "S";
     default:
@@ -622,7 +577,6 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Double:
       return "d";
     case DataType::Float:
-      return "f";
     case DataType::Half:
       return "f";
     case DataType::Int:
@@ -658,13 +612,13 @@ size_t dataTypeSize(DataType type) {
     case DataType::Bool:
       return sizeof(bool);
     case DataType::Double:
-      return 8;
+      return sizeof(double);
     case DataType::Float:
-      return 4;
+      return sizeof(float);
     case DataType::Half:
-      return 2;
+      return sizeof(at::Half);
     case DataType::Int:
-      return 4;
+      return sizeof(uint64_t);
     default:
       TORCH_INTERNAL_ASSERT(false, "Size undefined for data type, ", type);
   }

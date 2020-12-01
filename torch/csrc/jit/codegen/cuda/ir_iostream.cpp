@@ -211,7 +211,7 @@ void IrPrinter::handle(const UnaryOp* uop) {
       TORCH_INTERNAL_ASSERT(cast_str != c10::nullopt, "Unsupported Cast");
       os_ << cast_str.value();
     } else {
-      if (maybeBooleanOperator(op_type) &&
+      if (alsoBooleanOperator(op_type) &&
           uop->out()->getDataType().value() == DataType::Bool) {
         os_ << stringifyBooleanOp(op_type);
       } else {
@@ -267,7 +267,7 @@ void IrPrinter::handle(const BinaryOp* bop) {
     os_ << " " << inline_bop.value() << " ";
     handle(bop->rhs());
   } else {
-    if (maybeBooleanOperator(op_type) &&
+    if (alsoBooleanOperator(op_type) &&
         bop->out()->getDataType().value() == DataType::Bool) {
       os_ << stringifyBooleanOp(op_type);
     } else {

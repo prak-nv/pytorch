@@ -258,7 +258,7 @@ DataType getOutputType(BinaryOpType type, DataType v1_type, DataType v2_type) {
     }
   } else if (isLogicalOp(type)) {
     return DataType::Bool;
-  } else if (maybeBooleanOperator(type)) {
+  } else if (alsoBooleanOperator(type)) {
     TORCH_CHECK(
         !floating_input,
         "Operator ",
