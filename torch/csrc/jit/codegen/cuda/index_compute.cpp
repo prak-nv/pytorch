@@ -1368,7 +1368,8 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     bool within_unroll = false;
     const auto one = ir_builder.create<kir::Int>(1);
     for (auto loop : loops) {
-      if (loop->iter_domain()->parallelType() == ParallelType::Unroll) {
+      if (loop->iter_domain()->parallelType() == ParallelType::Unroll ||
+          loop->iter_domain()->parallelType() == ParallelType::Unswitch) {
         within_unroll = true;
       }
 
