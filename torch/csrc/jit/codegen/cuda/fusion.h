@@ -150,6 +150,7 @@ class TORCH_CUDA_API Fusion final {
 
   //! Return the set of Vals registered with this fusion
   const std::unordered_set<Val*>& vals() const noexcept;
+
   //! Return in insertion order
   const std::deque<Val*>& deterministic_vals() const noexcept;
 

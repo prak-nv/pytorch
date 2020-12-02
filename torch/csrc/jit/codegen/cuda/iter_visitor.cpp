@@ -375,6 +375,7 @@ struct FindOutputs : public IterVisitor {
 
   FindOutputs(const std::unordered_set<Val*>& _of) : of_(_of) {
     auto fusion = (*of_.begin())->fusion();
+    // TODO: Change to traverse
     traverseFrom(fusion, fusion->outputs(), false);
   };
 
