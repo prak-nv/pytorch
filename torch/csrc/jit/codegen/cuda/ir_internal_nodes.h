@@ -177,10 +177,13 @@ class TORCH_CUDA_API TransposeOp : public Expr {
     return in_;
   }
 
+  const std::vector<int>& getNew2Old() const {
+    return new2old_;
+  }
+
  private:
   TensorView* const out_ = nullptr;
   TensorView* const in_ = nullptr;
-  // TODO: Is this necessary?
   const std::vector<int> new2old_;
 };
 
