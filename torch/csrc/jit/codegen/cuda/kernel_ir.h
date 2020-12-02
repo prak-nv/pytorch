@@ -47,6 +47,7 @@ class BinaryOp;
 class TernaryOp;
 class ReductionOp;
 class BroadcastOp;
+class TransposeOp;
 
 // Statements
 class Allocate;
@@ -122,6 +123,9 @@ class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
     unhandled(node);
   }
   virtual void visit(const BroadcastOp* node) {
+    unhandled(node);
+  }
+  virtual void visit(const TransposeOp* node) {
     unhandled(node);
   }
 
@@ -795,6 +799,27 @@ class TORCH_CUDA_API TensorIndex final : public Val {
 class TORCH_CUDA_API BroadcastOp final : public Expr {
  public:
   BroadcastOp(Passkey passkey, Val* out, Val* in);
+
+  void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  Val* out() const {
+    return out_;
+  }
+
+  Val* in() const {
+    return in_;
+  }
+
+ private:
+  Val* const out_ = nullptr;
+  Val* const in_ = nullptr;
+};
+
+class TORCH_CUDA_API TransposeOp final : public Expr {
+ public:
+  TransposeOp(Passkey passkey, Val* out, Val* in);
 
   void accept(IrVisitor* visitor) const override {
     visitor->visit(this);

@@ -304,6 +304,10 @@ void IrPrinter::visit(const kir::BroadcastOp* node) {
   indent() << gen(node->out()) << " = BROADCAST(" << use(node->in()) << ")\n";
 }
 
+void IrPrinter::visit(const kir::TransposeOp* node) {
+  indent() << gen(node->out()) << " = TRANSPOSE(" << use(node->in()) << ")\n";
+}
+
 void IrPrinter::visit(const kir::ForLoop* node) {
   indent() << "FOR " << gen(node->index()) << " in " << gen(node->iter_domain())
            << ":\n";

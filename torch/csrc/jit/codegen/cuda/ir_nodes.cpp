@@ -370,6 +370,12 @@ TransposeOp::TransposeOp(
   name_ = FusionGuard::getCurFusion()->registerExpr(this);
 }
 
+TransposeOp::TransposeOp(const TransposeOp* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner),
+      out_(ir_cloner->clone(src->out_)),
+      in_(ir_cloner->clone(src->in_)),
+      new2old_(src->new2old_) {}
+
 IterDomain::IterDomain(
     Val* start,
     Val* extent,
