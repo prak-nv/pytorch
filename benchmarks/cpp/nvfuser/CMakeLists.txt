@@ -1,6 +1,8 @@
 
 add_executable(nvfuser_bench
-  normalization.cpp
+  layer_norm.cpp
+  batch_norm.cpp
+  softmax.cpp
   lstm_cell.cpp
   gelu_backward.cpp
   main.cpp)
