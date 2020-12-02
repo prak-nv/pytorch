@@ -455,7 +455,7 @@ class RejectMultipleGridReductions : public IterVisitor {
  public:
   static void analyze(Fusion* fusion) {
     RejectMultipleGridReductions multi_grid;
-    multi_grid.traverse(fusion, true);
+    multi_grid.traverse(fusion);
   }
 
  private:

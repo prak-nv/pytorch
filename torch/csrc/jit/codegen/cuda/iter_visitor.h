@@ -100,10 +100,7 @@ class TORCH_CUDA_API IterVisitor : public OptOutDispatch {
   // nodes in next)
   std::unordered_set<Statement*> termination_stmts;
 
-  void traverse_(
-      Fusion* fusion,
-      bool from_outputs_only = false,
-      bool traverse_all_paths = false);
+  void traverse_(Fusion* fusion, bool traverse_all_paths = false);
 
  public:
   // Starts at nodes provided in from, traverses from these nodes to inputs.
@@ -119,15 +116,14 @@ class TORCH_CUDA_API IterVisitor : public OptOutDispatch {
       const std::vector<Val*>& from,
       bool traverseAllPaths = false);
 
-  // from_outputs_only = true start from outputs registered with fusion,
-  // from_outputs_only = false start from all leaf nodes. Calls into
-  // traverseFrom.
-  void traverse(Fusion* fusion, bool from_outputs_only = false);
+  // Iterates from terminating outputs registered with the fusion. Terminating
+  // means value is not used to generate any other value used in producing
+  // registered outputs.
+  void traverse(Fusion* fusion);
 
-  // from_outputs_only = true start from outputs registered with fusion,
-  // from_outputs_only = false start from all leaf nodes. Calls into
-  // traverseFrom.
-  void traverseAllPaths(Fusion* fusion, bool from_outputs_only = false);
+  // Same as traverse put it traverses every edge, meaning it will traverse
+  // values more than once.
+  void traverseAllPaths(Fusion* fusion);
 
   static std::unordered_set<Val*> getInputsTo(const std::vector<Val*>& vals);
 };
@@ -247,7 +243,7 @@ class ExprSort : public IterVisitor {
   void handle(Expr* expr) override;
 
  public:
-  static std::vector<Expr*> getExprs(Fusion* fusion, bool from_outputs_only);
+  static std::vector<Expr*> getExprs(Fusion* fusion);
 
   static std::vector<Expr*> getExprs(
       Fusion* fusion,

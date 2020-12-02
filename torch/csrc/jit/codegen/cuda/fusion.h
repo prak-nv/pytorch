@@ -111,8 +111,8 @@ class TORCH_CUDA_API Fusion final {
 
   //! Return a list of topologically sorted expressions. Includes all
   //! expressions in the fusion, even those not used to generate registered
-  //! outputs.
-  std::vector<Expr*> all_exprs();
+  //! outputs. TODO: Re-enable
+  // std::vector<Expr*> all_exprs();
 
   //! Return a vector of fusion inputs that feed this Val
   std::unordered_set<Val*> inputsOf(Val* val);

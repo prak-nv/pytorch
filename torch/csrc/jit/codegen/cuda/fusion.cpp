@@ -264,11 +264,9 @@ void Fusion::assertInFusion(const Statement* stmt, const std::string& msg)
 }
 
 std::vector<Expr*> Fusion::exprs() {
-  return ExprSort::getExprs(this, true);
-}
-
-std::vector<Expr*> Fusion::all_exprs() {
-  return ExprSort::getExprs(this, false);
+  // TODO: Re-enable getting all exprs even if not between registered
+  // inputs/outputs
+  return ExprSort::getExprs(this);
 }
 
 std::unordered_set<Val*> Fusion::inputsOf(Val* val) {
@@ -314,7 +312,9 @@ void Fusion::printMath(bool from_outputs_only) {
   FUSER_PERF_SCOPE("Fusion::printMath");
 
   FusionGuard fg(this);
-  auto exprs_for_print = from_outputs_only ? exprs() : all_exprs();
+  // TODO: Re-enable printing all expressions
+  // auto exprs_for_print = from_outputs_only ? exprs() : all_exprs();
+  auto exprs_for_print = exprs();
   std::cout << "\n%kernel_math {\n";
   for (auto expr : exprs_for_print) {
     std::cout << expr;

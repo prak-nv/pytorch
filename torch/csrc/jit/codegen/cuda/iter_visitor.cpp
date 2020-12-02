@@ -109,19 +109,14 @@ void IterVisitor::traverseFrom(
   }
 }
 
-void IterVisitor::traverse_(
-    Fusion* fusion,
-    bool from_outputs_only,
-    bool traverse_all_paths) {
+void IterVisitor::traverse_(Fusion* fusion, bool traverse_all_paths) {
   FusionGuard fg(fusion);
 
-  if (from_outputs_only) {
-    auto term_val_outs = fusion->getTerminatingOutputs();
-    if (!term_val_outs.empty()) {
-      traverseFrom(fusion, term_val_outs, traverse_all_paths);
-    }
-    return;
+  auto term_val_outs = fusion->getTerminatingOutputs();
+  if (!term_val_outs.empty()) {
+    traverseFrom(fusion, term_val_outs, traverse_all_paths);
   }
+  return;
 
   std::vector<Val*> leaves;
   // Search for Vals with no uses (output edges)
@@ -135,12 +130,12 @@ void IterVisitor::traverse_(
   }
 }
 
-void IterVisitor::traverse(Fusion* fusion, bool from_outputs_only) {
-  traverse_(fusion, from_outputs_only, false);
+void IterVisitor::traverse(Fusion* fusion) {
+  traverse_(fusion, false);
 }
 
-void IterVisitor::traverseAllPaths(Fusion* fusion, bool from_outputs_only) {
-  traverse_(fusion, from_outputs_only, true);
+void IterVisitor::traverseAllPaths(Fusion* fusion) {
+  traverse_(fusion, true);
 }
 
 namespace {
@@ -418,9 +413,9 @@ class DependencyChains : public IterVisitor {
   DependencyChains(Val* _dependency, bool all_chains_ = false)
       : dependencies_({_dependency}) {
     if (all_chains_) {
-      traverseAllPaths(_dependency->fusion(), false);
+      traverseAllPaths(_dependency->fusion());
     } else {
-      traverse(_dependency->fusion(), false);
+      traverse(_dependency->fusion());
     }
   }
 
@@ -433,9 +428,9 @@ class DependencyChains : public IterVisitor {
     }
 
     if (all_chains_) {
-      traverseAllPaths((*dependencies_.begin())->fusion(), false);
+      traverseAllPaths((*dependencies_.begin())->fusion());
     } else {
-      traverse((*dependencies_.begin())->fusion(), false);
+      traverse((*dependencies_.begin())->fusion());
     }
   }
 
@@ -517,9 +512,9 @@ void ExprSort::handle(Expr* expr) {
   exprs.push_back(expr);
 }
 
-std::vector<Expr*> ExprSort::getExprs(Fusion* fusion, bool from_outputs_only) {
+std::vector<Expr*> ExprSort::getExprs(Fusion* fusion) {
   ExprSort es;
-  es.traverse(fusion, from_outputs_only);
+  es.traverse(fusion);
   return es.exprs;
 }
 

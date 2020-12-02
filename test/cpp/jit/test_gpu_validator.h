@@ -151,7 +151,7 @@ class TORCH_CUDA_API ReductionSizeMapper : private IterVisitor {
       }
     }
 
-    IterVisitor::traverse(fusion, true);
+    IterVisitor::traverse(fusion);
   }
 
   int64_t getReductionSize(const TensorView* tv) {
