@@ -58,6 +58,11 @@ TORCH_CUDA_API TensorView* broadcast(
     TensorView* inp,
     const std::vector<bool>& is_broadcast_dim);
 
+// TODO: transpose
+TORCH_CUDA_API TensorView* transpose(
+    TensorView* inp,
+    const std::unordered_map<int, int>& old2new);
+
 // BINARY OPERATIONS
 // add
 TORCH_CUDA_API Val* add(Val* v1, Val* v2);

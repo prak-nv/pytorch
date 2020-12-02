@@ -10039,6 +10039,49 @@ TEST(NVFuserTest, FusionGetComputeAtRelPos_CUDA) {
   }
 }
 
+TEST(NVFuserTest, FusionTranspose_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 20;
+
+  // Algorithm
+  TensorView* tv0 = makeConcreteTensor({M, N});
+  TensorView* tv1 = add(tv0, new Double(1));
+  //tv1->reorder({{0, 1}});
+  //TensorView* tv2 = unaryOp(UnaryOpType::Set, tv1);
+  auto tv2 = transpose(tv1, {{0, 1}});
+  fusion.addInput(tv0);
+  fusion.addOutput(tv2);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+#if 1
+
+  //tv2->split(0, 32);
+  //tv1->computeAt(tv2, -1);
+
+  //tv2->axis(1)->parallelize(ParallelType::Unswitch);
+
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  at::Tensor aten_output = t0 + 1;
+
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+#endif
+}
+
 } // namespace jit
 } // namespace torch
 
