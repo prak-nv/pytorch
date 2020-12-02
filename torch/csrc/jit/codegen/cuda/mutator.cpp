@@ -174,6 +174,10 @@ Statement* OptOutMutator::mutate(BroadcastOp* bop) {
   return bop;
 }
 
+Statement* OptOutMutator::mutate(TransposeOp* top) {
+  return top;
+}
+
 } // namespace cuda
 } // namespace fuser
 } // namespace jit

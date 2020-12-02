@@ -169,6 +169,14 @@ class TORCH_CUDA_API TransposeOp : public Expr {
 
   TransposeOp(const TransposeOp* src, IrCloner* ir_cloner);
 
+  TensorView* out() const {
+    return out_;
+  }
+
+  TensorView* in() const {
+    return in_;
+  }
+
  private:
   TensorView* const out_ = nullptr;
   TensorView* const in_ = nullptr;
