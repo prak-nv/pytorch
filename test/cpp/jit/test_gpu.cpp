@@ -10046,7 +10046,6 @@ TEST(NVFuserTest, FusionTranspose1_CUDA) {
   constexpr int M = 10;
   constexpr int N = 20;
 
-  // Algorithm
   auto tv0 = makeSymbolicTensor(2);
   auto tv1 = transpose(tv0, {{0, 1}});
   fusion.addInput(tv0);
@@ -10071,77 +10070,259 @@ TEST(NVFuserTest, FusionTranspose1_CUDA) {
 }
 
 TEST(NVFuserTest, FusionTranspose2_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  for (int i = 0; i < 3; ++i) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  constexpr int M = 10;
-  constexpr int N = 20;
+    constexpr int M = 10;
+    constexpr int N = 20;
 
-  auto tv0 = makeSymbolicTensor(2);
-  auto tv1 = add(tv0, new Double(1));
-  auto tv2 = transpose(tv1, {{0, 1}});
-  fusion.addInput(tv0);
-  fusion.addOutput(tv2);
+    auto tv0 = makeSymbolicTensor(2);
+    auto tv1 = add(tv0, new Double(1));
+    auto tv2 = transpose(tv1, {{0, 1}});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
 
-  fusion.printMath();
-  fusion.printKernel();
+    if (i == 0) {
+      tv1->computeAt(tv2, -1);
+    } else if (i == 1) {
+      tv1->computeAt(tv2, 1);
+      tv1->setMemoryType(MemoryType::Global);
+    } else {
+      tv1->setMemoryType(MemoryType::Global);
+    }
 
-  tv1->setMemoryType(MemoryType::Global);
-  //tv1->computeAt(tv2, -1);
+    fusion.printMath();
+    fusion.printKernel();
 
-  fusion.printMath();
-  fusion.printKernel();
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn({M, N}, options);
+    std::vector<IValue> aten_inputs = {t0};
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  at::Tensor t0 = at::randn({M, N}, options);
-  std::vector<IValue> aten_inputs = {t0};
+    FusionExecutor fe;
+    fe.compileFusion(&fusion);
+    auto outputs = fe.runFusion(aten_inputs);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  auto outputs = fe.runFusion(aten_inputs);
+    at::Tensor aten_output = (t0 + 1).t();
 
-  at::Tensor aten_output = (t0 + 1).t();
-
-  testValidate(
-      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+    testValidate(
+        &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  }
 }
 
 TEST(NVFuserTest, FusionTranspose3_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  for (int i = 0; i < 2; ++i) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
+    constexpr int M = 10;
+    constexpr int N = 20;
+
+    auto tv0 = makeSymbolicTensor(2);
+    auto tv1 = add(tv0, new Double(1));
+    auto tv2 = transpose(tv1, {{0, 1}});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
+
+    tv2->split(0, 4);
+
+    if (i == 0) {
+      tv1->computeAt(tv2, -1);
+    } else {
+      tv1->setMemoryType(MemoryType::Global);
+    }
+
+    fusion.printMath();
+    fusion.printKernel();
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn({M, N}, options);
+    std::vector<IValue> aten_inputs = {t0};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion);
+    auto outputs = fe.runFusion(aten_inputs);
+
+    at::Tensor aten_output = (t0 + 1).t();
+
+    testValidate(
+        &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  }
+}
+
+TEST(NVFuserTest, FusionTranspose4_CUDA) {
+  for (int i = 0; i < 2; ++i) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    constexpr int M = 10;
+    constexpr int N = 20;
+
+    auto tv0 = makeSymbolicTensor(2);
+    auto tv1 = add(tv0, new Double(1));
+    auto tv2 = transpose(tv1, {{0, 1}});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
+
+    tv2->merge(0);
+
+    if (i == 0) {
+      tv1->computeAt(tv2, -1);
+    } else {
+      tv1->setMemoryType(MemoryType::Global);
+    }
+
+    fusion.printMath();
+    fusion.printKernel();
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn({M, N}, options);
+    std::vector<IValue> aten_inputs = {t0};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion);
+    auto outputs = fe.runFusion(aten_inputs);
+
+    at::Tensor aten_output = (t0 + 1).t();
+
+    testValidate(
+        &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  }
+}
+
+TEST(NVFuserTest, FusionTranspose5_CUDA) {
   constexpr int M = 10;
   constexpr int N = 20;
+  constexpr int K = 30;
 
-  auto tv0 = makeSymbolicTensor(2);
-  auto tv1 = add(tv0, new Double(1));
-  auto tv2 = transpose(tv1, {{0, 1}});
-  fusion.addInput(tv0);
-  fusion.addOutput(tv2);
+  for (int i = 0; i < 2; ++i) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  fusion.printMath();
-  fusion.printKernel();
+    auto tv0 = makeSymbolicTensor(3);
+    auto tv1 = add(tv0, new Double(1));
+    auto tv2 = transpose(tv1, {{0, 1}});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
 
-  tv1->computeAt(tv2, -1);
+    if (i == 0) {
+      tv1->computeAt(tv2, -1);
+    } else {
+      tv1->setMemoryType(MemoryType::Global);
+    }
 
-  fusion.printMath();
-  fusion.printKernel();
+    fusion.printMath();
+    fusion.printKernel();
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  at::Tensor t0 = at::randn({M, N}, options);
-  std::vector<IValue> aten_inputs = {t0};
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn({M, N, K}, options);
+    std::vector<IValue> aten_inputs = {t0};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  auto outputs = fe.runFusion(aten_inputs);
+    FusionExecutor fe;
+    fe.compileFusion(&fusion);
+    auto outputs = fe.runFusion(aten_inputs);
 
-  at::Tensor aten_output = (t0 + 1).t();
+    at::Tensor aten_output = at::transpose(t0 + 1, 0, 1);
 
-  testValidate(
-      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+    testValidate(
+        &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  }
 }
+
+TEST(NVFuserTest, FusionTranspose6_CUDA) {
+  constexpr int M = 10;
+  constexpr int N = 20;
+  constexpr int K = 30;
+
+  for (int i = 0; i < 2; ++i) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(3);
+    auto tv1 = add(tv0, new Double(1));
+    auto tv2 = transpose(tv1, {{0, 1}});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
+
+    // Merge trasposed dim with non-transposed dim
+    tv2->merge(1, 2);
+
+    if (i == 0) {
+      tv1->computeAt(tv2, -1);
+    } else {
+      tv1->setMemoryType(MemoryType::Global);
+    }
+
+    fusion.printMath();
+    fusion.printKernel();
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn({M, N, K}, options);
+    std::vector<IValue> aten_inputs = {t0};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion);
+    auto outputs = fe.runFusion(aten_inputs);
+
+    at::Tensor aten_output = at::transpose(t0 + 1, 0, 1);
+
+    testValidate(
+        &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  }
+}
+
+TEST(NVFuserTest, FusionTranspose7_CUDA) {
+  constexpr int M = 10;
+  constexpr int N = 20;
+  constexpr int K = 30;
+
+  for (int i = 0; i < 3; ++i) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(3);
+    auto tv1 = sum(tv0, {2});
+    auto tv2 = transpose(tv1, {{0, 1}});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
+
+    switch (i) {
+      case 0:
+        tv1->setMemoryType(MemoryType::Global);
+        break;
+      case 1:
+        tv1->computeAt(tv2, -1);
+        break;
+      case 2:
+        tv2->merge(0, 1);
+        tv1->computeAt(tv2, -1);
+        break;
+    }
+
+    fusion.printMath();
+    fusion.printKernel();
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::manual_seed(0);
+    at::Tensor t0 = at::randn({M, N, K}, options);
+    std::vector<IValue> aten_inputs = {t0};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion);
+    auto outputs = fe.runFusion(aten_inputs);
+
+    at::Tensor aten_output = t0.sum({2}).t();
+
+    testValidate(
+        &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  }
+}
+
 
 } // namespace jit
 } // namespace torch
