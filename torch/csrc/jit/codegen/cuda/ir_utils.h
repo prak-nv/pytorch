@@ -109,8 +109,9 @@ auto filterByType(const ContainerType& inputs) {
   return filterByType<FilterType>(inputs.cbegin(), inputs.cend());
 }
 
-std::vector<int> normalizeOld2New(const std::unordered_map<int, int> &old2new_in,
-                                  size_t ndims);
+std::vector<int> normalizeOld2New(
+    const std::unordered_map<int, int>& old2new_in,
+    size_t ndims);
 
 } // namespace ir_utils
 } // namespace cuda

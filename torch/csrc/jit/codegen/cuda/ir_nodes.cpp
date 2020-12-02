@@ -343,27 +343,24 @@ TransposeOp::TransposeOp(
     TensorView* out,
     TensorView* in,
     const std::vector<int>& new2old)
-    : Expr(ExprType::TransposeOp),
-      out_(out),
-      in_(in),
-      new2old_(new2old) {
-
+    : Expr(ExprType::TransposeOp), out_(out), in_(in), new2old_(new2old) {
   // Sanity check of the input parameters. Maybe not necessary as they
   // should be checked at function transpose.
 
-  TORCH_INTERNAL_ASSERT(!in->hasRFactor(),
-                        "Transposing rFactor tensors is not supported.");
+  TORCH_INTERNAL_ASSERT(
+      !in->hasRFactor(), "Transposing rFactor tensors is not supported.");
 
   TORCH_INTERNAL_ASSERT(
-      TensorDomain::noReductions(in->getRootDomain()).size()
-      == out->getRootDomain().size());
+      TensorDomain::noReductions(in->getRootDomain()).size() ==
+      out->getRootDomain().size());
 
   TORCH_INTERNAL_ASSERT(new2old_.size() == out->getRootDomain().size());
 
   std::set<int> old_positions(new2old_.begin(), new2old_.end());
   TORCH_INTERNAL_ASSERT(old_positions.size() == new2old_.size());
   TORCH_INTERNAL_ASSERT(*(old_positions.begin()) == 0);
-  TORCH_INTERNAL_ASSERT(*(old_positions.rbegin()) == (int)(new2old_.size() - 1));
+  TORCH_INTERNAL_ASSERT(
+      *(old_positions.rbegin()) == (int)(new2old_.size() - 1));
 
   addOutput(out);
   addInput(in);

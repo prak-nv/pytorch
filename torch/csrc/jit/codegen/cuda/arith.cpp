@@ -670,7 +670,6 @@ TensorView* broadcast(
 TensorView* transpose(
     TensorView* inp,
     const std::unordered_map<int, int>& old2new) {
-
   auto inp_domain = TensorDomain::noReductions(inp->getRootDomain());
   std::vector<IterDomain*> out_domain(inp_domain.size());
 

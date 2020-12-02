@@ -10049,8 +10049,8 @@ TEST(NVFuserTest, FusionTranspose_CUDA) {
   // Algorithm
   TensorView* tv0 = makeConcreteTensor({M, N});
   TensorView* tv1 = add(tv0, new Double(1));
-  //tv1->reorder({{0, 1}});
-  //TensorView* tv2 = unaryOp(UnaryOpType::Set, tv1);
+  // tv1->reorder({{0, 1}});
+  // TensorView* tv2 = unaryOp(UnaryOpType::Set, tv1);
   auto tv2 = transpose(tv1, {{0, 1}});
   fusion.addInput(tv0);
   fusion.addOutput(tv2);
@@ -10060,11 +10060,10 @@ TEST(NVFuserTest, FusionTranspose_CUDA) {
 
 #if 1
 
-  //tv2->split(0, 32);
-  //tv1->computeAt(tv2, -1);
+  // tv2->split(0, 32);
+  // tv1->computeAt(tv2, -1);
 
-  //tv2->axis(1)->parallelize(ParallelType::Unswitch);
-
+  // tv2->axis(1)->parallelize(ParallelType::Unswitch);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);

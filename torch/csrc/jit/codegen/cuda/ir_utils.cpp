@@ -8,9 +8,9 @@ namespace fuser {
 namespace cuda {
 namespace ir_utils {
 
-std::vector<int> normalizeOld2New(const std::unordered_map<int, int> &old2new_in,
-                                  size_t ndims) {
-  
+std::vector<int> normalizeOld2New(
+    const std::unordered_map<int, int>& old2new_in,
+    size_t ndims) {
   // adjust based on negative values (any negative values gets nDims added to
   // it)
   std::unordered_map<int, int> old2new;
@@ -109,4 +109,3 @@ std::vector<int> normalizeOld2New(const std::unordered_map<int, int> &old2new_in
 } // namespace fuser
 } // namespace jit
 } // namespace torch
-
