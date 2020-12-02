@@ -289,6 +289,13 @@ void IndexLowering::visit(const kir::BroadcastOp* bop) {
   pushBack(ir_builder_.create<kir::BroadcastOp>(out, in));
 }
 
+void IndexLowering::visit(const kir::TransposeOp* top) {
+  TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(top));
+  const auto out = lowerDstIndex(top->out());
+  const auto in = lowerSrcIndex(top->in(), top->out());
+  pushBack(ir_builder_.create<kir::TransposeOp>(out, in));
+}
+
 void IndexLowering::visit(const kir::Allocate* allocate) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::Allocate*>(allocate)); // NOLINT

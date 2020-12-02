@@ -279,6 +279,7 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
     const auto lowered_node = ir_builder_.create<kir::TransposeOp>(
         lowerValue(node->out()), lowerValue(node->in()));
     TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
+    std::cerr << "Lowered TransposeOp\n";
   }
 
  private:
