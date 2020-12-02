@@ -25,14 +25,12 @@ static TensorView* setupLayerNorm(
   const float kEps = 1e-5;
   std::vector<int> reduction_axes(norm_shape.size());
   std::vector<bool> broadcast_mask(input->nDims(), false);
-  torch::jit::fuser::cuda::Val* num_features = nullptr;
+  torch::jit::fuser::cuda::Val* num_features = new Double(1);
   for (int idx = 0; idx < norm_shape.size(); ++idx) {
     const int axis = input->nDims() - 1 - idx;
     reduction_axes[idx] = axis;
     broadcast_mask[axis] = true;
-    num_features = (num_features == nullptr)
-        ? input->domain()->domain()[axis]->extent()
-        : mul(num_features, input->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, input->domain()->domain()[axis]->extent());
   }
 
   // Reduction

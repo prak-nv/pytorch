@@ -26,14 +26,13 @@ static TensorView* setupBatchNorm(
   const float kEps = 1e-5;
   std::vector<int> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  torch::jit::fuser::cuda::Val* num_features = nullptr;
+  torch::jit::fuser::cuda::Val* num_features = new Double(1);
   for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
     if (axis != 1) {
       reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
-      num_features = (axis == 0)
-          ? input->domain()->domain()[0]->extent()
-          : mul(num_features, input->domain()->domain()[axis]->extent());
+      num_features =
+          mul(num_features, input->domain()->domain()[axis]->extent());
     }
   }
 

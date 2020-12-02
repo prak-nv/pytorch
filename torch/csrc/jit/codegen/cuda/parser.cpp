@@ -796,6 +796,7 @@ class IrParser {
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             if (!node->input(5)->type()->isSubtypeOf(
                     static_cast<c10::TypePtr>(NoneType::get()))) {
+              // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               weight = value_map[node->input(5)->unique()]->as<TensorView>();
             }
 
@@ -803,6 +804,7 @@ class IrParser {
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             if (!node->input(6)->type()->isSubtypeOf(
                     static_cast<c10::TypePtr>(NoneType::get()))) {
+              // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               bias = value_map[node->input(6)->unique()]->as<TensorView>();
             }
 
