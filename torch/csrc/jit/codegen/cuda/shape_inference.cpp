@@ -184,15 +184,40 @@ class NaiveTypePropagator {
       case aten::native_layer_norm: {
         auto out_type = node->input(0)->type()->cast<TensorType>();
         node->output(0)->setType(out_type);
-        node->output(1)->setType(out_type);
-        node->output(2)->setType(out_type);
+
+        auto mean_rstd_type = TensorType::create(
+            *out_type->scalarType(),
+            *out_type->device(),
+            *out_type->dim(),
+            out_type->requires_grad());
+
+        node->output(1)->setType(mean_rstd_type);
+        node->output(2)->setType(mean_rstd_type);
+
         break;
       }
       case aten::native_layer_norm_backward: {
         auto out_type = node->input(0)->type()->cast<TensorType>();
         node->output(0)->setType(out_type);
-        node->output(1)->setType(out_type);
-        node->output(2)->setType(out_type);
+
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+        auto out_mask_list = constant_as<c10::List<bool>>(node->input(7));
+        TORCH_INTERNAL_ASSERT(
+            out_mask_list.has_value(), "output mask for layer_norm_backward");
+        std::vector<int> output_mask;
+        for (const auto value : out_mask_list->vec()) {
+          output_mask.emplace_back(static_cast<int>(value));
+        }
+
+        if (output_mask[1] &&
+            !node->input(4)->type()->isSubtypeOf(
+                static_cast<c10::TypePtr>(NoneType::get()))) {
+          auto weight_type = node->input(4)->type()->cast<TensorType>();
+          node->output(1)->setType(weight_type);
+        }
+
+        // TODO: Gather shape information about bias tensor
+        // node->output(2)->setType(bias_type);
         break;
       }
       case aten::softmax: {

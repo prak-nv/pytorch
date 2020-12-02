@@ -1024,7 +1024,9 @@ const std::vector<std::string> functions = {
             # Repurposed for NvFuser such that M = input_shape and N = normalized_ndim
             # so we can construct reduction_axes and broadcast_mask
             output, mean, rstd = torch.native_layer_norm(input, weight, bias, -1, len(normalized_shape), eps)
+
             def backward(grad_output):
+                # TODO: grad_bias and grad_weight are disabled because we are missing multiple kernel support
                 output_mask = [True, False, False]
                 grad_input, grad_weight, grad_bias = torch.native_layer_norm_backward(grad_output, input, mean, rstd, weight, -1, len(normalized_shape), output_mask)
                 return grad_input, None, grad_weight, grad_bias, None, None
