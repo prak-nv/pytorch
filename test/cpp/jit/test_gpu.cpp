@@ -10039,7 +10039,7 @@ TEST(NVFuserTest, FusionGetComputeAtRelPos_CUDA) {
   }
 }
 
-TEST(NVFuserTest, FusionTranspose_CUDA) {
+TEST(NVFuserTest, FusionTranspose1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -10047,10 +10047,38 @@ TEST(NVFuserTest, FusionTranspose_CUDA) {
   constexpr int N = 20;
 
   // Algorithm
-  TensorView* tv0 = makeConcreteTensor({M, N});
-  TensorView* tv1 = add(tv0, new Double(1));
-  // tv1->reorder({{0, 1}});
-  // TensorView* tv2 = unaryOp(UnaryOpType::Set, tv1);
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = transpose(tv0, {{0, 1}});
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  at::Tensor aten_output = t0.t();
+
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionTranspose2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 20;
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = add(tv0, new Double(1));
   auto tv2 = transpose(tv1, {{0, 1}});
   fusion.addInput(tv0);
   fusion.addOutput(tv2);
@@ -10058,12 +10086,11 @@ TEST(NVFuserTest, FusionTranspose_CUDA) {
   fusion.printMath();
   fusion.printKernel();
 
-#if 1
+  tv1->setMemoryType(MemoryType::Global);
+  //tv1->computeAt(tv2, -1);
 
-  // tv2->split(0, 32);
-  // tv1->computeAt(tv2, -1);
-
-  // tv2->axis(1)->parallelize(ParallelType::Unswitch);
+  fusion.printMath();
+  fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -10078,7 +10105,42 @@ TEST(NVFuserTest, FusionTranspose_CUDA) {
 
   testValidate(
       &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
-#endif
+}
+
+TEST(NVFuserTest, FusionTranspose3_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 20;
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = transpose(tv1, {{0, 1}});
+  fusion.addInput(tv0);
+  fusion.addOutput(tv2);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  tv1->computeAt(tv2, -1);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  at::Tensor aten_output = (t0 + 1).t();
+
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
 } // namespace jit
