@@ -116,18 +116,6 @@ void IterVisitor::traverse_(Fusion* fusion, bool traverse_all_paths) {
   if (!term_val_outs.empty()) {
     traverseFrom(fusion, term_val_outs, traverse_all_paths);
   }
-  return;
-
-  std::vector<Val*> leaves;
-  // Search for Vals with no uses (output edges)
-  for (Val* val : fusion->deterministic_vals())
-    if (!fusion->used(val)) {
-      leaves.push_back(val);
-    }
-
-  if (!leaves.empty()) {
-    traverseFrom(fusion, leaves, traverse_all_paths);
-  }
 }
 
 void IterVisitor::traverse(Fusion* fusion) {
@@ -370,8 +358,7 @@ struct FindOutputs : public IterVisitor {
 
   FindOutputs(const std::unordered_set<Val*>& _of) : of_(_of) {
     auto fusion = (*of_.begin())->fusion();
-    // TODO: Change to traverse
-    traverseFrom(fusion, fusion->outputs(), false);
+    traverse(fusion);
   };
 
   static std::unordered_set<Val*> getAllOutputsOf(
