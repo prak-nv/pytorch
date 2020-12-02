@@ -460,6 +460,43 @@ std::tuple<Tensor, Tensor, Tensor> layer_norm_backward_cuda(
   return std::make_tuple(std::move(dX), std::move(dgamma), std::move(dbeta));
 }
 
+std::tuple<Tensor, Tensor, Tensor> layer_norm_jit_cuda(
+    const Tensor& input,
+    IntArrayRef normalized_shape,
+    const Tensor& weight /* optional */,
+    const Tensor& bias /* optional */,
+    double eps) {
+
+  auto inputs = _prepare_layer_norm_inputs(input, normalized_shape, weight, bias);
+  auto X = std::get<0>(inputs);
+  auto gamma = std::get<1>(inputs);
+  auto beta = std::get<2>(inputs);
+  auto M = std::get<3>(inputs);
+  auto N = std::get<4>(inputs);
+
+  return layer_norm_cuda(X, gamma, beta, M, N, eps);
+}
+
+std::tuple<Tensor, Tensor, Tensor> layer_norm_backward_jit_cuda(
+    const Tensor& dY,
+    const Tensor& input,
+    IntArrayRef normalized_shape,
+    const Tensor& mean,
+    const Tensor& rstd,
+    const Tensor& weight /* optional */,
+    const Tensor& bias /* optional */,
+    std::array<bool, 3> grad_input_mask) {
+
+    auto inputs = _prepare_layer_norm_inputs(input, normalized_shape, weight, bias);
+    auto X = std::get<0>(inputs);
+    auto gamma = std::get<1>(inputs);
+    auto beta = std::get<2>(inputs);
+    auto M = std::get<3>(inputs);
+    auto N = std::get<4>(inputs);
+
+    return layer_norm_backward_cuda(dY, X, mean, rstd, gamma, M, N, grad_input_mask);
+}
+
 
 REGISTER_DISPATCH(LayerNormKernel, &LayerNormKernelImpl);
 REGISTER_DISPATCH(LayerNormBackwardKernel, &LayerNormBackwardKernelImpl);
