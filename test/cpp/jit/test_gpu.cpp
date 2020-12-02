@@ -6855,14 +6855,12 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
 
   std::vector<int> inner_reduction_axes(norm_shape.size());
   std::vector<bool> inner_broadcast_mask(input->nDims(), false);
-  Val* num_features = nullptr;
+  Val* num_features = new Double(1.0);
   for (size_t idx = 0; idx < norm_shape.size(); ++idx) {
     const int axis = input->nDims() - 1 - idx;
     inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;
-    num_features = (num_features == nullptr)
-        ? input->domain()->domain()[axis]->extent()
-        : mul(num_features, input->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, input->domain()->domain()[axis]->extent());
   }
 
   /*
@@ -6895,7 +6893,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
 
   auto* inner = sub(sub(a, bcast_b), c3);
 
-  auto reciprocal_size = div(new Float(1), num_features);
+  auto reciprocal_size = unaryOp(UnaryOpType::Reciprocal, num_features);
   auto* grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
   fusion.addOutput(grad_in);
 
@@ -6992,14 +6990,12 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
 
   std::vector<int> reduction_axes(norm_shape.size());
   std::vector<bool> broadcast_mask(input->nDims(), false);
-  Val* num_features = nullptr;
+  Val* num_features = new Double(1);
   for (int idx = 0; idx < norm_shape.size(); ++idx) {
     const int axis = input->nDims() - 1 - idx;
     reduction_axes[idx] = axis;
     broadcast_mask[axis] = true;
-    num_features = (num_features == nullptr)
-        ? input->domain()->domain()[axis]->extent()
-        : mul(num_features, input->domain()->domain()[axis]->extent());
+    num_features = mul(num_features, input->domain()->domain()[axis]->extent());
   }
 
   // Reduction
@@ -7084,15 +7080,13 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
   const int kNumberOfDims = input->nDims();
   std::vector<int> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  Val* num_features = nullptr;
-
+  Val* num_features = new Double(1);
   for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
     if (axis != 1) {
       reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
-      num_features = (axis == 0)
-          ? input->domain()->domain()[0]->extent()
-          : mul(num_features, input->domain()->domain()[axis]->extent());
+      num_features =
+          mul(num_features, input->domain()->domain()[axis]->extent());
     }
   }
 

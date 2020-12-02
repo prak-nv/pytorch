@@ -566,15 +566,13 @@ class IrParser {
             const int kNumberOfDims = input->nDims();
             std::vector<int> reduction_axes;
             std::vector<bool> broadcast_mask(kNumberOfDims, false);
-            Val* num_features = nullptr;
+            Val* num_features = new Double(1);
             for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
               if (axis != 1) {
                 reduction_axes.push_back(axis);
                 broadcast_mask[axis] = true;
-                num_features = (num_features == nullptr)
-                    ? input->domain()->domain()[0]->extent()
-                    : mul(num_features,
-                          input->domain()->domain()[axis]->extent());
+                num_features = mul(
+                    num_features, input->domain()->domain()[axis]->extent());
               }
             }
 
@@ -654,15 +652,13 @@ class IrParser {
 
             std::vector<int> reduction_axes(norm_shape->vec().size());
             std::vector<bool> broadcast_mask(input->nDims(), false);
-            Val* num_features = nullptr;
+            Val* num_features = new Double(1);
             for (size_t idx = 0; idx < norm_shape->vec().size(); ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
               reduction_axes[idx] = axis;
               broadcast_mask[axis] = true;
-              num_features = (num_features == nullptr)
-                  ? input->domain()->domain()[axis]->extent()
-                  : mul(num_features,
-                        input->domain()->domain()[axis]->extent());
+              num_features =
+                  mul(num_features, input->domain()->domain()[axis]->extent());
             }
 
             // TODO: NAN when mean and variance are zero
@@ -722,7 +718,7 @@ class IrParser {
             // M = product of [0, reduction_axis)
             auto M = constant_as<int>(node->input(3));
             TORCH_INTERNAL_ASSERT(
-                M.has_value(), "The M parameter is required.");
+                M.has_value(), "The M parameter is not valid.");
             const float kBatchSize = M.value();
 
             // N = product of [reduction_axis, input_ndims]
@@ -730,7 +726,7 @@ class IrParser {
             // so we can construct reduction_axes and broadcast_mask
             auto N = constant_as<int>(node->input(4));
             TORCH_INTERNAL_ASSERT(
-                N.has_value(), "The N parameter is required.");
+                N.has_value(), "The N parameter is not valid.");
             const size_t kNormShapeNumDims = N.value();
 
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
@@ -741,15 +737,13 @@ class IrParser {
 
             std::vector<int> reduction_axes(kNormShapeNumDims);
             std::vector<bool> broadcast_mask(input->nDims(), false);
-            Val* num_features = nullptr;
+            Val* num_features = new Double(1);
             for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
               reduction_axes[idx] = axis;
               broadcast_mask[axis] = true;
-              num_features = (num_features == nullptr)
-                  ? input->domain()->domain()[axis]->extent()
-                  : mul(num_features,
-                        input->domain()->domain()[axis]->extent());
+              num_features =
+                  mul(num_features, input->domain()->domain()[axis]->extent());
             }
 
             // TODO: NAN when mean and variance are zero
@@ -764,7 +758,7 @@ class IrParser {
             auto var_sum = sum(x_mean_sub_pow, reduction_axes);
             auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
             auto var = div(var_sum_bcast, num_features);
-            auto var_eps = add(var, new Float(kEps));
+            auto var_eps = add(var, new Double(kEps));
             auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
             auto output = mul(x_mean_sub, rvar);
 
@@ -808,7 +802,7 @@ class IrParser {
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             auto M = constant_as<int>(node->input(5));
             TORCH_INTERNAL_ASSERT(
-                M.has_value(), "The M parameter is required.");
+                M.has_value(), "The M parameter is not valid.");
             const size_t kBatchSize = M.value();
 
             // N = product of [reduction_axis, input_ndims]
@@ -817,7 +811,7 @@ class IrParser {
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             auto N = constant_as<int>(node->input(6));
             TORCH_INTERNAL_ASSERT(
-                N.has_value(), "The N parameter is required.");
+                N.has_value(), "The N parameter is not valid.");
             const size_t kNormShapeNumDims = N.value();
 
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
@@ -841,15 +835,13 @@ class IrParser {
 
             std::vector<int> inner_reduction_axes(kNormShapeNumDims);
             std::vector<bool> inner_broadcast_mask(input->nDims(), false);
-            Val* num_features = nullptr;
+            Val* num_features = new Double(1);
             for (int idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
               inner_reduction_axes[idx] = axis;
               inner_broadcast_mask[axis] = true;
-              num_features = (num_features == nullptr)
-                  ? input->domain()->domain()[axis]->extent()
-                  : mul(num_features,
-                        input->domain()->domain()[axis]->extent());
+              num_features =
+                  mul(num_features, input->domain()->domain()[axis]->extent());
             }
 
             // TODO: grad_bias and grad_weight are disabled because
@@ -867,9 +859,6 @@ class IrParser {
             fusion.addOutput(grad_weight);
             */
 
-            // auto bcast_mean = broadcast(mean, inner_broadcast_mask);
-            // auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
-            // auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
             auto x_hat = mul(sub(input, mean), rstd);
 
             TensorView* grad_x_hat = nullptr;
@@ -892,8 +881,8 @@ class IrParser {
 
             auto* inner = sub(sub(a, bcast_b), c3);
 
-            auto reciprocal_size = div(new Float(1), num_features);
-            // auto* grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
+            auto reciprocal_size =
+                unaryOp(UnaryOpType::Reciprocal, num_features);
             auto* grad_in = mul(mul(reciprocal_size, rstd), inner);
 
             value_map.emplace(node->output(0)->unique(), grad_in);
@@ -930,15 +919,7 @@ class IrParser {
             auto* bcast_sum = broadcast(sum_exp, broadcast_mask);
             auto* output = div(exp, bcast_sum);
             value_map.emplace(node->output()->unique(), output);
-          },
-          [](const Node* node) -> bool {
-            if (!node->inputs()[2]->type()->isSubtypeOf(
-                    static_cast<c10::TypePtr>(NoneType::get()))) {
-              return false;
-            }
-            return true;
-          },
-          OperatorType::Normalization);
+          });
     }
 
     {
