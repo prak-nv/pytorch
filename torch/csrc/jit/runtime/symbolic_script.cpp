@@ -1022,10 +1022,18 @@ const std::vector<std::string> functions = {
                        cudnn_enable : bool):
 
             output, mean, rstd = torch.native_layer_norm(input, normalized_shape, weight, bias, eps)
+
             def backward(grad_output):
-                # TODO: grad_bias and grad_weight are disabled because we are missing multiple kernel support
+                if weight is not None:
+                    x_hat = (output - mean) * rstd
+                    grad_weight = (grad_output * x_hat)._grad_sum_to_size(weight.size())
+
+                if bias is not None:
+                    grad_bias = grad_output._grad_sum_to_size(bias.size())
+
+                # TODO: grad_bias and grad_weight are disabled in NvFuser because we are missing multiple kernel support
                 output_mask = [True, False, False]
-                grad_input, grad_weight, grad_bias = torch.native_layer_norm_backward(grad_output, input, normalized_shape, mean, rstd, weight, bias, output_mask)
+                grad_input, jit_grad_weight, jit_grad_bias = torch.native_layer_norm_backward(grad_output, input, normalized_shape, mean, rstd, weight, bias, output_mask)
                 return grad_input, None, grad_weight, grad_bias, None, None
             return output, backward
 
