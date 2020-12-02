@@ -10075,7 +10075,7 @@ TEST(NVFuserTest, FusionTranspose_CUDA) {
   fe.compileFusion(&fusion);
   auto outputs = fe.runFusion(aten_inputs);
 
-  at::Tensor aten_output = t0 + 1;
+  at::Tensor aten_output = (t0 + 1).t();
 
   testValidate(
       &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
