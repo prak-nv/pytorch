@@ -2244,6 +2244,20 @@
     CPU: layer_norm_backward_cpu
     CUDA: layer_norm_backward_cuda
 
+- func: native_layer_norm.jit(Tensor input, int[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)
+  use_c10_dispatcher: hacky_wrapper_for_legacy_signatures
+  variants: function
+  dispatch:
+    CPU: layer_norm_jit_cpu
+    CUDA: layer_norm_jit_cuda
+
+- func: native_layer_norm_backward.jit(Tensor grad_out, Tensor input, int[] normalized_shape, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias, bool[3] output_mask) -> (Tensor, Tensor, Tensor)
+  use_c10_dispatcher: hacky_wrapper_for_legacy_signatures
+  variants: function
+  dispatch:
+    CPU: layer_norm_backward_jit_cpu
+    CUDA: layer_norm_backward_jit_cuda
+
 - func: nan_to_num(Tensor self, float? nan=None, float? posinf=None, float? neginf=None) -> Tensor
   use_c10_dispatcher: full
   variants: function, method

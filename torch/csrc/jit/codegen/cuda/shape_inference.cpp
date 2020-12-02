@@ -210,14 +210,21 @@ class NaiveTypePropagator {
         }
 
         if (output_mask[1] &&
-            !node->input(4)->type()->isSubtypeOf(
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+            !node->input(5)->type()->isSubtypeOf(
                 static_cast<c10::TypePtr>(NoneType::get()))) {
-          auto weight_type = node->input(4)->type()->cast<TensorType>();
+          auto weight_type = node->input(5)->type()->cast<TensorType>();
           node->output(1)->setType(weight_type);
         }
 
         // TODO: Gather shape information about bias tensor
-        // node->output(2)->setType(bias_type);
+        if (output_mask[1] &&
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+            !node->input(6)->type()->isSubtypeOf(
+                static_cast<c10::TypePtr>(NoneType::get()))) {
+          auto bias_type = node->input(6)->type()->cast<TensorType>();
+          node->output(2)->setType(bias_type);
+        }
         break;
       }
       case aten::softmax: {

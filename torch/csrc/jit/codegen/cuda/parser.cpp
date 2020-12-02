@@ -628,6 +628,7 @@ class IrParser {
           [](const Node* node,
              std::unordered_map<size_t, CgValue>& value_map) -> void {
             auto input = value_map[node->input(0)->unique()]->as<TensorView>();
+
             auto norm_shape = constant_as<c10::List<int64_t>>(node->input(1));
             TORCH_INTERNAL_ASSERT(
                 norm_shape.has_value(),
@@ -650,10 +651,11 @@ class IrParser {
                 eps.has_value(), "The EPS parameter is required.");
             const float kEps = eps.value();
 
-            std::vector<int> reduction_axes(norm_shape->vec().size());
+            const int kNormShapeNumDims = norm_shape->vec().size();
+            std::vector<int> reduction_axes(kNormShapeNumDims);
             std::vector<bool> broadcast_mask(input->nDims(), false);
             Val* num_features = new Double(1);
-            for (size_t idx = 0; idx < norm_shape->vec().size(); ++idx) {
+            for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
               reduction_axes[idx] = axis;
               broadcast_mask[axis] = true;
@@ -696,45 +698,36 @@ class IrParser {
 
     {
       auto ptr_op = getOperatorForLiteral(
-          "aten::native_layer_norm(Tensor input, Tensor? weight, Tensor? bias, int M, int N, float eps) -> (Tensor, Tensor, Tensor)");
+          "aten::native_layer_norm.jit(Tensor input, int[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)");
       registerParseRule(
           ptr_op,
           [](const Node* node,
              std::unordered_map<size_t, CgValue>& value_map) -> void {
             auto input = value_map[node->input(0)->unique()]->as<TensorView>();
 
+            auto norm_shape = constant_as<c10::List<int64_t>>(node->input(1));
+            TORCH_INTERNAL_ASSERT(
+                norm_shape.has_value(),
+                "The Normalized_Shape list is required.");
+
             TensorView* weight = nullptr;
-            if (!node->input(1)->type()->isSubtypeOf(
+            if (!node->input(2)->type()->isSubtypeOf(
                     static_cast<c10::TypePtr>(NoneType::get()))) {
-              weight = value_map[node->input(1)->unique()]->as<TensorView>();
+              weight = value_map[node->input(2)->unique()]->as<TensorView>();
             }
 
             TensorView* bias = nullptr;
-            if (!node->input(2)->type()->isSubtypeOf(
+            if (!node->input(3)->type()->isSubtypeOf(
                     static_cast<c10::TypePtr>(NoneType::get()))) {
-              bias = value_map[node->input(2)->unique()]->as<TensorView>();
+              bias = value_map[node->input(3)->unique()]->as<TensorView>();
             }
 
-            // M = product of [0, reduction_axis)
-            auto M = constant_as<int>(node->input(3));
-            TORCH_INTERNAL_ASSERT(
-                M.has_value(), "The M parameter is not valid.");
-            const float kBatchSize = M.value();
-
-            // N = product of [reduction_axis, input_ndims]
-            // Repurposed for NvFuser such that N = norm_shape_ndims
-            // so we can construct reduction_axes and broadcast_mask
-            auto N = constant_as<int>(node->input(4));
-            TORCH_INTERNAL_ASSERT(
-                N.has_value(), "The N parameter is not valid.");
-            const size_t kNormShapeNumDims = N.value();
-
-            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-            auto eps = constant_as<float>(node->input(5));
+            auto eps = constant_as<float>(node->input(4));
             TORCH_INTERNAL_ASSERT(
                 eps.has_value(), "The EPS parameter is required.");
             const float kEps = eps.value();
 
+            const int kNormShapeNumDims = norm_shape->vec().size();
             std::vector<int> reduction_axes(kNormShapeNumDims);
             std::vector<bool> broadcast_mask(input->nDims(), false);
             Val* num_features = new Double(1);
@@ -781,49 +774,39 @@ class IrParser {
 
     {
       auto ptr_op = getOperatorForLiteral(
-          "aten::native_layer_norm_backward(Tensor grad_out, Tensor input, Tensor mean, Tensor rstd, Tensor? weight, int M, int N, bool[3] output_mask) -> (Tensor, Tensor, Tensor)");
+          "aten::native_layer_norm_backward.jit(Tensor grad_out, Tensor input, int[] normalized_shape, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias, bool[3] output_mask) -> (Tensor, Tensor, Tensor)");
       registerParseRule(
           ptr_op,
           [](const Node* node,
              std::unordered_map<size_t, CgValue>& value_map) -> void {
             auto grad_out =
                 value_map[node->input(0)->unique()]->as<TensorView>();
+
             auto input = value_map[node->input(1)->unique()]->as<TensorView>();
-            auto mean = value_map[node->input(2)->unique()]->as<TensorView>();
-            auto rstd = value_map[node->input(3)->unique()]->as<TensorView>();
+
+            auto norm_shape = constant_as<c10::List<int64_t>>(node->input(2));
+            TORCH_INTERNAL_ASSERT(
+                norm_shape.has_value(),
+                "The Normalized_Shape list is required.");
+
+            auto mean = value_map[node->input(3)->unique()]->as<TensorView>();
+            auto rstd = value_map[node->input(4)->unique()]->as<TensorView>();
 
             TensorView* weight = nullptr;
-            if (!node->input(4)->type()->isSubtypeOf(
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+            if (!node->input(5)->type()->isSubtypeOf(
                     static_cast<c10::TypePtr>(NoneType::get()))) {
-              weight = value_map[node->input(4)->unique()]->as<TensorView>();
+              weight = value_map[node->input(5)->unique()]->as<TensorView>();
             }
 
-            // M = product of [0, reduction_axis)
+            TensorView* bias = nullptr;
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-            auto M = constant_as<int>(node->input(5));
-            TORCH_INTERNAL_ASSERT(
-                M.has_value(), "The M parameter is not valid.");
-            const size_t kBatchSize = M.value();
-
-            // N = product of [reduction_axis, input_ndims]
-            // Repurposed for NvFuser such that N = norm_shape_ndims
-            // so we can construct reduction_axes and broadcast_mask
-            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-            auto N = constant_as<int>(node->input(6));
-            TORCH_INTERNAL_ASSERT(
-                N.has_value(), "The N parameter is not valid.");
-            const size_t kNormShapeNumDims = N.value();
-
-            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-            auto out_mask_list = constant_as<c10::List<bool>>(node->input(7));
-            TORCH_INTERNAL_ASSERT(
-                out_mask_list.has_value(),
-                "output mask for layer_norm_backward");
-            std::vector<int> output_mask;
-            for (const auto value : out_mask_list->vec()) {
-              output_mask.emplace_back(static_cast<int>(value));
+            if (!node->input(6)->type()->isSubtypeOf(
+                    static_cast<c10::TypePtr>(NoneType::get()))) {
+              bias = value_map[node->input(6)->unique()]->as<TensorView>();
             }
 
+            const int kNormShapeNumDims = norm_shape->vec().size();
             const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
             std::vector<int> outer_reduction_axes(kOuterNumDims);
@@ -848,25 +831,14 @@ class IrParser {
             // they are incompabilble with grad_in fusion
             // Requires seperate kernels
 
-            /*
-            auto grad_bias = sum(grad_out, outer_reduction_axes);
-            fusion.addOutput(grad_bias);
-
-            auto bcast_mean = broadcast(mean, inner_broadcast_mask);
-            auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
-            auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
-            auto grad_weight = sum(mul(grad_out, x_hat), outer_reduction_axes);
-            fusion.addOutput(grad_weight);
-            */
-
             auto x_hat = mul(sub(input, mean), rstd);
 
             TensorView* grad_x_hat = nullptr;
-            if (weight == nullptr) {
-              grad_x_hat = grad_out;
-            } else {
+            if (weight != nullptr) {
               auto* bcast_weight = broadcast(weight, outer_broadcast_mask);
               grad_x_hat = mul(grad_out, bcast_weight);
+            } else {
+              grad_x_hat = grad_out;
             }
 
             auto* a = mul(num_features, grad_x_hat);
@@ -886,6 +858,17 @@ class IrParser {
             auto* grad_in = mul(mul(reciprocal_size, rstd), inner);
 
             value_map.emplace(node->output(0)->unique(), grad_in);
+
+            // if (bias != nullptr) {
+            //  auto grad_bias = sum(grad_out, outer_reduction_axes);
+            //  value_map.emplace(node->output(2)->unique(), grad_bias);
+            // }
+
+            // if (weight != nullptr) {
+            //  auto grad_weight = sum(mul(grad_out, x_hat),
+            //  outer_reduction_axes);
+            //  value_map.emplace(node->output(1)->unique(), grad_weight);
+            // }
           });
     }
 
