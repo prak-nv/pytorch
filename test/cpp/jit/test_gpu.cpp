@@ -485,7 +485,7 @@ TEST(NVFuserTest, FusionClear_CUDA) {
 
   fusion.clear();
 
-  TORCH_CHECK(fusion.all_exprs().empty());
+  TORCH_CHECK(fusion.unordered_exprs().empty());
   TORCH_CHECK(fusion.vals().empty());
 
   TORCH_CHECK(fusion.inputs().empty());
@@ -648,7 +648,7 @@ TEST(NVFuserTest, FusionMove_CUDA) {
   //    standard library containers:
   //    https://en.cppreference.com/w/cpp/utility/move
   //
-  TORCH_CHECK(fusion.all_exprs().empty());
+  TORCH_CHECK(fusion.unordered_exprs().empty());
   TORCH_CHECK(fusion.vals().empty());
   TORCH_CHECK(fusion.inputs().empty());
   TORCH_CHECK(fusion.outputs().empty());
@@ -716,36 +716,6 @@ TEST(NVFuserTest, FusionSimpleTypePromote_CUDA) {
   TORCH_CHECK(d5->getDataType() == DataType::Double);
 }
 
-class ZeroMutator : public OptOutMutator {
- public:
-  Statement* mutate(Double* f) {
-    if (f->isConst() && *(f->value()) == 1.0)
-      return new Double(0.0);
-    return f;
-  }
-  void mutate(Fusion* f) {
-    OptOutMutator::mutate(f);
-  }
-};
-
-TEST(NVFuserTest, FusionMutator_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  Double* d4 = new Double{1.f};
-  Int* i1 = new Int{3};
-  Val* d5 = add(d4, i1);
-  ZeroMutator mutator;
-  mutator.mutate(&fusion);
-  Val* lhs = static_cast<BinaryOp*>(fusion.origin(d5))->lhs();
-  TORCH_CHECK(
-      lhs->getValType().value() == ValType::Scalar &&
-      lhs->getDataType().value() == DataType::Double);
-  Double* dlhs = static_cast<Double*>(lhs);
-
-  TORCH_CHECK(dlhs->value().value() == 0.f);
-}
-
 TEST(NVFuserTest, FusionRegister_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -793,45 +763,39 @@ TEST(NVFuserTest, FusionTopoSort_CUDA) {
   Double* v5 = new Double();
   Double* v6 = new Double();
 
+  std::vector<Val*> inputs = {v0, v1};
+  for (auto val : inputs) {
+    fusion.addInput(val);
+  }
+
   Expr* e0 = new DummyExpr(v3, v2, v1, v0);
   Expr* e1 = new BinaryOp(BinaryOpType::Add, v4, v3, v2);
   Expr* e2 = new BinaryOp(BinaryOpType::Add, v5, v2, v4);
   Expr* e3 = new BinaryOp(BinaryOpType::Add, v6, v5, v5);
 
-  std::vector<Expr*> exprs = fusion.all_exprs();
-
-  TORCH_CHECK(exprs.size() == 4);
-  TORCH_CHECK(exprs[0] == e0);
-  TORCH_CHECK(exprs[1] == e1);
-  TORCH_CHECK(exprs[2] == e2);
-  TORCH_CHECK(exprs[3] == e3);
-
   fusion.addOutput(v2);
-  exprs = fusion.exprs();
-  TORCH_CHECK(exprs.size() == 1);
+  fusion.addOutput(v3);
+  auto exprs = fusion.exprs();
+  TORCH_CHECK(exprs.size() == 1, "Found ", exprs.size(), " but expecting 1");
   TORCH_CHECK(exprs[0] == e0);
 
   fusion.addOutput(v5);
   exprs = fusion.exprs();
+  TORCH_CHECK(exprs.size() == 3, "Found ", exprs.size(), " but expecting 3");
   TORCH_CHECK(exprs[0] == e0);
   TORCH_CHECK(exprs[1] == e1);
   TORCH_CHECK(exprs[2] == e2);
 
   fusion.addOutput(v4);
   exprs = fusion.exprs();
-  TORCH_CHECK(exprs[0] == e0);
-  TORCH_CHECK(exprs[1] == e1);
-  TORCH_CHECK(exprs[2] == e2);
-
-  fusion.addOutput(v3);
-  exprs = fusion.exprs();
+  TORCH_CHECK(exprs.size() == 3, "Found ", exprs.size(), " but expecting 3");
   TORCH_CHECK(exprs[0] == e0);
   TORCH_CHECK(exprs[1] == e1);
   TORCH_CHECK(exprs[2] == e2);
 
   fusion.addOutput(v6);
   exprs = fusion.exprs();
-  TORCH_CHECK(exprs.size() == 4);
+  TORCH_CHECK(exprs.size() == 4, "Found ", exprs.size(), " but expecting 4");
   TORCH_CHECK(exprs[0] == e0);
   TORCH_CHECK(exprs[1] == e1);
   TORCH_CHECK(exprs[2] == e2);
