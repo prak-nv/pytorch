@@ -213,6 +213,7 @@ class NaiveTypePropagator {
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             !node->input(5)->type()->isSubtypeOf(
                 static_cast<c10::TypePtr>(NoneType::get()))) {
+          // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
           auto weight_type = node->input(5)->type()->cast<TensorType>();
           node->output(1)->setType(weight_type);
         }
@@ -222,6 +223,7 @@ class NaiveTypePropagator {
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             !node->input(6)->type()->isSubtypeOf(
                 static_cast<c10::TypePtr>(NoneType::get()))) {
+          // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
           auto bias_type = node->input(6)->type()->cast<TensorType>();
           node->output(2)->setType(bias_type);
         }
