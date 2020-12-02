@@ -312,9 +312,20 @@ void Fusion::printMath(bool from_outputs_only) {
   FUSER_PERF_SCOPE("Fusion::printMath");
 
   FusionGuard fg(this);
-  // TODO: Re-enable printing all expressions
-  // auto exprs_for_print = from_outputs_only ? exprs() : all_exprs();
   auto exprs_for_print = exprs();
+
+  // If we want everything in the fusion, grab all values without uses to
+  // traverse from.
+  if (!from_outputs_only) {
+    std::vector<Val*> leaf_vals;
+    for (auto val : deterministic_vals()) {
+      if (!used(val)) {
+        leaf_vals.push_back(val);
+      }
+    }
+    exprs_for_print = ExprSort::getExprs(this, leaf_vals);
+  }
+
   std::cout << "\n%kernel_math {\n";
   for (auto expr : exprs_for_print) {
     std::cout << expr;
