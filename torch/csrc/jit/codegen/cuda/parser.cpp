@@ -652,13 +652,22 @@ class IrParser {
             const float kEps = eps.value();
 
             const int kNormShapeNumDims = norm_shape->vec().size();
-            std::vector<int> reduction_axes(kNormShapeNumDims);
-            std::vector<bool> broadcast_mask(input->nDims(), false);
+            const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
+
+            std::vector<int> outer_reduction_axes(kOuterNumDims);
+            std::vector<bool> outer_broadcast_mask(input->nDims(), false);
+            for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
+              outer_reduction_axes[idx] = idx;
+              outer_broadcast_mask[idx] = true;
+            }
+
+            std::vector<int> inner_reduction_axes(kNormShapeNumDims);
+            std::vector<bool> inner_broadcast_mask(input->nDims(), false);
             Val* num_features = new Double(1);
             for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
-              reduction_axes[idx] = axis;
-              broadcast_mask[axis] = true;
+              inner_reduction_axes[idx] = axis;
+              inner_broadcast_mask[axis] = true;
               num_features =
                   mul(num_features, input->domain()->domain()[axis]->extent());
             }
@@ -667,13 +676,13 @@ class IrParser {
             // --ftz=true -- flush-to-zero
 
             // Algorithm
-            auto x_sum = sum(input, reduction_axes);
-            auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
+            auto x_sum = sum(input, inner_reduction_axes);
+            auto x_sum_bcast = broadcast(x_sum, inner_broadcast_mask);
             auto x_mean = div(x_sum_bcast, num_features);
             auto x_mean_sub = sub(input, x_mean);
             auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
-            auto var_sum = sum(x_mean_sub_pow, reduction_axes);
-            auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
+            auto var_sum = sum(x_mean_sub_pow, inner_reduction_axes);
+            auto var_sum_bcast = broadcast(var_sum, inner_broadcast_mask);
             auto var = div(var_sum_bcast, num_features);
             auto var_eps = add(var, new Double(kEps));
             auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
@@ -681,13 +690,13 @@ class IrParser {
 
             // Optional: norm * weight
             if (weight) {
-              auto weight_bcast = broadcast(weight, broadcast_mask);
+              auto weight_bcast = broadcast(weight, outer_broadcast_mask);
               output = mul(output, weight_bcast);
             }
 
             // Optional: norm * weight + bias
             if (bias) {
-              auto bias_bcast = broadcast(bias, broadcast_mask);
+              auto bias_bcast = broadcast(bias, outer_broadcast_mask);
               output = add(output, bias_bcast);
             }
             value_map.emplace(node->output()->unique(), output);
@@ -729,12 +738,21 @@ class IrParser {
             const float kEps = eps.value();
 
             const int kNormShapeNumDims = norm_shape->vec().size();
-            std::vector<int> reduction_axes(kNormShapeNumDims);
+            const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
+
+            std::vector<int> outer_reduction_axes(kOuterNumDims);
+            std::vector<bool> outer_broadcast_mask(input->nDims(), false);
+            for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
+              outer_reduction_axes[idx] = idx;
+              outer_broadcast_mask[idx] = true;
+            }
+
+            std::vector<int> inner_reduction_axes(kNormShapeNumDims);
             std::vector<bool> broadcast_mask(input->nDims(), false);
             Val* num_features = new Double(1);
             for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
-              reduction_axes[idx] = axis;
+              inner_reduction_axes[idx] = axis;
               broadcast_mask[axis] = true;
               num_features =
                   mul(num_features, input->domain()->domain()[axis]->extent());
@@ -744,12 +762,12 @@ class IrParser {
             // --ftz=true -- flush-to-zero
 
             // Algorithm
-            auto x_sum = sum(input, reduction_axes);
+            auto x_sum = sum(input, inner_reduction_axes);
             auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
             auto x_mean = div(x_sum_bcast, num_features);
             auto x_mean_sub = sub(input, x_mean);
             auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
-            auto var_sum = sum(x_mean_sub_pow, reduction_axes);
+            auto var_sum = sum(x_mean_sub_pow, inner_reduction_axes);
             auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
             auto var = div(var_sum_bcast, num_features);
             auto var_eps = add(var, new Double(kEps));
@@ -758,13 +776,13 @@ class IrParser {
 
             // Optional: norm * weight
             if (weight) {
-              auto weight_bcast = broadcast(weight, broadcast_mask);
+              auto weight_bcast = broadcast(weight, outer_broadcast_mask);
               output = mul(output, weight_bcast);
             }
 
             // Optional: norm * weight + bias
             if (bias) {
-              auto bias_bcast = broadcast(bias, broadcast_mask);
+              auto bias_bcast = broadcast(bias, outer_broadcast_mask);
               output = add(output, bias_bcast);
             }
             value_map.emplace(node->output(0)->unique(), output);
@@ -887,7 +905,6 @@ class IrParser {
             //  auto grad_bias = sum(grad_out, outer_reduction_axes);
             //  value_map.emplace(node->output(2)->unique(), grad_bias);
             // }
-
           },
           // TODO: #ProfileIValue List should update this
           [](const Node* node) -> bool { return true; },
