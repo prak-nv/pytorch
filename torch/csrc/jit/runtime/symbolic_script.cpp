@@ -1027,9 +1027,13 @@ const std::vector<std::string> functions = {
                 if weight is not None:
                     x_hat = (output - mean) * rstd
                     grad_weight = (grad_output * x_hat)._grad_sum_to_size(weight.size())
+                else:
+                    grad_weight = None
 
                 if bias is not None:
                     grad_bias = grad_output._grad_sum_to_size(bias.size())
+                else:
+                    grad_bias = None
 
                 # TODO: grad_bias and grad_weight are disabled in NvFuser because we are missing multiple kernel support
                 output_mask = [True, False, False]
