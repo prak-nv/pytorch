@@ -32,6 +32,48 @@ void remove_visited(
 
 } // namespace
 
+std::vector<Statement*> IterVisitor::next(Statement* stmt) {
+  if (stmt->isVal()) {
+    return next(stmt->as<Val>());
+  } else if (stmt->isExpr()) {
+    return next(stmt->as<Expr>());
+  } else {
+    TORCH_INTERNAL_ASSERT(
+        false, "IterVisitor could not detect type in next_dispatch.");
+  }
+}
+
+std::vector<Statement*> IterVisitor::next(Val* v) {
+  FusionGuard::getCurFusion()->assertInFusion(v, "Cannot traverse val, ");
+  if (FusionGuard::getCurFusion()->origin(v) != nullptr) {
+    return {FusionGuard::getCurFusion()->origin(v)};
+  }
+  return {};
+}
+
+std::vector<Statement*> IterVisitor::next(Expr* expr) {
+  FusionGuard::getCurFusion()->assertInFusion(expr, "Cannot traverse expr, ");
+  std::vector<Statement*> next_stmts{expr->inputs().begin(),
+                                     expr->inputs().end()};
+  return next_stmts;
+}
+
+// This handle functions is called on every Statement* in topological order,
+// starting from outputs to inputs.
+void IterVisitor::handle(Statement* s) {
+  OptOutDispatch::handle(s);
+}
+// This handle functions is called on every Expr* in topological order,
+// starting from outputs to inputs.
+void IterVisitor::handle(Expr* e) {
+  OptOutDispatch::handle(e);
+}
+// This handle functions is called on every Val* in topological order,
+// starting from outputs to inputs.
+void IterVisitor::handle(Val* v) {
+  OptOutDispatch::handle(v);
+}
+
 // Implementation details:
 // We start with an entry in stmt_stack that is the outputs we want to
 // process. We cannot process these outputs untill all Stmts in their history
@@ -218,6 +260,18 @@ std::vector<Statement*> BackwardVisitor::next(Val* val) {
       [](std::pair<size_t, Statement*> pair) { return pair.second; });
 
   return next_stmts;
+}
+
+void BackwardVisitor::handle(Statement* stmt) {
+  OptOutDispatch::handle(stmt);
+}
+
+void BackwardVisitor::handle(Expr* expr) {
+  OptOutDispatch::handle(expr);
+}
+
+void BackwardVisitor::handle(Val* val) {
+  OptOutDispatch::handle(val);
 }
 
 void BackwardVisitor::traverseFrom(
