@@ -319,7 +319,9 @@ void Fusion::printMath(bool from_outputs_only) {
   if (!from_outputs_only) {
     std::vector<Val*> leaf_vals;
     for (auto val : deterministic_vals()) {
-      if (!used(val)) {
+      bool used = (uses_.find(val) != uses_.end()) &&
+          (uses_.find(val)->second.size() > 0);
+      if (used) {
         leaf_vals.push_back(val);
       }
     }
@@ -403,12 +405,6 @@ StmtNameType Fusion::registerStatement(Statement* stmt) {
       false,
       "Could not register statement as Fusion could not recognize its type.");
   return kInvalidStmName;
-}
-
-bool Fusion::used(Val* val) const {
-  assertInFusion(val, "Cannot detect if val was used, ");
-  return (uses_.find(val) != uses_.end()) &&
-      (uses_.find(val)->second.size() > 0);
 }
 
 const std::unordered_set<Val*>& Fusion::vals() const noexcept {

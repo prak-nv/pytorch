@@ -109,11 +109,6 @@ class TORCH_CUDA_API Fusion final {
   //! exprs required to genereate registered outputs.
   std::vector<Expr*> exprs();
 
-  //! Return a list of topologically sorted expressions. Includes all
-  //! expressions in the fusion, even those not used to generate registered
-  //! outputs. TODO: Re-enable
-  // std::vector<Expr*> all_exprs();
-
   //! Return a vector of fusion inputs that feed this Val
   std::unordered_set<Val*> inputsOf(Val* val);
 
@@ -144,9 +139,6 @@ class TORCH_CUDA_API Fusion final {
 
   //! Register stmt with this fusion
   StmtNameType registerStatement(Statement* stmt);
-
-  //! Check if val is used in this fusion. Not equivelent to DCE
-  bool used(Val* val) const;
 
   //! Return the set of Vals registered with this fusion
   const std::unordered_set<Val*>& vals() const noexcept;
