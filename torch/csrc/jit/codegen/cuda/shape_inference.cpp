@@ -220,8 +220,7 @@ class NaiveTypePropagator {
           node->output(1)->setType(weight_type);
         }
 
-        // TODO: Gather shape information about bias tensor
-        if (output_mask[1] &&
+        if (output_mask[2] &&
             // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
             !node->input(6)->type()->isSubtypeOf(
                 static_cast<c10::TypePtr>(NoneType::get()))) {
