@@ -812,6 +812,16 @@ class IrParser {
               bias = value_map[node->input(6)->unique()]->as<TensorView>();
             }
 
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+            auto out_mask_list = constant_as<c10::List<bool>>(node->input(7));
+            TORCH_INTERNAL_ASSERT(
+                out_mask_list.has_value(),
+                "output mask for layer_norm_backward");
+            std::vector<int> output_mask;
+            for (const auto value : out_mask_list->vec()) {
+              output_mask.emplace_back(static_cast<int>(value));
+            }
+
             const int kNormShapeNumDims = norm_shape->vec().size();
             const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
@@ -833,48 +843,51 @@ class IrParser {
                   mul(num_features, input->domain()->domain()[axis]->extent());
             }
 
+            if (output_mask[0]) {
+              auto x_hat = mul(sub(input, mean), rstd);
+
+              TensorView* grad_x_hat = nullptr;
+              if (weight != nullptr) {
+                auto* bcast_weight = broadcast(weight, outer_broadcast_mask);
+                grad_x_hat = mul(grad_out, bcast_weight);
+              } else {
+                grad_x_hat = grad_out;
+              }
+
+              auto* a = mul(num_features, grad_x_hat);
+
+              auto* b = sum(grad_x_hat, inner_reduction_axes);
+              auto* bcast_b = broadcast(b, inner_broadcast_mask);
+
+              auto* c1 = mul(grad_x_hat, x_hat);
+              auto* c2 = sum(c1, inner_reduction_axes);
+              auto* bcast_c2 = broadcast(c2, inner_broadcast_mask);
+              auto* c3 = mul(x_hat, bcast_c2);
+
+              auto* inner = sub(sub(a, bcast_b), c3);
+
+              auto reciprocal_size =
+                  unaryOp(UnaryOpType::Reciprocal, num_features);
+              auto* grad_in = mul(mul(reciprocal_size, rstd), inner);
+
+              value_map.emplace(node->output(0)->unique(), grad_in);
+            }
+
             // TODO: grad_bias and grad_weight are disabled because
             // they are incompabilble with grad_in fusion
             // Requires seperate kernels
 
-            auto x_hat = mul(sub(input, mean), rstd);
-
-            TensorView* grad_x_hat = nullptr;
-            if (weight != nullptr) {
-              auto* bcast_weight = broadcast(weight, outer_broadcast_mask);
-              grad_x_hat = mul(grad_out, bcast_weight);
-            } else {
-              grad_x_hat = grad_out;
-            }
-
-            auto* a = mul(num_features, grad_x_hat);
-
-            auto* b = sum(grad_x_hat, inner_reduction_axes);
-            auto* bcast_b = broadcast(b, inner_broadcast_mask);
-
-            auto* c1 = mul(grad_x_hat, x_hat);
-            auto* c2 = sum(c1, inner_reduction_axes);
-            auto* bcast_c2 = broadcast(c2, inner_broadcast_mask);
-            auto* c3 = mul(x_hat, bcast_c2);
-
-            auto* inner = sub(sub(a, bcast_b), c3);
-
-            auto reciprocal_size =
-                unaryOp(UnaryOpType::Reciprocal, num_features);
-            auto* grad_in = mul(mul(reciprocal_size, rstd), inner);
-
-            value_map.emplace(node->output(0)->unique(), grad_in);
-
-            // if (bias != nullptr) {
-            //  auto grad_bias = sum(grad_out, outer_reduction_axes);
-            //  value_map.emplace(node->output(2)->unique(), grad_bias);
-            // }
-
-            // if (weight != nullptr) {
+            // if (output_mask[1] && weight != nullptr) {
             //  auto grad_weight = sum(mul(grad_out, x_hat),
             //  outer_reduction_axes);
             //  value_map.emplace(node->output(1)->unique(), grad_weight);
             // }
+
+            // if (output_mask[2] && bias != nullptr) {
+            //  auto grad_bias = sum(grad_out, outer_reduction_axes);
+            //  value_map.emplace(node->output(2)->unique(), grad_bias);
+            // }
+
           },
           // TODO: #ProfileIValue List should update this
           [](const Node* node) -> bool { return true; },

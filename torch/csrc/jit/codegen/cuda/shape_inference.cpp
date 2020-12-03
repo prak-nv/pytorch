@@ -197,9 +197,6 @@ class NaiveTypePropagator {
         break;
       }
       case aten::native_layer_norm_backward: {
-        auto out_type = node->input(0)->type()->cast<TensorType>();
-        node->output(0)->setType(out_type);
-
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
         auto out_mask_list = constant_as<c10::List<bool>>(node->input(7));
         TORCH_INTERNAL_ASSERT(
@@ -207,6 +204,11 @@ class NaiveTypePropagator {
         std::vector<int> output_mask;
         for (const auto value : out_mask_list->vec()) {
           output_mask.emplace_back(static_cast<int>(value));
+        }
+
+        if (output_mask[0]) {
+          auto out_type = node->input(0)->type()->cast<TensorType>();
+          node->output(0)->setType(out_type);
         }
 
         if (output_mask[1] &&
