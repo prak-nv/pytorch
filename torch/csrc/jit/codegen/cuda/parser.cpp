@@ -692,6 +692,7 @@ class IrParser {
             }
             value_map.emplace(node->output()->unique(), output);
           },
+          // TODO: #ProfileIValue List should update this
           [](const Node* node) -> bool { return true; },
           OperatorType::Normalization);
     }
@@ -769,7 +770,10 @@ class IrParser {
             value_map.emplace(node->output(0)->unique(), output);
             value_map.emplace(node->output(1)->unique(), x_mean);
             value_map.emplace(node->output(2)->unique(), rvar);
-          });
+          },
+          // TODO: #ProfileIValue List should update this
+          [](const Node* node) -> bool { return true; },
+          OperatorType::Normalization);
     }
 
     {
@@ -871,7 +875,10 @@ class IrParser {
             //  outer_reduction_axes);
             //  value_map.emplace(node->output(1)->unique(), grad_weight);
             // }
-          });
+          },
+          // TODO: #ProfileIValue List should update this
+          [](const Node* node) -> bool { return true; },
+          OperatorType::Normalization);
     }
 
     {
@@ -904,7 +911,18 @@ class IrParser {
             auto* bcast_sum = broadcast(sum_exp, broadcast_mask);
             auto* output = div(exp, bcast_sum);
             value_map.emplace(node->output()->unique(), output);
-          });
+          },
+          [](const Node* node) -> bool {
+            if (node->inputs()[1]->node()->kind() != prim::Constant) {
+              return false;
+            }
+            if (!node->inputs()[2]->type()->isSubtypeOf(
+                    static_cast<c10::TypePtr>(NoneType::get()))) {
+              return false;
+            }
+            return true;
+          },
+          OperatorType::Normalization);
     }
 
     {
@@ -941,7 +959,14 @@ class IrParser {
             auto* grad_input = sub(new_grad, output_sum_mul);
 
             value_map.emplace(node->output()->unique(), grad_input);
-          });
+          },
+          [](const Node* node) -> bool {
+            if (node->inputs()[2]->node()->kind() != prim::Constant) {
+              return false;
+            }
+            return true;
+          },
+          OperatorType::Normalization);
     }
 
     {
