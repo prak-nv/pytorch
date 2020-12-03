@@ -105,14 +105,15 @@ bool maybeBroadcast(
 }
 
 bool hasNonElementWiseOperation(const Node* node) {
-  if (!isElementWiseNode(node)) {
-    return true;
-  }
   if (node->kind() == prim::CudaFusionGroup) {
     for (auto n : node->g(attr::Subgraph)->nodes()) {
       if (hasNonElementWiseOperation(n)) {
         return true;
       }
+    }
+  } else {
+    if (node->kind() != prim::Constant && !isElementWiseNode(node)) {
+      return true;
     }
   }
   return false;
