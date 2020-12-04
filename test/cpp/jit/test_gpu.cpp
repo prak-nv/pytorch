@@ -4561,6 +4561,9 @@ TEST(NVFuserTest, FusionSimpleGemm_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
+  tv0 = add(tv0, new Double(1));
+  tv1 = add(tv1, new Double(1));
+
   TensorView* tv2 = broadcast(tv0, {false, false, true});
   // tv2[I0, I1, B] = tv0[I0, I1]
 
@@ -4595,7 +4598,12 @@ TEST(NVFuserTest, FusionSimpleGemm_CUDA) {
   // tv6[I0o, I0i{4}, I1i{32}, I2o, I2i{4}|, R1o]
   // tv5[I0o, I0i{4}, R1i{32}, I2o, I2i{4}|]
 
+  fusion.printMath();
   tv0->computeAt(tv6, -1);
+
+  fusion.printMath();
+  return;
+
   tv1->computeAt(tv6, -1);
   // tv4[I0o, I0i{4}, I1i{32}, I2o, I2i{4}, I1o |]
   // tv6[I0o, I0i{4}, I1i{32}, I2o, I2i{4}, R1o |]
@@ -10323,6 +10331,170 @@ TEST(NVFuserTest, FusionTranspose7_CUDA) {
   }
 }
 
+TEST(NVFuserTest, FusionTranspose8_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 20;
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = transpose(tv0, {{0, 1}});
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  at::Tensor aten_output = t0.t();
+
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionTranspose9_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 20;
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = transpose(tv0, {{0, 1}});
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  tv1->merge(0);
+  tv1->split(0, 32);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  at::Tensor aten_output = t0.t();
+
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionSimpleGemmT_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Set up your input tensor views
+  TensorView* tv0 = makeSymbolicTensor(2); // K, M
+  TensorView* tv1 = makeSymbolicTensor(2); // N, K
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  TensorView* tv0_t = transpose(tv0, {{0, 1}});
+  TensorView* tv1_t = transpose(tv1, {{0, 1}});
+
+  TensorView* tv2 = broadcast(tv0_t, {false, false, true});
+  // tv2[I0, I1, B] = tv0[I0, I1]
+
+  TensorView* tv3 = broadcast(tv1_t, {true, false, false});
+  // tv3[B, I1, I2] = tv1[I1, I2]
+
+  // tv4[I0, I1, I2] = tv2[I0, I1, B] * tv3[B, I1, I2]
+  TensorView* tv4 = mul(tv2, tv3);
+  // tv5[I0, R1, I2] = tv4[I0, I1, I2]
+  TensorView* tv5 = sum(tv4, {1});
+  fusion.addOutput(tv5);
+
+
+  tv5->split(1, 32);
+  // tv5[I0, R1o, R1i{32}, I2]
+
+  auto tv6 = tv5->rFactor({1});
+  // tv6[I0, R1o, I1i{32}, I2] = tv4[I0, I1, I2]
+  // tv5[I0,    , R1i{32}, I2] = tv6[I0, R1o, I1i{32}, I2]
+
+  fusion.printMath();
+
+
+  tv5->split(0, 4);
+  tv5->split(-1, 4);
+  // tv5[I0o, I0i{4}, R1i{32}, I2o, I2i{4}]
+  // tv5[I0o, I0i{4}, R1i{32}, I2o, I2i{4}]
+
+  tv0_t->computeAt(tv5, -1);
+  tv1_t->computeAt(tv5, -1);
+
+  fusion.printMath();
+
+
+  // tv6[I0o, I0i{4}, R1o, I1i{32}, I2o, I2i{4}]
+  // tv5[I0o, I0i{4},    , R1i{32}, I2o, I2i{4}]
+  //--> (line symbolizes compute at location)
+  // tv4[I0o, I0i{4}, I1i{32}, I2o, I2i{4}|, I1o]
+  // tv6[I0o, I0i{4}, I1i{32}, I2o, I2i{4}|, R1o]
+  // tv5[I0o, I0i{4}, R1i{32}, I2o, I2i{4}|]
+
+  tv0_t->computeAt(tv6, -1);
+  tv1_t->computeAt(tv6, -1);
+  // tv4[I0o, I0i{4}, I1i{32}, I2o, I2i{4}, I1o |]
+  // tv6[I0o, I0i{4}, I1i{32}, I2o, I2i{4}, R1o |]
+  // tv5[I0o, I0i{4}, R1i{32}, I2o, I2i{4}|]
+
+  tv5->axis(0)->parallelize(ParallelType::BIDz);
+  tv5->axis(1)->parallelize(ParallelType::TIDz);
+
+  tv5->axis(-2)->parallelize(ParallelType::BIDy);
+  tv5->axis(-1)->parallelize(ParallelType::TIDy);
+
+  tv5->axis(2)->parallelize(ParallelType::TIDx);
+  tv6->axis(2)->parallelize(ParallelType::TIDx);
+
+  constexpr int M = 65, K = 33, N = 17;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({K, M}, options);
+  at::Tensor t1 = at::randn({N, K}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  // Lets specify a few bounds in launch params to make sure it works
+  fe.runFusion({t0, t1}, LaunchParams(1, -1, -1, 32, 4, 4));
+
+  // Don't specify any launch params
+  auto cg_outputs = fe.runFusion({t0, t1});
+
+  auto aten_output = t0.t().to(at::kDouble).matmul(t1.t().to(at::kDouble));
+
+  testValidate(
+      &fusion, cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
+}
 
 } // namespace jit
 } // namespace torch

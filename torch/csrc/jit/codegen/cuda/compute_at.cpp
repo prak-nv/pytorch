@@ -259,6 +259,13 @@ unsigned int ComputeAt::forwardComputeAt_impl(
       (int)producer_compute_at_axis,
       root_map_);
 
+  {
+    std::cerr << "FWD: producer: TV" << producer->name()
+              << ", consumer: TV" << consumer->name()
+              << ", new domain: " << replay.first
+              << "\n";
+  }
+
   if (producer_entry.shouldSetComputeAt(producer_compute_at_axis)) {
     int producer_rel_pos = replay.second;
     int producer_this_pos = (int)producer_compute_at_axis;
