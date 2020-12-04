@@ -886,7 +886,7 @@ void scheduleReduction(
 
 namespace {
 
-bool isPointwiseOp(const Expr* expr) {
+bool canDuplicate(const Expr* expr) {
   return expr->outputs().size() == 1 && ir_utils::isTV(expr->output(0)) &&
       (expr->getExprType().value() == ExprType::BinaryOp ||
        expr->getExprType().value() == ExprType::UnaryOp ||
@@ -933,7 +933,7 @@ std::vector<TensorView*> findTensorViewsToDuplicate(
 
     if (visited.find(tensor->name()) == visited.end()) {
       auto origin_expr = tensor->getOrigin();
-      if (isPointwiseOp(origin_expr)) {
+      if (canDuplicate(origin_expr)) {
         duplicate_tv.push_back(tensor);
 
         for (auto input_tv :
@@ -986,7 +986,7 @@ void setupSharedMemory(
     if (!fusion->hasOutput(tensor) && !fusion->hasInput(tensor)) {
       tensor->setMemoryType(MemoryType::Shared);
       for (auto expr : fusion->unordered_uses(tensor)) {
-        if (isPointwiseOp(expr)) {
+        if (canDuplicate(expr)) {
           auto output = expr->output(0)->as<TensorView>();
           stack.push_back(output);
         }
@@ -1082,13 +1082,17 @@ void scheduleNormalization(
 
   organizeAxes(reduction_tv, all_tv);
 
-  // Determine if there are any casts on fusion inputs
-  bool has_input_casts = false;
+  // Determine if there are any casts or broadcast on fusion inputs
+  bool has_pseudo_cache = false;
   for (auto tv : other_tv) {
     const auto kOriginExpr = tv->getOrigin();
     const bool kIsCastOp = kOriginExpr->getExprType() == ExprType::UnaryOp &&
         kOriginExpr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
-    has_input_casts |= kIsCastOp;
+    const bool kIsBroadcastOp = kOriginExpr->getExprType() == ExprType::BroadcastOp;
+    if (kIsCastOp || kIsBroadcastOp) {
+      const auto kIsInput = fusion->hasInput(kOriginExpr->input(0));
+      has_pseudo_cache |= kIsInput;
+    }
   }
 
   // Scheduling the Reduction
@@ -1144,7 +1148,7 @@ void scheduleNormalization(
 
         // 5) Handle Inline-ComputeAt
         // Fusion input castOp replaces cache_after
-        if (!has_input_casts) {
+        if (!has_pseudo_cache) {
           for (const auto input : in_tv) {
             if (input->getRootDomain().size() > 1) {
               other_tv.push_back(input->cache_after());

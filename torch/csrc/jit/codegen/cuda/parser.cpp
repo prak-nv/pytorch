@@ -563,7 +563,7 @@ class IrParser {
             // TODO: NAN when mean and variance are zero
             // --ftz=true -- flush-to-zero
 
-            const int kNumberOfDims = input->nDims();
+            const size_t kNumberOfDims = input->nDims();
             std::vector<int> reduction_axes;
             std::vector<bool> broadcast_mask(kNumberOfDims, false);
             Val* num_features = new Double(1);
@@ -651,7 +651,7 @@ class IrParser {
                 eps.has_value(), "The EPS parameter is required.");
             const float kEps = eps.value();
 
-            const int kNormShapeNumDims = norm_shape->vec().size();
+            const size_t kNormShapeNumDims = norm_shape->vec().size();
             const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
             std::vector<int> outer_reduction_axes(kOuterNumDims);
@@ -708,7 +708,7 @@ class IrParser {
 
     {
       auto ptr_op = getOperatorForLiteral(
-          "aten::native_layer_norm.jit(Tensor input, int[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)");
+          "aten::native_layer_norm(Tensor input, int[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)");
       registerParseRule(
           ptr_op,
           [](const Node* node,
@@ -737,7 +737,7 @@ class IrParser {
                 eps.has_value(), "The EPS parameter is required.");
             const float kEps = eps.value();
 
-            const int kNormShapeNumDims = norm_shape->vec().size();
+            const size_t kNormShapeNumDims = norm_shape->vec().size();
             const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
             std::vector<int> outer_reduction_axes(kOuterNumDims);
@@ -796,7 +796,7 @@ class IrParser {
 
     {
       auto ptr_op = getOperatorForLiteral(
-          "aten::native_layer_norm_backward.jit(Tensor grad_out, Tensor input, int[] normalized_shape, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias, bool[3] output_mask) -> (Tensor, Tensor, Tensor)");
+          "aten::native_layer_norm_backward(Tensor grad_out, Tensor input, int[] normalized_shape, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias, bool[3] output_mask) -> (Tensor, Tensor, Tensor)");
       registerParseRule(
           ptr_op,
           [](const Node* node,
@@ -840,7 +840,7 @@ class IrParser {
               output_mask.emplace_back(static_cast<int>(value));
             }
 
-            const int kNormShapeNumDims = norm_shape->vec().size();
+            const size_t kNormShapeNumDims = norm_shape->vec().size();
             const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
             std::vector<int> outer_reduction_axes(kOuterNumDims);
@@ -853,7 +853,7 @@ class IrParser {
             std::vector<int> inner_reduction_axes(kNormShapeNumDims);
             std::vector<bool> inner_broadcast_mask(input->nDims(), false);
             Val* num_features = new Double(1);
-            for (int idx = 0; idx < kNormShapeNumDims; ++idx) {
+            for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
               inner_reduction_axes[idx] = axis;
               inner_broadcast_mask[axis] = true;
@@ -861,35 +861,33 @@ class IrParser {
                   mul(num_features, input->domain()->domain()[axis]->extent());
             }
 
-            if (output_mask[0]) {
-              auto x_hat = mul(sub(input, mean), rstd);
+            auto x_hat = mul(sub(input, mean), rstd);
 
-              TensorView* grad_x_hat = nullptr;
-              if (weight != nullptr) {
-                auto* bcast_weight = broadcast(weight, outer_broadcast_mask);
-                grad_x_hat = mul(grad_out, bcast_weight);
-              } else {
-                grad_x_hat = grad_out;
-              }
-
-              auto* a = mul(num_features, grad_x_hat);
-
-              auto* b = sum(grad_x_hat, inner_reduction_axes);
-              auto* bcast_b = broadcast(b, inner_broadcast_mask);
-
-              auto* c1 = mul(grad_x_hat, x_hat);
-              auto* c2 = sum(c1, inner_reduction_axes);
-              auto* bcast_c2 = broadcast(c2, inner_broadcast_mask);
-              auto* c3 = mul(x_hat, bcast_c2);
-
-              auto* inner = sub(sub(a, bcast_b), c3);
-
-              auto reciprocal_size =
-                  unaryOp(UnaryOpType::Reciprocal, num_features);
-              auto* grad_in = mul(mul(reciprocal_size, rstd), inner);
-
-              value_map.emplace(node->output(0)->unique(), grad_in);
+            TensorView* grad_x_hat = nullptr;
+            if (weight != nullptr) {
+              auto* bcast_weight = broadcast(weight, outer_broadcast_mask);
+              grad_x_hat = mul(grad_out, bcast_weight);
+            } else {
+              grad_x_hat = grad_out;
             }
+
+            auto* a = mul(num_features, grad_x_hat);
+
+            auto* b = sum(grad_x_hat, inner_reduction_axes);
+            auto* bcast_b = broadcast(b, inner_broadcast_mask);
+
+            auto* c1 = mul(grad_x_hat, x_hat);
+            auto* c2 = sum(c1, inner_reduction_axes);
+            auto* bcast_c2 = broadcast(c2, inner_broadcast_mask);
+            auto* c3 = mul(x_hat, bcast_c2);
+
+            auto* inner = sub(sub(a, bcast_b), c3);
+
+            auto reciprocal_size =
+                unaryOp(UnaryOpType::Reciprocal, num_features);
+            auto* grad_in = mul(mul(reciprocal_size, rstd), inner);
+
+            value_map.emplace(node->output(0)->unique(), grad_in);
 
             // TODO: grad_bias and grad_weight are disabled because
             // they are incompabilble with grad_in fusion

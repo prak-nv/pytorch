@@ -238,7 +238,7 @@ struct CudaGraphFuser {
     // have a valid mapping
     group->insertBefore(n);
     Node* mergedNode = mergeNodeIntoGroup(group, n);
-    for (int i = 0; i < n->outputs().size(); i++) {
+    for (size_t i = 0; i < n->outputs().size(); i++) {
       getSubgraph(group).registerOutput(mergedNode->output(i));
       auto sel = group->addOutput();
       sel->copyMetadata(n->output(i));

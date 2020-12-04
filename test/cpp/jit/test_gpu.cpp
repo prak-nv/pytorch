@@ -6828,17 +6828,25 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   FusionGuard fg(&fusion);
 
   const float kEps = 1e-5;
-  std::vector<int64_t> shape{20, 67};
+  std::vector<int64_t> shape{20, 100, 35, 67};
   std::vector<int64_t> norm_shape{67};
 
   const size_t kM = shape.size();
   const size_t kN = norm_shape.size();
   const size_t kOuterNumDims = kM - kN;
 
+  std::vector<int64_t> outer_shape;
+  for(size_t idx = 0; idx < kOuterNumDims; ++idx) {
+    outer_shape.push_back(shape[idx]);
+  }
+  for(size_t idx = kOuterNumDims; idx < kM; ++idx) {
+    outer_shape.push_back(1);
+  }
+
   auto grad_out = makeSymbolicTensor(shape.size());
   auto input = makeSymbolicTensor(shape.size());
-  auto mean = makeSymbolicTensor(kOuterNumDims);
-  auto rstd = makeSymbolicTensor(kOuterNumDims);
+  auto mean = makeConcreteTensor(outer_shape);
+  auto rstd = makeConcreteTensor(outer_shape);
   auto weight = makeSymbolicTensor(norm_shape.size());
   fusion.addInput(grad_out);
   fusion.addInput(input);
@@ -6867,16 +6875,12 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto grad_bias = sum(grad_out, outer_reduction_axes);
   fusion.addOutput(grad_bias);
 
-  auto bcast_mean = broadcast(mean, inner_broadcast_mask);
-  auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
-  auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+  auto x_hat = mul(sub(input, mean), rstd);
   auto grad_weight = sum(mul(grad_out, x_hat), outer_reduction_axes);
   fusion.addOutput(grad_weight);
   */
 
-  auto bcast_mean = broadcast(mean, inner_broadcast_mask);
-  auto bcast_rstd = broadcast(rstd, inner_broadcast_mask);
-  auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+  auto x_hat = mul(sub(input, mean), rstd);
 
   auto* bcast_weight = broadcast(weight, outer_broadcast_mask);
   auto* grad_x_hat = mul(grad_out, bcast_weight);
@@ -6894,7 +6898,7 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto* inner = sub(sub(a, bcast_b), c3);
 
   auto reciprocal_size = unaryOp(UnaryOpType::Reciprocal, num_features);
-  auto* grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
+  auto* grad_in = mul(mul(reciprocal_size, rstd), inner);
   fusion.addOutput(grad_in);
 
   std::vector<TensorView*> reduction_tensors;
@@ -6919,22 +6923,11 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto at_weight = c10::optional<at::Tensor>(aten_weight);
   auto at_bias = c10::optional<at::Tensor>(aten_bias);
 
-  const int red_axis = shape.size() - norm_shape.size();
-  int aten_M_Size = 1;
-  for (int axis = 0; axis < red_axis; ++axis) {
-    aten_M_Size *= shape[axis];
-  }
-  int aten_N_Size = 1;
-  for (int axis = red_axis; axis < shape.size(); ++axis) {
-    aten_N_Size *= shape[axis];
-  }
-
-  auto aten_results = at::native_layer_norm(
-      aten_input, at_weight, at_bias, aten_M_Size, aten_N_Size, kEps);
+  auto aten_results =
+      at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
   auto aten_output = std::get<0>(aten_results);
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
-  // TODO: reshape mean and rstd to outer shape
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
@@ -6956,11 +6949,11 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   auto aten_gradients = at::native_layer_norm_backward(
       aten_grad_out.to(at::kDouble),
       aten_input.to(at::kDouble),
+      norm_shape,
       aten_mean.to(at::kDouble),
       aten_rstd.to(at::kDouble),
       c10::optional<at::Tensor>(aten_weight.to(at::kDouble)),
-      aten_M_Size,
-      aten_N_Size,
+      c10::optional<at::Tensor>(aten_bias.to(at::kDouble)),
       {true, true, true});
   auto aten_grad_in = std::get<0>(aten_gradients);
   auto aten_grad_weight = std::get<1>(aten_gradients);
