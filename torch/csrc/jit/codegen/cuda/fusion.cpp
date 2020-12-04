@@ -43,7 +43,6 @@ void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
 
-  swap(a.origin_, b.origin_);
   swap(a.uses_, b.uses_);
 
   swap(a.inputs_, b.inputs_);
@@ -85,12 +84,6 @@ Fusion::Fusion(const Fusion& other) {
 
   val_type_name_map_ = other.val_type_name_map_;
   expr_name_counter_ = other.expr_name_counter_;
-
-  for (const auto& kv : other.origin_) {
-    auto val = ir_cloner.clone(kv.first);
-    auto expr = ir_cloner.clone(kv.second);
-    origin_.insert({val, expr});
-  }
 
   for (const auto& kv : other.uses_) {
     auto val = ir_cloner.clone(kv.first);
@@ -152,7 +145,6 @@ void Fusion::clear() noexcept {
 
   expr_name_counter_ = 0;
 
-  origin_.clear();
   uses_.clear();
 
   inputs_.clear();
@@ -165,10 +157,9 @@ void Fusion::removeExpr(Expr* expr) {
   // that removing something that doesn't exist simply does nothing. For now,
   // we're going with the strictest model which errors.
 
-  for (auto out : expr->outputs())
-    if (origin_.find(out) != origin_.end())
-      if (origin_.find(out)->second == expr)
-        origin_.erase(out);
+  for (auto out : expr->outputs()) {
+    out->setOrigin(nullptr);
+  }
 
   for (auto inp : expr->inputs()) {
     if (uses_.find(inp) != uses_.end()) {
@@ -379,12 +370,11 @@ StmtNameType Fusion::registerExpr(Expr* expr) {
 
   for (Val* output : expr->outputs()) {
     assertInFusion(output, "Output to expr is invalid, ");
-    auto it = origin_.find(output);
-    if (it != origin_.end()) {
-      removeExpr(it->second); // will also remove origin entry
+    if (output->getOrigin() != nullptr) {
+      removeExpr(output->getOrigin());
     }
 
-    origin_[output] = expr;
+    output->setOrigin(expr);
   }
 
   expr_set_.emplace(expr);
@@ -430,8 +420,7 @@ std::unordered_set<Expr*> Fusion::unordered_uses(Val* val) const {
 
 Expr* Fusion::origin(const Val* val) const {
   assertInFusion(val, "Cannot detect the origin of val, ");
-  auto it = origin_.find(val);
-  return it != origin_.end() ? it->second : nullptr;
+  return val->getOrigin();
 }
 
 bool Fusion::hasInput(const Val* val) const {

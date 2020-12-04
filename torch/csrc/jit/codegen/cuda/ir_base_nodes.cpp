@@ -54,7 +54,10 @@ Val::Val(ValType _vtype, DataType _dtype, bool register_val)
 }
 
 Val::Val(const Val* src, IrCloner* ir_cloner)
-    : Statement(src, ir_cloner), vtype_(src->vtype_), dtype_(src->dtype_) {}
+    : Statement(src, ir_cloner),
+      vtype_(src->vtype_),
+      dtype_(src->dtype_),
+      origin(ir_cloner->clone(src->origin)) {}
 
 namespace {
 
@@ -134,10 +137,6 @@ c10::optional<DataType> Val::getDataType() const {
   TORCH_INTERNAL_ASSERT(
       dtype_ != DataType::Null, "Value does not have a data type.");
   return dtype_;
-}
-
-Expr* Val::getOrigin() const {
-  return fusion_->origin(this);
 }
 
 bool Val::isProducerOf(const Val* other) const {

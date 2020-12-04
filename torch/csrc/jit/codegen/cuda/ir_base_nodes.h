@@ -135,6 +135,8 @@ class TORCH_CUDA_API Statement : public NonCopyable, public PolymorphicBase {
   Fusion* fusion_ = nullptr;
 };
 
+class IterVisitor;
+
 //! A Val represents a "value." These are objects, like tensors, scalars, and
 //! memory locations, that are inputs and outputs of computations (represented
 //! by Exprs, below)
@@ -207,7 +209,9 @@ class TORCH_CUDA_API Val : public Statement {
 
   // Returns the Expr that this value is an output of, returns nullptr if none
   // was found
-  Expr* getOrigin() const;
+  Expr* getOrigin() const {
+    return origin;
+  }
 
   //! Returns true when other is a producer of this
   bool isProducerOf(const Val* other) const;
@@ -237,9 +241,20 @@ class TORCH_CUDA_API Val : public Statement {
   template <typename T>
   static Statement* mutatorDispatch(T mutator, Val*);
 
+  friend Fusion;
+  friend IterVisitor;
+
  protected:
   const ValType vtype_;
   const DataType dtype_;
+
+  void setOrigin(Expr* expr) {
+    origin = expr;
+  };
+
+ private:
+  // Origin is managed by Fusion and can change.
+  Expr* origin = nullptr;
 };
 
 //!  A Expr represents a "computation." These are functions that takes inputs
