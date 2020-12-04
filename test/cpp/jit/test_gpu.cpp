@@ -9976,6 +9976,69 @@ TEST(NVFuserTest, FusionIssue549_CUDA) {
       &fusion, cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionGetComputeAtRelPos_CUDA) {
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(1);
+    auto tv1 = broadcast(tv0, {false, true});
+    auto tv2 = broadcast(tv1, {false, true, false});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
+
+    tv1->computeAt(tv2, -1);
+
+    TORCH_CHECK(tv1->getComputeAtRelPos(1) == 2);
+  }
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(1);
+    auto tv1 = broadcast(tv0, {false, true});
+    auto tv2 = broadcast(tv1, {false, true, false});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
+
+    tv2->merge(1, 2);
+    tv1->computeAt(tv2, -1);
+
+    TORCH_CHECK(tv1->getComputeAtRelPos(1) == 1);
+  }
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(1);
+    auto tv1 = broadcast(tv0, {false, true});
+    auto tv2 = broadcast(tv1, {false, true, false});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
+
+    tv2->merge(1, 2);
+    tv1->computeAt(tv2, -1);
+
+    TORCH_CHECK(tv1->getComputeAtRelPos(1) == 1);
+  }
+  {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(1);
+    auto tv1 = add(tv0, new Double(1));
+    auto tv2 = broadcast(tv1, {false, true});
+    auto tv3 = broadcast(tv1, {false, true});
+    fusion.addInput(tv0);
+    fusion.addOutput(tv2);
+    fusion.addOutput(tv3);
+
+    tv0->computeAt(tv3, -1);
+
+    TORCH_CHECK(tv1->getComputeAtRelPos(0) == 0);
+  }
+}
+
 } // namespace jit
 } // namespace torch
 
