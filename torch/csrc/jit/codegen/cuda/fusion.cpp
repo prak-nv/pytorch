@@ -7,7 +7,6 @@
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 
-// TODO(kir): only needed until we can fix Fusion::origin()
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 
 namespace torch {
@@ -96,6 +95,13 @@ Fusion::Fusion(const Fusion& other) {
 
   inputs_ = ir_cloner.clone(other.inputs_);
   outputs_ = ir_cloner.clone(other.outputs_);
+
+  for (auto inp : inputs_) {
+    inp->is_input = true;
+  }
+  for (auto out : outputs_) {
+    out->is_output = true;
+  }
 }
 
 Fusion::Fusion(Fusion&& other) noexcept {
@@ -158,7 +164,7 @@ void Fusion::removeExpr(Expr* expr) {
   // we're going with the strictest model which errors.
 
   for (auto out : expr->outputs()) {
-    out->setOrigin(nullptr);
+    out->origin = nullptr;
   }
 
   for (auto inp : expr->inputs()) {
@@ -185,9 +191,9 @@ void Fusion::removeVal(Val* val) {
     if (val->sameAs(out))
       TORCH_CHECK(false, "Cannot remove val as it is an output of the fusion.");
 
-  Expr* orig = origin(val);
+  Expr* orig = val->getOrigin();
   if (orig != nullptr)
-    removeExpr(origin(val));
+    removeExpr(val->getOrigin());
 
   for (Expr* use : unordered_uses(val))
     removeExpr(use);
@@ -208,22 +214,11 @@ void Fusion::addInput(Val* input) {
 
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
-    if (tv->hasReduction()) {
-      TORCH_WARN_ONCE(
-          "Registered input ",
-          input,
-          " has a reduction axis, but this does nothing in the fusion.");
-    }
     tv->setMemoryType(MemoryType::Global);
   }
 
-  TORCH_INTERNAL_ASSERT(
-      input->getOrigin() == nullptr,
-      input,
-      " cannot be registered as an input as it is used as an output of an expression (",
-      input->getOrigin(),
-      ").");
   inputs_.push_back(input);
+  input->is_input = true;
 }
 
 void Fusion::addOutput(Val* output) {
@@ -233,6 +228,23 @@ void Fusion::addOutput(Val* output) {
     tv->setMemoryType(MemoryType::Global);
   }
   outputs_.push_back(output);
+  output->is_output = true;
+}
+
+void Fusion::removeInput(Val* input) {
+  auto find_input = std::find(inputs_.begin(), inputs_.end(), input);
+  if (find_input != inputs_.end()) {
+    inputs_.erase(find_input);
+  }
+  input->is_input = false;
+}
+
+void Fusion::removeOutput(Val* output) {
+  auto find_output = std::find(outputs_.begin(), outputs_.end(), output);
+  if (find_output != outputs_.end()) {
+    outputs_.erase(find_output);
+  }
+  output->is_output = false;
 }
 
 bool Fusion::inFusion(const Statement* stmt) const {
@@ -255,8 +267,6 @@ void Fusion::assertInFusion(const Statement* stmt, const std::string& msg)
 }
 
 std::vector<Expr*> Fusion::exprs() {
-  // TODO: Re-enable getting all exprs even if not between registered
-  // inputs/outputs
   return ExprSort::getExprs(this);
 }
 
@@ -373,8 +383,7 @@ StmtNameType Fusion::registerExpr(Expr* expr) {
     if (output->getOrigin() != nullptr) {
       removeExpr(output->getOrigin());
     }
-
-    output->setOrigin(expr);
+    output->origin = expr;
   }
 
   expr_set_.emplace(expr);
@@ -424,19 +433,13 @@ Expr* Fusion::origin(const Val* val) const {
 }
 
 bool Fusion::hasInput(const Val* val) const {
-  return std::find(inputs_.begin(), inputs_.end(), val) != inputs_.end();
+  assertInFusion(val, "Cannot check if val is an input, ");
+  return val->is_input;
 }
 
 bool Fusion::hasOutput(const Val* val) const {
-  return std::find(outputs_.begin(), outputs_.end(), val) != outputs_.end();
-}
-
-void Fusion::replaceInput(Val* replace, Val* with) {
-  std::replace(inputs_.begin(), inputs_.end(), replace, with);
-}
-
-void Fusion::replaceOutput(Val* replace, Val* with) {
-  std::replace(outputs_.begin(), outputs_.end(), replace, with);
+  assertInFusion(val, "Cannot check if val is an output, ");
+  return val->is_output;
 }
 
 StmtNameType Fusion::getValName(ValType vtype) {

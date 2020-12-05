@@ -1133,6 +1133,8 @@ Split::Split(IterDomain* outer, IterDomain* inner, IterDomain* in, Val* factor)
   addOutput(outer);
   addOutput(inner);
   addInput(in);
+  // TODO add factor as an input, need to check Split::Split during validation
+  // and need to check BestEffortReplay::findFirstMismatchedID addInput(factor);
   name_ = FusionGuard::getCurFusion()->registerExpr(this);
 }
 

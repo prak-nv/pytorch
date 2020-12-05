@@ -45,8 +45,8 @@ std::vector<Statement*> IterVisitor::next(Statement* stmt) {
 
 std::vector<Statement*> IterVisitor::next(Val* v) {
   FusionGuard::getCurFusion()->assertInFusion(v, "Cannot traverse val, ");
-  if (FusionGuard::getCurFusion()->origin(v) != nullptr) {
-    return {FusionGuard::getCurFusion()->origin(v)};
+  if (v->getOrigin() != nullptr) {
+    return {v->getOrigin()};
   }
   return {};
 }

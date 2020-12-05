@@ -4,6 +4,7 @@
 #include <torch/csrc/WindowsTorchApiMacro.h>
 
 #include <torch/csrc/jit/codegen/cuda/ir_base_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -94,23 +95,26 @@ class TORCH_CUDA_API Fusion final {
   void removeVal(Val* val);
 
   //! Register input as an input of the fusion
+  // TODO: Rename to register
   void addInput(Val* input);
 
   //! Register output as an output of the fusion
+  // TODO: Rename to register
   void addOutput(Val* output);
+
+  //! Deregister input as an input of the fusion
+  // TODO: Rename to register
+  void removeInput(Val* input);
+
+  //! Deregister output as an output of the fusion
+  // TODO: Rename to register
+  void removeOutput(Val* output);
 
   //! Check if stmt is properly registered with this fusion
   bool inFusion(const Statement* stmt) const;
 
   //! Throw an error if stmt is not in this fusion
   void assertInFusion(const Statement* stmt, const std::string& msg = "") const;
-
-  //! Return a list of topologically sorted expressions. This only includes
-  //! exprs required to genereate registered outputs.
-  std::vector<Expr*> exprs();
-
-  //! Return a vector of fusion inputs that feed this Val
-  std::unordered_set<Val*> inputsOf(Val* val);
 
   //! Assert that all leaves found from outputs are registered as an input
   void validateInputs();
@@ -139,6 +143,13 @@ class TORCH_CUDA_API Fusion final {
 
   //! Register stmt with this fusion
   StmtNameType registerStatement(Statement* stmt);
+
+  //! Return a list of topologically sorted expressions. This only includes
+  //! exprs required to genereate registered outputs.
+  std::vector<Expr*> exprs();
+
+  //! Return a vector of fusion inputs that feed this Val
+  std::unordered_set<Val*> inputsOf(Val* val);
 
   //! Return the set of Vals registered with this fusion
   const std::unordered_set<Val*>& vals() const noexcept;
@@ -173,9 +184,6 @@ class TORCH_CUDA_API Fusion final {
 
   bool hasInput(const Val* val) const;
   bool hasOutput(const Val* val) const;
-
-  void replaceInput(Val* replace, Val* with);
-  void replaceOutput(Val* replace, Val* with);
 
  private:
   // Return an int that monotonically increases for each val/expr, some are
