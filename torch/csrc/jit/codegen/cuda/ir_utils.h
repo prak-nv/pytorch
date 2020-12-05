@@ -3,6 +3,7 @@
 #include <torch/csrc/jit/codegen/cuda/type.h>
 
 #include <iterator>
+#include <unordered_map>
 
 namespace torch {
 namespace jit {
