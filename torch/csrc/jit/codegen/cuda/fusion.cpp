@@ -42,8 +42,6 @@ void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
 
-  swap(a.uses_, b.uses_);
-
   swap(a.inputs_, b.inputs_);
   swap(a.outputs_, b.outputs_);
 
@@ -73,25 +71,27 @@ Fusion::Fusion(const Fusion& other) {
     val_set_.insert(ir_cloner.clone(val));
   }
 
-  for (auto expr : other.expr_set_) {
-    expr_set_.insert(ir_cloner.clone(expr));
-  }
-
   for (auto val : other.val_deque_) {
     val_deque_.push_back(ir_cloner.clone(val));
   }
 
+  for (auto old_expr : other.expr_set_) {
+    auto new_expr = ir_cloner.clone(old_expr);
+    expr_set_.insert(new_expr);
+
+    // ir_cloner doesn't go through registerStmt, so we need to "Register Expr"
+    // we would similarly need to do to val if there was in that pass that is
+    // also not covered here.
+    for (Val* input : new_expr->inputs()) {
+      if (std::find(input->uses.begin(), input->uses.end(), new_expr) ==
+          input->uses.end()) {
+        input->uses.push_back(new_expr);
+      }
+    }
+  }
+
   val_type_name_map_ = other.val_type_name_map_;
   expr_name_counter_ = other.expr_name_counter_;
-
-  for (const auto& kv : other.uses_) {
-    auto val = ir_cloner.clone(kv.first);
-    std::unordered_set<Expr*> val_uses;
-    for (auto expr : kv.second) {
-      val_uses.insert(ir_cloner.clone(expr));
-    }
-    uses_.insert({val, std::move(val_uses)});
-  }
 
   inputs_ = ir_cloner.clone(other.inputs_);
   outputs_ = ir_cloner.clone(other.outputs_);
@@ -151,8 +151,6 @@ void Fusion::clear() noexcept {
 
   expr_name_counter_ = 0;
 
-  uses_.clear();
-
   inputs_.clear();
   outputs_.clear();
 }
@@ -168,10 +166,9 @@ void Fusion::removeExpr(Expr* expr) {
   }
 
   for (auto inp : expr->inputs()) {
-    if (uses_.find(inp) != uses_.end()) {
-      if (uses_.find(inp)->second.find(expr) != uses_.find(inp)->second.end()) {
-        uses_.find(inp)->second.erase(expr);
-      }
+    auto it = std::find(inp->uses.begin(), inp->uses.end(), expr);
+    if (it != inp->uses.end()) {
+      inp->uses.erase(it);
     }
   }
 
@@ -320,9 +317,7 @@ void Fusion::printMath(bool from_outputs_only) {
   if (!from_outputs_only) {
     std::vector<Val*> leaf_vals;
     for (auto val : deterministic_vals()) {
-      bool used = (uses_.find(val) != uses_.end()) &&
-          (uses_.find(val)->second.size() > 0);
-      if (used) {
+      if (!val->uses.empty()) {
         leaf_vals.push_back(val);
       }
     }
@@ -371,10 +366,9 @@ StmtNameType Fusion::registerExpr(Expr* expr) {
 
   for (Val* input : expr->inputs()) {
     assertInFusion(input, "Input to expr is invalid, ");
-    if (uses_.find(input) == uses_.end()) {
-      uses_[input] = {expr};
-    } else {
-      uses_.find(input)->second.emplace(expr);
+    if (std::find(input->uses.begin(), input->uses.end(), expr) ==
+        input->uses.end()) {
+      input->uses.push_back(expr);
     }
   }
 
@@ -419,12 +413,7 @@ const std::unordered_set<Expr*>& Fusion::unordered_exprs() const noexcept {
 }
 
 std::unordered_set<Expr*> Fusion::unordered_uses(Val* val) const {
-  assertInFusion(val, "Cannot detect where val was used, ");
-  if (uses_.find(val) != uses_.end()) {
-    auto ret = uses_.find(val)->second;
-    return ret;
-  }
-  return std::unordered_set<Expr*>();
+  return std::unordered_set<Expr*>(val->uses.begin(), val->uses.end());
 }
 
 Expr* Fusion::origin(const Val* val) const {

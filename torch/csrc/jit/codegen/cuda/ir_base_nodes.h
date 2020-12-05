@@ -253,6 +253,7 @@ class TORCH_CUDA_API Val : public Statement {
   bool is_fusion_output = false;
 
   Expr* origin = nullptr;
+  std::deque<Expr*> uses;
 };
 
 //!  A Expr represents a "computation." These are functions that takes inputs

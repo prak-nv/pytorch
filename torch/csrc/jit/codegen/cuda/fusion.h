@@ -204,9 +204,6 @@ class TORCH_CUDA_API Fusion final {
   // Expression names counter
   StmtNameType expr_name_counter_ = 0;
 
-  // Dependency tracking for Vals. Where did it come from? Where is it used?
-  std::unordered_map<Val*, std::unordered_set<Expr*>> uses_;
-
   // Fusion inputs and outputs
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
