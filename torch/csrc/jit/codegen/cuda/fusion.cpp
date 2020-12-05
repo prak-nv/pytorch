@@ -97,10 +97,10 @@ Fusion::Fusion(const Fusion& other) {
   outputs_ = ir_cloner.clone(other.outputs_);
 
   for (auto inp : inputs_) {
-    inp->is_input = true;
+    inp->is_fusion_input = true;
   }
   for (auto out : outputs_) {
-    out->is_output = true;
+    out->is_fusion_output = true;
   }
 }
 
@@ -218,7 +218,7 @@ void Fusion::addInput(Val* input) {
   }
 
   inputs_.push_back(input);
-  input->is_input = true;
+  input->is_fusion_input = true;
 }
 
 void Fusion::addOutput(Val* output) {
@@ -228,7 +228,7 @@ void Fusion::addOutput(Val* output) {
     tv->setMemoryType(MemoryType::Global);
   }
   outputs_.push_back(output);
-  output->is_output = true;
+  output->is_fusion_output = true;
 }
 
 void Fusion::removeInput(Val* input) {
@@ -236,7 +236,7 @@ void Fusion::removeInput(Val* input) {
   if (find_input != inputs_.end()) {
     inputs_.erase(find_input);
   }
-  input->is_input = false;
+  input->is_fusion_input = false;
 }
 
 void Fusion::removeOutput(Val* output) {
@@ -244,7 +244,7 @@ void Fusion::removeOutput(Val* output) {
   if (find_output != outputs_.end()) {
     outputs_.erase(find_output);
   }
-  output->is_output = false;
+  output->is_fusion_output = false;
 }
 
 bool Fusion::inFusion(const Statement* stmt) const {
@@ -434,12 +434,12 @@ Expr* Fusion::origin(const Val* val) const {
 
 bool Fusion::hasInput(const Val* val) const {
   assertInFusion(val, "Cannot check if val is an input, ");
-  return val->is_input;
+  return val->is_fusion_input;
 }
 
 bool Fusion::hasOutput(const Val* val) const {
   assertInFusion(val, "Cannot check if val is an output, ");
-  return val->is_output;
+  return val->is_fusion_output;
 }
 
 StmtNameType Fusion::getValName(ValType vtype) {

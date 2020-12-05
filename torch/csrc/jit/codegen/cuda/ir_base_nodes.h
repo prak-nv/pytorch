@@ -208,7 +208,7 @@ class TORCH_CUDA_API Val : public Statement {
   // Returns the Expr that this value is an output of, returns nullptr if none
   // was found
   Expr* getOrigin() const {
-    if (is_input) {
+    if (is_fusion_input) {
       return nullptr;
     }
     return origin;
@@ -249,8 +249,8 @@ class TORCH_CUDA_API Val : public Statement {
   const DataType dtype_;
 
   // Following is managed by Fusion and can change.
-  bool is_input = false;
-  bool is_output = false;
+  bool is_fusion_input = false;
+  bool is_fusion_output = false;
 
   Expr* origin = nullptr;
 };
