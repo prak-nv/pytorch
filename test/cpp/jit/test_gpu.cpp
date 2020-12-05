@@ -4561,9 +4561,6 @@ TEST(NVFuserTest, FusionSimpleGemm_CUDA) {
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
-  tv0 = add(tv0, new Double(1));
-  tv1 = add(tv1, new Double(1));
-
   TensorView* tv2 = broadcast(tv0, {false, false, true});
   // tv2[I0, I1, B] = tv0[I0, I1]
 
@@ -4598,12 +4595,7 @@ TEST(NVFuserTest, FusionSimpleGemm_CUDA) {
   // tv6[I0o, I0i{4}, I1i{32}, I2o, I2i{4}|, R1o]
   // tv5[I0o, I0i{4}, R1i{32}, I2o, I2i{4}|]
 
-  fusion.printMath();
   tv0->computeAt(tv6, -1);
-
-  fusion.printMath();
-  return;
-
   tv1->computeAt(tv6, -1);
   // tv4[I0o, I0i{4}, I1i{32}, I2o, I2i{4}, I1o |]
   // tv6[I0o, I0i{4}, I1i{32}, I2o, I2i{4}, R1o |]
