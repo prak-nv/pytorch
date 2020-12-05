@@ -833,28 +833,38 @@ class TestCudaFuser(JitTestCase):
         class MyLayerNorm(torch.nn.Module):
             __constants__ = ['norm_shape']
 
-            def __init__(self):
+            def __init__(self, elementwise_affine=True):
                 super(MyLayerNorm, self).__init__()
                 self.norm_shape = norm_shape
+                if elementwise_affine:
+                    self.weight = torch.randn(norm_shape, dtype=dtype, device=device)
+                    self.bias = torch.randn(norm_shape, dtype=dtype, device=device)
+                    with torch.no_grad():
+                        self.weight.fill_(1)
+                        self.bias.fill_(0)
+                else:
+                    self.weight = None
+                    self.bias = None
 
-            def forward(self, x: torch.Tensor, y: torch.Tensor):
-                o = torch.add(x, y)
-                o = torch.nn.functional.layer_norm(o, self.norm_shape)
+            def forward(self, x: torch.Tensor):
+                o = torch.relu(x)
+                o = torch.native_layer_norm(o, self.norm_shape, self.weight, self.bias, 1e-5)
                 return o
 
         t = MyLayerNorm()
 
         x = torch.randn(shape, dtype=dtype, device=device)
-        y = torch.randn(shape, dtype=dtype, device=device)
         t_jit = torch.jit.script(t)
-        jit_o = t_jit(x, y)
-        jit_o = t_jit(x, y)
-        o = t(x, y)
+        jit_o, jit_mean, jit_rstd = t_jit(x)
+        jit_o, jit_mean, jit_rstd = t_jit(x)
+        o, mean, rstd = t(x)
         self.assertEqual(o.dtype, jit_o.dtype)
         # numerical issues here due to our scheduling.
         # can't use `self.assertEqual(o, jit_o)`
         self.assertTrue(self._compare("comparing output failed", o, jit_o, error))
-        self.assertGraphContains(t_jit.graph_for(x, y), FUSION_GUARD)
+        self.assertTrue(self._compare("comparing mean failed", mean, jit_mean, error))
+        self.assertTrue(self._compare("comparing rstd failed", rstd, jit_rstd, error))
+        self.assertGraphContains(t_jit.graph_for(x), FUSION_GUARD)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,

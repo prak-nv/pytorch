@@ -921,7 +921,8 @@ std::vector<TensorView*> findTensorViewsToDuplicate(
   // Find any pointwise origin expressions via depth-first search (DFS)
   std::vector<TensorView*> stack;
   for (auto tensor : other_tv) {
-    if (fusion->unordered_uses(tensor).size() > 1) {
+    if (fusion->unordered_uses(tensor).size() > 1 &&
+        !fusion->hasOutput(tensor)) {
       stack.push_back(tensor);
     }
   }
@@ -938,7 +939,8 @@ std::vector<TensorView*> findTensorViewsToDuplicate(
 
         for (auto input_tv :
              ir_utils::filterByType<TensorView>(origin_expr->inputs())) {
-          if (!fusion->hasInput(input_tv) && !isConstantAllocation(input_tv)) {
+          if (!fusion->hasInput(input_tv) && !fusion->hasOutput(input_tv) &&
+              !isConstantAllocation(input_tv)) {
             stack.push_back(input_tv);
           }
         }
@@ -1088,7 +1090,8 @@ void scheduleNormalization(
     const auto kOriginExpr = tv->getOrigin();
     const bool kIsCastOp = kOriginExpr->getExprType() == ExprType::UnaryOp &&
         kOriginExpr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
-    const bool kIsBroadcastOp = kOriginExpr->getExprType() == ExprType::BroadcastOp;
+    const bool kIsBroadcastOp =
+        kOriginExpr->getExprType() == ExprType::BroadcastOp;
     if (kIsCastOp || kIsBroadcastOp) {
       const auto kIsInput = fusion->hasInput(kOriginExpr->input(0));
       has_pseudo_cache |= kIsInput;

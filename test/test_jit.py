@@ -10588,74 +10588,81 @@ dedent """
         self.assertEqual(b.grad, b_ref.grad)
 
     def test_layer_norm_grad(self):
-        class MyLayerNorm(torch.nn.Module):
-            __constants__ = ['norm_shape']
+        with enable_profiling_mode_for_profiling_tests():
+            class MyLayerNorm(torch.nn.Module):
+                __constants__ = ['norm_shape']
 
-            def __init__(self, norm_shape):
-                super(MyLayerNorm, self).__init__()
-                self.norm_shape = norm_shape
+                def __init__(self, norm_shape):
+                    super(MyLayerNorm, self).__init__()
+                    self.norm_shape = norm_shape
 
-            def forward(self, x: torch.Tensor, w: Optional[torch.Tensor], b: Optional[torch.Tensor]):
-                o = torch.nn.functional.relu(x)
-                o = torch.nn.functional.layer_norm(o, self.norm_shape, w, b)
-                return o
+                def forward(self, x: torch.Tensor, w: Optional[torch.Tensor], b: Optional[torch.Tensor]):
+                    o = torch.nn.functional.relu(x)
+                    o = torch.nn.functional.layer_norm(o, self.norm_shape, w, b)
+                    return o
 
-        # Initialize param and input values
-        x_init = torch.rand(3, 2)
-        norm_shape = [2]
-        w_init = torch.rand(norm_shape)
-        b_init = torch.rand(norm_shape)
+            # Initialize param and input values
+            x_init = torch.randn(4, 2)
+            norm_shape = [2]
+            w_init = torch.randn(norm_shape)
+            b_init = torch.randn(norm_shape)
 
-        layer_norm = torch.jit.script(MyLayerNorm(norm_shape))
+            layer_norm = torch.jit.script(MyLayerNorm(norm_shape))
 
-        scenarios = [[False, False], [True, False], [True, True]]
-        for with_weight, with_bias in scenarios:
-            x = x_init.clone()
-            x.requires_grad_()
+            # Note: weight=False and bias=True is not supported in eager mode
+            scenarios = [[False, False], [True, False], [True, True]]
+            for with_weight, with_bias in scenarios:
+                x = x_init.clone()
+                x.requires_grad_()
 
-            # Clone trainable params
-            if with_weight:
-                w = w_init.clone()
-                w.requires_grad_()
-            else:
-                w = None
+                # Clone trainable params
+                if with_weight:
+                    w = w_init.clone()
+                    w.requires_grad_()
+                else:
+                    w = None
 
-            if with_bias:
-                b = b_init.clone()
-                b.requires_grad_()
-            else:
-                b = None
+                if with_bias:
+                    b = b_init.clone()
+                    b.requires_grad_()
+                else:
+                    b = None
 
-            # Test symbolic differentiation
-            y = layer_norm(x, w, b)
-            y.sum().backward()
+                # Test symbolic differentiation
+                # Run Forward and Backward twice to trigger autodiff graph
+                y = layer_norm(x, w, b)
+                y = layer_norm(x, w, b)
+                y.sum().backward(retain_graph=True)
+                y.sum().backward()
 
-            # clone params for autograd reference
-            x_ref = x_init.clone()
-            x_ref.requires_grad_()
+                # clone params for autograd reference
+                x_ref = x_init.clone()
+                x_ref.requires_grad_()
 
-            if with_weight:
-                w_ref = w_init.clone()
-                w_ref.requires_grad_()
-            else:
-                w_ref = None
+                if with_weight:
+                    w_ref = w_init.clone()
+                    w_ref.requires_grad_()
+                else:
+                    w_ref = None
 
-            if with_bias:
-                b_ref = b_init.clone()
-                b_ref.requires_grad_()
-            else:
-                b_ref = None
+                if with_bias:
+                    b_ref = b_init.clone()
+                    b_ref.requires_grad_()
+                else:
+                    b_ref = None
 
-            # reference computation
-            o_ref = torch.nn.functional.relu(x_ref)
-            y_ref = torch.nn.functional.layer_norm(o_ref, norm_shape, w_ref, b_ref)
-            y_ref.sum().backward()
+                # reference computation
+                o_ref = torch.nn.functional.relu(x_ref)
+                y_ref = torch.nn.functional.layer_norm(o_ref, norm_shape, w_ref, b_ref)
+                y_ref.sum().backward(retain_graph=True)
+                y_ref.sum().backward()
 
-            self.assertEqual(x.grad, x_ref.grad)
-            if with_weight:
-                self.assertEqual(w.grad, w_ref.grad)
-            if with_bias:
-                self.assertEqual(b.grad, b_ref.grad)
+                self.assertEqual(y_ref, y)
+                self.assertEqual(x.grad, x_ref.grad)
+                if with_weight:
+                    self.assertEqual(w.grad, w_ref.grad)
+                if with_bias:
+                    self.assertEqual(b.grad, b_ref.grad)
 
     def test_zeros(self):
         class M(torch.jit.ScriptModule):
