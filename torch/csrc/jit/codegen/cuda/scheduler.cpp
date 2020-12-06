@@ -1060,6 +1060,25 @@ void organizeAxes(
   }
 }
 
+bool checkBroadcast(Fusion* fusion, TensorView* tv) {
+  auto uses = fusion->unordered_uses(tv);
+  if (uses.size() == 1) {
+    auto expr = *uses.begin();
+    return expr->getExprType().value() == ExprType::BroadcastOp;
+  }
+  return false;
+};
+
+bool checkCastOp(Fusion* fusion, TensorView* tv) {
+  auto uses = fusion->unordered_uses(tv);
+  if (uses.size() == 1) {
+    auto expr = *uses.begin();
+    return expr->getExprType().value() == ExprType::UnaryOp &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
+  }
+  return false;
+};
+
 } // namespace
 
 void scheduleNormalization(
@@ -1083,20 +1102,6 @@ void scheduleNormalization(
   all_tv.insert(all_tv.end(), other_tv.begin(), other_tv.end());
 
   organizeAxes(reduction_tv, all_tv);
-
-  // Determine if there are any casts or broadcast on fusion inputs
-  bool has_pseudo_cache = false;
-  for (auto tv : other_tv) {
-    const auto kOriginExpr = tv->getOrigin();
-    const bool kIsCastOp = kOriginExpr->getExprType() == ExprType::UnaryOp &&
-        kOriginExpr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
-    const bool kIsBroadcastOp =
-        kOriginExpr->getExprType() == ExprType::BroadcastOp;
-    if (kIsCastOp || kIsBroadcastOp) {
-      const auto kIsInput = fusion->hasInput(kOriginExpr->input(0));
-      has_pseudo_cache |= kIsInput;
-    }
-  }
 
   // Scheduling the Reduction
   if (rparams.fastest_dim) {
@@ -1151,9 +1156,13 @@ void scheduleNormalization(
 
         // 5) Handle Inline-ComputeAt
         // Fusion input castOp replaces cache_after
-        if (!has_pseudo_cache) {
-          for (const auto input : in_tv) {
-            if (input->getRootDomain().size() > 1) {
+        // Determine if there are any casts or broadcast on fusion inputs
+        for (const auto input : in_tv) {
+          if (input->getRootDomain().size() > 1) {
+            // If pseudo-cache, skip cache after
+            bool hasBroadcast = checkBroadcast(fusion, input);
+            bool hasCast = checkCastOp(fusion, input);
+            if (hasBroadcast || hasCast) {
               other_tv.push_back(input->cache_after());
             }
           }
