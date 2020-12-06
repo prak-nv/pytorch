@@ -69,6 +69,7 @@ Fusion::Fusion(const Fusion& other) {
 }
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
+  to->clear();
   IrCloner ir_cloner(to);
 
   for (auto val : from->val_set_) {
@@ -498,8 +499,6 @@ bool Fusion::hasReduction() {
 
 std::vector<Val*> Fusion::getTerminatingOutputs() {
   FUSER_PERF_SCOPE("getTerminatingOutputs");
-
-  FusionGuard fg(this);
 
   std::unordered_set<Val*> used_vals;
 
