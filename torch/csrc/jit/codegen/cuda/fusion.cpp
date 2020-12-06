@@ -65,20 +65,23 @@ void swap(Fusion& a, Fusion& b) noexcept {
 
 Fusion::Fusion(const Fusion& other) {
   FUSER_PERF_SCOPE("Fusion copy");
+  Fusion::copy(&other, this);
+}
 
-  IrCloner ir_cloner(this);
+IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
+  IrCloner ir_cloner(to);
 
-  for (auto val : other.val_set_) {
-    val_set_.insert(ir_cloner.clone(val));
+  for (auto val : from->val_set_) {
+    to->val_set_.insert(ir_cloner.clone(val));
   }
 
-  for (auto val : other.val_deque_) {
-    val_deque_.push_back(ir_cloner.clone(val));
+  for (auto val : from->val_deque_) {
+    to->val_deque_.push_back(ir_cloner.clone(val));
   }
 
-  for (auto old_expr : other.expr_set_) {
+  for (auto old_expr : from->expr_set_) {
     auto new_expr = ir_cloner.clone(old_expr);
-    expr_set_.insert(new_expr);
+    to->expr_set_.insert(new_expr);
 
     // ir_cloner doesn't go through registerStmt, so we need to "Register Expr"
     // we would similarly need to do to val if there was in that pass that is
@@ -91,20 +94,21 @@ Fusion::Fusion(const Fusion& other) {
     }
   }
 
-  val_type_name_map_ = other.val_type_name_map_;
-  expr_name_counter_ = other.expr_name_counter_;
+  to->val_type_name_map_ = from->val_type_name_map_;
+  to->expr_name_counter_ = from->expr_name_counter_;
 
-  inputs_ = ir_cloner.clone(other.inputs_);
-  outputs_ = ir_cloner.clone(other.outputs_);
+  to->inputs_ = ir_cloner.clone(from->inputs_);
+  to->outputs_ = ir_cloner.clone(from->outputs_);
 
-  for (auto inp : inputs_) {
+  for (auto inp : to->inputs_) {
     inp->is_fusion_input = true;
   }
-  for (auto out : outputs_) {
+  for (auto out : to->outputs_) {
     out->is_fusion_output = true;
   }
 
-  resetTvUses();
+  to->resetTvUses();
+  return ir_cloner;
 }
 
 Fusion::Fusion(Fusion&& other) noexcept {

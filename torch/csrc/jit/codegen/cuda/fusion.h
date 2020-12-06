@@ -86,6 +86,12 @@ class TORCH_CUDA_API Fusion final {
 
   void clear() noexcept;
 
+  static IrCloner copy(const Fusion* from, Fusion* to);
+
+  // Extract out copy constructor so we can return the cloner used which
+  // contains the ir maps from other to this.
+  IrCloner clone(const Fusion& other);
+
   //! Break dependency chains associated with Expr, remove references to expr
   //! delete expr
   void removeExpr(Expr* expr);
