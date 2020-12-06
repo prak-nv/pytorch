@@ -4,6 +4,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
 #include <torch/csrc/jit/codegen/cuda/ir_printer.h>
+#include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 
@@ -102,6 +103,8 @@ Fusion::Fusion(const Fusion& other) {
   for (auto out : outputs_) {
     out->is_fusion_output = true;
   }
+
+  resetTvUses();
 }
 
 Fusion::Fusion(Fusion&& other) noexcept {
@@ -180,13 +183,12 @@ void Fusion::removeExpr(Expr* expr) {
 void Fusion::removeVal(Val* val) {
   assertInFusion(val, "Cannot remove val ");
 
-  for (Val* inp : inputs())
-    if (val->sameAs(inp))
-      TORCH_CHECK(false, "Cannot remove val as it is an input of the fusion.");
-
-  for (Val* out : outputs())
-    if (val->sameAs(out))
-      TORCH_CHECK(false, "Cannot remove val as it is an output of the fusion.");
+  TORCH_CHECK(
+      !val->is_fusion_input,
+      "Cannot remove val as it is an input of the fusion.");
+  TORCH_CHECK(
+      !val->is_fusion_output,
+      "Cannot remove val as it is an output of the fusion.");
 
   Expr* orig = val->getOrigin();
   if (orig != nullptr)
@@ -216,6 +218,8 @@ void Fusion::addInput(Val* input) {
 
   inputs_.push_back(input);
   input->is_fusion_input = true;
+
+  resetTvUses();
 }
 
 void Fusion::addOutput(Val* output) {
@@ -226,6 +230,8 @@ void Fusion::addOutput(Val* output) {
   }
   outputs_.push_back(output);
   output->is_fusion_output = true;
+
+  resetTvUses();
 }
 
 void Fusion::removeInput(Val* input) {
@@ -234,6 +240,7 @@ void Fusion::removeInput(Val* input) {
     inputs_.erase(find_input);
   }
   input->is_fusion_input = false;
+  resetTvUses();
 }
 
 void Fusion::removeOutput(Val* output) {
@@ -242,6 +249,7 @@ void Fusion::removeOutput(Val* output) {
     outputs_.erase(find_output);
   }
   output->is_fusion_output = false;
+  resetTvUses();
 }
 
 bool Fusion::inFusion(const Statement* stmt) const {
@@ -381,6 +389,8 @@ StmtNameType Fusion::registerExpr(Expr* expr) {
   }
 
   expr_set_.emplace(expr);
+
+  resetTvUses();
   return getExprName();
 }
 
@@ -398,6 +408,28 @@ StmtNameType Fusion::registerStatement(Statement* stmt) {
       false,
       "Could not register statement as Fusion could not recognize its type.");
   return kInvalidStmName;
+}
+
+void Fusion::resetTvUses() {
+  // getExprs only uses origin, so even if we've modified uses already to remove
+  // dead exprs, this could reinsert them. getExprs is also boundeds by inputs
+  // as registered inputs will return nullptr as their origin.
+  auto all_tvs = ir_utils::filterByType<TensorView>(val_set_);
+  auto used_exprs = ExprSort::getExprs(this);
+
+  for (auto tv : all_tvs) {
+    tv->uses.clear();
+  }
+
+  // Same as in register expr
+  for (auto expr : used_exprs) {
+    for (Val* input : expr->inputs()) {
+      if (std::find(input->uses.begin(), input->uses.end(), expr) ==
+          input->uses.end()) {
+        input->uses.push_back(expr);
+      }
+    }
+  }
 }
 
 const std::unordered_set<Val*>& Fusion::vals() const noexcept {

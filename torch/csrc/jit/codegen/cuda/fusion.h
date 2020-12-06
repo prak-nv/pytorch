@@ -110,6 +110,10 @@ class TORCH_CUDA_API Fusion final {
   // TODO: Rename to register
   void removeOutput(Val* output);
 
+  //! Clear Expr's from TV uses that are not required to produce outputs from
+  //! inputs
+  void resetTvUses();
+
   //! Check if stmt is properly registered with this fusion
   bool inFusion(const Statement* stmt) const;
 
