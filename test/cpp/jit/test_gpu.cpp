@@ -10398,7 +10398,7 @@ TEST(NVFuserTest, FusionTranspose9_CUDA) {
       &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionSimpleGemmT_CUDA) {
+TEST(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -10423,7 +10423,6 @@ TEST(NVFuserTest, FusionSimpleGemmT_CUDA) {
   TensorView* tv5 = sum(tv4, {1});
   fusion.addOutput(tv5);
 
-
   tv5->split(1, 32);
   // tv5[I0, R1o, R1i{32}, I2]
 
@@ -10432,7 +10431,6 @@ TEST(NVFuserTest, FusionSimpleGemmT_CUDA) {
   // tv5[I0,    , R1i{32}, I2] = tv6[I0, R1o, I1i{32}, I2]
 
   fusion.printMath();
-
 
   tv5->split(0, 4);
   tv5->split(-1, 4);
@@ -10443,7 +10441,6 @@ TEST(NVFuserTest, FusionSimpleGemmT_CUDA) {
   tv1_t->computeAt(tv5, -1);
 
   fusion.printMath();
-
 
   // tv6[I0o, I0i{4}, R1o, I1i{32}, I2o, I2i{4}]
   // tv5[I0o, I0i{4},    , R1i{32}, I2o, I2i{4}]
@@ -10486,6 +10483,69 @@ TEST(NVFuserTest, FusionSimpleGemmT_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionSoftmax3DTransposed_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int tidx = 32;
+  const int dimx = 32;
+  const int dimy = 16;
+  const int dimz = 130;
+
+  // Set up your input tensor views
+  TensorView* input_tv0 = makeSymbolicTensor(3);
+  fusion.addInput(input_tv0);
+
+  TensorView* input_t = transpose(input_tv0, {{1, 2}});
+
+  TensorView* exp_tv1 = unaryOp(UnaryOpType::Exp, input_t);
+  TensorView* sum_exp_tv2 = sum(exp_tv1, {-1});
+  TensorView* bcast_sum_tv3 = broadcast(sum_exp_tv2, {false, false, true});
+
+  // Replicate exp_tv4 as exp_tv4_copy because exp_tv4 is going to be
+  // computed at sum_exp_rf_tv8.
+  TensorView* input_t_copy = transpose(input_tv0, {{1, 2}});
+  TensorView* exp_tv1_copy = unaryOp(UnaryOpType::Exp, input_t_copy);
+
+  TensorView* output_tv4 = div(exp_tv1_copy, bcast_sum_tv3);
+
+  fusion.addOutput(output_tv4);
+
+  bcast_sum_tv3->split(-1, tidx);
+
+  sum_exp_tv2->split(-1, tidx);
+  TensorView* sum_exp_rf_tv5 = sum_exp_tv2->rFactor({-2});
+
+  output_tv4->split(-1, tidx);
+
+  input_t->computeAt(sum_exp_rf_tv5, -1);
+  input_t_copy->computeAt(output_tv4, -1);
+
+  TensorView* tensors_to_parallelize[] = {
+      sum_exp_tv2, bcast_sum_tv3, output_tv4, sum_exp_rf_tv5};
+
+  for (auto tv : tensors_to_parallelize) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::BIDy);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({dimx, dimz, dimy}, options);
+
+  at::Tensor cg_output = at::empty({dimx, dimy, dimz}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  fe.runFusion({input}, {cg_output});
+
+  auto aten_input_t = at::transpose(input, 1, 2);
+  auto aten_output = at::_softmax(aten_input_t.to(at::kDouble), -1, false);
+
+  testValidate(
+      &fusion, {cg_output}, {input}, {aten_output}, __LINE__, __FILE__);
 }
 
 } // namespace jit
