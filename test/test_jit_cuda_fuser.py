@@ -12,6 +12,9 @@ import itertools
 import numpy as np
 import math
 
+import subprocess
+from cuda_fuser_benchmark.nvtx_parser import parse_result
+
 os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
 os.environ['PYTORCH_NVFUSER_JIT_OPT_LEVEL'] = '0'
@@ -1277,6 +1280,27 @@ class TestCudaFuser(JitTestCase):
         # have been optimized away
         self.assertGraphContainsExactly(t_jit.graph_for(x, y), FUSION_GUARD, 0)
 
+    def _benchmark_helper(self, test, threshold):
+        cmd = 'nvprof python cuda_fuser_benchmark/benchmark.py ' + test + ' -v'
+        nvprof_log = subprocess.run(cmd,
+                                    shell=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    cwd=os.path.dirname(os.path.realpath(__file__))).stderr.decode('utf-8')
+        result = parse_result(nvprof_log, 'benchmarknvtx')
+        result.sort()
+
+        for jit,native in zip(result[0::2], result[1::2]):
+            self.assertTrue(jit[:-2] == native[:-2])
+            self.assertTrue(jit[-2] == 'jit')
+            self.assertTrue(native[-2] == 'native')
+            if jit[-1] > threshold * native[-1]:
+                print('Benchmark not meeting threshold of {}:'.format(threshold), jit+native[-2:])
+            else:
+                print('Benchmark meeting threshold of {}:'.format(threshold), jit+native[-2:])
+
+    def test_benchmark_all(self):
+        self._benchmark_helper('', 1.2)
 
 class TestPassManagerCudaFuser(JitTestCase):
 
@@ -1324,7 +1348,6 @@ class TestPassManagerCudaFuser(JitTestCase):
         self.assertTrue(torch._C._jit_nvfuser_enabled())
         self.assertTrue(torch._C._jit_set_nvfuser_enabled(False))
         self.assertFalse(torch._C._jit_nvfuser_enabled())
-
 
 if __name__ == '__main__':
     run_tests()
