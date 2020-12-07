@@ -10548,6 +10548,379 @@ TEST(NVFuserTest, FusionSoftmax3DTransposed_CUDA) {
       &fusion, {cg_output}, {input}, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionAdvancedComputeAtTransposed1_CUDA) {
+  // Case 1
+  // tv1 = tv0 * 0.5
+  // tv2 = tv1 * -1
+  // tv3 = tv1 + 3
+  // tv4 = tv1 * 2
+  // tv5 = tv3 + tv2
+  // tv6 = tv5 + tv4
+  // tv7 = tv1 + tv4
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  tv0 = transpose(tv0, {{0, 1}});
+
+  TensorView* tv1 = mul(tv0, new Double(0.5));
+  TensorView* tv2 = mul(tv1, new Double(-1.0));
+  TensorView* tv3 = add(tv1, new Double(3.0));
+  TensorView* tv4 = mul(tv1, new Double(2.0));
+  TensorView* tv5 = add(tv3, tv2);
+
+  TensorView* tv6 = add(tv5, tv4);
+  TensorView* tv7 = add(tv1, tv4);
+
+  fusion.addOutput(tv6);
+  fusion.addOutput(tv7);
+
+  // Lets setup to actually run
+  tv7->merge(0);
+  tv7->split(0, 128);
+  tv7->split(0, 4);
+
+  tv7->axis(0)->parallelize(ParallelType::BIDx);
+
+  tv0->computeAt(tv7, 1);
+
+  TORCH_CHECK(tv1->hasComputeAt() && tv1->nDims() == 3);
+  TORCH_CHECK(tv2->getComputeAtView() == tv5 && tv2->nDims() == 3);
+  TORCH_CHECK(tv3->getComputeAtView() == tv5 && tv3->nDims() == 3);
+  TORCH_CHECK(tv4->hasComputeAt() && tv4->nDims() == 3);
+  TORCH_CHECK(tv5->getComputeAtView() == tv6 && tv5->nDims() == 3);
+  TORCH_CHECK(tv6->getComputeAtView() == tv7 && tv6->nDims() == 3);
+  TORCH_CHECK(!tv7->hasComputeAt());
+
+  for (Val* val : fusion.vals()) {
+    if (!fusion.hasInput(val) &&
+        val->getValType().value() == ValType::TensorView) {
+      TensorView* tv = static_cast<TensorView*>(val);
+      tv->axis(1)->parallelize(ParallelType::Unroll);
+      tv->axis(-1)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor aten_input = at::randn({129, 127}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion({aten_input});
+
+  at::Tensor aten_input_t = aten_input.t();
+
+  auto t1 = aten_input_t.mul({0.5});
+  auto t2 = t1.mul({-1.0});
+  auto t3 = t1.add({3.0});
+  auto t4 = t1.mul({2.0});
+  auto t5 = t3.add(t2);
+  auto t6 = t5.add(t4);
+  auto t7 = t1.add(t4);
+
+  std::vector<at::Tensor> aten_outputs = {t6, t7};
+
+  testValidate(
+      &fusion, cg_outputs, {aten_input}, aten_outputs, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionAdvancedComputeAtTransposed2_CUDA) {
+  // Case 2
+  // tv1 = tv0 * -1
+  // tv2 = tv0 + 3
+  // tv3 = tv0 * 2
+  // tv4 = tv2 + tv1
+  // tv5 = tv4 + tv3
+  // tv6 = tv5 + tv3
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  tv0 = transpose(tv0, {{0, 1}});
+
+  TensorView* tv1 = mul(tv0, new Double(-1.0));
+  TensorView* tv2 = add(tv0, new Double(3.0));
+  TensorView* tv3 = mul(tv0, new Double(2.0));
+  TensorView* tv4 = add(tv2, tv1);
+
+  TensorView* tv5 = add(tv4, tv3);
+  TensorView* tv6 = add(tv5, tv3);
+
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  // Lets setup to actually run
+  tv6->merge(0);
+  tv6->split(0, 128);
+  tv6->split(0, 4);
+
+  tv6->axis(0)->parallelize(ParallelType::BIDx);
+
+  tv0->computeAt(tv6, 1);
+
+  for (Val* val : fusion.vals()) {
+    if (!fusion.hasInput(val) &&
+        val->getValType().value() == ValType::TensorView) {
+      TensorView* tv = static_cast<TensorView*>(val);
+
+      tv->axis(1)->parallelize(ParallelType::Unroll);
+      tv->axis(-1)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({129, 127}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion({input});
+
+  auto input_t = input.t();
+  auto t1 = input_t.mul({-1.0});
+  auto t2 = input_t.add({3.0});
+  auto t3 = input_t.mul({2.0});
+  auto t4 = t2.add(t1);
+  auto t5 = t4.add(t3);
+  auto t6 = t5.add(t3);
+
+  std::vector<at::Tensor> aten_outputs = {t5, t6};
+
+  testValidate(&fusion, cg_outputs, {input}, aten_outputs, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionAdvancedComputeAtTransposed3_CUDA) {
+  // Case 3
+  // T2 = T1 * 0.979361
+  // T3 = T2 * T0
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+
+  tv0 = transpose(tv0, {{0, 1}, {1, 2}, {2, 3}, {3, 0}});
+
+  TensorView* tv1 = makeSymbolicTensor(4);
+  fusion.addInput(tv1);
+
+  tv1 = transpose(tv1, {{0, 1}, {1, 2}, {2, 3}, {3, 0}});
+
+  TensorView* tv2 = mul(tv1, new Double(.979361));
+  TensorView* tv3 = mul(tv2, tv0);
+
+  fusion.addOutput(tv3);
+
+  // Lets setup to actually run
+  while (tv3->nDims() > 1)
+    tv3->merge(0);
+  tv3->split(0, 128);
+  tv3->split(0, 4);
+
+  tv0->computeAt(tv3, 1);
+  tv1->computeAt(tv3, 1);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+
+  for (Val* val : fusion.vals()) {
+    if (!fusion.hasInput(val) &&
+        val->getValType().value() == ValType::TensorView) {
+      TensorView* tv = static_cast<TensorView*>(val);
+
+      tv->axis(1)->parallelize(ParallelType::Unroll);
+      tv->axis(-1)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({129, 127, 63, 65}, options);
+  at::Tensor t1 = at::rand_like(t0, options);
+
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto t0_t = t0.permute({3, 0, 1, 2});
+  auto t1_t = t1.permute({3, 0, 1, 2});
+  auto t2 = t1_t.mul({0.979361});
+  auto aten_output = t2.mul(t0_t);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionAdvancedComputeAtTransposed4_CUDA) {
+  // Case 4
+  // T4 = T2 - T3
+  // T5 = T1 + T4
+  // T6 = T5 - T0
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+
+  tv0 = transpose(tv0, {{0, 1}, {1, 2}, {2, 3}, {3, 0}});
+
+  TensorView* tv1 = makeSymbolicTensor(4);
+  fusion.addInput(tv1);
+
+  tv1 = transpose(tv1, {{0, 1}, {1, 2}, {2, 3}, {3, 0}});
+
+  TensorView* tv2 = makeSymbolicTensor(4);
+  fusion.addInput(tv2);
+
+  tv2 = transpose(tv2, {{0, 1}, {1, 2}, {2, 3}, {3, 0}});
+
+  TensorView* tv3 = makeSymbolicTensor(4);
+  fusion.addInput(tv3);
+
+  tv3 = transpose(tv3, {{0, 1}, {1, 2}, {2, 3}, {3, 0}});
+
+  TensorView* tv4 = sub(tv2, tv3);
+  TensorView* tv5 = add(tv1, tv4);
+  TensorView* tv6 = sub(tv5, tv0);
+
+  fusion.addOutput(tv6);
+
+  // Lets setup to actually run
+  while (tv6->nDims() > 1)
+    tv6->merge(0);
+  tv6->split(0, 128);
+  tv6->split(0, 4);
+
+  tv0->computeAt(tv6, 1);
+  tv1->computeAt(tv6, 1);
+  tv2->computeAt(tv6, 1);
+  tv3->computeAt(tv6, 1);
+
+  tv6->axis(0)->parallelize(ParallelType::BIDx);
+
+  for (Val* val : fusion.vals()) {
+    if (!fusion.hasInput(val) &&
+        val->getValType().value() == ValType::TensorView) {
+      TensorView* tv = static_cast<TensorView*>(val);
+
+      tv->axis(1)->parallelize(ParallelType::Unroll);
+      tv->axis(-1)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({129, 127, 63, 65}, options);
+  at::Tensor t1 = at::rand_like(t0, options);
+  at::Tensor t2 = at::rand_like(t0, options);
+  at::Tensor t3 = at::rand_like(t0, options);
+
+  std::vector<IValue> aten_inputs = {t0, t1, t2, t3};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto t0_t = t0.permute({3, 0, 1, 2});
+  auto t1_t = t1.permute({3, 0, 1, 2});
+  auto t2_t = t2.permute({3, 0, 1, 2});
+  auto t3_t = t3.permute({3, 0, 1, 2});
+  auto t4 = t2_t.sub(t3_t);
+  auto t5 = t1_t.add(t4);
+  auto aten_output = t5.sub(t0_t);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionAdvancedComputeAtTransposed5_CUDA) {
+  // Case 5
+  // tv2 = tv0 + 2.0
+  // tv3 = tv1 * tv2
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Set up your input tensor views
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  tv0 = transpose(tv0, {{0, 1}});
+  TensorView* tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  tv1 = transpose(tv1, {{0, 1}});
+  TensorView* tv2 = add(tv0, new Double(2.0));
+  TensorView* tv3 = mul(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  tv3->merge(0);
+  tv3->split(-1, 8);
+  tv3->split(-1, 4);
+
+  tv0->computeAt(tv3, 1);
+  tv1->computeAt(tv3, 1);
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({63, 65}, options);
+  at::Tensor t1 = at::rand_like(t0, options);
+
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto t2 = t0.t().add(2.0);
+  auto aten_output = t1.t().mul(t2);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionAdvancedComputeAtTransposed6_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  tv0 = transpose(tv0, {{0, 1}});
+  TensorView* tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  tv1 = transpose(tv1, {{0, 1}});
+  TensorView* tv2 = add(tv0, new Double(2.0));
+  TensorView* tv3 = mul(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  tv2->merge(0);
+  tv2->split(-1, 8);
+  tv2->split(-1, 4);
+  tv3->merge(0);
+  tv3->split(-1, 8);
+
+  tv0->computeAt(tv3, 1);
+  tv1->computeAt(tv3, 1);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({63, 65}, options);
+  at::Tensor t1 = at::rand_like(t0, options);
+
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto t2 = t0.t().add(2.0);
+  auto aten_output = t1.t().mul(t2);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
 } // namespace jit
 } // namespace torch
 
