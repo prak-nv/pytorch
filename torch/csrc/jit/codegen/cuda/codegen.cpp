@@ -500,7 +500,6 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  // TODO
   void visit(const kir::TransposeOp* node) final {
     TORCH_INTERNAL_ASSERT(node->out()->isA<kir::TensorIndex>());
 

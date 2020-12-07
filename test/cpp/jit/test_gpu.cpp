@@ -10051,14 +10051,8 @@ TEST(NVFuserTest, FusionTranspose1_CUDA) {
   fusion.addInput(tv0);
   fusion.addOutput(tv1);
 
-  fusion.printMath();
-  fusion.printKernel();
-
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
-
-  fusion.printMath();
-  fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -10087,17 +10081,11 @@ TEST(NVFuserTest, FusionTranspose2_CUDA) {
   fusion.addInput(tv0);
   fusion.addOutput(tv1);
 
-  fusion.printMath();
-  fusion.printKernel();
-
   tv1->merge(0);
   tv1->split(0, 32);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
-
-  fusion.printMath();
-  fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -10146,8 +10134,6 @@ TEST(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
   // tv6[I0, R1o, I1i{32}, I2] = tv4[I0, I1, I2]
   // tv5[I0,    , R1i{32}, I2] = tv6[I0, R1o, I1i{32}, I2]
 
-  fusion.printMath();
-
   tv5->split(0, 4);
   tv5->split(-1, 4);
   // tv5[I0o, I0i{4}, R1i{32}, I2o, I2i{4}]
@@ -10155,8 +10141,6 @@ TEST(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
 
   tv0_t->computeAt(tv5, -1);
   tv1_t->computeAt(tv5, -1);
-
-  fusion.printMath();
 
   // tv6[I0o, I0i{4}, R1o, I1i{32}, I2o, I2i{4}]
   // tv5[I0o, I0i{4},    , R1i{32}, I2o, I2i{4}]
