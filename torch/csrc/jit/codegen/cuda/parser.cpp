@@ -776,14 +776,14 @@ class IrParser {
 
             // Optional: norm * weight
             if (weight) {
-              auto weight_bcast = broadcast(weight, outer_broadcast_mask);
-              output = mul(output, weight_bcast);
+              auto weight_broadcast = broadcast(weight, outer_broadcast_mask);
+              output = mul(output, weight_broadcast);
             }
 
             // Optional: norm * weight + bias
             if (bias) {
-              auto bias_bcast = broadcast(bias, outer_broadcast_mask);
-              output = add(output, bias_bcast);
+              auto bias_broadcast = broadcast(bias, outer_broadcast_mask);
+              output = add(output, bias_broadcast);
             }
             value_map.emplace(node->output(0)->unique(), output);
             value_map.emplace(node->output(1)->unique(), x_mean);
