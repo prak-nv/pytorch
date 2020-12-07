@@ -343,7 +343,10 @@ TransposeOp::TransposeOp(
     TensorView* out,
     TensorView* in,
     std::vector<int> new2old)
-    : Expr(ExprType::TransposeOp), out_(out), in_(in), new2old_(std::move(new2old)) {
+    : Expr(ExprType::TransposeOp),
+      out_(out),
+      in_(in),
+      new2old_(std::move(new2old)) {
   // Sanity check of the input parameters. Maybe not necessary as they
   // should be checked at function transpose.
 
