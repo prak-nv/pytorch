@@ -676,7 +676,7 @@ TensorView* transpose(
   auto new2old = ir_utils::normalizeOld2New(old2new, inp_domain.size());
 
   for (size_t i = 0; i < out_domain.size(); ++i) {
-    auto in_id = inp_domain[new2old[i]];;
+    auto in_id = inp_domain[new2old[i]];
     out_domain[i] = new IterDomain(in_id->start(), in_id->extent());
   }
 

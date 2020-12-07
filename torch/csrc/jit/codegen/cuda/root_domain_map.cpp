@@ -72,7 +72,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   TORCH_INTERNAL_ASSERT(consumer_tv_->domain() == consumer);
 
   if (consumer_tv_->getOrigin()->isA<TransposeOp>()) {
-    return mapTranspose(producer, consumer, root_dims_to_map, producer_to_consumer);
+    return mapTranspose(
+        producer, consumer, root_dims_to_map, producer_to_consumer);
   }
 
   std::vector<bool> broadcast_flags;
@@ -82,7 +83,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   }
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
-  const auto producer_root = TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+  const auto producer_root =
+      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
   const auto& consumer_root = consumer->getRootDomain();
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_root.size()) {
@@ -112,13 +114,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   return dom_map;
 }
 
-std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::mapTranspose(
-    const TensorDomain* producer,
-    const TensorDomain* consumer,
-    const std::unordered_set<IterDomain*>& root_dims_to_map,
-    bool producer_to_consumer) const {
-
-  const auto producer_root = TensorDomain::noReductions(producer->getMaybeRFactorDomain());
+std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
+    mapTranspose(
+        const TensorDomain* producer,
+        const TensorDomain* consumer,
+        const std::unordered_set<IterDomain*>& root_dims_to_map,
+        bool producer_to_consumer) const {
+  const auto producer_root =
+      TensorDomain::noReductions(producer->getMaybeRFactorDomain());
   const auto& consumer_root = consumer->getRootDomain();
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
