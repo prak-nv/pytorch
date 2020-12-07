@@ -342,8 +342,8 @@ bool ReductionOp::sameAs(const Statement* other) const {
 TransposeOp::TransposeOp(
     TensorView* out,
     TensorView* in,
-    const std::vector<int>& new2old)
-    : Expr(ExprType::TransposeOp), out_(out), in_(in), new2old_(new2old) {
+    std::vector<int> new2old)
+    : Expr(ExprType::TransposeOp), out_(out), in_(in), new2old_(std::move(new2old)) {
   // Sanity check of the input parameters. Maybe not necessary as they
   // should be checked at function transpose.
 

@@ -165,7 +165,7 @@ class TORCH_CUDA_API ReductionOp : public Expr {
 
 class TORCH_CUDA_API TransposeOp : public Expr {
  public:
-  TransposeOp(TensorView* out, TensorView* in, const std::vector<int>& new2old);
+  TransposeOp(TensorView* out, TensorView* in, std::vector<int> new2old);
 
   TransposeOp(const TransposeOp* src, IrCloner* ir_cloner);
 
