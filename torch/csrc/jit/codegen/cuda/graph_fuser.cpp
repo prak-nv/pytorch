@@ -289,11 +289,15 @@ struct CudaGraphFuser {
     // if these exist, re-route them to the version of producer
     // created in FusionGroup
 
-    if (producer->uses().size() != 0) {
-      getSubgraph(group).registerOutput(merged->output());
-      Value* new_producer = group->addOutput();
-      new_producer->copyMetadata(producer);
-      producer->replaceAllUsesWith(new_producer);
+    // We need to apply this to all outputs from producer->node();
+    auto producer_outputs = producer->node()->outputs();
+    for (size_t i = 0; i < producer_outputs.size(); i++) {
+      if (producer_outputs[i]->uses().size() != 0) {
+        getSubgraph(group).registerOutput(merged->outputs()[i]);
+        Value* new_producer = group->addOutput();
+        new_producer->copyMetadata(producer_outputs[i]);
+        producer_outputs[i]->replaceAllUsesWith(new_producer);
+      }
     }
     producer->node()->destroy();
     return group;

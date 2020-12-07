@@ -299,7 +299,12 @@ struct DifferentiableGraphBackward : public autograd::Node {
         addOutputForTensor(tensor);
       }
     } else {
-      addOutputForTensor(value.toTensor());
+      if (value.isTensor()) {
+        addOutputForTensor(value.toTensor());
+      } else {
+        // TODO: we should assert on type = Optional[Tensor] here.
+        add_next_edge(autograd::Edge{});
+      }
     }
   }
 
