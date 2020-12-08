@@ -1025,7 +1025,7 @@ const std::vector<std::string> functions = {
 
             def backward(grad_output):
                 if weight is not None:
-                    x_hat = (output - mean) * rstd
+                    x_hat = (input - mean) * rstd
                     grad_weight = (grad_output * x_hat)._grad_sum_to_size(weight.size())
                 else:
                     grad_weight = None

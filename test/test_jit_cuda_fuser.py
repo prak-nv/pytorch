@@ -829,7 +829,29 @@ class TestCudaFuser(JitTestCase):
                         perm1 = range(len(x))
                         self._reduction_helper(x, axes, torch.float32, "cuda", perm0, perm1, keepdim)
 
-    def _layer_norm_helper(self, shape, norm_shape, dtype, device, error):
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_layer_norm_parser(self):
+        dtype = torch.float32
+        device = "cuda"
+        x = torch.randn([4, 4, 2], dtype=dtype, device=device)
+        w = torch.randn([4, 2], dtype=dtype, device=device)
+        b = torch.randn([4, 2], dtype=dtype, device=device)
+
+        def t(x: torch.Tensor, w: torch.Tensor, b: torch.Tensor):
+            o = torch.relu(x)
+            o = torch.layer_norm(o, [4, 2], w, b, 1e-5)
+            return o
+
+        o = t(x, w, b)
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, w, b)
+        jit_o = t_jit(x, w, b)
+        o = t(x, w, b)
+        self.assertGraphContains(t_jit.graph_for(x, w, b), FUSION_GUARD)
+
+    def _native_layer_norm_helper(self, shape, norm_shape, dtype, device, error, affine=True):
         class MyLayerNorm(torch.nn.Module):
             __constants__ = ['norm_shape']
 
@@ -851,7 +873,7 @@ class TestCudaFuser(JitTestCase):
                 o = torch.native_layer_norm(o, self.norm_shape, self.weight, self.bias, 1e-5)
                 return o
 
-        t = MyLayerNorm()
+        t = MyLayerNorm(affine)
 
         x = torch.randn(shape, dtype=dtype, device=device)
         t_jit = torch.jit.script(t)
@@ -869,26 +891,27 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    def test_layer_norm(self):
+    def test_native_layer_norm(self):
         dims = 4
         rnds = 3
         for idx in range(rnds):
             for offset in range(1, dims):
-                input_shape = [random.randint(30, 100) for idx in range(dims)]
-                norm_shape = [input_shape[idx] for idx in range(dims - offset, dims)]
-                self._layer_norm_helper(input_shape, norm_shape, torch.float32, "cuda", 1e-4)
+                for affine in (True, False):
+                    input_shape = [random.randint(30, 100) for idx in range(dims)]
+                    norm_shape = [input_shape[idx] for idx in range(dims - offset, dims)]
+                    self._native_layer_norm_helper(input_shape, norm_shape, torch.float32, "cuda", 1e-4, affine)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
-    def test_layer_norm_half(self):
+    def test_native_layer_norm_half(self):
         dims = 4
         rnds = 3
         for idx in range(rnds):
             for offset in range(1, dims):
                 input_shape = [random.randint(30, 100) for idx in range(dims)]
                 norm_shape = [input_shape[idx] for idx in range(dims - offset, dims)]
-                self._layer_norm_helper(input_shape, norm_shape, torch.float16, "cuda", 5e-3)
+                self._native_layer_norm_helper(input_shape, norm_shape, torch.float16, "cuda", 5e-3)
 
     def _batch_norm_helper(self, shape, dtype, device, error):
         class MyBatchNorm(torch.nn.Module):
