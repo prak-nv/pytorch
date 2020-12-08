@@ -711,13 +711,14 @@ class IrParser {
       std::array<const char*, kNumLayernormFwd> LayerNormFwd = {
           "aten::native_layer_norm(Tensor input, int[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)",
           "aten::layer_norm(Tensor input, int[] normalized_shape, Tensor? weight=None, Tensor? bias=None, float eps=1e-05, bool cudnn_enable=True) -> Tensor"};
-      for (auto signature: LayerNormFwd) {
+      for (auto signature : LayerNormFwd) {
         auto ptr_op = getOperatorForLiteral(signature);
         registerParseRule(
             ptr_op,
             [](const Node* node,
                std::unordered_map<size_t, CgValue>& value_map) -> void {
-              auto input = value_map[node->input(0)->unique()]->as<TensorView>();
+              auto input =
+                  value_map[node->input(0)->unique()]->as<TensorView>();
 
               auto norm_shape = constant_as<c10::List<int64_t>>(node->input(1));
               TORCH_INTERNAL_ASSERT(
@@ -758,8 +759,8 @@ class IrParser {
                 const size_t axis = input->nDims() - 1 - idx;
                 inner_reduction_axes[idx] = axis;
                 inner_broadcast_mask[axis] = true;
-                num_features =
-                    mul(num_features, input->domain()->domain()[axis]->extent());
+                num_features = mul(
+                    num_features, input->domain()->domain()[axis]->extent());
               }
 
               // TODO: NAN when mean and variance are zero
@@ -789,11 +790,14 @@ class IrParser {
                 auto bias_broadcast = broadcast(bias, outer_broadcast_mask);
                 output = add(output, bias_broadcast);
               }
-              if (node->kind() == c10::Symbol::fromQualString("aten::native_layer_norm")) {
+              if (node->kind() ==
+                  c10::Symbol::fromQualString("aten::native_layer_norm")) {
                 value_map.emplace(node->output(0)->unique(), output);
                 value_map.emplace(node->output(1)->unique(), x_mean);
                 value_map.emplace(node->output(2)->unique(), rvar);
-              } else if (node->kind() == c10::Symbol::fromQualString("aten::layer_norm")) {
+              } else if (
+                  node->kind() ==
+                  c10::Symbol::fromQualString("aten::layer_norm")) {
                 value_map.emplace(node->output()->unique(), output);
               }
             },

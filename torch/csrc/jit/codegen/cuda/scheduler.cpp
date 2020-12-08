@@ -1198,7 +1198,7 @@ void scheduleNormalization(
             // If pseudo-cache, skip cache after
             bool hasBroadcast = checkBroadcast(fusion, input) != nullptr;
             bool hasCast = checkCastOp(fusion, input) != nullptr;
-            if (hasBroadcast || hasCast) {
+            if (!hasBroadcast && !hasCast) {
               other_tv.push_back(input->cache_after());
             }
           }
