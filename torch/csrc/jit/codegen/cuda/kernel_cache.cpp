@@ -274,10 +274,10 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
     : fusion_(std::move(fusion)) {
   FUSER_PERF_SCOPE("FusionExecutorCache::FusionExecutorCache");
-  // avoid putting `has_reduction_` in the initializer list
-  has_reduction_ = fusion_->hasReduction();
+  // avoid putting `has_nontrivial_reduction_` in the initializer list
+  has_nontrivial_reduction_ = fusion_->hasReduction();
 
-  if (has_reduction_) {
+  if (has_nontrivial_reduction_) {
     FusionGuard fg(fusion_.get());
 
     // Use dependency check to find the reduction tv as it returns used values
@@ -338,7 +338,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     // entries in cached `FusionExecutor` or compile new one as needed.
 
     // caching strategy is different for pw-fusion and reduction-fusion.
-    if (has_reduction_) {
+    if (has_nontrivial_reduction_) {
       bool isNormalizationFusion = detect_normalization_fusion();
       // Generate the reduction parameters
       auto reduction_params = (isNormalizationFusion)
