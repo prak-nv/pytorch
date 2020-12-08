@@ -45,8 +45,8 @@ std::vector<Statement*> IterVisitor::next(Statement* stmt) {
 
 std::vector<Statement*> IterVisitor::next(Val* v) {
   FusionGuard::getCurFusion()->assertInFusion(v, "Cannot traverse val, ");
-  if (v->getOrigin() != nullptr) {
-    return {v->getOrigin()};
+  if (v->definition() != nullptr) {
+    return {v->definition()};
   }
   return {};
 }
@@ -63,11 +63,13 @@ std::vector<Statement*> IterVisitor::next(Expr* expr) {
 void IterVisitor::handle(Statement* s) {
   OptOutDispatch::handle(s);
 }
+
 // This handle functions is called on every Expr* in topological order,
 // starting from outputs to inputs.
 void IterVisitor::handle(Expr* e) {
   OptOutDispatch::handle(e);
 }
+
 // This handle functions is called on every Val* in topological order,
 // starting from outputs to inputs.
 void IterVisitor::handle(Val* v) {
@@ -151,7 +153,7 @@ void IterVisitor::traverseFrom(
   }
 }
 
-void IterVisitor::traverse_(Fusion* fusion, bool traverse_all_paths) {
+void IterVisitor::traverseHelper(Fusion* fusion, bool traverse_all_paths) {
   FusionGuard fg(fusion);
 
   auto term_val_outs = fusion->getTerminatingOutputs();
@@ -161,11 +163,11 @@ void IterVisitor::traverse_(Fusion* fusion, bool traverse_all_paths) {
 }
 
 void IterVisitor::traverse(Fusion* fusion) {
-  traverse_(fusion, false);
+  traverseHelper(fusion, false);
 }
 
 void IterVisitor::traverseAllPaths(Fusion* fusion) {
-  traverse_(fusion, true);
+  traverseHelper(fusion, true);
 }
 
 namespace {
@@ -177,7 +179,7 @@ class Inputs : public IterVisitor {
   std::unordered_set<Val*> inputs;
 
   void handle(Val* val) override {
-    if (val->getOrigin() == nullptr) {
+    if (val->definition() == nullptr) {
       inputs.emplace(val);
     }
   }
@@ -568,8 +570,9 @@ std::vector<Expr*> ExprSort::getExprs(
 }
 
 void InputsOf::handle(Val* v) {
-  if (FusionGuard::getCurFusion()->origin(v) == nullptr)
+  if (v->definition() == nullptr) {
     inputs.emplace(v);
+  }
 }
 
 std::unordered_set<Val*> InputsOf::output(Fusion* fusion, Val* output_) {

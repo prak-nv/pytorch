@@ -162,7 +162,7 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
 
       // Lower the value definition, if any
       if (value->isScalar()) {
-        if (auto def = value->getOrigin()) {
+        if (auto def = value->definition()) {
           const auto kir_def = lowerExpr(def);
           TORCH_INTERNAL_ASSERT(kir_value->definition() == kir_def);
         }

@@ -463,11 +463,9 @@ TORCH_CUDA_API c10::optional<ReductionParams> getMultipleReductionHeuristics(
     TORCH_INTERNAL_ASSERT(tv != nullptr, "Reduction TensorView wasn't found.");
     TORCH_INTERNAL_ASSERT(
         tv->hasReduction(), "TensorView doesn't have a reduction.");
-    const auto reduction_origin_expr = fusion->origin(tv);
     TORCH_INTERNAL_ASSERT(
-        reduction_origin_expr->getExprType() != c10::nullopt &&
-            reduction_origin_expr->getExprType().value() ==
-                ExprType::ReductionOp,
+        tv->definition()->getExprType() != c10::nullopt &&
+            tv->definition()->getExprType().value() == ExprType::ReductionOp,
         "TensorView doesn't have a reduction.");
   }
 
@@ -551,7 +549,7 @@ TORCH_CUDA_API c10::optional<ReductionParams> getReductionHeuristics(
 
   TORCH_INTERNAL_ASSERT(
       red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = fusion->origin(red_tv);
+  const auto red_expr = red_tv->definition();
 
   TORCH_INTERNAL_ASSERT(
       red_expr->getExprType() != c10::nullopt &&
@@ -921,7 +919,7 @@ std::vector<TensorView*> findTensorViewsToDuplicate(
     const std::vector<TensorView*>& other_tv) {
   std::vector<TensorView*> duplicate_tv;
   // Initialize stack with any pointwise op with multiple usages
-  // Find any pointwise origin expressions via depth-first search (DFS)
+  // Find any pointwise definition expressions via depth-first search (DFS)
   std::vector<TensorView*> stack;
   for (auto tensor : other_tv) {
     if (fusion->unordered_uses(tensor).size() > 1) {
@@ -935,12 +933,11 @@ std::vector<TensorView*> findTensorViewsToDuplicate(
     stack.pop_back();
 
     if (visited.find(tensor->name()) == visited.end()) {
-      auto origin_expr = tensor->getOrigin();
-      if (isPointwiseOp(origin_expr)) {
+      if (isPointwiseOp(tensor->definition())) {
         duplicate_tv.push_back(tensor);
 
-        for (auto input_tv :
-             ir_utils::filterByType<TensorView>(origin_expr->inputs())) {
+        for (auto input_tv : ir_utils::filterByType<TensorView>(
+                 tensor->definition()->inputs())) {
           if (!fusion->hasInput(input_tv) && !isConstantAllocation(input_tv)) {
             stack.push_back(input_tv);
           }
@@ -1088,9 +1085,9 @@ void scheduleMultipleReduction(
   // Determine if there are any casts on fusion inputs
   bool has_input_casts = false;
   for (auto tv : other_tv) {
-    const auto kOriginExpr = tv->getOrigin();
-    const bool kIsCastOp = kOriginExpr->getExprType() == ExprType::UnaryOp &&
-        kOriginExpr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
+    const bool kIsCastOp =
+        tv->definition()->getExprType() == ExprType::UnaryOp &&
+        tv->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
     has_input_casts |= kIsCastOp;
   }
 

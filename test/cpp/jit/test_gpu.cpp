@@ -726,7 +726,7 @@ TEST(NVFuserTest, FusionRegister_CUDA) {
   TORCH_CHECK(v1->name() + 1 == v2->name());
   TORCH_CHECK(v2->name() + 1 == v3->name());
   TORCH_CHECK(v3->name() + 1 == v4->name());
-  TORCH_CHECK(fusion.origin(v3)->name() + 1 == fusion.origin(v4)->name());
+  TORCH_CHECK(v3->definition()->name() + 1 == v4->definition()->name());
 }
 
 // dummy expr with 2 outputs only for toposort test.
@@ -801,11 +801,11 @@ TEST(NVFuserTest, FusionTopoSort_CUDA) {
   TORCH_CHECK(exprs[2] == e2);
   TORCH_CHECK(exprs[3] == e3);
 
-  TORCH_CHECK(fusion.origin(v2)->name() == 0);
-  TORCH_CHECK(fusion.origin(v3)->name() == 0);
-  TORCH_CHECK(fusion.origin(v4)->name() == 1);
-  TORCH_CHECK(fusion.origin(v5)->name() == 2);
-  TORCH_CHECK(fusion.origin(v6)->name() == 3);
+  TORCH_CHECK(v2->definition()->name() == 0);
+  TORCH_CHECK(v3->definition()->name() == 0);
+  TORCH_CHECK(v4->definition()->name() == 1);
+  TORCH_CHECK(v5->definition()->name() == 2);
+  TORCH_CHECK(v6->definition()->name() == 3);
 }
 
 TEST(NVFuserTest, FusionTensor_CUDA) {
@@ -918,7 +918,7 @@ TEST(NVFuserTest, FusionTVSplit_CUDA) {
 
   tv = tv->split(2, 2);
   TORCH_CHECK(tv->nDims() == 4);
-  Expr* outer = tv->axis(2)->extent()->getOrigin();
+  Expr* outer = tv->axis(2)->extent()->definition();
 
   TORCH_CHECK(
       outer->getExprType().value() == ExprType::BinaryOp &&
@@ -943,7 +943,7 @@ TEST(NVFuserTest, FusionTVMerge_CUDA) {
   TensorView* tv = makeSymbolicTensor(3);
 
   tv = tv->merge(1);
-  Expr* axisOp = tv->axis(1)->extent()->getOrigin();
+  Expr* axisOp = tv->axis(1)->extent()->definition();
 
   TORCH_CHECK(
       tv->nDims() == 2 && axisOp->getExprType() == ExprType::BinaryOp &&
@@ -1213,7 +1213,7 @@ TEST(NVFuserTest, FusionForLoop_CUDA) {
   auto ID0 = new kir::IterDomain(new IterDomain(new Int(0), new Int(8)));
 
   TensorView* TV2 = add(TV0, TV1);
-  BinaryOp* op = static_cast<BinaryOp*>(TV2->getOrigin());
+  BinaryOp* op = static_cast<BinaryOp*>(TV2->definition();
   fusion.addOutput(TV2);
 
   auto fl = new kir::ForLoop(new kir::Int(c10::nullopt), ID0, {op});
@@ -5709,7 +5709,7 @@ TEST(NVFuserTest, FusionReductionKeepDimScheduler_CUDA) {
   TensorView* tv1 = reductionOp(
       BinaryOpType::Add, {red_dim}, new Double(0), tv0, /*keep_dim=*/true);
 
-  TensorView* red_tv = fusion.origin(tv1)->inputs()[0]->as<TensorView>();
+  TensorView* red_tv = tv1->definition()->inputs()[0]->as<TensorView>();
 
   fusion.addOutput(tv1);
 
