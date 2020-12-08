@@ -287,14 +287,6 @@ BroadcastOp::BroadcastOp(Passkey passkey, Val* out, Val* in)
   addInput(in);
 }
 
-TransposeOp::TransposeOp(Passkey passkey, Val* out, Val* in)
-    : Expr(passkey), out_(out), in_(in) {
-  TORCH_CHECK(in->isA<TensorIndex>() || in->isA<TensorView>());
-  TORCH_CHECK(out->isA<TensorIndex>() || out->isA<TensorView>());
-  addOutput(out);
-  addInput(in);
-}
-
 TensorIndex::TensorIndex(
     Passkey passkey,
     const fuser::cuda::TensorView* view,
