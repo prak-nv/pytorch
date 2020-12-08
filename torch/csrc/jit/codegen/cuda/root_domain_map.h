@@ -349,6 +349,10 @@ class TORCH_CUDA_API ComputeAtRootDomainMapBuilder : private BackwardVisitor {
     mapPointwiseOrReductionOp(op);
   }
 
+  void handle(MultiScanOp* mop) override {
+    mapPointwiseOrReductionOp(mop);
+  }
+
   void handle(BroadcastOp* op) override;
 
   void handle(TensorView* tv) override;

@@ -1133,6 +1133,8 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
 
   // grab all tensor views from producer_tv <- computeAtRoot
   auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
+  std::cout << "consumer index tv" << std::endl;
+  consumer_tv->print();
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map;
   std::transform(

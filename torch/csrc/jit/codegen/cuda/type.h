@@ -45,6 +45,7 @@ enum class ExprType {
   TernaryOp,
   ReductionOp,
   BroadcastOp,
+  MultiScanOp,
   Split,
   Merge,
 };

@@ -10039,6 +10039,26 @@ TEST(NVFuserTest, FusionGetComputeAtRelPos_CUDA) {
   }
 }
 
+TEST(NVFuserTest, FusionMultiScanOp_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+  std::vector<TensorView*> tvs = MultiScan(
+      {BinaryOpType::Add, BinaryOpType::Max},
+      {1, 2},
+      {new Float(0), new Float(0)},
+      tv0);
+  auto tv2 = tvs[0];
+  auto tv3 = tvs[1];
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+  fusion.printKernel();
+}
+
 } // namespace jit
 } // namespace torch
 

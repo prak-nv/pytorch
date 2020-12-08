@@ -72,6 +72,7 @@ class UnaryOp;
 class BinaryOp;
 class TernaryOp;
 class ReductionOp;
+class MultiScanOp;
 class BroadcastOp;
 
 // By default, all IR nodes are handled in this dispatch, and will call an empty
@@ -99,6 +100,7 @@ class TORCH_CUDA_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const BinaryOp*) {}
   virtual void handle(const TernaryOp*) {}
   virtual void handle(const ReductionOp*) {}
+  virtual void handle(const MultiScanOp*) {}
   virtual void handle(const BroadcastOp*) {}
 };
 
@@ -125,6 +127,7 @@ class TORCH_CUDA_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(BinaryOp*) {}
   virtual void handle(TernaryOp*) {}
   virtual void handle(ReductionOp*) {}
+  virtual void handle(MultiScanOp*) {}
   virtual void handle(BroadcastOp*) {}
 };
 
@@ -170,6 +173,9 @@ class TORCH_CUDA_API OptInConstDispatch : public PolymorphicBase {
   }
   virtual void handle(const BinaryOp*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for BinaryOp.");
+  }
+  virtual void handle(const MultiScanOp*) {
+    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for MultiScanOp.");
   }
   virtual void handle(const TernaryOp*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for TernaryOp.");
@@ -231,6 +237,9 @@ class TORCH_CUDA_API OptInDispatch : public PolymorphicBase {
   virtual void handle(ReductionOp*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for ReductionOp.");
   }
+  virtual void handle(MultiScanOp*) {
+    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for MultiScanOp.");
+  }
   virtual void handle(BroadcastOp*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for BroadcastOp.");
   }
@@ -282,6 +291,7 @@ class TORCH_CUDA_API OptOutMutator : public PolymorphicBase {
   virtual Statement* mutate(BinaryOp*);
   virtual Statement* mutate(TernaryOp*);
   virtual Statement* mutate(ReductionOp*);
+  virtual Statement* mutate(MultiScanOp*);
   virtual Statement* mutate(BroadcastOp*);
 };
 
@@ -341,6 +351,9 @@ class TORCH_CUDA_API OptInMutator : public PolymorphicBase {
   }
   virtual Statement* mutate(ReductionOp*) {
     TORCH_INTERNAL_ASSERT(false, "Mutate not overriden for ReductionOp.");
+  }
+  virtual Statement* mutate(MultiScanOp*) {
+    TORCH_INTERNAL_ASSERT(false, "Mutate not overriden for MultiScanOp.");
   }
   virtual Statement* mutate(BroadcastOp*) {
     TORCH_INTERNAL_ASSERT(false, "Mutate not overriden for BroadcastOp.");

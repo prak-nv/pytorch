@@ -285,6 +285,13 @@ void IrPrinter::visit(const kir::ReductionOp* node) {
            << ", pred=" << use(node->predicate()) << ")\n";
 }
 
+void IrPrinter::visit(const kir::MultiScanOp* node) {
+  indent() << gen(node->out()) << " = "
+           << "MultiScan(op='" << node->operations()[0] << "'"
+           << ", in=" << use(node->in()) << ", init=" << use(node->init()[0])
+           << ", pred=" << use(node->predicate()) << ")\n";
+}
+
 void IrPrinter::visit(const kir::GridReduction* node) {
   const auto* reduction_op = node->reduction_op();
   indent() << gen(reduction_op->out()) << " = "

@@ -170,6 +170,52 @@ Statement* OptOutMutator::mutate(ReductionOp* rop) {
   return new ReductionOp(rop->getReductionOpType(), init, out, in);
 }
 
+// Need a new interface to support this kind of multi output,
+// but will committ when decided the multi-output interface in the first place
+Statement* OptOutMutator::mutate(MultiScanOp* mop) {
+  Val* in = mutateAsVal(mop->in())->asVal();
+
+  std::vector<Val*> out(mop->out().size());
+  std::transform(
+      mop->out().begin(), mop->out().end(), out.begin(), [this](Val* o) {
+        return mutateAsVal(o)->asVal();
+      });
+
+  std::vector<Val*> init(mop->out().size());
+  std::transform(
+      mop->init().begin(), mop->init().end(), init.begin(), [this](Val* i) {
+        return mutateAsVal(i)->asVal();
+      });
+
+  size_t num_of_ops = init.size();
+  std::vector<bool> out_compare(num_of_ops, false);
+  std::vector<bool> init_compare(num_of_ops, false);
+
+  std::transform(
+      out.begin(),
+      out.end(),
+      mop->out().begin(),
+      out_compare.begin(),
+      [](const Val* a, const Val* b) { return a->sameAs(b); });
+
+  std::transform(
+      init.begin(),
+      init.end(),
+      mop->init().begin(),
+      init_compare.begin(),
+      [](const Val* a, const Val* b) { return a->sameAs(b); });
+
+  auto all = [](const std::vector<bool>& v) {
+    return std::all_of(v.begin(), v.end(), [](bool b) { return b; });
+  };
+
+  if (all(out_compare) && all(init_compare) && in->sameAs(mop->in())) {
+    return mop;
+  } else {
+    return new MultiScanOp(mop->getReductionOpTypes(), init, out, in);
+  }
+}
+
 Statement* OptOutMutator::mutate(BroadcastOp* bop) {
   return bop;
 }

@@ -282,6 +282,50 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
   }
 }
 
+namespace {
+kir::TensorIndex* followIndex(
+    kir::IrBuilder& ir_builder,
+    kir::TensorIndex* ti,
+    TensorView* tv) {
+  TORCH_INTERNAL_ASSERT(ti->view()->domain()->nDims() == tv->domain()->nDims());
+  int n_dims = ti->nDims();
+  std::vector<kir::Val*> indices(n_dims);
+  for (int i = 0; i < n_dims; i++) {
+    indices[i] = ti->index(i);
+  }
+  return ir_builder.create<kir::TensorIndex>(tv, indices);
+}
+} // namespace
+
+void IndexLowering::visit(const kir::MultiScanOp* mop) {
+  TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(mop));
+
+  const auto gpu_lower = GpuLower::current();
+
+  const auto out_tv = mop->out()->as<kir::TensorView>();
+  const auto out_domain = out_tv->domain();
+
+  const bool is_block_reduce = out_domain->hasBlockReduction();
+  const bool is_grid_reduce = out_domain->hasGridReduction();
+
+  if (!is_block_reduce && !is_grid_reduce) {
+    const auto in = lowerSrcIndex(mop->in(), mop->out());
+    const int num_of_ops = mop->init().size();
+    std::vector<kir::Val*> output_vec(num_of_ops);
+    output_vec[0] = lowerDstIndex(out_tv);
+    for (int i = 1; i < num_of_ops; i++) {
+      output_vec[i] = followIndex(
+          ir_builder_,
+          output_vec[0]->as<kir::TensorIndex>(),
+          mop->outputs()[i]->as<kir::TensorView>()->fuserTv());
+    }
+    pushBack(ir_builder_.create<kir::MultiScanOp>(
+        mop->operations(), mop->init(), output_vec, in));
+  } else {
+    TORCH_INTERNAL_ASSERT(false, "unsupported block/grid multiscan")
+  }
+}
+
 void IndexLowering::visit(const kir::BroadcastOp* bop) {
   TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(bop));
   const auto out = lowerDstIndex(bop->out());

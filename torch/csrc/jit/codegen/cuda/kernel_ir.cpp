@@ -253,6 +253,49 @@ ReductionOp::ReductionOp(
   addInput(in);
 }
 
+MultiScanOp::MultiScanOp(
+    Passkey passkey,
+    OpList operations,
+    ValPtrList inits,
+    ValPtrList outs,
+    Val* in)
+    : Expr(passkey),
+      operation_(operations.begin(), operations.end()),
+      init_(inits.begin(), inits.end()),
+      out_(outs.begin(), outs.end()),
+      in_(in) {
+  for (auto o : out_) {
+    addOutput(o);
+  }
+  addInput(in);
+}
+
+std::vector<IterDomain*> MultiScanOp::getReductionDomains() const {
+  // out is a TensorIndex after lowering
+  const auto out_val = out()->as<kir::TensorIndex>()->view();
+
+  auto vec_domain = out_val->as<TensorView>()->domain()->domain();
+
+  vec_domain.erase(
+      std::remove_if(
+          vec_domain.begin(),
+          vec_domain.end(),
+          [](IterDomain* id) { return !id->isReduction(); }),
+      vec_domain.end());
+  return vec_domain;
+}
+
+std::unordered_map<ParallelType, IterDomain*, TypeHash> MultiScanOp::
+    getParallelReductionDomains() const {
+  std::unordered_map<ParallelType, IterDomain*, TypeHash> parallel_domains;
+  for (auto d : getReductionDomains()) {
+    if (d->isThread()) {
+      parallel_domains.insert(std::make_pair(d->parallelType(), d));
+    }
+  }
+  return parallel_domains;
+}
+
 std::vector<IterDomain*> ReductionOp::getReductionDomains() const {
   // out is a TensorIndex after lowering
   const auto out_val = out()->as<kir::TensorIndex>()->view();

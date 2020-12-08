@@ -39,6 +39,7 @@ class TORCH_CUDA_API IndexLowering : private kir::IrVisitor {
   void visit(const kir::BinaryOp*) final;
   void visit(const kir::TernaryOp*) final;
   void visit(const kir::ReductionOp*) final;
+  void visit(const kir::MultiScanOp*) final;
   void visit(const kir::BroadcastOp*) final;
   void visit(const kir::Allocate*) final;
   void visit(const kir::Sync*) final;

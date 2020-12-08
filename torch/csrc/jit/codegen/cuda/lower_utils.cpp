@@ -97,12 +97,15 @@ bool isTVOp(const Expr* expr) {
        expr->getExprType().value() == ExprType::ReductionOp ||
        expr->getExprType().value() == ExprType::BroadcastOp))
     return true;
+  if (expr->getExprType().value() == ExprType::MultiScanOp) {
+    return true;
+  }
   return false;
 }
 
 bool isTVOp(const kir::Expr* expr) {
   const auto& outputs = expr->outputs();
-  return outputs.size() == 1 && outputs[0]->isA<kir::TensorView>();
+  return outputs.size() >= 1 && outputs[0]->isA<kir::TensorView>();
 }
 
 // TODO: why do we assume there's a single TV output?
