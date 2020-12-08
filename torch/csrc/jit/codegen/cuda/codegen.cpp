@@ -512,10 +512,12 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
     if (!has_block_reduce && !has_grid_reduce) {
       for (int i = 0; i < num_of_ops; i++) {
-        const auto gen_out = gen(node->outputs()[i]);
+        auto out = node->outputs()[i];
+        const auto gen_out = gen(out);
         const auto op_type = node->operations()[i];
         indent() << gen_out << " = "
-                 << genBinaryOp(op_type, gen_out, gen(node->in())) << ";\n";
+                 << genBinaryOp(op_type, out, gen_out, gen(node->in()))
+                 << ";\n";
       }
       return;
     }
@@ -550,7 +552,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
           indent() << kTab << gen(node->out()) << ",\n";
         }
         indent() << kTab << gen(node->in()) << ",\n";
-        indent() << kTab << genReductionOp(op_type, data_type) << ",\n";
+        indent() << kTab << genReductionOp(op_type, node->out()) << ",\n";
         indent() << kTab << "threadIdx,\n";
         indent() << kTab << "blockDim,\n";
         indent() << kTab << "static_cast<" << data_type << "*>(shared_mem),\n";
