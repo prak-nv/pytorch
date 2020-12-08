@@ -114,12 +114,14 @@ auto filterByType(const ContainerType& inputs) {
 //!
 //! The input map does not need to be complete. Missing axes are
 //! assumed not to be affected.
-//
-//! Example:
-//!   {{0, 1}} -> [1, 0, ....]
+//!
+//! This is used to preprocess broadcast and transpose arguments.
+//!
+//! Example: (N := ndims)
+//!   {{0, 1}} -> [1, 0, ...., N-1]
 //!   Transposes the first two axes with no other change.
 //!
-//!   {{0, -1}} -> [-1, ...., 0]
+//!   {{0, -1}} -> [N-1, ...., 0]
 //!   Swaps the first and last axes.
 std::vector<int> normalizeOld2New(
     const std::unordered_map<int, int>& old2new_in,
