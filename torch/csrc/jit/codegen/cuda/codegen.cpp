@@ -500,13 +500,6 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void visit(const kir::TransposeOp* node) final {
-    TORCH_INTERNAL_ASSERT(node->out()->isA<kir::TensorIndex>());
-
-    indent() << gen(node->out()) << "\n";
-    indent() << kTab << " = " << gen(node->in()) << ";\n";
-  }
-
   std::string generateGridReduceTemplateFlags(
       const kir::ReductionOp* rop,
       const ParallelTypeBitmap& thread_pred) {
