@@ -58,7 +58,7 @@ TORCH_CUDA_API TensorView* broadcast(
     TensorView* inp,
     const std::vector<bool>& is_broadcast_dim);
 
-// Transpose a tensor as specified by axis mappings.
+//! Transpose a tensor as specified by axis mappings.
 TORCH_CUDA_API TensorView* transpose(
     TensorView* inp,
     const std::unordered_map<int, int>& old2new);

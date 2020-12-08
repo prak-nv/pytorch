@@ -110,6 +110,17 @@ auto filterByType(const ContainerType& inputs) {
   return filterByType<FilterType>(inputs.cbegin(), inputs.cend());
 }
 
+//! Returns a list of new-to-old mappings.
+//!
+//! The input map does not need to be complete. Missing axes are
+//! assumed not to be affected.
+//
+//! Example:
+//!   {{0, 1}} -> [1, 0, ....]
+//!   Transposes the first two axes with no other change.
+//!
+//!   {{0, -1}} -> [-1, ...., 0]
+//!   Swaps the first and last axes.
 std::vector<int> normalizeOld2New(
     const std::unordered_map<int, int>& old2new_in,
     size_t ndims);
