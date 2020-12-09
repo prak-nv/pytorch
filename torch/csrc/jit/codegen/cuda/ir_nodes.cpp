@@ -451,7 +451,8 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
 
 std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
-    Val* factor) {
+    Val* factor,
+    bool inner_split) {
   TORCH_CHECK(
       in->start()->isZeroInt(),
       "Splitting IterDomains with starting values that aren't 0 is not supported at this time.");
@@ -479,12 +480,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   }
 
   // outer loop size
-  Val* vo = ceilDiv(in->extent(), factor);
+  Val* remainder = ceilDiv(in->extent(), factor);
 
   // outer loop IterDomain
   IterDomain* ido = new IterDomain(
       new Int(0),
-      vo->as<Int>(),
+      inner_split ? remainder->as<Int>() : factor,
       in->getParallelType(),
       in->getIterType(),
       in->isRFactorProduct());
@@ -492,12 +493,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi = new IterDomain(
       new Int(0),
-      factor,
+      inner_split ? factor : remainder->as<Int>(),
       in->getParallelType(),
       in->getIterType(),
       in->isRFactorProduct());
 
-  new Split(ido, idi, in, factor);
+  new Split(ido, idi, in, factor, inner_split);
   return {ido, idi};
 }
 
@@ -585,7 +586,7 @@ TensorDomain::TensorDomain(
       root_domain_.size());
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   domain_ = root_domain_;
   resetDomains();
 }
@@ -623,7 +624,7 @@ TensorDomain::TensorDomain(
   });
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }
@@ -673,7 +674,7 @@ TensorDomain::TensorDomain(
   });
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }
@@ -686,7 +687,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
       contiguity_(src->contiguity()),
-      has_reduction_(src->has_reduction_) {}
+      has_nontrivial_reduction_(src->has_nontrivial_reduction_) {}
 
 bool TensorDomain::operator==(const TensorDomain& other) const {
   // Checks equality of each class field. Should not be necessary to
@@ -753,7 +754,7 @@ bool TensorDomain::sameAs(
 }
 
 bool TensorDomain::hasReduction() const {
-  return has_reduction_;
+  return has_nontrivial_reduction_;
 }
 
 bool TensorDomain::hasBlockReduction() const {
@@ -820,7 +821,7 @@ size_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_CHECK(false, "Provided id is not part of this domain.");
 }
 
-void TensorDomain::split(int axis_, Val* factor) {
+void TensorDomain::split(int axis_, Val* factor, bool inner_split) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim domain");
   if (axis_ < 0)
     axis_ += nDims();
@@ -830,7 +831,7 @@ void TensorDomain::split(int axis_, Val* factor) {
       "Tried to split on axis outside TensorDomain's range.");
 
   IterDomain* id = axis(axis_);
-  auto split_ids = IterDomain::split(id, factor);
+  auto split_ids = IterDomain::split(id, factor, inner_split);
   domain_.erase(domain_.begin() + axis_);
   domain_.insert(domain_.begin() + axis_, split_ids.second);
   domain_.insert(domain_.begin() + axis_, split_ids.first);
@@ -1204,12 +1205,18 @@ const IterDomain* IterDomain::concretizeDomain(IterDomain* bcast_dom) {
   return ConcretizeDomain::getConcreteDomain(bcast_dom);
 }
 
-Split::Split(IterDomain* outer, IterDomain* inner, IterDomain* in, Val* factor)
+Split::Split(
+    IterDomain* outer,
+    IterDomain* inner,
+    IterDomain* in,
+    Val* factor,
+    bool inner_split)
     : Expr(ExprType::Split),
       outer_{outer},
       inner_{inner},
       in_{in},
-      factor_{factor} {
+      factor_{factor},
+      inner_split_{inner_split} {
   TORCH_INTERNAL_ASSERT(
       factor_->isAnInt(),
       "Attempted to create a Split node with a non-integer factor.");
@@ -1226,7 +1233,8 @@ Split::Split(const Split* src, IrCloner* ir_cloner)
       outer_(ir_cloner->clone(src->outer_)),
       inner_(ir_cloner->clone(src->inner_)),
       in_(ir_cloner->clone(src->in_)),
-      factor_(ir_cloner->clone(src->factor_)) {}
+      factor_(ir_cloner->clone(src->factor_)),
+      inner_split_(src->inner_split_) {}
 
 bool Split::sameAs(const Statement* other) const {
   if (this == other) {
@@ -1235,7 +1243,9 @@ bool Split::sameAs(const Statement* other) const {
   if (!other->isA<Split>()) {
     return false;
   }
-  return Expr::sameAs(other) && factor()->sameAs(other->as<Split>()->factor());
+  return Expr::sameAs(other) &&
+      factor()->sameAs(other->as<Split>()->factor()) &&
+      innerSplit() == other->as<Split>()->innerSplit();
 }
 
 Merge::Merge(IterDomain* out, IterDomain* outer, IterDomain* inner)
