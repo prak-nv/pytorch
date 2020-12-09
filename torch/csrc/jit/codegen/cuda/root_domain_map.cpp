@@ -129,7 +129,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
   TransposeOp* top = dynamic_cast<TransposeOp*>(consumer_tv_->getOrigin());
   TORCH_INTERNAL_ASSERT(top != nullptr);
 
-  const auto& new2old = top->getNew2Old();
+  const auto& new2old = top->new2old();
   for (size_t i = 0; i < consumer_root.size(); ++i) {
     IterDomain* map_key_id = producer_root[new2old[i]];
     IterDomain* map_value_id = consumer_root[i];
@@ -636,7 +636,7 @@ void ComputeAtRootDomainMapBuilder::handle(TransposeOp* op) {
 
   TORCH_INTERNAL_ASSERT(in_root.size() == out_root.size());
 
-  const auto& new2old = op->getNew2Old();
+  const auto& new2old = op->new2old();
 
   for (size_t it = 0; it < out_root.size(); it++) {
     setMaybeMapped(in_td, in_root[new2old[it]], out_td, out_root[it]);

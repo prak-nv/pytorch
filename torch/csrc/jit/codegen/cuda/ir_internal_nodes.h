@@ -177,7 +177,7 @@ class TORCH_CUDA_API TransposeOp : public Expr {
     return in_;
   }
 
-  const std::vector<int>& getNew2Old() const {
+  const std::vector<int>& new2old() const {
     return new2old_;
   }
 
