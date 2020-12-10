@@ -76,24 +76,20 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     to->val_set_.insert(ir_cloner.clone(val));
   }
 
+  for (auto expr : other.expr_set_){
+    to->expr_set_.insert(ir_cloner.clone(expr));
+  }
+
   for (auto val : from->val_deque_) {
     to->val_deque_.push_back(ir_cloner.clone(val));
   }
 
-  for (auto old_expr : from->expr_set_) {
-    auto new_expr = ir_cloner.clone(old_expr);
-    to->expr_set_.insert(new_expr);
-
-    // ir_cloner doesn't go through registerStmt, so we need to "Register Expr"
-    // we would similarly need to do to val if there was in that pass that is
-    // also not covered here.
-    for (Val* input : new_expr->inputs()) {
-      if (std::find(input->uses.begin(), input->uses.end(), new_expr) ==
-          input->uses.end()) {
-        input->uses.push_back(new_expr);
-      }
-    }
+  // Fixup potentially cyclic pointers
+  for (auto val : val_set_) {
+    val->definition_ = ir_cloner.clone(val->definition_);
+    val->uses_ = ir_cloner.clone(val->uses_);
   }
+
 
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
@@ -101,14 +97,6 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->inputs_ = ir_cloner.clone(from->inputs_);
   to->outputs_ = ir_cloner.clone(from->outputs_);
 
-  for (auto inp : to->inputs_) {
-    inp->is_fusion_input = true;
-  }
-  for (auto out : to->outputs_) {
-    out->is_fusion_output = true;
-  }
-
-  to->resetTvUses();
   return ir_cloner;
 }
 
@@ -170,13 +158,15 @@ void Fusion::removeExpr(Expr* expr) {
   // we're going with the strictest model which errors.
 
   for (auto out : expr->outputs()) {
-    out->origin = nullptr;
+    out->setDefinition(nullptr);
   }
 
   for (auto inp : expr->inputs()) {
-    auto it = std::find(inp->uses.begin(), inp->uses.end(), expr);
-    if (it != inp->uses.end()) {
-      inp->uses.erase(it);
+    auto uses_copy = inp->uses();
+    auto it = std::find(uses_copy.begin(), uses_copy.end(), expr);
+    if (it != uses_copy.end()) {
+      uses_copy.erase(it);
+      inp->setUses(uses_copy);
     }
   }
 
@@ -189,15 +179,15 @@ void Fusion::removeVal(Val* val) {
   assertInFusion(val, "Cannot remove val ");
 
   TORCH_CHECK(
-      !val->is_fusion_input,
+      !val->isFusionInput(),
       "Cannot remove val as it is an input of the fusion.");
   TORCH_CHECK(
-      !val->is_fusion_output,
+      !val->isFusionOutput(),
       "Cannot remove val as it is an output of the fusion.");
 
-  Expr* orig = val->getOrigin();
+  Expr* orig = val->definition();
   if (orig != nullptr)
-    removeExpr(val->getOrigin());
+    removeExpr(val->definition());
 
   for (Expr* use : unordered_uses(val))
     removeExpr(use);
@@ -222,7 +212,7 @@ void Fusion::addInput(Val* input) {
   }
 
   inputs_.push_back(input);
-  input->is_fusion_input = true;
+  input->setIsFusionInput(true);
 
   resetTvUses();
 }
@@ -234,7 +224,7 @@ void Fusion::addOutput(Val* output) {
     tv->setMemoryType(MemoryType::Global);
   }
   outputs_.push_back(output);
-  output->is_fusion_output = true;
+  output->setIsFusionOutput(true);
 
   resetTvUses();
 }
@@ -244,7 +234,7 @@ void Fusion::removeInput(Val* input) {
   if (find_input != inputs_.end()) {
     inputs_.erase(find_input);
   }
-  input->is_fusion_input = false;
+  input->setIsFusionInput(false);
   resetTvUses();
 }
 
@@ -253,7 +243,7 @@ void Fusion::removeOutput(Val* output) {
   if (find_output != outputs_.end()) {
     outputs_.erase(find_output);
   }
-  output->is_fusion_output = false;
+  output->setIsFusionOutput(false);
   resetTvUses();
 }
 
@@ -330,7 +320,7 @@ void Fusion::printMath(bool from_outputs_only) {
   if (!from_outputs_only) {
     std::vector<Val*> leaf_vals;
     for (auto val : deterministic_vals()) {
-      if (!val->uses.empty()) {
+      if (val->uses().empty()) {
         leaf_vals.push_back(val);
       }
     }
@@ -379,18 +369,20 @@ StmtNameType Fusion::registerExpr(Expr* expr) {
 
   for (Val* input : expr->inputs()) {
     assertInFusion(input, "Input to expr is invalid, ");
-    if (std::find(input->uses.begin(), input->uses.end(), expr) ==
-        input->uses.end()) {
-      input->uses.push_back(expr);
+    auto uses_copy = input->uses();
+    if (std::find(uses_copy.begin(), uses_copy.end(), expr) ==
+        uses_copy.end()) {
+      uses_copy.push_back(expr);
+      input->setUses(uses_copy);
     }
   }
 
   for (Val* output : expr->outputs()) {
     assertInFusion(output, "Output to expr is invalid, ");
-    if (output->getOrigin() != nullptr) {
-      removeExpr(output->getOrigin());
+    if (output->definition() != nullptr) {
+      removeExpr(output->definition());
     }
-    output->origin = expr;
+    output->setDefinition(expr);
   }
 
   expr_set_.emplace(expr);
@@ -416,22 +408,24 @@ StmtNameType Fusion::registerStatement(Statement* stmt) {
 }
 
 void Fusion::resetTvUses() {
-  // getExprs only uses origin, so even if we've modified uses already to remove
-  // dead exprs, this could reinsert them. getExprs is also boundeds by inputs
-  // as registered inputs will return nullptr as their origin.
-  auto all_tvs = ir_utils::filterByType<TensorView>(val_set_);
-  auto used_exprs = ExprSort::getExprs(this);
+  // getExprs only uses definition, so even if we've modified uses already to
+  // remove dead exprs, this could reinsert them. getExprs is also boundeds by
+  // inputs as registered inputs will return nullptr as their definition.
+  const auto all_tvs = ir_utils::filterByType<TensorView>(val_set_);
+  const auto used_exprs = ExprSort::getExprs(this);
 
   for (auto tv : all_tvs) {
-    tv->uses.clear();
+    tv->setUses({});
   }
 
   // Same as in register expr
   for (auto expr : used_exprs) {
     for (Val* input : expr->inputs()) {
-      if (std::find(input->uses.begin(), input->uses.end(), expr) ==
-          input->uses.end()) {
-        input->uses.push_back(expr);
+      auto uses_copy = input->uses();
+      if (std::find(uses_copy.begin(), uses_copy.end(), expr) ==
+          uses_copy.end()) {
+        uses_copy.push_back(expr);
+        input->setUses(uses_copy);
       }
     }
   }
@@ -450,22 +444,22 @@ const std::unordered_set<Expr*>& Fusion::unordered_exprs() const noexcept {
 }
 
 std::unordered_set<Expr*> Fusion::unordered_uses(Val* val) const {
-  return std::unordered_set<Expr*>(val->uses.begin(), val->uses.end());
+  return std::unordered_set<Expr*>(val->uses().begin(), val->uses().end());
 }
 
-Expr* Fusion::origin(const Val* val) const {
-  assertInFusion(val, "Cannot detect the origin of val, ");
-  return val->getOrigin();
+Expr* Fusion::definition(const Val* val) const {
+  assertInFusion(val, "Cannot detect the definition of val, ");
+  return val->definition();
 }
 
 bool Fusion::hasInput(const Val* val) const {
   assertInFusion(val, "Cannot check if val is an input, ");
-  return val->is_fusion_input;
+  return val->isFusionInput();
 }
 
 bool Fusion::hasOutput(const Val* val) const {
   assertInFusion(val, "Cannot check if val is an output, ");
-  return val->is_fusion_output;
+  return val->isFusionOutput();
 }
 
 StmtNameType Fusion::getValName(ValType vtype) {

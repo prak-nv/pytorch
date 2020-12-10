@@ -147,8 +147,7 @@ class TORCH_CUDA_API Fusion final {
 
   //! Register expr with this fusion.
   //! When we register an expression, we want to update the dependency tracking
-  //! of Vals. We add expr to our general expr_set_, we add use tracking for
-  //! inputs and origin tracking for outputs
+  //! of Vals. We add expr to our general expr_set_,
   StmtNameType registerExpr(Expr* expr);
 
   //! Register stmt with this fusion
@@ -174,7 +173,7 @@ class TORCH_CUDA_API Fusion final {
   std::unordered_set<Expr*> unordered_uses(Val* val) const;
 
   //! Return the Expr that produces val
-  Expr* origin(const Val* val) const;
+  Expr* definition(const Val* val) const;
 
   //! Indicate to kernel to set itself up to generate random numbers
   bool isStochastic();

@@ -77,7 +77,7 @@ class TORCH_CUDA_API IterVisitor : public OptOutDispatch {
   // nodes in next)
   std::unordered_set<Statement*> termination_stmts;
 
-  void traverse_(Fusion* fusion, bool traverse_all_paths = false);
+  void traverseHelper(Fusion* fusion, bool traverse_all_paths = false);
 
  public:
   // Starts at nodes provided in from, traverses from these nodes to inputs.

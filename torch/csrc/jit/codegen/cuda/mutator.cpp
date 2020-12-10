@@ -94,7 +94,7 @@ Statement* OptOutMutator::mutate(Split* s) {
     return s;
   }
   FusionGuard::getCurFusion()->removeExpr(s);
-  return new Split(ot, inr, in, fact);
+  return new Split(ot, inr, in, fact, s->innerSplit());
 }
 
 Statement* OptOutMutator::mutate(Merge* m) {
@@ -154,6 +154,10 @@ Statement* OptOutMutator::mutate(ReductionOp* rop) {
 
 Statement* OptOutMutator::mutate(BroadcastOp* bop) {
   return bop;
+}
+
+Statement* OptOutMutator::mutate(TransposeOp* top) {
+  return top;
 }
 
 } // namespace cuda

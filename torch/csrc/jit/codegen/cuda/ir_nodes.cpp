@@ -70,28 +70,51 @@ bool areEqualScalars(Val* v1, Val* v2) {
 Bool::Bool(const Bool* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
 
-bool Bool::sameAs(const Bool* const other) const {
-  if (isConst() && other->isConst())
-    return *value() == *(other->value());
-  return this == other;
+bool Bool::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<Bool>()) {
+    return false;
+  }
+  const auto other_bool = other->as<Bool>();
+  if (isConst() && other_bool->isConst()) {
+    return *value() == *(other_bool->value());
+  }
+  return false;
 }
 
 Double::Double(const Double* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
 
-bool Double::sameAs(const Double* const other) const {
-  if (isConst() && other->isConst())
-    return *value() == *(other->value());
-  return this == other;
+bool Double::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<Double>()) {
+    return false;
+  }
+  const auto other_double = other->as<Double>();
+  if (isConst() && other_double->isConst())
+    return *value() == *(other_double->value());
+  return false;
 }
 
 Int::Int(const Int* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), maybe_value_(src->maybe_value_) {}
 
-bool Int::sameAs(const Int* const other) const {
-  if (isConst() && other->isConst())
-    return *value() == *(other->value());
-  return this == other;
+bool Int::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<Int>()) {
+    return false;
+  }
+  const auto other_int = other->as<Int>();
+  if (isConst() && other_int->isConst()) {
+    return *value() == *(other_int->value());
+  }
+  return false;
 }
 
 UnaryOp::UnaryOp(UnaryOpType type, Val* out, Val* in)
@@ -107,10 +130,17 @@ UnaryOp::UnaryOp(const UnaryOp* src, IrCloner* ir_cloner)
       out_(ir_cloner->clone(src->out_)),
       in_(ir_cloner->clone(src->in_)) {}
 
-bool UnaryOp::sameAs(const UnaryOp* const other) const {
-  if (type() != other->type())
+bool UnaryOp::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<UnaryOp>()) {
     return false;
-  return as<Expr>()->sameAs(other);
+  }
+  const auto other_op = other->as<UnaryOp>();
+  if (getUnaryOpType() != other_op->getUnaryOpType())
+    return false;
+  return Expr::sameAs(other);
 }
 
 BinaryOp::BinaryOp(BinaryOpType type, Val* out, Val* lhs, Val* rhs)
@@ -132,12 +162,17 @@ BinaryOp::BinaryOp(const BinaryOp* src, IrCloner* ir_cloner)
       lhs_(ir_cloner->clone(src->lhs_)),
       rhs_(ir_cloner->clone(src->rhs_)) {}
 
-bool BinaryOp::sameAs(const BinaryOp* other) const {
-  if (getBinaryOpType() != other->getBinaryOpType())
+bool BinaryOp::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<BinaryOp>()) {
     return false;
-  if (!(lhs()->sameAs(other->lhs()) && rhs()->sameAs(other->rhs())))
+  }
+  const auto other_op = other->as<BinaryOp>();
+  if (getBinaryOpType() != other_op->getBinaryOpType())
     return false;
-  return true;
+  return Expr::sameAs(other);
 }
 
 TernaryOp::TernaryOp(TernaryOpType type, Val* out, Val* in1, Val* in2, Val* in3)
@@ -162,13 +197,17 @@ TernaryOp::TernaryOp(const TernaryOp* src, IrCloner* ir_cloner)
       in2_(ir_cloner->clone(src->in2_)),
       in3_(ir_cloner->clone(src->in3_)) {}
 
-bool TernaryOp::sameAs(const TernaryOp* other) const {
-  if (getTernaryOpType() != other->getTernaryOpType())
+bool TernaryOp::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<TernaryOp>()) {
     return false;
-  if (!(in1()->sameAs(other->in1()) && in2()->sameAs(other->in2()) &&
-        in3()->sameAs(other->in3())))
+  }
+  const auto other_op = other->as<TernaryOp>();
+  if (getTernaryOpType() != other_op->getTernaryOpType())
     return false;
-  return true;
+  return Expr::sameAs(other);
 }
 
 BroadcastOp::BroadcastOp(Val* out, Val* in, std::vector<bool> is_broadcast_dims)
@@ -233,8 +272,18 @@ BroadcastOp::BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner)
       in_(ir_cloner->clone(src->in_)),
       is_broadcast_dims_(src->is_broadcast_dims_) {}
 
-bool BroadcastOp::sameAs(const BroadcastOp* const other) const {
-  return other->in() == in() && other->out() == out();
+bool BroadcastOp::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<BroadcastOp>()) {
+    return false;
+  }
+  const auto other_op = other->as<BroadcastOp>();
+  if (getBroadcastDimFlags() != other_op->getBroadcastDimFlags()) {
+    return false;
+  }
+  return Expr::sameAs(other);
 }
 
 ReductionOp::ReductionOp(
@@ -275,12 +324,67 @@ ReductionOp::ReductionOp(const ReductionOp* src, IrCloner* ir_cloner)
       out_(ir_cloner->clone(src->out_)),
       in_(ir_cloner->clone(src->in_)) {}
 
-bool ReductionOp::sameAs(const ReductionOp* other) const {
+bool ReductionOp::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<ReductionOp>()) {
+    return false;
+  }
+  const auto other_op = other->as<ReductionOp>();
+  // Note that init is not part of input vals, so it must be checked separately.
   return (
-      in()->sameAs(other->in()) &&
-      getReductionOpType() == other->getReductionOpType() &&
-      init()->sameAs(other->init()));
+      Expr::sameAs(other) &&
+      getReductionOpType() == other_op->getReductionOpType() &&
+      init()->sameAs(other_op->init()));
 }
+
+TransposeOp::TransposeOp(
+    TensorView* out,
+    TensorView* in,
+    std::vector<int> new2old)
+    : Expr(ExprType::TransposeOp),
+      out_(out),
+      in_(in),
+      new2old_(std::move(new2old)) {
+  // Sanity check of the input parameters. Maybe not necessary as they
+  // should be checked at function transpose.
+
+  TORCH_INTERNAL_ASSERT(
+      !in->hasRFactor(), "Transposing rFactor tensors is not supported.");
+
+  TORCH_INTERNAL_ASSERT(
+      TensorDomain::noReductions(in->getRootDomain()).size() ==
+      out->getRootDomain().size());
+
+  TORCH_INTERNAL_ASSERT(new2old_.size() == out->getRootDomain().size());
+
+  // Make sure the entries of new2old are unique and range from 0 to
+  // N-1, where N == new2old.size().
+  std::set<int> old_positions(new2old_.begin(), new2old_.end());
+  TORCH_INTERNAL_ASSERT(old_positions.size() == new2old_.size());
+  // old_positions is sorted, so the first entry must be 0.
+  TORCH_INTERNAL_ASSERT(
+      *(old_positions.begin()) == 0,
+      "Invalid new2old vector detected: ",
+      new2old_);
+  // The last entry must be N-1, since old_positions is sorted, starts
+  // with 0, and its length is N.
+  TORCH_INTERNAL_ASSERT(
+      *(old_positions.rbegin()) == (int)(new2old_.size() - 1),
+      "Invalid new2old vector detected: ",
+      new2old_);
+
+  addOutput(out);
+  addInput(in);
+  name_ = FusionGuard::getCurFusion()->registerExpr(this);
+}
+
+TransposeOp::TransposeOp(const TransposeOp* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner),
+      out_(ir_cloner->clone(src->out_)),
+      in_(ir_cloner->clone(src->in_)),
+      new2old_(src->new2old_) {}
 
 IterDomain::IterDomain(
     Val* start,
@@ -335,14 +439,21 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
       iter_type_(src->iter_type_),
       is_rfactor_domain_(src->is_rfactor_domain_) {}
 
-bool IterDomain::sameAs(const IterDomain* const other) const {
-  if (other == this)
+bool IterDomain::sameAs(const Statement* other) const {
+  if (other == this) {
     return true;
+  }
 
-  bool is_same = isReduction() == other->isReduction() &&
-      getParallelType() == other->getParallelType();
-  is_same = is_same && ScalarCheck::sameAs(extent(), other->extent());
-  is_same = is_same && ScalarCheck::sameAs(start(), other->start());
+  if (!other->isA<IterDomain>()) {
+    return false;
+  }
+
+  const IterDomain* other_id = other->as<IterDomain>();
+
+  bool is_same = isReduction() == other_id->isReduction() &&
+      getParallelType() == other_id->getParallelType();
+  is_same = is_same && ScalarCheck::sameAs(extent(), other_id->extent());
+  is_same = is_same && ScalarCheck::sameAs(start(), other_id->start());
 
   return is_same;
 }
@@ -387,7 +498,8 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
 
 std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
-    Val* factor) {
+    Val* factor,
+    bool inner_split) {
   TORCH_CHECK(
       in->start()->isZeroInt(),
       "Splitting IterDomains with starting values that aren't 0 is not supported at this time.");
@@ -415,12 +527,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   }
 
   // outer loop size
-  Val* vo = ceilDiv(in->extent(), factor);
+  Val* remainder = ceilDiv(in->extent(), factor);
 
   // outer loop IterDomain
   IterDomain* ido = new IterDomain(
       new Int(0),
-      vo->as<Int>(),
+      inner_split ? remainder->as<Int>() : factor,
       in->getParallelType(),
       in->getIterType(),
       in->isRFactorProduct());
@@ -428,12 +540,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi = new IterDomain(
       new Int(0),
-      factor,
+      inner_split ? factor : remainder->as<Int>(),
       in->getParallelType(),
       in->getIterType(),
       in->isRFactorProduct());
 
-  new Split(ido, idi, in, factor);
+  new Split(ido, idi, in, factor, inner_split);
   return {ido, idi};
 }
 
@@ -521,7 +633,7 @@ TensorDomain::TensorDomain(
       root_domain_.size());
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   domain_ = root_domain_;
   resetDomains();
 }
@@ -559,7 +671,7 @@ TensorDomain::TensorDomain(
   });
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }
@@ -609,7 +721,7 @@ TensorDomain::TensorDomain(
   });
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }
@@ -622,7 +734,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
       contiguity_(src->contiguity()),
-      has_reduction_(src->has_reduction_) {}
+      has_nontrivial_reduction_(src->has_nontrivial_reduction_) {}
 
 bool TensorDomain::operator==(const TensorDomain& other) const {
   // Checks equality of each class field. Should not be necessary to
@@ -633,25 +745,44 @@ bool TensorDomain::operator==(const TensorDomain& other) const {
       contiguity_ == other.contiguity_;
 }
 
-bool TensorDomain::sameAs(const TensorDomain* const other) const {
-  if (nDims() != other->nDims())
-    return false;
-  if (getRootDomain().size() != other->getRootDomain().size())
-    return false;
-  if (getRFactorDomain().size() != other->getRFactorDomain().size())
-    return false;
+bool TensorDomain::sameAs(const Statement* const other) const {
+  if (this == other) {
+    return true;
+  }
 
-  for (size_t i = 0; i < nDims(); i++)
-    if (!(axis(i)->sameAs(other->axis(i))))
-      return false;
+  if (!other->isA<TensorDomain>()) {
+    return false;
+  }
 
-  for (size_t i = 0; i < getRootDomain().size(); i++)
-    if (!(getRootDomain()[i]->sameAs(other->getRootDomain()[i])))
-      return false;
+  const TensorDomain* other_td = other->as<TensorDomain>();
 
-  for (size_t i = 0; i < getRFactorDomain().size(); i++)
-    if (!(getRFactorDomain()[i]->sameAs(other->getRFactorDomain()[i])))
+  if (nDims() != other_td->nDims()) {
+    return false;
+  }
+  if (getRootDomain().size() != other_td->getRootDomain().size()) {
+    return false;
+  }
+  if (getRFactorDomain().size() != other_td->getRFactorDomain().size()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < nDims(); i++) {
+    if (!(axis(i)->sameAs(other_td->axis(i)))) {
       return false;
+    }
+  }
+
+  for (size_t i = 0; i < getRootDomain().size(); i++) {
+    if (!(getRootDomain()[i]->sameAs(other_td->getRootDomain()[i]))) {
+      return false;
+    }
+  }
+
+  for (size_t i = 0; i < getRFactorDomain().size(); i++) {
+    if (!(getRFactorDomain()[i]->sameAs(other_td->getRFactorDomain()[i]))) {
+      return false;
+    }
+  }
 
   return true;
 }
@@ -670,7 +801,7 @@ bool TensorDomain::sameAs(
 }
 
 bool TensorDomain::hasReduction() const {
-  return has_reduction_;
+  return has_nontrivial_reduction_;
 }
 
 bool TensorDomain::hasBlockReduction() const {
@@ -737,7 +868,7 @@ size_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_CHECK(false, "Provided id is not part of this domain.");
 }
 
-void TensorDomain::split(int axis_, Val* factor) {
+void TensorDomain::split(int axis_, Val* factor, bool inner_split) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim domain");
   if (axis_ < 0)
     axis_ += nDims();
@@ -747,7 +878,7 @@ void TensorDomain::split(int axis_, Val* factor) {
       "Tried to split on axis outside TensorDomain's range.");
 
   IterDomain* id = axis(axis_);
-  auto split_ids = IterDomain::split(id, factor);
+  auto split_ids = IterDomain::split(id, factor, inner_split);
   domain_.erase(domain_.begin() + axis_);
   domain_.insert(domain_.begin() + axis_, split_ids.second);
   domain_.insert(domain_.begin() + axis_, split_ids.first);
@@ -808,96 +939,7 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
 
-  // adjust based on negative values (any negative values gets nDims added to
-  // it)
-  std::unordered_map<int, int> old2new;
-  auto ndims = dom.size();
-  std::transform(
-      old2new_.begin(),
-      old2new_.end(),
-      std::inserter(old2new, old2new.begin()),
-      [ndims](std::unordered_map<int, int>::value_type entry) {
-        return std::unordered_map<int, int>::value_type({
-            entry.first < 0 ? entry.first + ndims : entry.first,
-            entry.second < 0 ? entry.second + ndims : entry.second,
-        });
-      });
-
-  // Check if any adjusted values are < 0, or >= nDims, which are invalid
-
-  TORCH_CHECK(
-      std::none_of(
-          old2new.begin(),
-          old2new.end(),
-          [ndims](std::unordered_map<int, int>::value_type entry) {
-            return entry.first < 0 || (unsigned int)entry.first >= ndims ||
-                entry.second < 0 || (unsigned int)entry.second >= ndims;
-          }),
-      "Reorder axes are not within the number of dimensions of the provided domain.");
-
-  // Going to use sets, to see if any duplicate values are in the map.
-
-  std::set<int> old_pos_set;
-  std::transform(
-      old2new.begin(),
-      old2new.end(),
-      std::inserter(old_pos_set, old_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
-        return entry.first;
-      });
-
-  std::set<int> new_pos_set;
-  std::transform(
-      old2new.begin(),
-      old2new.end(),
-      std::inserter(new_pos_set, new_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
-        return entry.second;
-      });
-
-  // Error out if duplicate values are found.
-  TORCH_CHECK(
-      old_pos_set.size() == old2new.size() &&
-          new_pos_set.size() == old2new.size(),
-      "Duplicate entries in transformation map sent to TensorView reorder.");
-
-  // END VALIDATION CHECKS
-
-  std::vector<int> new2old(ndims, -1);
-
-  // Go through each old and new position, make sure they're within [0, ndims)
-  for (std::pair<int, int> elem : old2new) {
-    int old_pos = elem.first;
-    int new_pos = elem.second;
-    new2old[new_pos] = old_pos;
-  }
-
-  // old_positions that already have a new position
-  std::set<int> old_positions(new2old.begin(), new2old.end());
-  old_positions.erase(-1);
-
-  // All available new positions
-  std::set<int> all_positions;
-  for (decltype(ndims) i{0}; i < ndims; i++)
-    all_positions.insert(i);
-
-  // Check what positions haven't been specified.
-  std::set<int> positions_left;
-  std::set_difference(
-      all_positions.begin(),
-      all_positions.end(),
-      old_positions.begin(),
-      old_positions.end(),
-      std::inserter(positions_left, positions_left.end()));
-
-  // Fill in positions that weren't specified, in relative order,
-  // in empty spots in the set of new positions.
-  // new2old[new_position] = old_position
-  auto it = positions_left.begin(); // old positions left
-  std::transform(
-      new2old.begin(), new2old.end(), new2old.begin(), [&it](int i) -> int {
-        return i == -1 ? *it++ : i;
-      });
+  auto new2old = ir_utils::normalizeOld2New(old2new_, dom.size());
 
   std::vector<IterDomain*> reordered_domain;
   std::transform(
@@ -1121,12 +1163,18 @@ const IterDomain* IterDomain::concretizeDomain(IterDomain* bcast_dom) {
   return ConcretizeDomain::getConcreteDomain(bcast_dom);
 }
 
-Split::Split(IterDomain* outer, IterDomain* inner, IterDomain* in, Val* factor)
+Split::Split(
+    IterDomain* outer,
+    IterDomain* inner,
+    IterDomain* in,
+    Val* factor,
+    bool inner_split)
     : Expr(ExprType::Split),
       outer_{outer},
       inner_{inner},
       in_{in},
-      factor_{factor} {
+      factor_{factor},
+      inner_split_{inner_split} {
   TORCH_INTERNAL_ASSERT(
       factor_->isAnInt(),
       "Attempted to create a Split node with a non-integer factor.");
@@ -1143,12 +1191,19 @@ Split::Split(const Split* src, IrCloner* ir_cloner)
       outer_(ir_cloner->clone(src->outer_)),
       inner_(ir_cloner->clone(src->inner_)),
       in_(ir_cloner->clone(src->in_)),
-      factor_(ir_cloner->clone(src->factor_)) {}
+      factor_(ir_cloner->clone(src->factor_)),
+      inner_split_(src->inner_split_) {}
 
-bool Split::sameAs(const Split* const other) const {
-  return (
-      outer()->sameAs(other->outer()) && inner()->sameAs(other->inner()) &&
-      in()->sameAs(other->in()) && factor()->sameAs(other->factor()));
+bool Split::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<Split>()) {
+    return false;
+  }
+  return Expr::sameAs(other) &&
+      factor()->sameAs(other->as<Split>()->factor()) &&
+      innerSplit() == other->as<Split>()->innerSplit();
 }
 
 Merge::Merge(IterDomain* out, IterDomain* outer, IterDomain* inner)
@@ -1165,14 +1220,28 @@ Merge::Merge(const Merge* src, IrCloner* ir_cloner)
       outer_(ir_cloner->clone(src->outer_)),
       inner_(ir_cloner->clone(src->inner_)) {}
 
-bool Merge::sameAs(const Merge* const other) const {
-  return (
-      out()->sameAs(other->out()) && outer()->sameAs(other->outer()) &&
-      inner()->sameAs(other->inner()));
+bool Merge::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<Merge>()) {
+    return false;
+  }
+  return Expr::sameAs(other);
 }
 
 NamedScalar::NamedScalar(const NamedScalar* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), name_(src->name_) {}
+
+bool NamedScalar::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<NamedScalar>()) {
+    return false;
+  }
+  return other->as<NamedScalar>()->name().compare(name()) == 0;
+}
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
   std::string parallel_dim = stringifyThreadSize(p_type);

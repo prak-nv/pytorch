@@ -432,7 +432,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
   //  If this is a reduction, initialize the output (open for loops to inner
   //  most, predicate, initialize, place next after allocation if exists, close
   //  to computeAt)
-  if (out->hasAnyReduction()) {
+  if (out->hasReduction()) {
     initReduction(out, expr->as<ReductionOp>()->init(), alloc_expr);
   }
 
@@ -491,17 +491,19 @@ void findTargetTensor(Expr* expr, TensorView*& target, unsigned& score) {
     return;
   }
 
-  auto axis = out_tv->getRelativeComputeAtAxis();
+  // Note this returns the computeAt position
+  int pos = (int)out_tv->getRelativeComputeAtAxis();
   target = out_tv->getComputeAtView();
   while (target->hasComputeAt()) {
-    if (target->getThisComputeAtAxis() < axis) {
+    if ((int)target->getThisComputeAtAxis() < pos) {
       break;
     }
-    axis = target->getComputeAtRelPos(axis);
+    // getComputeAtRelPos accepts an axis index.
+    pos = pos == 0 ? 0 : target->getComputeAtRelPos(pos - 1) + 1;
     target = target->getComputeAtView();
   }
 
-  score = axis;
+  score = pos;
 }
 
 // Type definitions for brevity
@@ -541,7 +543,7 @@ void groupExpressions(
     TargetGroupMapT& computed_at_exprs,
     ExprScoreMapT& scores) {
   TensorView* target_tensor = nullptr;
-  ScoreT score;
+  ScoreT score = 0;
   findTargetTensor(expr, target_tensor, score);
   scores.emplace(expr, score);
   if (target_tensor == nullptr) {
@@ -572,12 +574,12 @@ void mapMissingInputsToAncestors(
     const TensorView* tv,
     const std::unordered_map<const Expr*, bool>& expr_status,
     std::vector<const TensorView*>& ancestors) {
-  const Expr* expr = tv->getOrigin();
+  const Expr* expr = tv->definition();
   const auto& expr_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
   for (auto input : expr_inputs) {
-    const Expr* input_origin = input->getOrigin();
-    if (input_origin != nullptr) {
-      if (expr_status.find(input_origin) == expr_status.end()) {
+    const Expr* input_definition = input->definition();
+    if (input_definition != nullptr) {
+      if (expr_status.find(input_definition) == expr_status.end()) {
         mapMissingInputsToAncestors(input, expr_status, ancestors);
       } else {
         ancestors.push_back(input);
@@ -604,9 +606,9 @@ std::unordered_map<const Expr*, std::vector<const TensorView*>> findExprTvInputs
     auto& tv_inputs = map_expr_to_tv_inputs[expr];
 
     for (auto input : expr_inputs) {
-      const Expr* input_origin = input->getOrigin();
-      bool missing_input = input_origin != nullptr &&
-          expr_status.find(input_origin) == expr_status.end();
+      const Expr* input_definition = input->definition();
+      bool missing_input = input_definition != nullptr &&
+          expr_status.find(input_definition) == expr_status.end();
 
       if (missing_input) {
         // Map missing input to ancestor that is present in exprs_status
@@ -648,10 +650,10 @@ void reorderSegmentBreadthFirst(
           expr_inputs.begin(),
           expr_inputs.end(),
           [&expr_status](const TensorView* input) {
-            const Expr* input_origin = input->getOrigin();
-            return input_origin == nullptr ||
-                (expr_status.find(input_origin) != expr_status.end() &&
-                 expr_status.at(input_origin));
+            const Expr* input_definition = input->definition();
+            return input_definition == nullptr ||
+                (expr_status.find(input_definition) != expr_status.end() &&
+                 expr_status.at(input_definition));
           });
       if (ready_to_visit) {
         std::iter_swap(seg_begin, it);
@@ -702,7 +704,7 @@ void mergeNonRootGroupsIntoRootGroups(
   for (auto it = computed_at_exprs.begin(); it != computed_at_exprs.end();) {
     TensorView* target = it->first;
     if (target->hasComputeAt()) {
-      Expr* target_expr = target->getOrigin();
+      Expr* target_expr = target->definition();
       TensorView* target_of_target = target_map.at(target_expr);
       auto& target_group = computed_at_exprs.at(target_of_target);
       auto pos =
