@@ -46,14 +46,15 @@ TORCH_CUDA_API TensorView* reductionOp(
     TensorView* v1,
     bool keep_dim = false);
 
-//! Scan the same axes and perform multiple reductions at the same time
-//!  venturing into the first multiple output Op
-//!  ** I know two reductions computedAt each other does the same thing
-TORCH_CUDA_API std::vector<TensorView*> MultiScan(
-    std::vector<BinaryOpType> reduction_op_types,
+//! Welford operator on specified axes. This is currently the only scan op with
+//! multiple outputs that is supported. May consider generalization if more scan
+//! ops are added.
+std::vector<TensorView*> Welford(
     std::vector<int> axes,
-    std::vector<Val*> init,
-    TensorView* tv);
+    TensorView* tv,
+    TensorView* init_var = nullptr,
+    TensorView* init_avg = nullptr,
+    Int* init_N = new Int(0));
 
 // UNARY OPERATIONS
 TORCH_CUDA_API Val* neg(Val* v);

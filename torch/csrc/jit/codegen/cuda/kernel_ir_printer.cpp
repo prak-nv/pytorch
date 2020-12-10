@@ -285,11 +285,20 @@ void IrPrinter::visit(const kir::ReductionOp* node) {
            << ", pred=" << use(node->predicate()) << ")\n";
 }
 
-void IrPrinter::visit(const kir::MultiScanOp* node) {
-  indent() << gen(node->out()) << " = "
-           << "MultiScan(op='" << node->operations()[0] << "'"
-           << ", in=" << use(node->in()) << ", init=" << use(node->init()[0])
-           << ", pred=" << use(node->predicate()) << ")\n";
+void IrPrinter::visit(const kir::WelfordOp* node) {
+  indent() << gen(node->outVar()) << "," << gen(node->outAvg())
+           << "," gen(node->outN()) << " = "
+           << "Welford( inAvg=" << use(node->inAvg());
+  if (!node->inN()->isOneInt()) {
+    indent() << " inVar=" << use(node->inVar());
+  }
+  indent() << " inN=" << use(node->inN());
+  if (!node->initN()->isZeroInt()) {
+    indent() << ", initVar=" << use(node->initVar())
+             << " initAvg=" << use(node->initAvg())
+             << " initN=" << use(node->initN())
+  }
+  indent() << ", pred=" << use(node->predicate()) << ")\n";
 }
 
 void IrPrinter::visit(const kir::GridReduction* node) {

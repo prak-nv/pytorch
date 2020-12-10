@@ -163,40 +163,92 @@ class TORCH_CUDA_API ReductionOp : public Expr {
   Val* const in_ = nullptr;
 };
 
-//! MultiScanOp operation.
-class TORCH_CUDA_API MultiScanOp : public Expr {
+//! Welford Scan operation.
+class TORCH_CUDA_API WelfordOp : public Expr {
  public:
-  MultiScanOp(
-      std::vector<BinaryOpType> reduction_op_types,
-      std::vector<Val*> init,
-      std::vector<Val*> out,
-      Val* in);
+  WelfordOp(
+      Val* out_var,
+      Val* out_avg,
+      Val* out_N,
+      Val* init_var,
+      Val* init_avg,
+      Val* init_N,
+      Val* in_var,
+      Val* in_avg,
+      Val* in_N);
 
-  MultiScanOp(const MultiScanOp* src, IrCloner* ir_cloner);
+  WelfordOp(const WelfordOp* src, IrCloner* ir_cloner);
 
-  const std::vector<Val*>& out() const {
-    return out_;
+  Val* out() const {
+    return out_avg_;
   }
 
   Val* in() const {
-    return in_;
+    return in_avg_;
   }
 
-  const std::vector<Val*>& init() const {
-    return init_;
+  Val* init() const {
+    return init_avg_;
   }
 
-  std::vector<BinaryOpType> getReductionOpTypes() const {
-    return reduction_op_types_;
+  bool sameAs(const WelfordOp* const other) const;
+
+  // Welford Accessors
+  // TODO clean up
+  Val* outVar() const {
+    return out_var_;
   }
 
-  bool sameAs(const MultiScanOp* const other) const;
+  Val* outAvg() const {
+    return out_avg_;
+  }
+
+  Val* outN() const {
+    return out_N_;
+  }
+
+  Val* inVar() const {
+    return in_var_;
+  }
+
+  Val* inAvg() const {
+    return in_avg_;
+  }
+
+  Val* inN() const {
+    return in_N_;
+  }
+
+  Val* initVar() const {
+    return init_var_;
+  }
+
+  Val* initAvg() const {
+    return init_avg_;
+  }
+
+  Val* initN() const {
+    return init_N_;
+  }
+
+  bool singleValue() const {
+    return in_N_->isOneInt();
+  }
+
+  bool hasInit() const {
+    return !init_N_->isZeroInt();
+  }
 
  private:
-  std::vector<BinaryOpType> const reduction_op_types_;
-  std::vector<Val*> const init_;
-  std::vector<Val*> const out_;
-  Val* const in_ = nullptr;
+  Val* const init_var_;
+  Val* const init_avg_;
+  Val* const init_N_;
+  Val* const out_var_;
+  Val* const out_avg_;
+  Val* const out_N_;
+  Val* const in_var_;
+  Val* const in_avg_;
+  Val* const in_N_;
 };
 
 class TORCH_CUDA_API TernaryOp : public Expr {

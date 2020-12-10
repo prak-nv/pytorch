@@ -317,82 +317,95 @@ ReductionOp::ReductionOp(
   name_ = FusionGuard::getCurFusion()->registerExpr(this);
 }
 
-MultiScanOp::MultiScanOp(
-    std::vector<BinaryOpType> reduction_op_types,
-    std::vector<Val*> init,
-    std::vector<Val*> out,
-    Val* in)
-    : Expr(ExprType::MultiScanOp),
-      reduction_op_types_(reduction_op_types.begin(), reduction_op_types.end()),
-      init_(init.begin(), init.end()),
-      out_(out.begin(), out.end()),
-      in_(in) {
-  TORCH_INTERNAL_ASSERT(std::all_of(out.begin(), out.end(), [](const Val* o) {
-    return o->getValType().value() == ValType::TensorView;
-  }))
+WelfordOp::WelfordOp(
+    Val* out_var,
+    Val* out_avg,
+    Val* out_N,
+    Val* init_var,
+    Val* init_avg,
+    Val* init_N,
+    Val* in_var,
+    Val* in_avg,
+    Val* in_N)
+    : Expr(ExprType::WelfordOp),
+      out_var_(out_var),
+      out_avg_(out_avg),
+      out_N_(out_N),
+      init_var_(init_var),
+      init_avg_(init_avg),
+      init_N_(init_N),
+      in_var_(in_var),
+      in_avg_(in_avg),
+      in_N_(in_N) {
+  // Check output type
+  TORCH_INTERNAL_ASSERT(out_var->getValType().value() == ValType::TensorView);
+  TORCH_INTERNAL_ASSERT(out_avg->getValType().value() == ValType::TensorView);
+  TORCH_INTERNAL_ASSERT(out_N->getValType().value() == ValType::Scalar);
 
-  TORCH_INTERNAL_ASSERT(
-      in->getValType() == ValType::TensorView,
-      "MultiScan operation was created that does not have tensor inputs and outputs.");
-
-  TORCH_INTERNAL_ASSERT(
-      std::all_of(
-          init.begin(),
-          init.end(),
-          [](const Val* i) { return i->isConstScalar(); }),
-      "Tried to create a reduction operation whith an initial value that isn't a constant.");
-
-  for (Val* o : out) {
-    addOutput(o);
+  // check initial value
+  TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Scalar);
+  if (!init_N->isZeroInt()) {
+    // when initial count is zero, no initial variance or average is needed
+    // initial value with a count of 1 is un-common enough that I'll push
+    // the responsibility of creating all-zero var tensors to the user
+    TORCH_INTERNAL_ASSERT(
+        init_var && init_var->getValType().value() == ValType::TensorView);
+    TORCH_INTERNAL_ASSERT(
+        init_avg && init_avg->getValType().value() == ValType::TensorView);
   }
-  addInput(in);
+
+  // check input
+  TORCH_INTERNAL_ASSERT(in_N->getValType().value() == ValType::Scalar);
+  TORCH_INTERNAL_ASSERT(
+      in_avg && in_avg->getValType().value() == ValType::TensorView);
+  if (!init_N->isOneInt()) {
+    // when input is only one value, only the value is required through avg
+    // input the var part is implicitly 0 and codegen will handle that.
+    TORCH_INTERNAL_ASSERT(
+        in_var && in_var->getValType().value() == ValType::TensorView);
+  }
+
+  addOutput(out_var);
+  addOutput(out_avg);
+  addOutput(out_N);
+
+  // Conditionally adding this input?
+  if (!in_N->isOneInt()) {
+    addInput(in_var);
+  }
+  addInput(in_avg);
+  addInput(in_N);
+
   name_ = FusionGuard::getCurFusion()->registerExpr(this);
 }
 
-namespace {
-inline std::vector<Val*> cloneVector(
-    const std::vector<Val*> in,
-    IrCloner* ir_cloner) {
-  std::vector<Val*> output_vec;
-  std::transform(
-      in.begin(),
-      in.end(),
-      std::back_inserter(output_vec),
-      [ir_cloner](const Val* v) { return ir_cloner->clone(v); });
-  return output_vec;
-}
+WelfordOp::WelfordOp(const WelfordOp* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner),
+      out_var_(ir_cloner->clone(src->out_var_)),
+      out_avg_(ir_cloner->clone(src->out_avg_)),
+      out_N_(ir_cloner->clone(src->out_N_)),
+      init_var_(src->init_var_ ? ir_cloner->clone(src->init_var_) : nullptr),
+      init_avg_(src->init_avg_ ? ir_cloner->clone(src->init_avg_) : nullptr),
+      init_N_(ir_cloner->clone(src->init_N_)),
+      in_var_(src->in_var_ ? ir_cloner->clone(src->in_var_) : nullptr),
+      in_avg_(ir_cloner->clone(src->in_avg_)),
+      in_N_(ir_cloner->clone(src->in_N_)) {}
 
-inline bool equalVector(
-    const std::vector<Val*>& a,
-    const std::vector<Val*>& b) {
-  if (a.size() != b.size()) {
-    return false;
-  }
-  std::vector<bool> equal;
-  std::transform(
-      a.begin(),
-      a.end(),
-      b.begin(),
-      std::back_inserter(equal),
-      [](const Val* a, const Val* b) { return a->sameAs(b); });
-  return std::all_of(equal.begin(), equal.end(), [](bool b) { return b; });
+namespace {
+inline bool sameOptionalVal(Val* a, Val* b) {
+  return (a == nullptr && b == nullptr) || (a && b) && (a->sameAs(b));
 }
 } // namespace
 
-MultiScanOp::MultiScanOp(const MultiScanOp* src, IrCloner* ir_cloner)
-    : Expr(src, ir_cloner),
-      reduction_op_types_(
-          src->reduction_op_types_.begin(),
-          src->reduction_op_types_.end()),
-      init_(cloneVector(src->init_, ir_cloner)),
-      out_(cloneVector(src->out_, ir_cloner)),
-      in_(ir_cloner->clone(src->in_)) {}
-
-bool MultiScanOp::sameAs(const MultiScanOp* other) const {
-  return (
-      in()->sameAs(other->in()) &&
-      getReductionOpTypes() == other->getReductionOpTypes() &&
-      equalVector(init(), other->init()));
+bool WelfordOp::sameAs(const WelfordOp* other) const {
+  if (this == other) {
+    return true;
+  }
+  return sameOptionalVal(in_var_, other->in_var_) &&
+      in_avg_->sameAs(other->in_avg_) && in_N_->sameAs(other->in_N_) &&
+      sameOptionalVal(init_var_, other->init_var_) &&
+      sameOptionalVal(init_avg_, other->init_avg_) &&
+      init_N_->sameAs(other->init_N_);
 }
 
 ReductionOp::ReductionOp(const ReductionOp* src, IrCloner* ir_cloner)

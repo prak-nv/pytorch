@@ -310,28 +310,20 @@ void IrPrinter::handle(const ReductionOp* rop) {
       << ", initial value = " << rop->init() << " )\n";
 }
 
-namespace {
-// consider just overload <<
-template <typename T>
-void os_vec(std::ostream& os, const std::vector<T>& vec) {
-  os << "( ";
-  for (int i = 0; i < vec.size(); i++) {
-    os << vec[i];
-    if (i < (vec.size() - 1)) {
-      os << ",";
-    }
-  }
-  os << " )";
-}
-} // namespace
-
-void IrPrinter::handle(const MultiScanOp* mop) {
+void IrPrinter::handle(const WelfordOp* wop) {
   indent();
-  os_vec(os_, mop->out());
-  os_ << " = MultiScan ( " << mop->in() << ", op = ";
-  os_vec(os_, mop->getReductionOpTypes());
-  os_ << ", initial value = ";
-  os_vec(os_, mop->init());
+  os_ << wop->outVar() << "(Var)" << wop->outAvg() << "(Avg)" << wop->outN()
+      << "(Count)" os_ << " = Welford ( ";
+  if (wop->singleValue()) {
+    os_ << wop->inAvg();
+  } else {
+    os_ << wop->inVar() << "(Var)" << wop->inAvg() << "(Avg)" << wop->inN()
+        << "(Count)"
+  }
+  if (wop->hasInit()) {
+    os_ << ", initial value = " << wop->initVar() << "(Var)" << wop->initAvg()
+        << "(Avg)" << wop->initN() << "(N)";
+  }
   os_ << " )\n";
 }
 

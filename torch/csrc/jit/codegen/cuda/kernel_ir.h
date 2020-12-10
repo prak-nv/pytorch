@@ -46,7 +46,7 @@ class UnaryOp;
 class BinaryOp;
 class TernaryOp;
 class ReductionOp;
-class MultiScanOp;
+class WelfordOp;
 class BroadcastOp;
 
 // Statements
@@ -122,7 +122,7 @@ class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
   virtual void visit(const ReductionOp* node) {
     unhandled(node);
   }
-  virtual void visit(const MultiScanOp* node) {
+  virtual void visit(const WelfordOp* node) {
     unhandled(node);
   }
   virtual void visit(const BroadcastOp* node) {
@@ -766,36 +766,68 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
   Val* const in_ = nullptr;
 };
 
-class TORCH_CUDA_API MultiScanOp final : public Expr {
-  using ValPtrList = std::vector<Val*>;
-  using OpList = std::vector<BinaryOpType>;
-
+class TORCH_CUDA_API WelfordOp final : public Expr {
  public:
-  MultiScanOp(
+  WelfordOp(
       Passkey passkey,
-      OpList operations,
-      ValPtrList inits,
-      ValPtrList outs,
-      Val* in);
+      Val* out_var,
+      Val* out_avg,
+      Val* out_N,
+      Val* init_var,
+      Val* init_avg,
+      Val* init_N,
+      Val* in_var,
+      Val* in_avg,
+      Val* in_N);
 
   void accept(IrVisitor* visitor) const override {
     visitor->visit(this);
   }
 
   Val* out() const {
-    return out_.size() == 0 ? nullptr : out_[0];
+    return out_avg_;
   }
 
   Val* in() const {
-    return in_;
+    return in_avg_;
   }
 
-  ValPtrList init() const {
-    return init_;
+  // Welford Specific accessors
+  // Almost wanted to add a new struct for {var, avg, N}
+  Val* outVar() const {
+    return out_var_;
   }
 
-  OpList operations() const {
-    return operation_;
+  Val* outAvg() const {
+    return out_avg_;
+  }
+
+  Val* outN() const {
+    return out_N_;
+  }
+
+  Val* initVar() const {
+    return init_var_;
+  }
+
+  Val* initAvg() const {
+    return init_avg_;
+  }
+
+  Val* initN() const {
+    return init_N_;
+  }
+
+  Val* inVar() const {
+    return in_var_;
+  }
+
+  Val* inAvg() const {
+    return in_avg_;
+  }
+
+  Val* inN() const {
+    return in_N_;
   }
 
   std::unordered_map<ParallelType, IterDomain*, TypeHash>
@@ -805,10 +837,15 @@ class TORCH_CUDA_API MultiScanOp final : public Expr {
   std::vector<IterDomain*> getReductionDomains() const;
 
  private:
-  OpList const operation_;
-  ValPtrList const init_;
-  ValPtrList const out_;
-  Val* const in_ = nullptr;
+  Val* const out_var_;
+  Val* const out_avg_;
+  Val* const out_N_;
+  Val* const init_var_;
+  Val* const init_avg_;
+  Val* const init_N_;
+  Val* const in_var_;
+  Val* const in_avg_;
+  Val* const in_N_;
 };
 
 class TORCH_CUDA_API TensorIndex final : public Val {

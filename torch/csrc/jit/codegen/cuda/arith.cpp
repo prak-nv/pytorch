@@ -670,35 +670,35 @@ TensorView* broadcast(
   return out_tensor;
 }
 
-// helper for initializing multiscan ouput
-static std::vector<TensorView*> newForMultiScan(
-    TensorView* tv,
-    const std::vector<unsigned int>& axes,
-    size_t num_of_ops) {
-  std::vector<TensorView*> new_vec(num_of_ops, nullptr);
-  for (int i = 0; i < num_of_ops; i++) {
-    new_vec[i] = newForReduction(tv, axes);
-  }
-  return new_vec;
-}
-
-//! Scan the same axes and perform multiple reductions at the same time
-//!  venturing into the first multiple output Op
-//!  ** I know two reductions computedAt each other does the same thing
-std::vector<TensorView*> MultiScan(
-    std::vector<BinaryOpType> reduction_op_types,
+std::vector<TensorView*> Welford(
     std::vector<int> axes,
-    std::vector<Val*> init,
-    TensorView* tv) {
+    TensorView* tv,
+    TensorView* init_var,
+    TensorView* init_avg,
+    Int* init_N) {
   TORCH_CHECK(
       TensorDomain::sameAs(tv->getRootDomain(), tv->domain()->domain()),
       "Reducing a tensor once it's gone under transformations is not permitted at this time. Please set reductions before calling split/merge/computeAt.");
 
   TORCH_CHECK(tv->nDims() > 0, "Tried to reduce a 0-dim tensor");
-
   TORCH_CHECK(axes.size() > 0, "No reduction axis specified");
-  TORCH_CHECK(
-      init.size() == reduction_op_types.size(), "No reduction axis specified");
+
+  // Initial values for welford op are tensors, so their dims have to match the
+  // output dim,
+  // i.e. original_dims - dims_to_be_reduced
+  if (init_avg != nullptr || init_N != nullptr || init_var != nullptr) {
+    TORCH_CHECK(
+        init_avg != nullptr && init_N != nullptr && init_var != nullptr,
+        "welford op: all init values need to be provided");
+    TORCH_CHECK(
+        (axes.size() + init_var->getRootDomain().size()) ==
+            tv->getRootDomain().size(),
+        "welford op: initial tensor mismatch");
+    TORCH_CHECK(
+        (axes.size() + init_avg->getRootDomain().size()) ==
+            tv->getRootDomain().size(),
+        "welford op: initial tensor mismatch");
+  }
 
   // Check and collect reduction axes
   std::vector<unsigned int> uint_axes;
@@ -718,30 +718,21 @@ std::vector<TensorView*> MultiScan(
   }
 
   // Create tensor outputs
+  TensorView* out_var = newForReduction(tv, uint_axes);
+  TensorView* out_avg = newForReduction(tv, uint_axes);
 
-  const size_t num_of_ops = init.size();
-  std::vector<TensorView*> out = newForMultiScan(tv, uint_axes, num_of_ops);
-  std::vector<Val*> init_cast(init.size(), nullptr);
+  new WelfordOp(
+      out_var,
+      out_avg,
+      new Int(), /*out var/avg/count */
+      init_var,
+      init_avg,
+      init_N, /*init var/avg/count */
+      nullptr,
+      tv,
+      new Int(1)); /*in var/avg/count */
 
-  std::transform(init.begin(), init.end(), init_cast.begin(), [tv](Val* v) {
-    if (v->getDataType().value() != tv->getDataType().value()) {
-      return castOp(tv->getDataType().value(), v);
-    } else {
-      return v;
-    }
-  });
-
-  std::vector<Val*> out_as_val(num_of_ops, nullptr);
-  std::transform(
-      out.begin(), out.end(), out_as_val.begin(), [](TensorView* tv) {
-        return tv;
-      });
-
-  std::vector<BinaryOpType> reduction_ops(
-      reduction_op_types.begin(), reduction_op_types.end());
-  new MultiScanOp(reduction_ops, init_cast, out_as_val, tv);
-
-  return out;
+  return {out_var, out_avg};
 }
 
 // COMPOUND OPERATIONS

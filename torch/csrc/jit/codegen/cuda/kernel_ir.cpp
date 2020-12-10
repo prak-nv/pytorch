@@ -253,217 +253,234 @@ ReductionOp::ReductionOp(
   addInput(in);
 }
 
-MultiScanOp::MultiScanOp(
+WelfordOp::WelfordOp(
     Passkey passkey,
-    OpList operations,
-    ValPtrList inits,
-    ValPtrList outs,
-    Val* in)
+    Val* out_var,
+    Val* out_avg,
+    Val* out_N,
+    Val* init_var,
+    Val* init_avg,
+    Val* init_N,
+    Val* in_var,
+    Val* in_avg,
+    Val* in_N);
     : Expr(passkey),
-      operation_(operations.begin(), operations.end()),
-      init_(inits.begin(), inits.end()),
-      out_(outs.begin(), outs.end()),
-      in_(in) {
-  for (auto o : out_) {
-    addOutput(o);
-  }
-  addInput(in);
-}
+      out_var_(out_var),
+      out_avg_(out_avg),
+      out_N_(out_N),
+      init_var_(init_var),
+      init_avg_(init_avg),
+      init_N_(init_N),
+      in_var_(in_var),
+      in_avg_(in_avg),
+      in_N_(in_N)
+       {
+      addOutput(out_var);
+      addOutput(out_avg);
+      addOutput(out_N);
 
-std::vector<IterDomain*> MultiScanOp::getReductionDomains() const {
-  // out is a TensorIndex after lowering
-  const auto out_val = out()->as<kir::TensorIndex>()->view();
-
-  auto vec_domain = out_val->as<TensorView>()->domain()->domain();
-
-  vec_domain.erase(
-      std::remove_if(
-          vec_domain.begin(),
-          vec_domain.end(),
-          [](IterDomain* id) { return !id->isReduction(); }),
-      vec_domain.end());
-  return vec_domain;
-}
-
-std::unordered_map<ParallelType, IterDomain*, TypeHash> MultiScanOp::
-    getParallelReductionDomains() const {
-  std::unordered_map<ParallelType, IterDomain*, TypeHash> parallel_domains;
-  for (auto d : getReductionDomains()) {
-    if (d->isThread()) {
-      parallel_domains.insert(std::make_pair(d->parallelType(), d));
+      addInput(in_avg);
+      addInput(in_N);
+      if (!in_N->isOneInt()) {
+        addInput(in_var);
+      }
+      addInput(in);
     }
-  }
-  return parallel_domains;
-}
 
-std::vector<IterDomain*> ReductionOp::getReductionDomains() const {
-  // out is a TensorIndex after lowering
-  const auto out_val = out()->as<kir::TensorIndex>()->view();
+    std::vector<IterDomain*> WelfordOp::getReductionDomains() const {
+      // out is a TensorIndex after lowering
+      const auto out_val = out()->as<kir::TensorIndex>()->view();
 
-  auto vec_domain = out_val->as<TensorView>()->domain()->domain();
+      auto vec_domain = out_val->as<TensorView>()->domain()->domain();
 
-  vec_domain.erase(
-      std::remove_if(
-          vec_domain.begin(),
-          vec_domain.end(),
-          [](IterDomain* id) { return !id->isReduction(); }),
-      vec_domain.end());
-  return vec_domain;
-}
-
-std::unordered_map<ParallelType, IterDomain*, TypeHash> ReductionOp::
-    getParallelReductionDomains() const {
-  std::unordered_map<ParallelType, IterDomain*, TypeHash> parallel_domains;
-  for (auto d : getReductionDomains()) {
-    if (d->isThread()) {
-      parallel_domains.insert(std::make_pair(d->parallelType(), d));
+      vec_domain.erase(
+          std::remove_if(
+              vec_domain.begin(),
+              vec_domain.end(),
+              [](IterDomain* id) { return !id->isReduction(); }),
+          vec_domain.end());
+      return vec_domain;
     }
-  }
-  return parallel_domains;
-}
 
-BroadcastOp::BroadcastOp(Passkey passkey, Val* out, Val* in)
-    : Expr(passkey), out_(out), in_(in) {
-  TORCH_CHECK(in->isA<TensorIndex>() || in->isA<TensorView>());
-  TORCH_CHECK(out->isA<TensorIndex>() || out->isA<TensorView>());
-  addOutput(out);
-  addInput(in);
-}
-
-TensorIndex::TensorIndex(
-    Passkey passkey,
-    const fuser::cuda::TensorView* view,
-    std::vector<Val*> indices)
-    : Val(passkey, view->getDataType().value()),
-      view_(GpuLower::current()->lowerValue(view)->as<TensorView>()),
-      indices_(indices) {
-  TORCH_INTERNAL_ASSERT(
-      std::all_of(
-          indices.begin(),
-          indices.end(),
-          [](Val* v) { return v->dtype() == DataType::Int; }),
-      "Cannot index with a value other than an int.");
-}
-
-Sync::Sync(Passkey passkey, bool war_sync)
-    : Expr(passkey), war_sync_(war_sync) {}
-
-void Scope::insert_before(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  if (it != exprs_.end()) {
-    exprs_.insert(it, expr);
-  }
-}
-
-void Scope::insert_after(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  if (it != exprs_.end()) {
-    exprs_.insert(it + 1, expr);
-  }
-}
-
-void Scope::erase(Expr* ref) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  if (it != exprs_.end()) {
-    exprs_.erase(it);
-  }
-}
-
-bool Scope::contains(Expr* expr) const {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), expr);
-  return it != exprs_.end();
-}
-
-void Scope::clear() {
-  exprs_.clear();
-}
-
-ForLoop::ForLoop(
-    Passkey passkey,
-    Val* index,
-    IterDomain* iter_domain,
-    Expr* parent_scope)
-    : Expr(passkey), index_{index}, iter_domain_{iter_domain} {
-  TORCH_INTERNAL_ASSERT(index->dtype() == DataType::Int);
-  setParentScope(parent_scope);
-  addInput(index);
-  addInput(iter_domain);
-}
-
-IfThenElse::IfThenElse(Passkey passkey, Bool* cond, Expr* parent_scope)
-    : Expr(passkey), cond_{cond} {
-  setParentScope(parent_scope);
-  addInput(cond);
-}
-
-Val* TensorIndex::index(int i) const {
-  TORCH_INTERNAL_ASSERT(
-      nDims() > 0, "Tried to get an index of a 0-dim TensorIndex");
-  if (i < 0)
-    i += nDims();
-  assert(i >= 0 && i < nDims());
-  return indices_[i];
-}
-
-Allocate::Allocate(
-    Passkey passkey,
-    Val* buffer,
-    MemoryType memory_type,
-    Val* size,
-    bool zero_init)
-    : Expr(passkey),
-      buffer_(buffer),
-      memory_type_(memory_type),
-      size_(size),
-      zero_init_(zero_init) {
-  if (size_ != nullptr) {
-    TORCH_INTERNAL_ASSERT(size_->isOneInt() || buffer_->isA<TensorView>());
-  } else {
-    TORCH_INTERNAL_ASSERT(buffer_->isA<TensorView>());
-    TORCH_INTERNAL_ASSERT(
-        buffer_->as<TensorView>()->memoryType() == memory_type_);
-    kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-    const auto domain = buffer_->as<TensorView>()->domain();
-    size_ = domain->nDims() == 0 ? ir_builder.create<Int>(1)
-                                 : domain->axis(0)->extent();
-    for (size_t i = 1; i < domain->nDims(); i++) {
-      size_ = ir_builder.mulExpr(size_, domain->axis(i)->extent());
+    std::unordered_map<ParallelType, IterDomain*, TypeHash> WelfordOp::
+        getParallelReductionDomains() const {
+      std::unordered_map<ParallelType, IterDomain*, TypeHash> parallel_domains;
+      for (auto d : getReductionDomains()) {
+        if (d->isThread()) {
+          parallel_domains.insert(std::make_pair(d->parallelType(), d));
+        }
+      }
+      return parallel_domains;
     }
-  }
-  addInput(size_);
-}
 
-GridReduction::GridReduction(Passkey passkey, ReductionOp* reduction_op)
-    : Expr(passkey), reduction_op_(reduction_op) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
-}
+    std::vector<IterDomain*> ReductionOp::getReductionDomains() const {
+      // out is a TensorIndex after lowering
+      const auto out_val = out()->as<kir::TensorIndex>()->view();
 
-GridReduction::GridReduction(
-    Passkey passkey,
-    ReductionOp* reduction_op,
-    Allocate* reduction_buffer,
-    Allocate* sync_buffer)
-    : Expr(passkey),
-      reduction_op_(reduction_op),
-      reduction_buffer_(reduction_buffer),
-      sync_buffer_(sync_buffer) {}
+      auto vec_domain = out_val->as<TensorView>()->domain()->domain();
 
-std::string GridReduction::getPredicateFlagName(const TensorView* val) {
-  std::stringstream ss;
-  ss << "T" << val->name() << "_pred";
-  return ss.str();
-}
+      vec_domain.erase(
+          std::remove_if(
+              vec_domain.begin(),
+              vec_domain.end(),
+              [](IterDomain* id) { return !id->isReduction(); }),
+          vec_domain.end());
+      return vec_domain;
+    }
 
-// TODO(kir): remove this
-std::string GridReduction::getPredicateFlagName(
-    const fuser::cuda::TensorView* val) {
-  std::stringstream ss;
-  ss << "T" << val->name() << "_pred";
-  return ss.str();
-}
+    std::unordered_map<ParallelType, IterDomain*, TypeHash> ReductionOp::
+        getParallelReductionDomains() const {
+      std::unordered_map<ParallelType, IterDomain*, TypeHash> parallel_domains;
+      for (auto d : getReductionDomains()) {
+        if (d->isThread()) {
+          parallel_domains.insert(std::make_pair(d->parallelType(), d));
+        }
+      }
+      return parallel_domains;
+    }
 
-} // namespace kir
-} // namespace cuda
-} // namespace fuser
-} // namespace jit
-} // namespace torch
+    BroadcastOp::BroadcastOp(Passkey passkey, Val* out, Val* in)
+        : Expr(passkey), out_(out), in_(in) {
+      TORCH_CHECK(in->isA<TensorIndex>() || in->isA<TensorView>());
+      TORCH_CHECK(out->isA<TensorIndex>() || out->isA<TensorView>());
+      addOutput(out);
+      addInput(in);
+    }
+
+    TensorIndex::TensorIndex(
+        Passkey passkey,
+        const fuser::cuda::TensorView* view,
+        std::vector<Val*> indices)
+        : Val(passkey, view->getDataType().value()),
+          view_(GpuLower::current()->lowerValue(view)->as<TensorView>()),
+          indices_(indices) {
+      TORCH_INTERNAL_ASSERT(
+          std::all_of(
+              indices.begin(),
+              indices.end(),
+              [](Val* v) { return v->dtype() == DataType::Int; }),
+          "Cannot index with a value other than an int.");
+    }
+
+    Sync::Sync(Passkey passkey, bool war_sync)
+        : Expr(passkey), war_sync_(war_sync) {}
+
+    void Scope::insert_before(Expr* ref, Expr* expr) {
+      const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+      if (it != exprs_.end()) {
+        exprs_.insert(it, expr);
+      }
+    }
+
+    void Scope::insert_after(Expr* ref, Expr* expr) {
+      const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+      if (it != exprs_.end()) {
+        exprs_.insert(it + 1, expr);
+      }
+    }
+
+    void Scope::erase(Expr* ref) {
+      const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+      if (it != exprs_.end()) {
+        exprs_.erase(it);
+      }
+    }
+
+    bool Scope::contains(Expr* expr) const {
+      const auto it = std::find(exprs_.begin(), exprs_.end(), expr);
+      return it != exprs_.end();
+    }
+
+    void Scope::clear() {
+      exprs_.clear();
+    }
+
+    ForLoop::ForLoop(
+        Passkey passkey,
+        Val* index,
+        IterDomain* iter_domain,
+        Expr* parent_scope)
+        : Expr(passkey), index_{index}, iter_domain_{iter_domain} {
+      TORCH_INTERNAL_ASSERT(index->dtype() == DataType::Int);
+      setParentScope(parent_scope);
+      addInput(index);
+      addInput(iter_domain);
+    }
+
+    IfThenElse::IfThenElse(Passkey passkey, Bool* cond, Expr* parent_scope)
+        : Expr(passkey), cond_{cond} {
+      setParentScope(parent_scope);
+      addInput(cond);
+    }
+
+    Val* TensorIndex::index(int i) const {
+      TORCH_INTERNAL_ASSERT(
+          nDims() > 0, "Tried to get an index of a 0-dim TensorIndex");
+      if (i < 0)
+        i += nDims();
+      assert(i >= 0 && i < nDims());
+      return indices_[i];
+    }
+
+    Allocate::Allocate(
+        Passkey passkey,
+        Val* buffer,
+        MemoryType memory_type,
+        Val* size,
+        bool zero_init)
+        : Expr(passkey),
+          buffer_(buffer),
+          memory_type_(memory_type),
+          size_(size),
+          zero_init_(zero_init) {
+      if (size_ != nullptr) {
+        TORCH_INTERNAL_ASSERT(size_->isOneInt() || buffer_->isA<TensorView>());
+      } else {
+        TORCH_INTERNAL_ASSERT(buffer_->isA<TensorView>());
+        TORCH_INTERNAL_ASSERT(
+            buffer_->as<TensorView>()->memoryType() == memory_type_);
+        kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+        const auto domain = buffer_->as<TensorView>()->domain();
+        size_ = domain->nDims() == 0 ? ir_builder.create<Int>(1)
+                                     : domain->axis(0)->extent();
+        for (size_t i = 1; i < domain->nDims(); i++) {
+          size_ = ir_builder.mulExpr(size_, domain->axis(i)->extent());
+        }
+      }
+      addInput(size_);
+    }
+
+    GridReduction::GridReduction(Passkey passkey, ReductionOp* reduction_op)
+        : Expr(passkey), reduction_op_(reduction_op) {
+      TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+    }
+
+    GridReduction::GridReduction(
+        Passkey passkey,
+        ReductionOp* reduction_op,
+        Allocate* reduction_buffer,
+        Allocate* sync_buffer)
+        : Expr(passkey),
+          reduction_op_(reduction_op),
+          reduction_buffer_(reduction_buffer),
+          sync_buffer_(sync_buffer) {}
+
+    std::string GridReduction::getPredicateFlagName(const TensorView* val) {
+      std::stringstream ss;
+      ss << "T" << val->name() << "_pred";
+      return ss.str();
+    }
+
+    // TODO(kir): remove this
+    std::string GridReduction::getPredicateFlagName(
+        const fuser::cuda::TensorView* val) {
+      std::stringstream ss;
+      ss << "T" << val->name() << "_pred";
+      return ss.str();
+    }
+
+    } // namespace kir
+    } // namespace cuda
+    } // namespace fuser
+    } // namespace jit
+    } // namespace torch
