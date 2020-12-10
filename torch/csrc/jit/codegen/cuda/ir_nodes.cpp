@@ -430,6 +430,53 @@ bool ReductionOp::sameAs(const Statement* other) const {
       init()->sameAs(other_op->init()));
 }
 
+TransposeOp::TransposeOp(
+    TensorView* out,
+    TensorView* in,
+    std::vector<int> new2old)
+    : Expr(ExprType::TransposeOp),
+      out_(out),
+      in_(in),
+      new2old_(std::move(new2old)) {
+  // Sanity check of the input parameters. Maybe not necessary as they
+  // should be checked at function transpose.
+
+  TORCH_INTERNAL_ASSERT(
+      !in->hasRFactor(), "Transposing rFactor tensors is not supported.");
+
+  TORCH_INTERNAL_ASSERT(
+      TensorDomain::noReductions(in->getRootDomain()).size() ==
+      out->getRootDomain().size());
+
+  TORCH_INTERNAL_ASSERT(new2old_.size() == out->getRootDomain().size());
+
+  // Make sure the entries of new2old are unique and range from 0 to
+  // N-1, where N == new2old.size().
+  std::set<int> old_positions(new2old_.begin(), new2old_.end());
+  TORCH_INTERNAL_ASSERT(old_positions.size() == new2old_.size());
+  // old_positions is sorted, so the first entry must be 0.
+  TORCH_INTERNAL_ASSERT(
+      *(old_positions.begin()) == 0,
+      "Invalid new2old vector detected: ",
+      new2old_);
+  // The last entry must be N-1, since old_positions is sorted, starts
+  // with 0, and its length is N.
+  TORCH_INTERNAL_ASSERT(
+      *(old_positions.rbegin()) == (int)(new2old_.size() - 1),
+      "Invalid new2old vector detected: ",
+      new2old_);
+
+  addOutput(out);
+  addInput(in);
+  name_ = FusionGuard::getCurFusion()->registerExpr(this);
+}
+
+TransposeOp::TransposeOp(const TransposeOp* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner),
+      out_(ir_cloner->clone(src->out_)),
+      in_(ir_cloner->clone(src->in_)),
+      new2old_(src->new2old_) {}
+
 IterDomain::IterDomain(
     Val* start,
     Val* extent,
@@ -542,7 +589,8 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
 
 std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
-    Val* factor) {
+    Val* factor,
+    bool inner_split) {
   TORCH_CHECK(
       in->start()->isZeroInt(),
       "Splitting IterDomains with starting values that aren't 0 is not supported at this time.");
@@ -570,12 +618,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   }
 
   // outer loop size
-  Val* vo = ceilDiv(in->extent(), factor);
+  Val* remainder = ceilDiv(in->extent(), factor);
 
   // outer loop IterDomain
   IterDomain* ido = new IterDomain(
       new Int(0),
-      vo->as<Int>(),
+      inner_split ? remainder->as<Int>() : factor,
       in->getParallelType(),
       in->getIterType(),
       in->isRFactorProduct());
@@ -583,12 +631,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   // inner loop IterDomain
   IterDomain* idi = new IterDomain(
       new Int(0),
-      factor,
+      inner_split ? factor : remainder->as<Int>(),
       in->getParallelType(),
       in->getIterType(),
       in->isRFactorProduct());
 
-  new Split(ido, idi, in, factor);
+  new Split(ido, idi, in, factor, inner_split);
   return {ido, idi};
 }
 
@@ -610,7 +658,7 @@ class RejectMultipleGridReductions : public IterVisitor {
  public:
   static void analyze(Fusion* fusion) {
     RejectMultipleGridReductions multi_grid;
-    multi_grid.traverse(fusion, true);
+    multi_grid.traverse(fusion);
   }
 
  private:
@@ -676,7 +724,7 @@ TensorDomain::TensorDomain(
       root_domain_.size());
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   domain_ = root_domain_;
   resetDomains();
 }
@@ -714,7 +762,7 @@ TensorDomain::TensorDomain(
   });
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }
@@ -764,7 +812,7 @@ TensorDomain::TensorDomain(
   });
 
   // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  has_nontrivial_reduction_ = false;
   resetDomains();
   name_ = fusion_->registerVal(this);
 }
@@ -777,7 +825,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
       contiguity_(src->contiguity()),
-      has_reduction_(src->has_reduction_) {}
+      has_nontrivial_reduction_(src->has_nontrivial_reduction_) {}
 
 bool TensorDomain::operator==(const TensorDomain& other) const {
   // Checks equality of each class field. Should not be necessary to
@@ -844,7 +892,7 @@ bool TensorDomain::sameAs(
 }
 
 bool TensorDomain::hasReduction() const {
-  return has_reduction_;
+  return has_nontrivial_reduction_;
 }
 
 bool TensorDomain::hasBlockReduction() const {
@@ -911,7 +959,7 @@ size_t TensorDomain::posOf(IterDomain* id) const {
   TORCH_CHECK(false, "Provided id is not part of this domain.");
 }
 
-void TensorDomain::split(int axis_, Val* factor) {
+void TensorDomain::split(int axis_, Val* factor, bool inner_split) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim domain");
   if (axis_ < 0)
     axis_ += nDims();
@@ -921,7 +969,7 @@ void TensorDomain::split(int axis_, Val* factor) {
       "Tried to split on axis outside TensorDomain's range.");
 
   IterDomain* id = axis(axis_);
-  auto split_ids = IterDomain::split(id, factor);
+  auto split_ids = IterDomain::split(id, factor, inner_split);
   domain_.erase(domain_.begin() + axis_);
   domain_.insert(domain_.begin() + axis_, split_ids.second);
   domain_.insert(domain_.begin() + axis_, split_ids.first);
@@ -982,96 +1030,7 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
 
-  // adjust based on negative values (any negative values gets nDims added to
-  // it)
-  std::unordered_map<int, int> old2new;
-  auto ndims = dom.size();
-  std::transform(
-      old2new_.begin(),
-      old2new_.end(),
-      std::inserter(old2new, old2new.begin()),
-      [ndims](std::unordered_map<int, int>::value_type entry) {
-        return std::unordered_map<int, int>::value_type({
-            entry.first < 0 ? entry.first + ndims : entry.first,
-            entry.second < 0 ? entry.second + ndims : entry.second,
-        });
-      });
-
-  // Check if any adjusted values are < 0, or >= nDims, which are invalid
-
-  TORCH_CHECK(
-      std::none_of(
-          old2new.begin(),
-          old2new.end(),
-          [ndims](std::unordered_map<int, int>::value_type entry) {
-            return entry.first < 0 || (unsigned int)entry.first >= ndims ||
-                entry.second < 0 || (unsigned int)entry.second >= ndims;
-          }),
-      "Reorder axes are not within the number of dimensions of the provided domain.");
-
-  // Going to use sets, to see if any duplicate values are in the map.
-
-  std::set<int> old_pos_set;
-  std::transform(
-      old2new.begin(),
-      old2new.end(),
-      std::inserter(old_pos_set, old_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
-        return entry.first;
-      });
-
-  std::set<int> new_pos_set;
-  std::transform(
-      old2new.begin(),
-      old2new.end(),
-      std::inserter(new_pos_set, new_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
-        return entry.second;
-      });
-
-  // Error out if duplicate values are found.
-  TORCH_CHECK(
-      old_pos_set.size() == old2new.size() &&
-          new_pos_set.size() == old2new.size(),
-      "Duplicate entries in transformation map sent to TensorView reorder.");
-
-  // END VALIDATION CHECKS
-
-  std::vector<int> new2old(ndims, -1);
-
-  // Go through each old and new position, make sure they're within [0, ndims)
-  for (std::pair<int, int> elem : old2new) {
-    int old_pos = elem.first;
-    int new_pos = elem.second;
-    new2old[new_pos] = old_pos;
-  }
-
-  // old_positions that already have a new position
-  std::set<int> old_positions(new2old.begin(), new2old.end());
-  old_positions.erase(-1);
-
-  // All available new positions
-  std::set<int> all_positions;
-  for (decltype(ndims) i{0}; i < ndims; i++)
-    all_positions.insert(i);
-
-  // Check what positions haven't been specified.
-  std::set<int> positions_left;
-  std::set_difference(
-      all_positions.begin(),
-      all_positions.end(),
-      old_positions.begin(),
-      old_positions.end(),
-      std::inserter(positions_left, positions_left.end()));
-
-  // Fill in positions that weren't specified, in relative order,
-  // in empty spots in the set of new positions.
-  // new2old[new_position] = old_position
-  auto it = positions_left.begin(); // old positions left
-  std::transform(
-      new2old.begin(), new2old.end(), new2old.begin(), [&it](int i) -> int {
-        return i == -1 ? *it++ : i;
-      });
+  auto new2old = ir_utils::normalizeOld2New(old2new_, dom.size());
 
   std::vector<IterDomain*> reordered_domain;
   std::transform(
@@ -1295,18 +1254,26 @@ const IterDomain* IterDomain::concretizeDomain(IterDomain* bcast_dom) {
   return ConcretizeDomain::getConcreteDomain(bcast_dom);
 }
 
-Split::Split(IterDomain* outer, IterDomain* inner, IterDomain* in, Val* factor)
+Split::Split(
+    IterDomain* outer,
+    IterDomain* inner,
+    IterDomain* in,
+    Val* factor,
+    bool inner_split)
     : Expr(ExprType::Split),
       outer_{outer},
       inner_{inner},
       in_{in},
-      factor_{factor} {
+      factor_{factor},
+      inner_split_{inner_split} {
   TORCH_INTERNAL_ASSERT(
       factor_->isAnInt(),
       "Attempted to create a Split node with a non-integer factor.");
   addOutput(outer);
   addOutput(inner);
   addInput(in);
+  // TODO add factor as an input, need to check Split::Split during validation
+  // and need to check BestEffortReplay::findFirstMismatchedID addInput(factor);
   name_ = FusionGuard::getCurFusion()->registerExpr(this);
 }
 
@@ -1315,7 +1282,8 @@ Split::Split(const Split* src, IrCloner* ir_cloner)
       outer_(ir_cloner->clone(src->outer_)),
       inner_(ir_cloner->clone(src->inner_)),
       in_(ir_cloner->clone(src->in_)),
-      factor_(ir_cloner->clone(src->factor_)) {}
+      factor_(ir_cloner->clone(src->factor_)),
+      inner_split_(src->inner_split_) {}
 
 bool Split::sameAs(const Statement* other) const {
   if (this == other) {
@@ -1324,7 +1292,9 @@ bool Split::sameAs(const Statement* other) const {
   if (!other->isA<Split>()) {
     return false;
   }
-  return Expr::sameAs(other) && factor()->sameAs(other->as<Split>()->factor());
+  return Expr::sameAs(other) &&
+      factor()->sameAs(other->as<Split>()->factor()) &&
+      innerSplit() == other->as<Split>()->innerSplit();
 }
 
 Merge::Merge(IterDomain* out, IterDomain* outer, IterDomain* inner)

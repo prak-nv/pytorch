@@ -274,10 +274,10 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
     : fusion_(std::move(fusion)) {
   FUSER_PERF_SCOPE("FusionExecutorCache::FusionExecutorCache");
-  // avoid putting `has_reduction_` in the initializer list
-  has_reduction_ = fusion_->hasReduction();
+  // avoid putting `has_nontrivial_reduction_` in the initializer list
+  has_nontrivial_reduction_ = fusion_->hasReduction();
 
-  if (has_reduction_) {
+  if (has_nontrivial_reduction_) {
     FusionGuard fg(fusion_.get());
 
     // Use dependency check to find the reduction tv as it returns used values
@@ -306,6 +306,21 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     const at::ArrayRef<IValue>& inputs) {
   FUSER_PERF_SCOPE("runFusionWithInputs");
 
+  auto detect_normalization_fusion = [&]() {
+    for (auto expr : fusion_->unordered_exprs()) {
+      if (expr->getExprType() == ExprType::BroadcastOp) {
+        auto output = expr->output(0);
+        auto input_def_expr = expr->input(0)->definition();
+        if (!fusion_->unordered_uses(output).empty() &&
+            input_def_expr != nullptr &&
+            input_def_expr->getExprType() == ExprType::ReductionOp) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   LaunchParams launch_params;
 
   // get unique id `unique_id` for given input set `inputs`;
@@ -323,10 +338,11 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     // entries in cached `FusionExecutor` or compile new one as needed.
 
     // caching strategy is different for pw-fusion and reduction-fusion.
-    if (has_reduction_) {
+    if (has_nontrivial_reduction_) {
+      bool isNormalizationFusion = detect_normalization_fusion();
       // Generate the reduction parameters
-      auto reduction_params = (reduction_tv_.size() > 1)
-          ? getMultipleReductionHeuristics(fusion_.get(), inputs, reduction_tv_)
+      auto reduction_params = (isNormalizationFusion)
+          ? getNormalizationHeuristics(fusion_.get(), inputs, reduction_tv_)
           : getReductionHeuristics(
                 fusion_.get(), inputs, reduction_tv_.front());
 
@@ -348,15 +364,15 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         Fusion fusion_clone = *fusion_;
         FusionGuard fg(&fusion_clone);
 
+        // Separate the reduction TensorViews from the other TensorViews
+        // Ignore input TensorViews
         // Heavy weight call
+        std::vector<TensorView*> clone_reduction_tv;
+        std::vector<TensorView*> clone_other_tv;
         auto all_values = DependencyCheck::getAllValsBetween(
             {fusion_clone.inputs().begin(), fusion_clone.inputs().end()},
             fusion_clone.outputs());
 
-        // Separate the reduction TensorViews from the other TensorViews
-        // Ignore input TensorViews
-        std::vector<TensorView*> clone_reduction_tv;
-        std::vector<TensorView*> clone_other_tv;
         for (auto tv : ir_utils::filterByType<TensorView>(all_values)) {
           if (tv->hasReduction()) {
             clone_reduction_tv.push_back(tv);
@@ -365,8 +381,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
           }
         }
 
-        if (clone_reduction_tv.size() > 1) {
-          scheduleMultipleReduction(
+        if (isNormalizationFusion) {
+          scheduleNormalization(
               &fusion_clone,
               reduction_params.value(),
               clone_reduction_tv,
@@ -505,7 +521,6 @@ void GraphCache::createFusion(const std::shared_ptr<Graph>& graph) {
           permuted_vec_optional_stride,
           type->requires_grad());
     }; // closing lambda
-
     for (auto input : graph->inputs()) {
       if (auto input_type = input->type()->cast<TensorType>()) {
         input->setType(type_permute_fn(input_type));

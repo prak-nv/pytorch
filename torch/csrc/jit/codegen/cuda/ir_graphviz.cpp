@@ -84,7 +84,8 @@ class IrNodeLabel : private OptInConstDispatch {
   }
 
   void handle(const Split* split) override {
-    label_ << "Split(factor=" << IrNodeLabel::gen(split->factor()) << ")";
+    label_ << "Split(inner=" << (split->innerSplit() ? "true" : "false")
+           << ", factor=" << IrNodeLabel::gen(split->factor()) << ")";
   }
 
   void handle(const Merge* merge) override {
@@ -283,7 +284,7 @@ void IrGraphGenerator::handle(const Statement* s) {
 void IrGraphGenerator::handle(const Val* v) {
   if (!visited(v)) {
     visited_.insert(v);
-    if (const auto* def = fusion_->origin(v)) {
+    if (const auto* def = v->definition()) {
       handle(def);
     }
     OptInConstDispatch::handle(v);

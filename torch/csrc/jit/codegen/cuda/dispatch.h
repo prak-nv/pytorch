@@ -74,6 +74,7 @@ class TernaryOp;
 class ReductionOp;
 class WelfordOp;
 class BroadcastOp;
+class TransposeOp;
 
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
@@ -102,6 +103,7 @@ class TORCH_CUDA_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const ReductionOp*) {}
   virtual void handle(const WelfordOp*) {}
   virtual void handle(const BroadcastOp*) {}
+  virtual void handle(const TransposeOp*) {}
 };
 
 class TORCH_CUDA_API OptOutDispatch : public PolymorphicBase {
@@ -129,6 +131,7 @@ class TORCH_CUDA_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(ReductionOp*) {}
   virtual void handle(WelfordOp*) {}
   virtual void handle(BroadcastOp*) {}
+  virtual void handle(TransposeOp*) {}
 };
 
 class TORCH_CUDA_API OptInConstDispatch : public PolymorphicBase {
@@ -185,6 +188,9 @@ class TORCH_CUDA_API OptInConstDispatch : public PolymorphicBase {
   }
   virtual void handle(const BroadcastOp*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for BroadcastOp.");
+  }
+  virtual void handle(const TransposeOp*) {
+    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for TransposeOp.");
   }
 };
 
@@ -243,12 +249,13 @@ class TORCH_CUDA_API OptInDispatch : public PolymorphicBase {
   virtual void handle(BroadcastOp*) {
     TORCH_INTERNAL_ASSERT(false, "Handle not overriden for BroadcastOp.");
   }
+  virtual void handle(TransposeOp*) {
+    TORCH_INTERNAL_ASSERT(false, "Handle not overriden for TransposeOp.");
+  }
 };
 
 class TORCH_CUDA_API OptOutMutator : public PolymorphicBase {
  public:
-  virtual void mutate(Fusion* fusion);
-
   // Hierarchal dispatch functions for handle
   virtual Statement* mutate(Statement* s);
   virtual Statement* mutate(Expr* e);
@@ -293,6 +300,7 @@ class TORCH_CUDA_API OptOutMutator : public PolymorphicBase {
   virtual Statement* mutate(ReductionOp*);
   virtual Statement* mutate(WelfordOp*);
   virtual Statement* mutate(BroadcastOp*);
+  virtual Statement* mutate(TransposeOp*);
 };
 
 class TORCH_CUDA_API OptInMutator : public PolymorphicBase {
@@ -357,6 +365,9 @@ class TORCH_CUDA_API OptInMutator : public PolymorphicBase {
   }
   virtual Statement* mutate(BroadcastOp*) {
     TORCH_INTERNAL_ASSERT(false, "Mutate not overriden for BroadcastOp.");
+  }
+  virtual Statement* mutate(TransposeOp*) {
+    TORCH_INTERNAL_ASSERT(false, "Mutate not overriden for TransposeOp.");
   }
 };
 

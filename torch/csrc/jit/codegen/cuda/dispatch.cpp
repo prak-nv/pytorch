@@ -103,6 +103,9 @@ void Expr::dispatch(T handler, Expr* expr) {
     case ExprType::BroadcastOp:
       ptr(handler)->handle(expr->as<BroadcastOp>());
       return;
+    case ExprType::TransposeOp:
+      ptr(handler)->handle(expr->as<TransposeOp>());
+      return;
     default:
       TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
   }
@@ -181,6 +184,9 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     case ExprType::BroadcastOp:
       ptr(handler)->handle(expr->as<BroadcastOp>());
       return;
+    case ExprType::TransposeOp:
+      ptr(handler)->handle(expr->as<TransposeOp>());
+      return;
     default:
       TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
   }
@@ -255,6 +261,8 @@ Statement* Expr::mutatorDispatch(T mutator, Expr* expr) {
       return ptr(mutator)->mutate(expr->as<WelfordOp>());
     case ExprType::BroadcastOp:
       return ptr(mutator)->mutate(expr->as<BroadcastOp>());
+    case ExprType::TransposeOp:
+      return ptr(mutator)->mutate(expr->as<TransposeOp>());
     default:
       TORCH_INTERNAL_ASSERT(false, "Unknown exprtype in dispatch!");
   }

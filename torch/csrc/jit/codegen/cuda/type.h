@@ -46,6 +46,7 @@ enum class ExprType {
   ReductionOp,
   BroadcastOp,
   WelfordOp,
+  TransposeOp,
   Split,
   Merge,
 };

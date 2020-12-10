@@ -89,9 +89,9 @@ void IrPrinter::handle(const IterDomain* id) {
 }
 
 void IrPrinter::handle(const Bool* b) {
-  if (print_inline_ && FusionGuard::getCurFusion()->origin(b) != nullptr) {
+  if (print_inline_ && b->definition() != nullptr) {
     os_ << "( ";
-    handle(FusionGuard::getCurFusion()->origin(b));
+    handle(b->definition());
     os_ << " )";
     return;
   }
@@ -104,9 +104,9 @@ void IrPrinter::handle(const Bool* b) {
 }
 
 void IrPrinter::handle(const Double* d) {
-  if (print_inline_ && FusionGuard::getCurFusion()->origin(d) != nullptr) {
+  if (print_inline_ && d->definition() != nullptr) {
     os_ << "( ";
-    handle(FusionGuard::getCurFusion()->origin(d));
+    handle(d->definition());
     os_ << " )";
     return;
   }
@@ -123,7 +123,7 @@ void IrPrinter::handle(const Double* d) {
 
 void IrPrinter::handle(const Int* i) {
   if (print_inline_) {
-    if (auto def = FusionGuard::getCurFusion()->origin(i)) {
+    if (auto def = i->definition()) {
       os_ << "( ";
       handle(def);
       os_ << " )";
@@ -332,8 +332,13 @@ void IrPrinter::handle(const BroadcastOp* bop) {
   os_ << bop->out() << " = broadcast( " << bop->in() << " )\n";
 }
 
+void IrPrinter::handle(const TransposeOp* top) {
+  indent();
+  os_ << top->out() << " = transpose( " << top->in() << " )\n";
+}
+
 void IrPrinter::handle(const Split* s) {
-  os_ << "Split: ";
+  os_ << (s->innerSplit() ? "Split: " : "Outer split: ");
   handle(s->in());
   os_ << " by factor " << s->factor() << " -> ";
   handle(s->outer());
