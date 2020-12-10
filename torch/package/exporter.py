@@ -1,18 +1,19 @@
 import torch
 from torch.serialization import normalize_storage_type, location_tag, _should_read_directly
 import io
-import pickle
 import pickletools
 from .find_file_dependencies import find_files_source_depends_on
-from ._custom_import_pickler import CustomImportPickler
+from ._custom_import_pickler import create_custom_import_pickler, import_module_from_importers
 from ._importlib import _normalize_path
 import types
 import importlib
-from typing import List, Any, Callable, Dict
+from typing import List, Any, Callable, Dict, Tuple
 from distutils.sysconfig import get_python_lib
 from pathlib import Path
 import linecache
 import sys
+from urllib.parse import quote
+import re
 
 class PackageExporter:
     """ Exporters allow you to write packages of code, pickled python data, and
@@ -70,6 +71,8 @@ class PackageExporter:
         self.provided : Dict[str, bool] = {}
         self.verbose = verbose
         self.importers = [importlib.import_module]
+        self.patterns : List[Tuple[Any, Callable[[str], None]]] = []  # 'any' is 're.Pattern' but breaks old mypy
+        self.debug_deps : List[Tuple[str, str]] = []
 
     def save_source_file(self, module_name: str, file_or_directory: str, dependencies=True):
         """Adds the local file system `file_or_directory` to the source package to provide the code
@@ -131,15 +134,9 @@ class PackageExporter:
         self._write(filename, src)
         if dependencies:
             package = module_name if is_package else module_name.rsplit('.', maxsplit=1)[0]
-            dep_list = find_files_source_depends_on(src, package)
-            if self.verbose:
-                def fmt_dep(mod, obj):
-                    return f'{mod}' if obj is None else f'{mod}.{obj}'
-                dep_str = ''.join(f'  {fmt_dep(mod, obj)}\n' for mod, obj in dep_list)
-                file_info = f'(from file {orig_file_name}) ' if orig_file_name is not None else ''
-                print(f"{module_name} {file_info}depends on:\n{dep_str}\n")
-
-            for dep_module_name, dep_module_obj in dep_list:
+            dep_pairs = find_files_source_depends_on(src, package)
+            dep_list = {}
+            for dep_module_name, dep_module_obj in dep_pairs:
                 # handle the case where someone did something like `from pack import sub`
                 # where `sub` is a submodule. In this case we don't have to save pack, just sub.
                 # this ensures we don't pick up additional dependencies on pack.
@@ -148,25 +145,56 @@ class PackageExporter:
                 if dep_module_obj is not None:
                     possible_submodule = f'{dep_module_name}.{dep_module_obj}'
                     if self._module_exists(possible_submodule):
-                        self.require_module_if_not_provided(possible_submodule)
+                        dep_list[possible_submodule] = True
                         # we don't need to save `pack`
                         continue
                 if self._module_exists(dep_module_name):
-                    self.require_module_if_not_provided(dep_module_name)
+                    dep_list[dep_module_name] = True
+
+            for dep in dep_list.keys():
+                self.debug_deps.append((module_name, dep))
+
+            if self.verbose:
+                dep_str = ''.join(f'  {dep}\n' for dep in dep_list.keys())
+                file_info = f'(from file {orig_file_name}) ' if orig_file_name is not None else ''
+                print(f"{module_name} {file_info}depends on:\n{dep_str}\n")
+
+            for dep in dep_list.keys():
+                self.require_module_if_not_provided(dep)
+
+    def _import_module(self, module_name):
+        return import_module_from_importers(module_name, self.importers)
 
     def _module_exists(self, module_name: str) -> bool:
         try:
             self._import_module(module_name)
             return True
-        except ModuleNotFoundError:
+        except Exception:
             return False
+
+    def _write_dep_graph(self, failing_module=None):
+        edges = '\n'.join(f'"{f}" -> "{t}";' for f, t in self.debug_deps)
+        failing = '' if failing_module is None else f'"{failing_module}" [color=red];'
+        template = f"""\
+digraph G {{
+rankdir = LR;
+node [shape=box];
+{failing}
+{edges}
+}}
+"""
+        arg = quote(template, safe='')
+        return f'https://dreampuf.github.io/GraphvizOnline/#{arg}'
 
     def _get_source_of_module(self, module: types.ModuleType) -> str:
         filename = getattr(module, '__file__', None)
-        result = None if filename is None else linecache.getlines(filename, module.__dict__)
+        result = None if filename is None or not filename.endswith('.py') else linecache.getlines(filename, module.__dict__)
         if result is None:
+            extra = ''
+            if self.verbose:
+                extra = f' See the dependency graph for more info: {self._write_dep_graph(module.__name__)}'
             raise ValueError(f'cannot save source for module "{module.__name__}" because '
-                             f'its source file "{filename}" could not be found.')
+                             f'its source file "{filename}" could not be found.{extra}')
         return ''.join(result)
 
     def require_module_if_not_provided(self, module_name: str, dependencies=True):
@@ -181,6 +209,11 @@ class PackageExporter:
         and call `save_module` otherwise. Clients can subclass this object
         and override this method to provide other behavior, such as automatically mocking out a whole class
         of modules"""
+
+        for pattern, action in self.patterns:
+            if pattern.fullmatch(module_name):
+                action(module_name)
+                return
 
         root_name = module_name.split('.', maxsplit=1)[0]
         if self._can_implicitly_extern(root_name):
@@ -203,27 +236,6 @@ class PackageExporter:
         source = self._get_source_of_module(module)
         self.save_source_string(module_name, source, hasattr(module, '__path__'), dependencies, module.__file__)
 
-
-    def _import_module(self, module_name):
-        last_err = None
-        for import_module in self.importers:
-            try:
-                return import_module(module_name)
-            except ModuleNotFoundError as err:
-                last_err = err
-        if last_err is not None:
-            raise last_err
-        else:
-            raise ModuleNotFoundError(module_name)
-
-    def _create_pickler(self, data_buf):
-        if self.importers == [importlib.import_module]:
-            # if we are using the normal import library system, then
-            # we can use the C implementation of pickle which is faster
-            return pickle.Pickler(data_buf, protocol=3)
-        else:
-            return CustomImportPickler(self._import_module, data_buf, protocol=3)
-
     def save_pickle(self, package: str, resource: str, obj: Any, dependencies: bool = True):
         """Save a python object to the archive using pickle. Equivalent to :func:`torch.save` but saving into
         the archive rather than a stand-alone file. Stanard pickle does not save the code, only the objects.
@@ -244,7 +256,7 @@ class PackageExporter:
         filename = self._filename(package, resource)
         # Write the pickle data for `obj`
         data_buf = io.BytesIO()
-        pickler = self._create_pickler(data_buf)
+        pickler = create_custom_import_pickler(data_buf, self.importers)
         pickler.persistent_id = self._persistent_id
         pickler.dump(obj)
         data_value = data_buf.getvalue()
@@ -257,6 +269,9 @@ class PackageExporter:
                     module, field = arg.split(' ')
                     if module not in all_dependencies:
                         all_dependencies.append(module)
+
+            for dep in all_dependencies:
+                self.debug_deps.append((package + '.' + resource, dep))
 
             if self.verbose:
                 dep_string = ''.join(f'  {dep}\n' for dep in all_dependencies)
@@ -295,8 +310,12 @@ class PackageExporter:
         Code for extern modules must also exist in the process loading the package.
 
         Args:
-            module_name (str): e.g. "my_package.my_subpackage" the name of the external module
+            module_name (str): e.g. "my_package.my_subpackage" the name of the external module.
+                This can also be a glob-style pattern, as described in :meth:`mock_module`
         """
+        if self._add_if_pattern(module_name, self.extern_module):
+            return
+
         if module_name not in self.external:
             self.external.append(module_name)
 
@@ -318,7 +337,15 @@ class PackageExporter:
 
         Args:
             module_name (str): e.g. "my_package.my_subpackage" the name of the module to be mocked out.
+                The module_name can also be a glob-style pattern string that may match multiple modules.
+                Any required dependencies that match this pattern string will be mocked out automatically.
+                Examples:
+                  'torch.**' -- matches all submodules of torch, e.g. 'torch.nn' and torch.nn.functional'
+                  'torch.*' -- matches 'torch.nn' or 'torch.functional', but not 'torch.nn.functional'
         """
+        if self._add_if_pattern(module_name, self.mock_module):
+            return
+
         if '_mock' not in self.provided:
             self.save_source_file('_mock', str(Path(__file__).parent / '_mock.py'), dependencies=False)
         is_package = hasattr(self._import_module(module_name), '__path__')
@@ -333,6 +360,12 @@ class PackageExporter:
         """
         for module_name in module_names:
             self.mock_module(module_name)
+
+    def _add_if_pattern(self, potential_pattern: str, action: Callable[[str], None]):
+        if '*' in potential_pattern or '?' in potential_pattern:
+            self.patterns.append((_module_glob_to_re(potential_pattern), action))
+            return True
+        return False
 
     def _module_is_already_provided(self, qualified_name: str) -> bool:
         for mod in self.external:
@@ -377,6 +410,9 @@ class PackageExporter:
             with PackageExporter("file.zip") as e:
                 ...
         """
+        if self.verbose:
+            print(f"Dependency graph for exported package: {self._write_dep_graph()}")
+
         # Write each tensor to a file named tensor/the_tensor_key in the zip archive
         for key in sorted(self.serialized_storages.keys()):
             name = 'data/{}'.format(key)
@@ -395,6 +431,7 @@ class PackageExporter:
         self._write('extern_modules', contents)
         del self.zip_file
 
+
     def _filename(self, package, resource):
         package_path = package.replace('.', '/')
         resource = _normalize_path(resource)
@@ -412,7 +449,7 @@ _DISALLOWED_MODULES = ['sys', 'io']
 def _is_builtin_or_stdlib_module(module: types.ModuleType) -> bool:
     if module.__name__ in sys.builtin_module_names:
         return True
-    filename = module.__file__
+    filename = getattr(module, '__file__', None)
     if filename is None:
         return False
     standard_lib = get_python_lib(standard_lib=True)
@@ -433,3 +470,9 @@ def _read_file(filename: str) -> str:
     with open(filename, 'rb') as f:
         b = f.read()
         return b.decode('utf-8')
+
+_glob_re_filter = {'**': '.*', '*': '[^.]*', '?': '.', '.': '\\.'}
+_glob_split = re.compile(f'({"|".join(re.escape(x) for x in _glob_re_filter.keys())})')
+def _module_glob_to_re(module_name):
+    pattern = ''.join(_glob_re_filter.get(x, x) for x in _glob_split.split(module_name))
+    return re.compile(pattern)

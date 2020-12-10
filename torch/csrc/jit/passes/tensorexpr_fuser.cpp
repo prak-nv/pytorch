@@ -4,6 +4,7 @@
 #include <torch/csrc/jit/ir/alias_analysis.h>
 #include <torch/csrc/jit/jit_log.h>
 #include <torch/csrc/jit/passes/common_subexpression_elimination.h>
+#include <torch/csrc/jit/passes/constant_pooling.h>
 #include <torch/csrc/jit/passes/dead_code_elimination.h>
 #include <torch/csrc/jit/passes/pass_manager.h>
 #include <torch/csrc/jit/passes/remove_redundant_profiles.h>
@@ -27,6 +28,23 @@ bool isSupportedForBlock(Node* node) {
     default:
       return false;
   }
+}
+
+bool usedOnlyInSize(Value* v) {
+  const auto& uses = v->uses();
+  return std::all_of(uses.begin(), uses.end(), [](const Use& u) {
+    return u.user->matches("aten::size(Tensor self) -> int[]");
+  });
+}
+
+Value* broadcastSizes(at::ArrayRef<Value*> sizes, AliasDb* db) {
+  AT_ASSERT(!sizes.empty());
+  Graph* graph = sizes[0]->owningGraph();
+  Node* broadcast_n =
+      graph->insertNode(graph->create(prim::BroadcastSizes, sizes));
+  broadcast_n->output()->setType(ListType::ofInts());
+  db->createValue(broadcast_n->output());
+  return broadcast_n->output();
 }
 
 namespace tensorexpr {
@@ -62,17 +80,18 @@ bool isSupported(Node* node) {
       "aten::lt.Tensor(Tensor self, Tensor other) -> Tensor",
       "aten::lt.Scalar(Tensor self, Scalar other) -> Tensor",
       "aten::pow.Tensor_Scalar(Tensor self, Scalar exponent) -> Tensor",
-      "aten::pow.Tensor_Tensor(Tensor self, Tensor exponent) -> Tensor",
-      // TODO : do we support pow.Scalar ?
-      "aten::pow.Scalar(Scalar self, Tensor exponent) -> Tensor",
+      // TODO: uncomment when we properly support pow
+      // "aten::pow.Tensor_Tensor(Tensor self, Tensor exponent) -> Tensor",
+      // "aten::pow.Scalar(Scalar self, Tensor exponent) -> Tensor",
       // TODO: support clamp_min, clamp_max
       "aten::clamp(Tensor self, Scalar? min=None, Scalar? max=None) -> Tensor",
       "aten::lerp.Scalar(Tensor self, Tensor end, Scalar weight) -> Tensor",
       "aten::lerp.Tensor(Tensor self, Tensor end, Tensor weight) -> Tensor",
+      "aten::lgamma(Tensor self) -> Tensor",
       "aten::log10(Tensor self) -> Tensor",
       "aten::log(Tensor self) -> Tensor",
       "aten::log2(Tensor self) -> Tensor",
-      // TODO: log1p
+      "aten::log1p(Tensor self) -> Tensor",
       "aten::exp(Tensor self) -> Tensor",
       "aten::erf(Tensor self) -> Tensor",
       "aten::erfc(Tensor self) -> Tensor",
@@ -123,16 +142,20 @@ bool isSupported(Node* node) {
       "aten::where.ScalarSelf(Tensor condition, Scalar self, Tensor other) -> Tensor",
       "aten::where.ScalarOther(Tensor condition, Tensor self, Scalar other) -> Tensor",
       "aten::where.Scalar(Tensor condition, Scalar self, Scalar other) -> Tensor",
-      "aten::where(Tensor condition) -> Tensor[]",
       // TODO: enable other min/max variants, operators that can be both
       // elementwise or reductions:
       "aten::min.other(Tensor self, Tensor other) -> Tensor",
       "aten::max.other(Tensor self, Tensor other) -> Tensor",
       // TODO: enable slice, shape inference is not implemented for this op yet
   };
+  static const OperatorSet cuda_only_operator_set{
+      "aten::pow.Tensor_Scalar(Tensor self, Scalar exponent) -> Tensor",
+  };
   static const OperatorSet supported_reduction_set{
       "aten::sum(Tensor self, *, ScalarType? dtype=None) -> Tensor",
       "aten::sum.dim_IntList(Tensor self, int[1] dim, bool keepdim=False, *, ScalarType? dtype=None) -> Tensor",
+      "aten::softmax.int(Tensor self, int dim , ScalarType? dtype=None) -> Tensor",
+      "aten::log_softmax.int(Tensor self, int dim, ScalarType? dtype=None) -> Tensor",
   };
   // clang-format on
 
@@ -146,6 +169,17 @@ bool isSupported(Node* node) {
     // Value is either an int or a float (can occur from .item())
     for (Value* v : node->inputs()) {
       if (v->type()->cast<NumberType>()) {
+        return false;
+      }
+    }
+
+    // Operator is only supported on CUDA.
+    if (node->isMemberOf(cuda_only_operator_set)) {
+      auto device = tensorexpr::pickDeviceType(node->inputs());
+      if (!device) {
+        device = tensorexpr::pickDeviceType(node->outputs());
+      }
+      if (!device || device->is_cpu()) {
         return false;
       }
     }
@@ -175,7 +209,7 @@ bool isSupported(Node* node) {
 
 } // namespace tensorexpr
 
-static bool texpr_fuser_enabled_ = false;
+static bool texpr_fuser_enabled_ = true;
 
 void setTensorExprFuserEnabled(bool val) {
   texpr_fuser_enabled_ = val;
@@ -202,36 +236,35 @@ bool texprReductionsEnabled() {
   return texpr_reductions_enabled;
 }
 
-// TODO: if a value has differently typed uses, temporarrily insert a node
-// specializing the type for each use and later remove, instead of bailing
-bool profiledWithDifferentTypes(Value* v) {
-  std::vector<TypePtr> types;
-  for (const auto& use : v->uses()) {
-    if (use.user->kind() == prim::profile) {
-      types.push_back(use.user->ty(attr::profiled_type));
-    }
-  }
-  for (size_t i = 1; i < types.size(); ++i) {
-    if (types.at(i - 1) != types.at(i)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 void removeProfileNodesAndSpecializeTypes(Block* b) {
   for (auto it = b->nodes().begin(); it != b->nodes().end(); it++) {
     if (it->kind() == prim::profile) {
       GRAPH_DEBUG("Removing prim::profile: %", it->output()->debugName());
       it->output()->replaceAllUsesWith(it->input());
-      if (!profiledWithDifferentTypes(it->input())) {
-        it->input()->setType(it->ty(attr::profiled_type));
-      } else {
-        GRAPH_DEBUG(
-            "Ignoring value with differently typed profiles :%",
-            it->output()->debugName());
+      auto profiled_type = it->ty(attr::profiled_type)->expect<TensorType>();
+
+      // A value can be profiled with differently typed uses.
+      // This can occur from:
+      // - having a use which is not executed, so the type will be
+      // TensorType::get()
+      // - control-flow that depends on tensor type:
+      //   if x.size() == 2 op(x) else op(x)
+      // - mutation of the value on a field represented in the tensor type
+      //   op(x); x.resize_([...]); op(x)
+
+      // The most common case today with num_profiles = 1 is from the first
+      // case. Here we can just ignore non-profiled uses, and choose any of the
+      // profiled uses. Because we guard all tensor types in the runtime, even
+      // if we set a Value to have a profiled type from one use and then execute
+      // a use with a different profiled type, we will still be correct.
+      // In the future we could consider unifying the types of uses, or adding a
+      // type refinement node so uses can have the correct corresponding type.
+      if (profiled_type == TensorType::get()) {
+        continue;
       }
+      it->input()->setType(it->ty(attr::profiled_type));
       it.destroyCurrent();
+
     } else {
       for (Block* ib : it->blocks()) {
         removeProfileNodesAndSpecializeTypes(ib);
@@ -241,7 +274,9 @@ void removeProfileNodesAndSpecializeTypes(Block* b) {
 }
 
 void RemoveProfileNodesAndSpecializeTypes(std::shared_ptr<Graph>& graph) {
+  GRAPH_DEBUG("Before removeProfileNodesAndSpecializeTypes:\n", *graph);
   removeProfileNodesAndSpecializeTypes(graph->block());
+  GRAPH_DEBUG("After removeProfileNodesAndSpecializeTypes:\n", *graph);
 }
 
 void removeTensorTypeSpecialization(Value* v) {
@@ -287,6 +322,132 @@ class TensorExprFuser {
         min_group_size_(min_group_size),
         disable_shape_checks_(disable_shape_checks) {}
 
+  // Builds up expressions that compute shapes of all intermediates (and
+  // outputs) of the fusion group, based on the sizes of inputs. You should run
+  // DCE to remove those that you end up not using.
+  std::unordered_map<Value*, Value*> buildShapeExpressions(Node* fusion_group) {
+    GRAPH_DUMP("buildShapeExpressions for ", fusion_group->g(attr::Subgraph));
+    WithInsertPoint insert_guard{fusion_group->next()};
+    std::unordered_map<Value*, Value*> shape_of;
+
+    Graph* graph = fusion_group->owningGraph();
+    auto subgraph = fusion_group->g(attr::Subgraph);
+
+    auto inputs = fusion_group->inputs();
+    auto sinputs = subgraph->inputs();
+    AT_ASSERT(inputs.size() == sinputs.size());
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      if (inputs[i]->type()->isSubtypeOf(TensorType::get())) {
+        Value* soutput = graph->insert(aten::size, {inputs[i]});
+        aliasDb_->createValue(soutput);
+        GRAPH_DEBUG(
+            "Adding a mapping for %",
+            sinputs[i]->debugName(),
+            " ",
+            getHeader(soutput->node()));
+        shape_of[sinputs[i]] = soutput;
+      }
+    }
+
+    // When we have a guarantee that an output won't be removed, because it's
+    // used in expressions that don't involve size checks, we can use its size
+    // instead of computing a long chain of broadcasts, starting from the
+    // beginning of the kernel.
+    auto outputs = fusion_group->outputs();
+    auto soutputs = subgraph->outputs();
+    AT_ASSERT(outputs.size() == soutputs.size());
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      if (usedOnlyInSize(outputs[i]))
+        continue;
+      Value* soutput = graph->insert(aten::size, {outputs[i]});
+      aliasDb_->createValue(soutput);
+      shape_of[soutputs[i]] = soutput;
+    }
+
+    for (Node* n : subgraph->nodes()) {
+      // XXX: Use of shape_of.emplace is crucial to the output shape
+      // optimization!
+      if (n->kind() == aten::cat) {
+        // This is a bit more involved, because we have to account for the case
+        // when inputs have different shapes, but fortunately those tensors are
+        // always outputs, and so we can simply avoid replacing their queries,
+        // because it won't help us.
+        continue;
+      }
+      if (n->kind() == prim::Constant) {
+        continue;
+      }
+      if (n->kind() == prim::ConstantChunk) {
+        Node* sizes_node = graph->insertNode(
+            graph->create(prim::ChunkSizes, shape_of.at(n->input()), 2));
+        sizes_node->i_(attr::dim, n->i(attr::dim));
+        sizes_node->i_(attr::chunks, n->i(attr::chunks));
+        for (Value* output : sizes_node->outputs()) {
+          aliasDb_->createValue(output);
+        }
+        Value* regular_size = sizes_node->outputs().at(0);
+        Value* last_size = sizes_node->outputs().at(1);
+        regular_size->setType(ListType::ofInts());
+        last_size->setType(ListType::ofInts());
+        auto outputs = n->outputs();
+        for (Value* o : outputs.slice(0, outputs.size() - 1)) {
+          shape_of.emplace(o, regular_size);
+        }
+        shape_of.emplace(outputs.at(outputs.size() - 1), last_size);
+        continue;
+      }
+      auto tensor_inputs = filter(n->inputs(), [](Value* v) {
+        return v->type()->isSubtypeOf(TensorType::get());
+      });
+      GRAPH_DEBUG("Building sizes for ", getHeader(n));
+      bool all_inputs_have_sizes = true;
+      auto shapes = fmap(tensor_inputs, [&](Value* v) {
+        GRAPH_DEBUG("Getting aten::size for %", v->debugName());
+        all_inputs_have_sizes &= shape_of.count(v);
+        return shape_of.count(v) != 0 ? shape_of.at(v) : nullptr;
+      });
+
+      if (!all_inputs_have_sizes) {
+        GRAPH_DEBUG(
+            "Not all tensor arguments have sizes available to compute the broadcasted size",
+            getHeader(n));
+        continue;
+      }
+      shape_of.emplace(
+          n->output(),
+          shapes.size() == 1 ? shapes[0]
+                             : broadcastSizes(shapes, aliasDb_.get()));
+    }
+    return shape_of;
+  }
+
+  void removeOutputsUsedOnlyInSize(Node* fusion_group) {
+    if (fusion_group->kind() != prim::TensorExprGroup)
+      return;
+    auto subgraph = fusion_group->g(attr::Subgraph);
+
+    auto shape_of = buildShapeExpressions(fusion_group);
+    auto outputs = fusion_group->outputs().vec();
+    auto soutputs = subgraph->outputs().vec();
+    // XXX: Iterating in this order is not only good for performance reasons!
+    // It is also crucial for correctness (i has to reflect the current true
+    // index of outputs[i])!
+    for (int64_t i = static_cast<int64_t>(outputs.size()) - 1; i >= 0; --i) {
+      auto output = outputs[i];
+      auto soutput = soutputs[i];
+      if (usedOnlyInSize(output) && shape_of.count(soutput) > 0) {
+        auto uses = output->uses();
+        for (Use u : uses) {
+          AT_ASSERT(u.user->matches("aten::size(Tensor self) -> int[]"));
+          u.user->output()->replaceAllUsesWith(shape_of.at(soutput));
+          u.user->destroy();
+        }
+        fusion_group->eraseOutput(i);
+        subgraph->eraseOutput(i);
+      }
+    }
+  }
+
   void run() {
     aliasDb_ = torch::make_unique<AliasDb>(graph_);
     RemoveRedundantProfiles(graph_);
@@ -298,7 +459,7 @@ class TensorExprFuser {
     // fusion is done.
     inlineSmallFusionGroups(graph_->block());
     GRAPH_DUMP("After inlining small fusion groups: ", graph_);
-    guardFusionGroups(graph_->block());
+    guardFusionGroupsAndRemoveOutputs(graph_->block());
     GRAPH_DUMP("After guarding fusion groups: ", graph_);
     removeTensorTypeSpecializations(graph_->block());
     GRAPH_DUMP("After removing tensor type specializations: ", graph_);
@@ -462,6 +623,8 @@ class TensorExprFuser {
       SubgraphUtils::unmergeSubgraph(n);
       return true;
     }
+    // Cleanup the subgraph from duplicated constants while we're at it.
+    ConstantPooling(subgraph);
     return false;
   }
 
@@ -513,16 +676,27 @@ class TensorExprFuser {
     return fusion_group;
   }
 
+  bool shapeIsKnown(Value* v) {
+    if (v->type()->cast<TensorType>()) {
+      if (!v->isCompleteTensor()) {
+        return false;
+      }
+      if (*v->type()->cast<TensorType>()->dim() == 0) {
+        return false;
+      }
+    }
+    return true;
+  }
   bool allShapesAreKnown(Node* node) {
     // TODO: Relax the checks to support dynamic shapes
     for (Value* input : node->inputs()) {
-      if (input->type()->cast<TensorType>()) {
-        if (!input->isCompleteTensor()) {
-          return false;
-        }
-        if (*input->type()->cast<TensorType>()->dim() == 0) {
-          return false;
-        }
+      if (!shapeIsKnown(input)) {
+        return false;
+      }
+    }
+    for (Value* output : node->outputs()) {
+      if (!shapeIsKnown(output)) {
+        return false;
       }
     }
     return true;
@@ -551,6 +725,34 @@ class TensorExprFuser {
         return false;
       }
     }
+    return true;
+  }
+
+  bool typesAreSupported(const Node* node) {
+    // clang-format off
+    // breaks up the schema strings so they are no longer discoverable with ctrl-F
+    static const OperatorSet float_only_operator_set{
+      "aten::fmod.Scalar(Tensor self, Scalar other) -> Tensor",
+      "aten::fmod.Tensor(Tensor self, Tensor other) -> Tensor",
+      "aten::remainder.Scalar(Tensor self, Scalar other) -> Tensor",
+      "aten::remainder.Tensor(Tensor self, Tensor other) -> Tensor",
+    };
+    // clang-format on
+
+    // Value is only supported if operands are floats.
+    if (node->isMemberOf(float_only_operator_set)) {
+      for (const Value* v : node->inputs()) {
+        if (auto const& tt = v->type()->cast<TensorType>()) {
+          auto const& st = tt->scalarType();
+          if (!st || !isFloatingType(*st)) {
+            return false;
+          }
+        } else if (!v->type()->cast<FloatType>()) {
+          return false;
+        }
+      }
+    }
+
     return true;
   }
 
@@ -595,6 +797,7 @@ class TensorExprFuser {
     }
 
     REQ(tensorexpr::isSupported(node));
+    REQ(typesAreSupported(node));
     return true;
   }
 
@@ -772,17 +975,18 @@ class TensorExprFuser {
     }
   }
 
-  void guardFusionGroups(Block* block) {
+  void guardFusionGroupsAndRemoveOutputs(Block* block) {
     std::vector<Node*> fusion_groups;
     for (Node* n : block->nodes()) {
       for (Block* b : n->blocks()) {
-        guardFusionGroups(b);
+        guardFusionGroupsAndRemoveOutputs(b);
       }
       if (n->kind() == prim::TensorExprGroup) {
         fusion_groups.push_back(n);
       }
     }
     for (Node* fusion_group : fusion_groups) {
+      removeOutputsUsedOnlyInSize(fusion_group);
       guardFusionGroup(fusion_group);
     }
   }

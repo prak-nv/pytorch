@@ -8,7 +8,7 @@
 #       For reference: 
 #           https://docs.docker.com/develop/develop-images/build_enhancements/
 ARG BASE_IMAGE=ubuntu:18.04
-ARG PYTHON_VERSION=3.7
+ARG PYTHON_VERSION=3.8
 
 FROM ${BASE_IMAGE} as dev-base
 RUN --mount=type=cache,id=apt-dev,target=/var/cache/apt \
@@ -27,6 +27,7 @@ RUN mkdir /opt/ccache && ccache --set-config=cache_dir=/opt/ccache
 ENV PATH /opt/conda/bin:$PATH
 
 FROM dev-base as conda
+ARG PYTHON_VERSION=3.8
 RUN curl -fsSL -v -o ~/miniconda.sh -O  https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh  && \
     chmod +x ~/miniconda.sh && \
     ~/miniconda.sh -b -p /opt/conda && \
@@ -49,9 +50,13 @@ RUN --mount=type=cache,target=/opt/ccache \
     python setup.py install
 
 FROM conda as conda-installs
+ARG PYTHON_VERSION=3.8
+ARG CUDA_VERSION=11.0
 ARG INSTALL_CHANNEL=pytorch-nightly
-RUN /opt/conda/bin/conda install -c "${INSTALL_CHANNEL}" -y pytorch torchvision cudatoolkit=11.0.221 && \
+ENV CONDA_OVERRIDE_CUDA=${CUDA_VERSION}
+RUN /opt/conda/bin/conda install -c "${INSTALL_CHANNEL}" -y python=${PYTHON_VERSION} pytorch torchvision torchtext "cudatoolkit=${CUDA_VERSION}" && \
     /opt/conda/bin/conda clean -ya
+RUN /opt/conda/bin/pip install torchelastic
 
 FROM ${BASE_IMAGE} as official
 LABEL com.nvidia.volumes.needed="nvidia_driver"

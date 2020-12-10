@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 
 #ifdef _WIN32
-#include <windows.h>
+#include <c10/util/win32-headers.h>
 #include <fileapi.h>
 #include <io.h>
 #else
@@ -22,6 +22,8 @@
 #include <sstream>
 #include <system_error>
 #include <thread>
+
+#include <c10/util/Exception.h>
 
 #define SYSASSERT(rv, ...)                                                 \
   if ((rv) < 0) {                                                          \
@@ -350,6 +352,14 @@ int64_t FileStore::addHelper(const std::string& key, int64_t i) {
 int64_t FileStore::add(const std::string& key, int64_t value) {
   std::string regKey = regularPrefix_ + key;
   return addHelper(regKey, value);
+}
+
+int64_t FileStore::getNumKeys() {
+  TORCH_CHECK(false, "getNumKeys not implemented for FileStore");
+}
+
+bool FileStore::deleteKey(const std::string& /* unused */) {
+  TORCH_CHECK(false, "deleteKey not implemented for FileStore");
 }
 
 bool FileStore::check(const std::vector<std::string>& keys) {
