@@ -10955,7 +10955,6 @@ TEST(NVFuserTest, FusionAdvancedComputeAtTransposed6_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
->>>>>>> c6d8c4a48bd9ed09000878c7620f401be80280bd
 }
 
 } // namespace jit

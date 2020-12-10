@@ -76,7 +76,7 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     to->val_set_.insert(ir_cloner.clone(val));
   }
 
-  for (auto expr : other.expr_set_){
+  for (auto expr : from->expr_set_){
     to->expr_set_.insert(ir_cloner.clone(expr));
   }
 
@@ -84,10 +84,9 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     to->val_deque_.push_back(ir_cloner.clone(val));
   }
 
-  // Fixup potentially cyclic pointers
-  for (auto val : val_set_) {
-    val->definition_ = ir_cloner.clone(val->definition_);
-    val->uses_ = ir_cloner.clone(val->uses_);
+  for (auto val : from->val_set_) {
+    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
+    ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
 
 
