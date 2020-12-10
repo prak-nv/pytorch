@@ -61,6 +61,20 @@ struct PeepholeOptimizeImpl {
       // TODO: this doesn't work with Scalar-Tensor ops! We should
       // canonicalize those
       if (node->matches(
+              "aten::mul(Tensor self, Scalar other) -> Tensor",
+              attr::other) ||
+          node->matches(
+              "aten::div(Tensor self, Scalar other) -> Tensor",
+              attr::other)) {
+        if (node->get<at::Scalar>(attr::other)->toDouble() == 1) {
+          GRAPH_UPDATE(
+              getHeader(node),
+              " (x * 1 == x / 1 == x) is replaced with ",
+              node->input(0)->debugName());
+          node->output()->replaceAllUsesWith(node->input(0));
+        }
+      } else if (
+          node->matches(
               "aten::_grad_sum_to_size(Tensor(a) self, int[]? size) -> Tensor(a)")) {
         if (node->input(1)->mustBeNone()) {
           GRAPH_UPDATE(
