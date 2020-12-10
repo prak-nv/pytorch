@@ -61,11 +61,9 @@ struct PeepholeOptimizeImpl {
       // TODO: this doesn't work with Scalar-Tensor ops! We should
       // canonicalize those
       if (node->matches(
-              "aten::mul(Tensor self, Scalar other) -> Tensor",
-              attr::other) ||
+              "aten::mul(Tensor self, Scalar other) -> Tensor", attr::other) ||
           node->matches(
-              "aten::div(Tensor self, Scalar other) -> Tensor",
-              attr::other)) {
+              "aten::div(Tensor self, Scalar other) -> Tensor", attr::other)) {
         if (node->get<at::Scalar>(attr::other)->toDouble() == 1) {
           GRAPH_UPDATE(
               getHeader(node),
