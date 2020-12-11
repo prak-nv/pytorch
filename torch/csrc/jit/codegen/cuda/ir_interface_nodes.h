@@ -260,6 +260,9 @@ class TORCH_CUDA_API TensorView : public Val {
   // Reorder axes according to old2new[old_pos] = new_pos
   TensorView* reorder(const std::unordered_map<int, int>& old2new);
 
+  //! Permute indices
+  TensorView* swizzle(SwizzleType type, const std::vector<int>& axes);
+
   // WARNING: rFactor does not return this TensorView, ir returns a new
   //  tensorview consumed by this!
   //
@@ -301,10 +304,17 @@ class TORCH_CUDA_API TensorView : public Val {
 
   void setMemoryType(MemoryType mt);
 
+  SwizzleType swizzleType() const {
+    return swizzle_type_;
+  }
+
+  const std::vector<IterDomain*>& axesToSwizzle() const {
+    return axes_to_swizzle_;
+  }
+
   friend TORCH_CUDA_API TransformReplay;
   friend TORCH_CUDA_API OptOutMutator;
   friend ComputeAt;
-  friend void IrFixComputeAt(Fusion*);
   friend void adjustMemoryTypes(Fusion* fusion);
   friend class ir_utils::TVDomainGuard;
 
@@ -347,6 +357,8 @@ class TORCH_CUDA_API TensorView : public Val {
   unsigned int relative_compute_at_axis_ = 0;
   unsigned int this_compute_at_axis_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
+  SwizzleType swizzle_type_ = SwizzleType::NoSwizzle;
+  std::vector<IterDomain*> axes_to_swizzle_;
 };
 
 //! A simple TensorView builder
