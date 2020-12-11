@@ -1299,6 +1299,7 @@ class TestCudaFuser(JitTestCase):
             else:
                 print('Benchmark meeting threshold of {}:'.format(threshold), jit+native[-2:])
 
+    @unittest.skipUnless(int(os.getenv('CUDA_FUSER_BENCHMARK', 0)) == 1, "only run this when explicitly want for now")
     def test_benchmark_all(self):
         self._benchmark_helper('', 1.2)
 
@@ -1348,6 +1349,7 @@ class TestPassManagerCudaFuser(JitTestCase):
         self.assertTrue(torch._C._jit_nvfuser_enabled())
         self.assertTrue(torch._C._jit_set_nvfuser_enabled(False))
         self.assertFalse(torch._C._jit_nvfuser_enabled())
+
 
 if __name__ == '__main__':
     run_tests()

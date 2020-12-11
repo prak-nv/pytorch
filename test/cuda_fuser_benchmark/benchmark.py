@@ -1,6 +1,7 @@
 import unittest
 import os
 import random
+from functools import partial
 
 import torch
 
@@ -69,8 +70,9 @@ class TestBenchmarkNorm(JitTestCase):
 
         t = MyLogSoftmax()
         jit_t = torch.jit.script(t)
-        # for softmax test, we use logsoftmax to get better comparison
-        log_t = torch.nn.LogSoftmax(dim=reduction_axis)
+        # we compare to native path without fusion
+        # for softmax only, we use existing logsoftmax to get better comparison
+        native_t = torch.nn.LogSoftmax(dim=reduction_axis)
 
         # create input and run one time to trigger compile
         x = torch.randn(shape, dtype=dtype, device=device)
@@ -83,15 +85,15 @@ class TestBenchmarkNorm(JitTestCase):
         test_name = 'softmax' + shape_str + '_' + str(dtype).split(".")[1]
 
         # run both test with benchmark marker
-        self._benchmark_helper([x], test_name+'_native', log_t)
+        self._benchmark_helper([x], test_name+'_native', native_t)
         self._benchmark_helper([x], test_name+'_jit', jit_t)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
     def test_benchmark_softmax(self):
-        for i in [512, 1024, 4096, 50000]:
-            for j in [32, 64, 128, 1024, 2048]:
+        for i in [256, 8192, 50000]:
+            for j in [32, 128, 2048]:
                 self._softmax_benchmark_helper([i, j], 1, torch.float32, "cuda")
                 self._softmax_benchmark_helper([i, j], 1, torch.float16, "cuda")
 
@@ -106,6 +108,8 @@ class TestBenchmarkNorm(JitTestCase):
 
         t = MyBatchNorm()
         jit_t = torch.jit.script(t)
+        # we compare to native path without fusion
+        native_t = partial(torch.nn.functional.batch_norm, training=True)
 
         # create input and run one time to trigger compile
         x = torch.randn(shape, dtype=dtype, device=device)
@@ -125,7 +129,7 @@ class TestBenchmarkNorm(JitTestCase):
         test_name = 'batchnorm' + shape_str + '_' + str(dtype).split(".")[1]
 
         # run both test with benchmark marker
-        self._benchmark_helper([x, eager_running_mean, eager_running_var], test_name+'_native', t)
+        self._benchmark_helper([x, eager_running_mean, eager_running_var], test_name+'_native', native_t)
         self._benchmark_helper([x, jit_running_mean, jit_running_var], test_name+'_jit', jit_t)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
@@ -134,6 +138,47 @@ class TestBenchmarkNorm(JitTestCase):
     def test_benchmark_batch_norm(self):
         self._batch_norm_benchmark_helper([34,128,14,14], torch.float32, "cuda")
         self._batch_norm_benchmark_helper([34,1024,14,14], torch.float16, "cuda")
+
+    def _layer_norm_helper(self, shape, norm_shape, dtype, device):
+        class MyLayerNorm(torch.nn.Module):
+            __constants__ = ['norm_shape']
+
+            def __init__(self):
+                super(MyLayerNorm, self).__init__()
+                self.norm_shape = norm_shape
+
+            def forward(self, x: torch.Tensor):
+                o = torch.nn.functional.layer_norm(x, self.norm_shape)
+                return torch.log(o)
+
+        t = MyLayerNorm()
+        jit_t = torch.jit.script(t)
+        # we compare to native path without fusion
+        native_t = partial(torch.nn.functional.layer_norm, normalized_shape=norm_shape)
+
+        x = torch.randn(shape, dtype=dtype, device=device)
+        jit_o = jit_t(x)
+
+        # create name for the test
+        shape_str = ''
+        for s in shape:
+            shape_str += '_' + str(s)
+        norm_shape_str = ''
+        for s in norm_shape:
+            norm_shape_str += '_' + str(s)
+
+        test_name = 'layernorm' + shape_str + '_normshape' + norm_shape_str + '_' + str(dtype).split(".")[1]
+
+        # run both test with benchmark marker
+        self._benchmark_helper([x], test_name+'_native', native_t)
+        self._benchmark_helper([x], test_name+'_jit', jit_t)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_benchmark_layer_norm(self):
+        self._layer_norm_helper([32,36,30,40], [30, 40], torch.float32, "cuda")
+        self._layer_norm_helper([32,36,30,40], [30, 40], torch.float16, "cuda")
 
 
 if __name__ == '__main__':
