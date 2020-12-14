@@ -647,10 +647,14 @@ void swizzleIndices(const TensorView* tv, IndexCompute& index_compute) {
           tv->swizzleType() == SwizzleType::Transpose,
       "Invalid swizzle type");
   if (tv->swizzleType() == SwizzleType::Transpose) {
+    // Shifts the second axis by the first axis as ((idx_1 + idx_2) %
+    // ext). Alternatively, ((idx_1 - idx_2) & (ext - 1)) would also
+    // work if ext is a power of two. Practically, ext should be 32 if
+    // the data type of the tensor is float, so the latter approach
+    // should also be fine.
     TORCH_INTERNAL_ASSERT(tv->axesToSwizzle().size() == 2);
     UpdateLeafIndices update_leaves(
         tv->domain(), index_compute.indexMap(), index_compute.extentMap());
-    // apply swizzle
     auto id_to_swizzle_i = GpuLower::current()
                                ->lowerValue(tv->axesToSwizzle().at(0))
                                ->as<kir::IterDomain>();
@@ -667,22 +671,12 @@ void swizzleIndices(const TensorView* tv, IndexCompute& index_compute) {
       auto idx_to_swizzle_j = updated_idx_map[id_to_swizzle_j];
 
       kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-#if 0
-      auto swizzled_idx = ir_builder.create<kir::Int>(c10::nullopt);
-      ir_builder.create<kir::BinaryOp>(
-          BinaryOpType::And,
-          swizzled_idx,
-          ir_builder.subExpr(idx_to_swizzle_j, idx_to_swizzle_i),
-          ir_builder.subExpr(id_to_swizzle_j->rawExtent(),
-                             ir_builder.create<kir::Int>(1)));
-#else
       auto swizzled_idx = ir_builder.modExpr(
           ir_builder.addExpr(idx_to_swizzle_i, idx_to_swizzle_j),
           id_to_swizzle_j->rawExtent());
-#endif
-
       updated_idx_map[id_to_swizzle_j] = swizzled_idx;
 
+      // Update the rest of the axes, including the root.
       index_compute = IndexCompute(
           tv->domain(),
           updated_idx_map,
