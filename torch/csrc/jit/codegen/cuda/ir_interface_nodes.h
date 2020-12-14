@@ -260,7 +260,15 @@ class TORCH_CUDA_API TensorView : public Val {
   // Reorder axes according to old2new[old_pos] = new_pos
   TensorView* reorder(const std::unordered_map<int, int>& old2new);
 
-  //! Permute indices
+  //! Swizzle indices to improve memory access efficiency.
+  //!
+  //! Swizzle::Transpose is a pattern commonly used to avoid bank
+  //! conflicts in shared memory. It takes two axes and shifts the
+  //! second axis by the first axis as ((axis1 + axis2) % extent). The
+  //! memory type must be Shared.
+  //!
+  //! \input type Swizzle pattern such as transpose.
+  //! \input axes Axes to swizzle
   TensorView* swizzle(SwizzleType type, const std::vector<int>& axes);
 
   // WARNING: rFactor does not return this TensorView, ir returns a new
