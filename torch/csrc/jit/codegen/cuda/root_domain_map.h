@@ -1,6 +1,7 @@
 #pragma once
 
 #include <torch/csrc/jit/codegen/cuda/disjoint_set.h>
+#include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/utils.h>
 
@@ -97,6 +98,12 @@ class TORCH_CUDA_API PairwiseRootDomainMap : public RootDomainMap {
       const TensorDomain* consumer,
       const std::unordered_set<IterDomain*>& root_dims_to_map,
       bool producer_to_consumer) const override;
+
+  std::unordered_map<IterDomain*, IterDomain*> mapTranspose(
+      const TensorDomain* producer,
+      const TensorDomain* consumer,
+      const std::unordered_set<IterDomain*>& root_dims_to_map,
+      bool producer_to_consumer) const;
 
  private:
   const TensorView* producer_tv_ = nullptr;
@@ -350,6 +357,8 @@ class TORCH_CUDA_API ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   }
 
   void handle(BroadcastOp* op) override;
+
+  void handle(TransposeOp* op) override;
 
   void handle(TensorView* tv) override;
 

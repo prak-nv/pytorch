@@ -13,7 +13,11 @@ namespace cuda {
 
 class Fusion;
 
-// Clones nodes from an exiting Fusion
+//! Clones nodes from an exiting Fusion
+//!
+//! \warning IrCloner machinery is a specialized helper for implementing
+//!   Fusion copy operations and it's not intended for any other uses
+//!
 class TORCH_CUDA_API IrCloner : private OptInConstDispatch {
   friend class Statement;
 
@@ -62,6 +66,7 @@ class TORCH_CUDA_API IrCloner : private OptInConstDispatch {
   void handle(const TernaryOp*) override;
   void handle(const BroadcastOp*) override;
   void handle(const ReductionOp*) override;
+  void handle(const TransposeOp*) override;
 
   void handle(const Split*) override;
   void handle(const Merge*) override;

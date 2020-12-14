@@ -43,7 +43,7 @@ void ReplayTransformations::handle(Split* s) {
       "Transform traversal failed, modified a node but it was not a leaf node.");
 
   // Replay the split onto mapped
-  auto outs = IterDomain::split(mapped, s->factor());
+  auto outs = IterDomain::split(mapped, s->factor(), s->innerSplit());
   // Remove mapped from the leaf IDs
   leaf_ids_.erase(mapped);
 
@@ -353,21 +353,10 @@ BestEffortReplay::BestEffortReplay(
 
     // If the expression is a split, make sure it's split by the same ammount.
     if (r_expr->getExprType().value() == ExprType::Split) {
-      Val* r_factor = r_expr->as<Split>()->factor();
-      Val* t_factor = t_expr->as<Split>()->factor();
-      bool same_split_factor = false;
-      // TODO: virtual invocation should simplify this conditional logic.
-      if (r_factor->isA<Int>()) {
-        TORCH_INTERNAL_ASSERT(t_factor->isA<Int>());
-        same_split_factor = r_factor->as<Int>()->sameAs(t_factor->as<Int>());
-      } else if (r_factor->isA<NamedScalar>()) {
-        TORCH_INTERNAL_ASSERT(t_factor->isA<NamedScalar>());
-        same_split_factor =
-            r_factor->as<NamedScalar>()->sameAs(t_factor->as<NamedScalar>());
-      } else {
-        same_split_factor = r_factor->sameAs(t_factor);
-      }
-      if (!same_split_factor) {
+      auto r_split = r_expr->as<Split>();
+      auto t_split = t_expr->as<Split>();
+      if (!r_split->factor()->sameAs(t_split->factor()) ||
+          r_split->innerSplit() != t_split->innerSplit()) {
         TORCH_INTERNAL_ASSERT(!has_rfactor, err_str);
         continue;
       }

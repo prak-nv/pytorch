@@ -53,12 +53,23 @@ Val::Val(ValType _vtype, DataType _dtype, bool register_val)
   }
 }
 
+// NOTE: we don't clone the definition_ and uses_ here
+//  since they may introduce cloning cycles. Instead, we copy
+//  the original pointers and we'll fix them up later part of the
+//  Fusion copy
+//
 Val::Val(const Val* src, IrCloner* ir_cloner)
-    : Statement(src, ir_cloner), vtype_(src->vtype_), dtype_(src->dtype_) {}
+    : Statement(src, ir_cloner),
+      vtype_(src->vtype_),
+      dtype_(src->dtype_),
+      is_fusion_input_(src->is_fusion_input_),
+      is_fusion_output_(src->is_fusion_output_),
+      definition_(src->definition_),
+      uses_(src->uses_) {}
 
 namespace {
 
-// Traverse origin of all values involved in constructing the provided val.
+// Traverse definition of all values involved in constructing the provided val.
 // Check if all values involved are constant values, meaning the provided
 // val is also a constant value.
 class ConstCheck : OptOutConstDispatch {
@@ -88,11 +99,11 @@ class ConstCheck : OptOutConstDispatch {
   }
 
   void handle(const Val* val) override {
-    const Expr* orig = FusionGuard::getCurFusion()->origin(val);
-    if (orig != nullptr)
-      handle(orig);
-    else
+    if (val->definition() != nullptr) {
+      handle(val->definition());
+    } else {
       OptOutConstDispatch::handle(val);
+    }
   }
 
  public:
@@ -136,20 +147,16 @@ c10::optional<DataType> Val::getDataType() const {
   return dtype_;
 }
 
-Expr* Val::getOrigin() const {
-  return fusion_->origin(this);
-}
-
 bool Val::isProducerOf(const Val* other) const {
   TORCH_INTERNAL_ASSERT(other != nullptr);
   TORCH_INTERNAL_ASSERT(fusion() == other->fusion());
-  Expr* origin = getOrigin();
-  if (origin == nullptr) {
+
+  if (definition() == nullptr) {
     return false;
   }
   return std::any_of(
-      origin->inputs().begin(),
-      origin->inputs().end(),
+      definition()->inputs().begin(),
+      definition()->inputs().end(),
       [other](const Val* input) { return input == other; });
 }
 
@@ -172,15 +179,25 @@ Expr::Expr(const Expr* src, IrCloner* ir_cloner)
       inputs_(ir_cloner->clone(src->inputs_)),
       outputs_(ir_cloner->clone(src->outputs_)) {}
 
-bool Expr::sameAs(const Expr* const other) const {
-  if (getExprType() != other->getExprType())
+bool Expr::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<Expr>()) {
     return false;
-  if (inputs().size() != other->inputs().size() ||
-      outputs().size() != other->outputs().size())
+  }
+  const Expr* other_expr = other->as<Expr>();
+  if (getExprType() != other_expr->getExprType()) {
     return false;
+  }
+  if (inputs().size() != other_expr->inputs().size() ||
+      outputs().size() != other_expr->outputs().size()) {
+    return false;
+  }
   for (size_t i = 0; i < inputs().size(); i++) {
-    if (!input(i)->sameAs(other->input(i)))
+    if (!input(i)->sameAs(other_expr->input(i))) {
       return false;
+    }
   }
   return true;
 }

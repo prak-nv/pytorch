@@ -258,7 +258,10 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
     } else if (integer_input && !all_integer_input) {
       return isIntegralType(v1_dtype) ? v1_dtype : v2_dtype;
     } else {
-      return DataType::Int;
+      TORCH_INTERNAL_ASSERT(
+          false,
+          "Currently no support for float inputs to int operations. ",
+          "Inputs should be manually casted first.");
     }
   } else if (isLogicalOp(op_type)) {
     // If boolean op
@@ -421,12 +424,12 @@ TensorView* ceilDiv(TensorView* v1, TensorView* v2) {
 // andOp
 Val* andOp(Val* v1, Val* v2) {
   TORCH_CHECK(
-      v1->getDataType().value() == DataType::Bool,
-      "Input1 should be of type bool, not ",
+      !isFloatingPointType(v1->getDataType().value()),
+      "Input1 should not be a floating point type, but received: ",
       v1->getDataType().value());
   TORCH_CHECK(
-      v2->getDataType().value() == DataType::Bool,
-      "Input2 should be of type bool, not ",
+      !isFloatingPointType(v2->getDataType().value()),
+      "Input2 should not be a floating point type, but received: ",
       v2->getDataType().value());
   return binaryOp(BinaryOpType::And, v1, v2);
 }
@@ -664,6 +667,26 @@ TensorView* broadcast(
       new TensorDomain(out_domain, std::vector<bool>(out_domain.size(), true)),
       inp->getDataType().value());
   new BroadcastOp(out_tensor, inp, is_broadcast_dim);
+  return out_tensor;
+}
+
+TensorView* transpose(
+    TensorView* inp,
+    const std::unordered_map<int, int>& old2new) {
+  auto inp_domain = TensorDomain::noReductions(inp->getRootDomain());
+  std::vector<IterDomain*> out_domain(inp_domain.size());
+
+  auto new2old = ir_utils::normalizeOld2New(old2new, inp_domain.size());
+
+  for (size_t i = 0; i < out_domain.size(); ++i) {
+    auto in_id = inp_domain[new2old[i]];
+    out_domain[i] = new IterDomain(in_id->start(), in_id->extent());
+  }
+
+  TensorView* out_tensor = new TensorView(
+      new TensorDomain(out_domain, std::vector<bool>(out_domain.size(), true)),
+      inp->getDataType().value());
+  new TransposeOp(out_tensor, inp, new2old);
   return out_tensor;
 }
 

@@ -119,7 +119,7 @@ void GpuLower::lower() {
 
   // Run our passes keeping the lowered expressions and forwarding them
   const auto lowered_exprs =
-      LoopNestGenerator::loweredExprs(fusion_, fusion_->exprs(true));
+      LoopNestGenerator::loweredExprs(fusion_, fusion_->exprs());
 
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, lowered_exprs, preds, ca_root_map);
@@ -162,7 +162,7 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
 
       // Lower the value definition, if any
       if (value->isScalar()) {
-        if (auto def = value->getOrigin()) {
+        if (auto def = value->definition()) {
           const auto kir_def = lowerExpr(def);
           TORCH_INTERNAL_ASSERT(kir_value->definition() == kir_def);
         }
@@ -261,6 +261,16 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
   }
 
   void handle(const ReductionOp* node) final {
+    // If trivial reduction operation lower to set operation.
+    if (!node->out()->as<TensorView>()->hasReduction() &&
+        node->out()->as<TensorView>()->hasAnyReduction()) {
+      const auto lowered_node = ir_builder_.create<kir::UnaryOp>(
+          UnaryOpType::Set, lowerValue(node->out()), lowerValue(node->in()));
+      TORCH_CHECK(
+          gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
+      return;
+    }
+
     const auto lowered_node = ir_builder_.create<kir::ReductionOp>(
         node->getReductionOpType(),
         lowerValue(node->init()),
@@ -272,6 +282,12 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
   void handle(const BroadcastOp* node) final {
     const auto lowered_node = ir_builder_.create<kir::BroadcastOp>(
         lowerValue(node->out()), lowerValue(node->in()));
+    TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
+  }
+
+  void handle(const TransposeOp* node) final {
+    const auto lowered_node = ir_builder_.create<kir::UnaryOp>(
+        UnaryOpType::Set, lowerValue(node->out()), lowerValue(node->in()));
     TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
   }
 

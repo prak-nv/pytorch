@@ -47,7 +47,7 @@ class TORCH_CUDA_API UnaryOp : public Expr {
     return unary_op_type_;
   }
 
-  bool sameAs(const UnaryOp* const other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   const UnaryOpType unary_op_type_;
@@ -79,7 +79,7 @@ class TORCH_CUDA_API BinaryOp : public Expr {
     return binary_op_type_;
   }
 
-  bool sameAs(const BinaryOp* other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   const BinaryOpType binary_op_type_;
@@ -110,11 +110,11 @@ class TORCH_CUDA_API BroadcastOp : public Expr {
     return is_broadcast_dims_.at(dim);
   }
 
-  const std::vector<bool> getBroadcastDimFlags() const {
+  const std::vector<bool>& getBroadcastDimFlags() const {
     return is_broadcast_dims_;
   }
 
-  bool sameAs(const BroadcastOp* const other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   Val* const out_ = nullptr;
@@ -154,13 +154,37 @@ class TORCH_CUDA_API ReductionOp : public Expr {
     return reduction_op_type_;
   }
 
-  bool sameAs(const ReductionOp* const other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   const BinaryOpType reduction_op_type_;
   Val* const init_ = nullptr;
   Val* const out_ = nullptr;
   Val* const in_ = nullptr;
+};
+
+class TORCH_CUDA_API TransposeOp : public Expr {
+ public:
+  TransposeOp(TensorView* out, TensorView* in, std::vector<int> new2old);
+
+  TransposeOp(const TransposeOp* src, IrCloner* ir_cloner);
+
+  TensorView* out() const {
+    return out_;
+  }
+
+  TensorView* in() const {
+    return in_;
+  }
+
+  const std::vector<int>& new2old() const {
+    return new2old_;
+  }
+
+ private:
+  TensorView* const out_ = nullptr;
+  TensorView* const in_ = nullptr;
+  const std::vector<int> new2old_;
 };
 
 class TORCH_CUDA_API TernaryOp : public Expr {
@@ -187,7 +211,7 @@ class TORCH_CUDA_API TernaryOp : public Expr {
     return ternary_op_type_;
   }
 
-  bool sameAs(const TernaryOp* other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   const TernaryOpType ternary_op_type_;
@@ -197,6 +221,9 @@ class TORCH_CUDA_API TernaryOp : public Expr {
   Val* const in3_ = nullptr;
 };
 
+// Friends for direct access to split
+class TensorDomain;
+class ReplayTransformations;
 //! Simply a representation of an annotated 1D iterable from start to extent.
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
@@ -212,7 +239,7 @@ class TORCH_CUDA_API IterDomain : public Val {
 
   IterDomain(const IterDomain* src, IrCloner* ir_cloner);
 
-  bool sameAs(const IterDomain* const other) const;
+  bool sameAs(const Statement* other) const override;
 
   // Returns a new IterDomain matching properties of this
   // TODO: parallel_method->getParallelType
@@ -226,10 +253,6 @@ class TORCH_CUDA_API IterDomain : public Val {
   }
 
   static IterDomain* merge(IterDomain* outer, IterDomain* inner);
-
-  // TODO: Make protected and friend TensorDomain so only it can call into this
-  // directly, users should not be able to use this call
-  static std::pair<IterDomain*, IterDomain*> split(IterDomain* in, Val* factor);
 
   //! Run concretization pass and return the concretized domain of broadcast id
   static const IterDomain* concretizeDomain(IterDomain* bcast_dom);
@@ -317,6 +340,14 @@ class TORCH_CUDA_API IterDomain : public Val {
     return isReduction() && rawExtent()->isOneInt();
   }
 
+ protected:
+  friend TensorDomain;
+  friend ReplayTransformations;
+  static std::pair<IterDomain*, IterDomain*> split(
+      IterDomain* in,
+      Val* factor,
+      bool inner_split);
+
  private:
   Val* const start_ = nullptr;
   Val* const extent_ = nullptr;
@@ -334,7 +365,7 @@ class TORCH_CUDA_API IterDomain : public Val {
 //! if we want to know the previous operation generating a particular
 //! TensorDomain we can simply call:
 //!
-//!     FusionGuard::getCurFusion()->origin(a_tensor_domain)
+//!     FusionGuard::getCurFusion()->definition(a_tensor_domain)
 //!
 //! which should give us an operation in the list [split, merge] or similar
 //! operations that take in a TensorDomain, applies a transformation and outputs
@@ -367,7 +398,7 @@ class TORCH_CUDA_API TensorDomain : public Val {
     return domain_.size();
   }
 
-  bool sameAs(const TensorDomain* const other) const;
+  bool sameAs(const Statement* other) const override;
 
   static bool sameAs(
       const std::vector<IterDomain*>& lhs,
@@ -423,7 +454,7 @@ class TORCH_CUDA_API TensorDomain : public Val {
   void resetDomains() {
     no_reduction_domain_ = noReductions(domain_);
     no_bcast_domain_ = noBroadcasts(domain_);
-    has_reduction_ = hasNontrivialReduction(domain_);
+    has_nontrivial_reduction_ = hasNontrivialReduction(domain_);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
@@ -432,12 +463,15 @@ class TORCH_CUDA_API TensorDomain : public Val {
 
   size_t posOf(IterDomain* id) const;
 
-  // Split "axis" into 2 axes where the inner axes is size of "factor"
-  // and outer axis is size axis.size() / factor. Allow factor to be symbolic
-  // value instead of constant.
-  // TODO: Make protected and friend TensorDomain so only it can call into this
-  // directly, users should not be able to use this call
-  void split(int axis_, Val* factor);
+  // Split "axis" into 2 axes
+  //! inner_split dictates if the factor section of the split should be inside
+  //! the
+  //! remainer or outside.
+  //! e.g. split(0, 4, inner_split = true) will result in:
+  //! tv[id{extent}] -> tv[id{ceilDiv(extent, factor)}, id{factor}]
+  //! e.g. split(0, 4, inner_split = false) will result in:
+  //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
+  void split(int axis_, Val* factor, bool inner_split);
 
   // Merge axis_o and axis_i. axis_i is the fast changing dimension. Resulting
   // axis is by default placed at original position axis_o
@@ -467,14 +501,20 @@ class TORCH_CUDA_API TensorDomain : public Val {
   std::vector<IterDomain*> no_reduction_domain_;
   const std::vector<IterDomain*> rfactor_domain_;
   const std::vector<bool> contiguity_;
-  bool has_reduction_;
+  bool has_nontrivial_reduction_;
 };
 
 //! Representation a split on an IterDomain by "factor"
-//! \todo Implement split by nparts
+//! inner_split dictates if the factor section of the split should be inside the
+//! remainer or outside.
 class TORCH_CUDA_API Split : public Expr {
  public:
-  Split(IterDomain* outer, IterDomain* inner, IterDomain* in, Val* factor);
+  Split(
+      IterDomain* outer,
+      IterDomain* inner,
+      IterDomain* in,
+      Val* factor,
+      bool inner_split = true);
 
   Split(const Split* src, IrCloner* ir_cloner);
 
@@ -491,13 +531,18 @@ class TORCH_CUDA_API Split : public Expr {
     return factor_;
   }
 
-  bool sameAs(const Split* const other) const;
+  bool innerSplit() const {
+    return inner_split_;
+  }
+
+  bool sameAs(const Statement* other) const override;
 
  private:
   IterDomain* const outer_ = nullptr;
   IterDomain* const inner_ = nullptr;
   IterDomain* const in_ = nullptr;
   Val* const factor_ = nullptr;
+  bool inner_split_ = true;
 };
 
 //! Merge the IterDomains outer and inner into one domain, outer and inner
@@ -523,7 +568,7 @@ class TORCH_CUDA_API Merge : public Expr {
     return inner_;
   }
 
-  bool sameAs(const Merge* const other) const;
+  bool sameAs(const Statement* other) const override;
 
  private:
   IterDomain* const out_ = nullptr;
@@ -550,9 +595,7 @@ class TORCH_CUDA_API NamedScalar : public Val {
     return name_;
   }
 
-  bool sameAs(const NamedScalar* const other) const {
-    return other->name().compare(name()) == 0;
-  }
+  bool sameAs(const Statement* other) const override;
 
   //! Return the named scalar extent of a parallel dimension (e.g. blockDim.x)
   static NamedScalar* getParallelDim(ParallelType p_type);
