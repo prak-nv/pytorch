@@ -652,6 +652,7 @@ void swizzleIndices(const TensorView* tv, IndexCompute& index_compute) {
     // work if ext is a power of two. Practically, ext should be 32 if
     // the data type of the tensor is float, so the latter approach
     // should also be fine.
+    TORCH_INTERNAL_ASSERT(tv->getMemoryType() == MemoryType::Shared);
     TORCH_INTERNAL_ASSERT(tv->axesToSwizzle().size() == 2);
     UpdateLeafIndices update_leaves(
         tv->domain(), index_compute.indexMap(), index_compute.extentMap());
