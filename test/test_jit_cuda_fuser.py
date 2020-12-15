@@ -12,6 +12,8 @@ import itertools
 import numpy as np
 import math
 
+from typing import List
+
 os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
 os.environ['PYTORCH_NVFUSER_JIT_OPT_LEVEL'] = '0'
@@ -1277,6 +1279,28 @@ class TestCudaFuser(JitTestCase):
         # have been optimized away
         self.assertGraphContainsExactly(t_jit.graph_for(x, y), FUSION_GUARD, 0)
 
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_profile_ivalue(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([7, 4, 7], dtype=dtype, device=device)
+        y = torch.randn([7, 4, 7], dtype=dtype, device=device)
+
+        # static shape
+        def t(x: torch.Tensor, y: torch.Tensor, dim : List[int], keepdim : bool):
+            o = torch.add(x, y)
+            o = o.sum(dim, keepdim=keepdim)
+            return o
+
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, y, (0, 1), False)
+        jit_o = t_jit(x, y, (0, 1), False)
+        o = t(x, y, (0, 1), False)
+        self.assertEqual(o.dtype, jit_o.dtype)
+        self.assertEqual(o, jit_o)
+        self.assertGraphContains(t_jit.graph_for(x, y, (0, 1), False), FUSION_GUARD)
 
 class TestPassManagerCudaFuser(JitTestCase):
 
