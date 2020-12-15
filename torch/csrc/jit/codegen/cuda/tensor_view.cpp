@@ -410,16 +410,39 @@ TensorView* TensorView::swizzle(
   }
 
   if (swizzle_type_ == SwizzleType::Transpose) {
-    TORCH_CHECK(axes.size() == 2);
-    TORCH_CHECK(getMemoryType() == MemoryType::Shared);
+    TORCH_CHECK(
+        axes.size() == 2,
+        "Invalid axis list: ",
+        axes,
+        ". Number of axes must be two.");
+    TORCH_CHECK(
+        axes[0] != axes[1],
+        "Invalid axis list: ",
+        axes,
+        ". Two distinctive axes must be given.");
+    TORCH_CHECK(
+        getMemoryType() == MemoryType::Shared,
+        "Transpose swizzle is meant for tensors on shared memory.");
     for (auto pos : axes) {
       if (pos < 0) {
         pos += nDims();
       }
-      TORCH_CHECK(pos >= 0 && pos < (int)nDims());
-      TORCH_CHECK(pos >= (int)getThisComputeAtAxis());
-      TORCH_CHECK(!axis(pos)->isReduction());
-      TORCH_CHECK(!axis(pos)->isBroadcast());
+      TORCH_CHECK(pos >= 0 && pos < (int)nDims(), "Invalid axis: ", pos);
+      TORCH_CHECK(
+          pos >= (int)getThisComputeAtAxis(),
+          "Invalid axis: ",
+          pos,
+          ". Axis outside computeAt position is not allocated.");
+      TORCH_CHECK(
+          !axis(pos)->isReduction(),
+          "Invalid axis: ",
+          pos,
+          ". Swizzling a reduction axis is not supported");
+      TORCH_CHECK(
+          !axis(pos)->isBroadcast(),
+          "Invalid axis: ",
+          pos,
+          ". Swizzling a broadcast axis is not supported");
       axes_to_swizzle_.push_back(axis(pos));
     }
   }
