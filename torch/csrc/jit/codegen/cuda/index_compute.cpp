@@ -573,7 +573,7 @@ class UpdateLeafIndices : public IterVisitor {
     index_map_[inner_id] = ir_builder.modExpr(index_map_[in_id], factor);
     extent_map_[inner_id] = factor;
     index_map_[outer_id] = ir_builder.divExpr(index_map_[in_id], factor);
-    extent_map_[inner_id] = ir_builder.ceilDivExpr(getExtent(in_id), factor);
+    extent_map_[outer_id] = ir_builder.ceilDivExpr(getExtent(in_id), factor);
   }
 
   void handle(Merge* merge) override {
