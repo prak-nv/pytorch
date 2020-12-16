@@ -1064,7 +1064,7 @@ void organizeAxes(
   // Move reduction axes to the inner-most position
   merged_reduction_axis = findMergedReductionAxis(first_reduction_tv);
   const size_t kInnerMostAxis = first_reduction_tv->domain()->nDims() - 1;
-  if (merged_reduction_axis != (int)kInnerMostAxis) {
+  if (merged_reduction_axis != int(kInnerMostAxis)) {
     for (auto tv : all_tv) {
       tv->reorder({{merged_reduction_axis, kInnerMostAxis},
                    {kInnerMostAxis, merged_reduction_axis}});

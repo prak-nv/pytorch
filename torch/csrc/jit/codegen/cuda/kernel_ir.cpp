@@ -22,7 +22,7 @@ void Node::print() const {
 }
 
 Val::Val(Passkey passkey, DataType dtype) : Node(passkey), dtype_(dtype) {
-  // NOLINTNEXTLINE (https://bugs.llvm.org/show_bug.cgi?id=48534)
+  // NOLINTNEXTLINE: https://bugs.llvm.org/show_bug.cgi?id=48534
   id_ = passkey.kernel->newValueId(passkey);
 }
 
