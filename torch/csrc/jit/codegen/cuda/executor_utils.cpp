@@ -224,8 +224,7 @@ kir::ExpressionEvaluator bindKernelInputs(
 
   for (size_t i = 0; i < inputs.size(); i++) {
     const auto input = inputs[i];
-    // clang-tidy issues a warning at the else-if path without nullptr check.
-    TORCH_INTERNAL_ASSERT(input != nullptr);
+
     if (auto tensor_input = dynamic_cast<kir::TensorView*>(input)) {
       TORCH_INTERNAL_ASSERT(
           aten_inputs[i].isTensor(),
@@ -255,7 +254,10 @@ kir::ExpressionEvaluator bindKernelInputs(
           expr_eval.bind(extent, value);
         }
       }
-    } else if (input->isScalar() && input->dtype() == DataType::Int) {
+    } else if (input->isScalar() && input->dtype() == DataType::Int) { // NOLINT
+                                                                       // (LLVM
+                                                                       // bug
+                                                                       // 48525)
       TORCH_INTERNAL_ASSERT(
           aten_inputs[i].type()->kind() == c10::TypeKind::IntType);
       expr_eval.bind(input, aten_inputs[i].toInt());

@@ -22,7 +22,7 @@ void Node::print() const {
 }
 
 Val::Val(Passkey passkey, DataType dtype) : Node(passkey), dtype_(dtype) {
-  id_ = passkey.kernel->newValueId(passkey);
+  id_ = passkey.kernel->newValueId(passkey); // NOLINT
 }
 
 void Expr::setParentScope(Expr* scope) {
@@ -94,6 +94,7 @@ IterDomain::IterDomain(
 }
 
 Val* IterDomain::extent() const {
+  TORCH_INTERNAL_ASSERT(extent_ != nullptr);
   if (isThread()) {
     if (extent_->isScalar() && extent_->isConst()) {
       return extent_;
