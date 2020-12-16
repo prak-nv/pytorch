@@ -629,9 +629,9 @@ IndexSwizzle::IndexSwizzle(
     std::unordered_set<kir::IterDomain*> zero_merged_in)
     : IndexCompute(
           tv->domain(),
-          initial_index_map,
-          extent_map,
-          zero_merged_in,
+          std::move(initial_index_map),
+          std::move(extent_map),
+          std::move(zero_merged_in),
           std::vector<bool>(tv->getRootDomain().size(), false)),
       tv_(tv),
       swizzle_type_(tv->swizzleType()),
