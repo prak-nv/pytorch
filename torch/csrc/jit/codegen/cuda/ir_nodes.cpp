@@ -358,15 +358,15 @@ WelfordOp::WelfordOp(
   TORCH_INTERNAL_ASSERT(in_N->getValType().value() == ValType::Scalar);
   TORCH_INTERNAL_ASSERT(
       in_avg && in_avg->getValType().value() == ValType::TensorView);
-  if (!init_N->isOneInt()) {
+  if (!in_N->isOneInt()) {
     // when input is only one value, only the value is required through avg
     // input the var part is implicitly 0 and codegen will handle that.
     TORCH_INTERNAL_ASSERT(
         in_var && in_var->getValType().value() == ValType::TensorView);
   }
 
-  addOutput(out_var);
   addOutput(out_avg);
+  addOutput(out_var);
   addOutput(out_N);
 
   // Conditionally adding this input?
@@ -393,7 +393,7 @@ WelfordOp::WelfordOp(const WelfordOp* src, IrCloner* ir_cloner)
 
 namespace {
 inline bool sameOptionalVal(Val* a, Val* b) {
-  return (a == nullptr && b == nullptr) || (a && b) && (a->sameAs(b));
+  return ((a == nullptr && b == nullptr)) || ((a && b) && (a->sameAs(b)));
 }
 } // namespace
 

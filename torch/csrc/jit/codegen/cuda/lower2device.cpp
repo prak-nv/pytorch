@@ -121,6 +121,10 @@ void GpuLower::lower() {
   const auto lowered_exprs =
       LoopNestGenerator::loweredExprs(fusion_, fusion_->exprs());
 
+  for (auto it : lowered_exprs) {
+    it->print();
+  }
+
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, lowered_exprs, preds, ca_root_map);
 
@@ -132,6 +136,10 @@ void GpuLower::lower() {
 
   // Insert SyncThreads at end of for-loop to avoid WAR race condition
   const auto sync_exprs = insertThreadSynchronization(reuse_mem_exprs);
+
+  for (auto it : sync_exprs) {
+    it->print();
+  }
 
   const auto indexed_loops =
       IndexLowering::getIndexedExprs(sync_exprs, preds, ca_root_map);
@@ -162,9 +170,13 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
 
       // Lower the value definition, if any
       if (value->isScalar()) {
+        // WelfordOp is currently the only op with both scalar and tensor
+        // outputs, we can generalize this when we have more of this sort.
         if (auto def = value->definition()) {
-          const auto kir_def = lowerExpr(def);
-          TORCH_INTERNAL_ASSERT(kir_value->definition() == kir_def);
+          if (!def->isA<WelfordOp>()) {
+            const auto kir_def = lowerExpr(def);
+            TORCH_INTERNAL_ASSERT(kir_value->definition() == kir_def);
+          }
         }
       }
 
@@ -286,10 +298,10 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
         lowerValue(node->outAvg()),
         lowerValue(node->outAvg()),
         lowerOptional(node->initVar()),
-        lowerValue(node->initAvg()),
+        lowerOptional(node->initAvg()),
         lowerValue(node->initN()),
         lowerOptional(node->inVar()),
-        lowerValue(node->initAvg()),
+        lowerValue(node->inAvg()),
         lowerValue(node->inN()));
 
     TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);

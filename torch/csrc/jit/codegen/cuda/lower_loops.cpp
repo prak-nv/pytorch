@@ -428,44 +428,50 @@ void LoopNestGenerator::handle(const Expr* expr) {
   //  TODO: refactor allocation for multi-output ops
   //
 
-  for (int i = 0; i < expr->outputs().size(); i++) {
-    auto o = expr->outputs()[i];
+  auto o = expr->outputs()[0];
+  if (o->isA<TensorView>()) {
     auto o_tv = o->as<TensorView>();
     // Place the allocation for out
     if (!fusion_->hasInput(o_tv) && !fusion_->hasOutput(o_tv)) {
       alloc_expr = pushAlloc(o_tv);
     }
+  }
 
-    //  If this is a reduction, initialize the output (open for loops to inner
-    //  most, predicate, initialize, place next after allocation if exists,
-    //  close to computeAt)
-    if (out->hasReduction()) {
+  //  If this is a reduction, initialize the output (open for loops to inner
+  //  most, predicate, initialize, place next after allocation if exists,
+  //  close to computeAt)
+  if (out->hasReduction()) {
+    if (expr->isA<ReductionOp>()) {
       initReduction(out, expr->as<ReductionOp>()->init(), alloc_expr);
+    } else {
+      // Only WelfordOp expected here
     }
+  }
 
-    //  Place the expression
-    pushBack(gpu_lower->lowerExpr(expr));
+  //  Place the expression
+  pushBack(gpu_lower->lowerExpr(expr));
 
-    for (auto o : expr->outputs()) {
-      // If output is a shared memory buffer, set modified status
+  for (auto o : expr->outputs()) {
+    // If output is a shared memory buffer, set modified status
+    if (o->isA<TensorView>()) {
       auto o_tv = o->as<TensorView>();
       modifySharedMemory(o_tv);
     }
+  }
 
-    // Reduce the loop nest structure back to computeAt
-    if (out->getThisComputeAtAxis() == 0) {
-      while (!for_loops_.empty()) {
-        closeFor();
-      }
-    } else {
-      const auto ca_axis = out->getThisComputeAtAxis() - 1;
-      const auto target_domain =
-          gpu_lower->lowerValue(out->getComputeAtAxis(ca_axis).first)
-              ->as<kir::IterDomain>();
-      while (!for_loops_.empty() &&
-             for_loops_.back()->iter_domain() != target_domain) {
-        closeFor();
-      }
+  // Reduce the loop nest structure back to computeAt
+  if (out->getThisComputeAtAxis() == 0) {
+    while (!for_loops_.empty()) {
+      closeFor();
+    }
+  } else {
+    const auto ca_axis = out->getThisComputeAtAxis() - 1;
+    const auto target_domain =
+        gpu_lower->lowerValue(out->getComputeAtAxis(ca_axis).first)
+            ->as<kir::IterDomain>();
+    while (!for_loops_.empty() &&
+           for_loops_.back()->iter_domain() != target_domain) {
+      closeFor();
     }
   }
 }

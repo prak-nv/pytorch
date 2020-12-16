@@ -274,15 +274,15 @@ WelfordOp::WelfordOp(
       in_var_(in_var),
       in_avg_(in_avg),
       in_N_(in_N) {
-  addOutput(out_var);
   addOutput(out_avg);
+  addOutput(out_var);
   addOutput(out_N);
 
-  addInput(in_avg);
-  addInput(in_N);
   if (!in_N->isOneInt()) {
     addInput(in_var);
   }
+  addInput(in_avg);
+  addInput(in_N);
 }
 
 std::vector<IterDomain*> WelfordOp::getReductionDomains() const {

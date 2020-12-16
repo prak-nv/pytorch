@@ -302,15 +302,16 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
 
   const auto gpu_lower = GpuLower::current();
 
-  const auto out_tv = wop->out()->as<kir::TensorView>();
+  const auto out_tv = wop->outAvg()->as<kir::TensorView>();
   const auto out_domain = out_tv->domain();
 
   const bool is_block_reduce = out_domain->hasBlockReduction();
   const bool is_grid_reduce = out_domain->hasGridReduction();
 
   if (!is_block_reduce && !is_grid_reduce) {
-    const auto in_var = lowerSrcIndex(wop->inVar(), wop->out());
-    const auto in_avg = lowerSrcIndex(wop->inAvg(), wop->out());
+    const auto in_var =
+        wop->inVar() ? lowerSrcIndex(wop->inVar(), wop->outAvg()) : nullptr;
+    const auto in_avg = lowerSrcIndex(wop->inAvg(), wop->outAvg());
 
     auto out_var = lowerDstIndex(out_tv);
     auto out_avg = followIndex(

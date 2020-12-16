@@ -686,7 +686,7 @@ std::vector<TensorView*> Welford(
   // Initial values for welford op are tensors, so their dims have to match the
   // output dim,
   // i.e. original_dims - dims_to_be_reduced
-  if (init_avg != nullptr || init_N != nullptr || init_var != nullptr) {
+  if (!init_N->isZeroInt()) {
     TORCH_CHECK(
         init_avg != nullptr && init_N != nullptr && init_var != nullptr,
         "welford op: all init values need to be provided");
