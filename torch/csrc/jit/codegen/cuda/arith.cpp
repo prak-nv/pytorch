@@ -671,8 +671,8 @@ TensorView* broadcast(
 }
 
 std::vector<TensorView*> Welford(
-    std::vector<int> axes,
     TensorView* tv,
+    std::vector<int> axes,
     TensorView* init_var,
     TensorView* init_avg,
     Int* init_N) {
@@ -733,8 +733,9 @@ std::vector<TensorView*> Welford(
       new Int(1)); /*in var/avg/count */
 
   return {out_var, out_avg};
+}
 
- TensorView* transpose(
+TensorView* transpose(
     TensorView* inp,
     const std::unordered_map<int, int>& old2new) {
   auto inp_domain = TensorDomain::noReductions(inp->getRootDomain());

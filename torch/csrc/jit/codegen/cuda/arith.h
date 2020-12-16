@@ -49,9 +49,9 @@ TORCH_CUDA_API TensorView* reductionOp(
 //! Welford operator on specified axes. This is currently the only scan op with
 //! multiple outputs that is supported. May consider generalization if more scan
 //! ops are added.
-std::vector<TensorView*> Welford(
-    std::vector<int> axes,
+TORCH_CUDA_API std::vector<TensorView*> Welford(
     TensorView* tv,
+    std::vector<int> axes,
     TensorView* init_var = nullptr,
     TensorView* init_avg = nullptr,
     Int* init_N = new Int(0));

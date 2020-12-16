@@ -10301,13 +10301,9 @@ TEST(NVFuserTest, FusionMultiScanOp_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(3);
+  auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  std::vector<TensorView*> tvs = MultiScan(
-      {BinaryOpType::Add, BinaryOpType::Max},
-      {1, 2},
-      {new Double(0), new Double(0)},
-      tv0);
+  std::vector<TensorView*> tvs = Welford(tv0, {0});
   auto tv2 = tvs[0];
   auto tv3 = tvs[1];
   fusion.addOutput(tv2);

@@ -279,25 +279,19 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
     TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
   }
 
-  void handle(const MultiScanOp* node) final {
-    std::vector<kir::Val*> lower_inits(node->init().size());
-    std::vector<kir::Val*> lower_outs(node->init().size());
-    std::transform(
-        node->init().begin(),
-        node->init().end(),
-        lower_inits.begin(),
-        [this](Val* v) { return lowerValue(v); });
-    std::transform(
-        node->out().begin(),
-        node->out().end(),
-        lower_outs.begin(),
-        [this](Val* v) { return lowerValue(v); });
+  void handle(const WelfordOp* node) final {
+    auto lowerOptional = [&](Val* v) { return v ? lowerValue(v) : nullptr; };
+    const auto lowered_node = ir_builder_.create<kir::WelfordOp>(
+        lowerValue(node->outVar()),
+        lowerValue(node->outAvg()),
+        lowerValue(node->outAvg()),
+        lowerOptional(node->initVar()),
+        lowerValue(node->initAvg()),
+        lowerValue(node->initN()),
+        lowerOptional(node->inVar()),
+        lowerValue(node->initAvg()),
+        lowerValue(node->inN()));
 
-    const auto lowered_node = ir_builder_.create<kir::MultiScanOp>(
-        node->getReductionOpTypes(),
-        lower_inits,
-        lower_outs,
-        lowerValue(node->in()));
     TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
   }
 

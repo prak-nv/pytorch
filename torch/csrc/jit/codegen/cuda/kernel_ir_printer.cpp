@@ -286,8 +286,8 @@ void IrPrinter::visit(const kir::ReductionOp* node) {
 }
 
 void IrPrinter::visit(const kir::WelfordOp* node) {
-  indent() << gen(node->outVar()) << "," << gen(node->outAvg())
-           << "," gen(node->outN()) << " = "
+  indent() << gen(node->outVar()) << "," << gen(node->outAvg()) << ","
+           << gen(node->outN()) << " = "
            << "Welford( inAvg=" << use(node->inAvg());
   if (!node->inN()->isOneInt()) {
     indent() << " inVar=" << use(node->inVar());
@@ -296,7 +296,7 @@ void IrPrinter::visit(const kir::WelfordOp* node) {
   if (!node->initN()->isZeroInt()) {
     indent() << ", initVar=" << use(node->initVar())
              << " initAvg=" << use(node->initAvg())
-             << " initN=" << use(node->initN())
+             << " initN=" << use(node->initN());
   }
   indent() << ", pred=" << use(node->predicate()) << ")\n";
 }

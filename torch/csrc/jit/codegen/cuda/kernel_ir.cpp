@@ -283,7 +283,6 @@ WelfordOp::WelfordOp(
   if (!in_N->isOneInt()) {
     addInput(in_var);
   }
-  addInput(in);
 }
 
 std::vector<IterDomain*> WelfordOp::getReductionDomains() const {

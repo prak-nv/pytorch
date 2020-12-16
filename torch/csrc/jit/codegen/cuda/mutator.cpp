@@ -152,49 +152,51 @@ Statement* OptOutMutator::mutate(ReductionOp* rop) {
   return new ReductionOp(rop->getReductionOpType(), init, out, in);
 }
 
-// Need a new interface to support this kind of multi output,
-// but will committ when decided the multi-output interface in the first place
-Statement* OptOutMutator::mutate(MultiScanOp* mop) {
-  Val* in = mutateAsVal(mop->in())->asVal();
+namespace {
+__inline__ bool compareOptional(Val* a, Val* b) {
+  if (!a || !b) {
+    return (!a && !b);
+  }
+  return a->sameAs(b);
+}
 
-  std::vector<Val*> out(mop->out().size());
-  std::transform(
-      mop->out().begin(), mop->out().end(), out.begin(), [this](Val* o) {
-        return mutateAsVal(o)->asVal();
-      });
+} // namespace
 
-  std::vector<Val*> init(mop->out().size());
-  std::transform(
-      mop->init().begin(), mop->init().end(), init.begin(), [this](Val* i) {
-        return mutateAsVal(i)->asVal();
-      });
+Statement* OptOutMutator::mutate(WelfordOp* wop) {
+  Val* out_var = mutateAsVal(wop->outVar())->asVal();
+  Val* out_avg = mutateAsVal(wop->outAvg())->asVal();
+  Val* out_N = mutateAsVal(wop->outN())->asVal();
 
-  size_t num_of_ops = init.size();
-  std::vector<bool> out_compare(num_of_ops, false);
-  std::vector<bool> init_compare(num_of_ops, false);
+  Val* in_var = wop->inVar() ? mutateAsVal(wop->inVar())->asVal() : nullptr;
+  Val* in_avg = mutateAsVal(wop->inAvg())->asVal();
+  Val* in_N = mutateAsVal(wop->inN())->asVal();
 
-  std::transform(
-      out.begin(),
-      out.end(),
-      mop->out().begin(),
-      out_compare.begin(),
-      [](const Val* a, const Val* b) { return a->sameAs(b); });
+  Val* init_var =
+      wop->initVar() ? mutateAsVal(wop->initVar())->asVal() : nullptr;
+  Val* init_avg =
+      wop->initAvg() ? mutateAsVal(wop->initAvg())->asVal() : nullptr;
+  Val* init_N = mutateAsVal(wop->initN())->asVal();
 
-  std::transform(
-      init.begin(),
-      init.end(),
-      mop->init().begin(),
-      init_compare.begin(),
-      [](const Val* a, const Val* b) { return a->sameAs(b); });
+  const bool out_compare = out_var->sameAs(wop->outVar()) &&
+      out_avg->sameAs(wop->outAvg()) && out_N->sameAs(wop->outN());
+  const bool in_compare = compareOptional(in_var, wop->inVar()) &&
+      in_avg->sameAs(wop->inAvg()) && in_N->sameAs(wop->inN());
+  const bool init_compare = compareOptional(init_var, wop->initVar()) &&
+      compareOptional(init_avg, wop->initAvg()) && init_N->sameAs(wop->initN());
 
-  auto all = [](const std::vector<bool>& v) {
-    return std::all_of(v.begin(), v.end(), [](bool b) { return b; });
-  };
-
-  if (all(out_compare) && all(init_compare) && in->sameAs(mop->in())) {
-    return mop;
+  if (out_compare && init_compare && in_compare) {
+    return wop;
   } else {
-    return new MultiScanOp(mop->getReductionOpTypes(), init, out, in);
+    return new WelfordOp(
+        out_var,
+        out_avg,
+        out_N,
+        init_var,
+        init_avg,
+        init_N,
+        in_var,
+        in_avg,
+        in_N);
   }
 }
 

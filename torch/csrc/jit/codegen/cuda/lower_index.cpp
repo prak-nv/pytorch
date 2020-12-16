@@ -297,32 +297,43 @@ kir::TensorIndex* followIndex(
 }
 } // namespace
 
-void IndexLowering::visit(const kir::MultiScanOp* mop) {
-  TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(mop));
+void IndexLowering::visit(const kir::WelfordOp* wop) {
+  TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(wop));
 
   const auto gpu_lower = GpuLower::current();
 
-  const auto out_tv = mop->out()->as<kir::TensorView>();
+  const auto out_tv = wop->out()->as<kir::TensorView>();
   const auto out_domain = out_tv->domain();
 
   const bool is_block_reduce = out_domain->hasBlockReduction();
   const bool is_grid_reduce = out_domain->hasGridReduction();
 
   if (!is_block_reduce && !is_grid_reduce) {
-    const auto in = lowerSrcIndex(mop->in(), mop->out());
-    const int num_of_ops = mop->init().size();
-    std::vector<kir::Val*> output_vec(num_of_ops);
-    output_vec[0] = lowerDstIndex(out_tv);
-    for (int i = 1; i < num_of_ops; i++) {
-      output_vec[i] = followIndex(
-          ir_builder_,
-          output_vec[0]->as<kir::TensorIndex>(),
-          mop->outputs()[i]->as<kir::TensorView>()->fuserTv());
-    }
-    pushBack(ir_builder_.create<kir::MultiScanOp>(
-        mop->operations(), mop->init(), output_vec, in));
+    const auto in_var = lowerSrcIndex(wop->inVar(), wop->out());
+    const auto in_avg = lowerSrcIndex(wop->inAvg(), wop->out());
+
+    auto out_var = lowerDstIndex(out_tv);
+    auto out_avg = followIndex(
+        ir_builder_,
+        out_var->as<kir::TensorIndex>(),
+        wop->outAvg()->as<kir::TensorView>()->fuserTv());
+    auto out_N = followIndex(
+        ir_builder_,
+        out_var->as<kir::TensorIndex>(),
+        wop->outAvg()->as<kir::TensorView>()->fuserTv());
+
+    pushBack(ir_builder_.create<kir::WelfordOp>(
+        out_var,
+        out_avg,
+        out_N,
+        wop->initVar(),
+        wop->initAvg(),
+        wop->initN(),
+        in_var,
+        in_avg,
+        wop->inN()));
   } else {
-    TORCH_INTERNAL_ASSERT(false, "unsupported block/grid multiscan")
+    TORCH_INTERNAL_ASSERT(false, "unsupported block/grid welford")
   }
 }
 

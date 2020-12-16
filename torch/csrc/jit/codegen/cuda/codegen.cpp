@@ -500,70 +500,45 @@ class CudaKernelGenerator : private kir::IrVisitor {
     }
   }
 
-  void visit(const kir::MultiScanOp* node) final {
+  void visit(const kir::WelfordOp* node) final {
     TORCH_INTERNAL_ASSERT(node->out()->isA<kir::TensorIndex>());
 
     const auto out = node->out()->as<kir::TensorIndex>();
     const auto domain = out->view()->domain();
 
+    const auto out_var = node->outVar();
+    const auto out_avg = node->outAvg();
+    const auto out_N = node->outN();
+
+    const auto init_var = node->initVar();
+    const auto init_avg = node->initAvg();
+    const auto init_N = node->initN();
+
+    const auto in_var = node->inVar();
+    const auto in_avg = node->inAvg();
+    const auto in_N = node->inN();
+
     const bool has_block_reduce = domain->hasBlockReduction();
     const bool has_grid_reduce = domain->hasGridReduction();
-    const size_t num_of_ops = node->init().size();
 
+    // Serial WelfordOp generation
     if (!has_block_reduce && !has_grid_reduce) {
-      for (int i = 0; i < num_of_ops; i++) {
-        auto out = node->outputs()[i];
-        const auto gen_out = gen(out);
-        const auto op_type = node->operations()[i];
-        indent() << gen_out << " = "
-                 << genBinaryOp(op_type, out, gen_out, gen(node->in()))
-                 << ";\n";
+      indent() << "welfordCombine ("
+               << "\n";
+      indent() << " " << gen(out_var) << ",\n";
+      indent() << " " << gen(out_avg) << ",\n";
+      indent() << " " << gen(out_N) << ",\n";
+      if (in_var) {
+        indent() << " " << gen(in_var) << ",\n";
+      } else {
+        indent() << " (" << in_avg->dtype() << ") 0"
+                 << ",\n";
       }
+      indent() << " " << gen(in_avg) << ",\n";
+      indent() << " " << gen(in_N) << ");\n";
       return;
     }
-
-    const auto par_domains = node->getParallelReductionDomains();
-
-    for (int i = 0; i < num_of_ops; i++) {
-      const bool tidx =
-          par_domains.find(ParallelType::TIDx) != par_domains.end();
-      const bool tidy =
-          par_domains.find(ParallelType::TIDy) != par_domains.end();
-      const bool tidz =
-          par_domains.find(ParallelType::TIDz) != par_domains.end();
-
-      const auto data_type = node->outputs()[i]->dtype();
-      const auto op_type = node->operations()[i];
-      const auto init_val = node->init()[i];
-
-      if (has_block_reduce) {
-        if (has_grid_reduce) {
-          indent() << data_type << " "
-                   << "block_result"
-                   << ";\n";
-        }
-        indent() << "blockReduce<" << (tidx ? "true" : "false") << ", "
-                 << (tidy ? "true" : "false") << ", "
-                 << (tidz ? "true" : "false") << ">(\n";
-        if (has_grid_reduce) {
-          indent() << kTab << "block_result"
-                   << ",\n";
-        } else {
-          indent() << kTab << gen(node->out()) << ",\n";
-        }
-        indent() << kTab << gen(node->in()) << ",\n";
-        indent() << kTab << genReductionOp(op_type, node->out()) << ",\n";
-        indent() << kTab << "threadIdx,\n";
-        indent() << kTab << "blockDim,\n";
-        indent() << kTab << "static_cast<" << data_type << "*>(shared_mem),\n";
-        if (node->predicate() == nullptr) {
-          indent() << kTab << "true,\n";
-        } else {
-          indent() << kTab << genInline(node->predicate()) << ",\n";
-        }
-        indent() << kTab << genInline(init_val) << ");\n";
-      }
-    }
+    return;
   }
 
   std::string generateGridReduceTemplateFlags(

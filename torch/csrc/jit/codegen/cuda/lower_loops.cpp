@@ -436,35 +436,36 @@ void LoopNestGenerator::handle(const Expr* expr) {
       alloc_expr = pushAlloc(o_tv);
     }
 
-  //  If this is a reduction, initialize the output (open for loops to inner
-  //  most, predicate, initialize, place next after allocation if exists, close
-  //  to computeAt)
-  if (out->hasReduction()) {
-    initReduction(out, expr->as<ReductionOp>()->init(), alloc_expr);
-  }
-
-  //  Place the expression
-  pushBack(gpu_lower->lowerExpr(expr));
-
-  for (auto o : expr->outputs()) {
-    // If output is a shared memory buffer, set modified status
-    auto o_tv = o->as<TensorView>();
-    modifySharedMemory(o_tv);
-  }
-
-  // Reduce the loop nest structure back to computeAt
-  if (out->getThisComputeAtAxis() == 0) {
-    while (!for_loops_.empty()) {
-      closeFor();
+    //  If this is a reduction, initialize the output (open for loops to inner
+    //  most, predicate, initialize, place next after allocation if exists,
+    //  close to computeAt)
+    if (out->hasReduction()) {
+      initReduction(out, expr->as<ReductionOp>()->init(), alloc_expr);
     }
-  } else {
-    const auto ca_axis = out->getThisComputeAtAxis() - 1;
-    const auto target_domain =
-        gpu_lower->lowerValue(out->getComputeAtAxis(ca_axis).first)
-            ->as<kir::IterDomain>();
-    while (!for_loops_.empty() &&
-           for_loops_.back()->iter_domain() != target_domain) {
-      closeFor();
+
+    //  Place the expression
+    pushBack(gpu_lower->lowerExpr(expr));
+
+    for (auto o : expr->outputs()) {
+      // If output is a shared memory buffer, set modified status
+      auto o_tv = o->as<TensorView>();
+      modifySharedMemory(o_tv);
+    }
+
+    // Reduce the loop nest structure back to computeAt
+    if (out->getThisComputeAtAxis() == 0) {
+      while (!for_loops_.empty()) {
+        closeFor();
+      }
+    } else {
+      const auto ca_axis = out->getThisComputeAtAxis() - 1;
+      const auto target_domain =
+          gpu_lower->lowerValue(out->getComputeAtAxis(ca_axis).first)
+              ->as<kir::IterDomain>();
+      while (!for_loops_.empty() &&
+             for_loops_.back()->iter_domain() != target_domain) {
+        closeFor();
+      }
     }
   }
 }

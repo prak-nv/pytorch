@@ -240,17 +240,17 @@ class TORCH_CUDA_API WelfordOp : public Expr {
   }
 
  private:
-  Val* const init_var_;
-  Val* const init_avg_;
-  Val* const init_N_;
   Val* const out_var_;
   Val* const out_avg_;
   Val* const out_N_;
+  Val* const init_var_;
+  Val* const init_avg_;
+  Val* const init_N_;
   Val* const in_var_;
   Val* const in_avg_;
   Val* const in_N_;
 };
-  
+
 class TORCH_CUDA_API TransposeOp : public Expr {
  public:
   TransposeOp(TensorView* out, TensorView* in, std::vector<int> new2old);

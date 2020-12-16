@@ -313,12 +313,13 @@ void IrPrinter::handle(const ReductionOp* rop) {
 void IrPrinter::handle(const WelfordOp* wop) {
   indent();
   os_ << wop->outVar() << "(Var)" << wop->outAvg() << "(Avg)" << wop->outN()
-      << "(Count)" os_ << " = Welford ( ";
+      << "(Count)"
+      << " = Welford ( ";
   if (wop->singleValue()) {
     os_ << wop->inAvg();
   } else {
     os_ << wop->inVar() << "(Var)" << wop->inAvg() << "(Avg)" << wop->inN()
-        << "(Count)"
+        << "(Count)";
   }
   if (wop->hasInit()) {
     os_ << ", initial value = " << wop->initVar() << "(Var)" << wop->initAvg()
