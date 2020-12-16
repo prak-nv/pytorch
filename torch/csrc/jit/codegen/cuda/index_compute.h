@@ -141,7 +141,7 @@ class IndexCompute : public BackwardVisitor {
       const std::vector<bool>& contig2);
 };
 
-//! Updates indices that are affected by swizzling
+//! Apply swizzle and update root indices accordingly
 class IndexSwizzle : public IndexCompute {
  public:
   IndexSwizzle(
