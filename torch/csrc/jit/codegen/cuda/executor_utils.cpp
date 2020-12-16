@@ -254,10 +254,8 @@ kir::ExpressionEvaluator bindKernelInputs(
           expr_eval.bind(extent, value);
         }
       }
-    } else if (input->isScalar() && input->dtype() == DataType::Int) { // NOLINT
-                                                                       // (LLVM
-                                                                       // bug
-                                                                       // 48525)
+      // NOLINTNEXTLINE (https://bugs.llvm.org/show_bug.cgi?id=48525)
+    } else if (input->isScalar() && input->dtype() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
           aten_inputs[i].type()->kind() == c10::TypeKind::IntType);
       expr_eval.bind(input, aten_inputs[i].toInt());
