@@ -10192,10 +10192,13 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   // Tiling step 2: Tiling input SMEM buffers
 
   // Loads a M_BLOCK x K_BLOCK block of A from gmem to smem
+  tv2->setMemoryType(MemoryType::Shared);
   tv2->reorder({{-3, -2}, {-2, -3}});
+  if (std::getenv("TV2_SWIZZLE")) {
+    tv2->swizzle(SwizzleType::Transpose, {-3, -2});
+  }
   tv2->merge(-3, -2);
   tv2->split(-2, BDIM);
-  tv2->setMemoryType(MemoryType::Shared);
 
   // Loads a K_BLOCK x N_BLOCK block of B from gmem to smem
   tv3->merge(-3, -1);
@@ -10217,6 +10220,9 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
       // ..., M_THREAD, M_BLOCK / M_THREAD, N_THREAD, N_BLOCK / N_THREAD
       tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}});
       // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
+      if (tv == tv9) {
+        tv->swizzle(SwizzleType::Transpose, {-4, -1});
+      }
       tv->merge(-4, -3);
       // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
     } else {
@@ -10232,6 +10238,8 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     }
   }
 
+  fusion.printMath();
+
   tv6->computeAt(tv4, -3);
   tv7->computeAt(tv4, -3);
   tv4->computeAt(tv8, -1);
@@ -10245,6 +10253,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
 
   std::cerr << "Tiling step 4 done\n";
   fusion.printMath();
+  fusion.printKernel();
 
   // Parallelization
   // Block binding
