@@ -60,9 +60,9 @@ namespace fuser {
 namespace cuda {
 
 class IndexCompute : public BackwardVisitor {
+ protected:
   using BackwardVisitor::handle;
 
- protected:
   void handle(Split*) override;
   void handle(Merge*) override;
   void handle(Expr*) override;
@@ -143,8 +143,6 @@ class IndexCompute : public BackwardVisitor {
 
 //! Updates indices that are affected by swizzling
 class IndexSwizzle : public IndexCompute {
-  using IndexCompute::handle;
-
  public:
   IndexSwizzle(
       const TensorView* tv,
@@ -155,6 +153,8 @@ class IndexSwizzle : public IndexCompute {
   void run() override;
 
  protected:
+  using IndexCompute::handle;
+
   void handle(Expr* e) override;
 
  private:
