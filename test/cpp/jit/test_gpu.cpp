@@ -10641,7 +10641,7 @@ TEST(NVFuserTest, FusionWelfordOp_CUDA) {
 
   // add output number to the fusion output to enable traversal
   fusion.addOutput(tv3->definition()->as<WelfordOp>()->outN());
-  
+
   fusion.printMath();
   fusion.printKernel();
 }
@@ -10652,13 +10652,12 @@ TEST(NVFuserTest, FusionRefSumOp_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  auto tv2 = sum(tv0,{0});
+  auto tv2 = sum(tv0, {0});
   fusion.addOutput(tv2);
-  
+
   fusion.printMath();
   fusion.printKernel();
 }
-
 
 TEST(NVFuserTest, FusionTranspose1_CUDA) {
   Fusion fusion;

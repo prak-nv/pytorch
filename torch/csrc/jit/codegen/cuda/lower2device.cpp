@@ -303,7 +303,7 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
         lowerOptional(node->inVar()),
         lowerValue(node->inAvg()),
         lowerValue(node->inN()));
-        
+
     TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
   }
 

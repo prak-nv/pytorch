@@ -574,7 +574,7 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
         TensorDomain::noReductions(i->getMaybeRFactorDomain());
     TORCH_INTERNAL_ASSERT(in_root.size() == out_root.size());
     for (size_t it = 0; it < in_root.size(); it++) {
-      if(e->isA<WelfordOp>()){
+      if (e->isA<WelfordOp>()) {
         const auto welford = e->as<WelfordOp>();
         const auto var_tv = welford->outVar()->as<TensorView>();
         const auto avg_tv = welford->outAvg()->as<TensorView>();
@@ -583,10 +583,10 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
         const auto var_root = var_td->getRootDomain();
         const auto avg_td = avg_tv->domain();
         const auto avg_root = avg_td->getRootDomain();
-        
+
         setMaybeMapped(in_td, in_root[it], var_td, var_root[it]);
         setMaybeMapped(in_td, in_root[it], avg_td, avg_root[it]);
-      }else{
+      } else {
         setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
       }
     }
