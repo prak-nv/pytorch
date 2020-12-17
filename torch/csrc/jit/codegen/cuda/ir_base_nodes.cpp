@@ -63,7 +63,7 @@ Val::Val(const Val* src, IrCloner* ir_cloner)
       vtype_(src->vtype_),
       dtype_(src->dtype_),
       is_fusion_input_(src->is_fusion_input_),
-      is_fusion_output_(src->is_fusion_output_){}
+      is_fusion_output_(src->is_fusion_output_) {}
 
 namespace {
 

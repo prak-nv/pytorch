@@ -1,4 +1,4 @@
-#if defined(USE_CUDA)
+// #if defined(USE_CUDA)
 #include <gtest/gtest.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
@@ -13,6 +13,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_graphviz.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
+#include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_cache.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
@@ -21,6 +22,7 @@
 #include <torch/csrc/jit/codegen/cuda/mutator.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
+#include <torch/csrc/jit/codegen/cuda/segment.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 #include <torch/csrc/jit/codegen/cuda/transform_rfactor.h>
 
@@ -10360,83 +10362,6 @@ TEST(NVFuserTest, FusionTranspose2_CUDA) {
       &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionManualMultiKernel_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  constexpr int bid_x = 80;
-  constexpr int tid_x = 4096;
-
-  TensorView* tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-
-  TensorView* tv1 = sum(tv0, {0});
-
-  TensorView* tv2 = add(tv1, tv0); // implicit bcast
-
-  TensorView* tv3 = sum(tv2, {1});
-
-  fusion.addOutput(tv3);
-
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
-  auto aten_output =
-      aten_input.to(at::kDouble).sum({0}).add(aten_input).sum({1});
-
-  // Setup and run first fusion
-
-  Fusion fusion0;
-  auto clone0 = Fusion::copy(&fusion, &fusion0);
-
-  fusion0.removeOutput(clone0.clone(tv3));
-  fusion0.addOutput(clone0.clone(tv1));
-
-  // Apply reduction heuristic
-  auto reduction_params0 =
-      getReductionHeuristics(&fusion0, {aten_input}, clone0.clone(tv1));
-  TORCH_CHECK(reduction_params0, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion0, reduction_params0.value(), clone0.clone(tv1), {});
-
-  auto lparams0 = reduction_params0.value().lparams;
-
-  FusionExecutor fe0;
-  fe0.compileFusion(&fusion0);
-  auto cg_tv1 = fe0.runFusion({aten_input}, lparams0)[0];
-
-  // Setup and run second fusion
-
-  Fusion fusion1;
-  auto clone1 = Fusion::copy(&fusion, &fusion1);
-  fusion1.addInput(clone1.clone(tv1));
-
-  // Apply reduction heuristic
-  auto reduction_params1 =
-      getReductionHeuristics(&fusion1, {aten_input, cg_tv1}, clone1.clone(tv3));
-
-  TORCH_CHECK(reduction_params1, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion1, reduction_params1.value(), clone1.clone(tv3), {});
-
-  auto lparams = reduction_params1.value().lparams;
-
-  FusionExecutor fe1;
-  fe1.compileFusion(&fusion1);
-  // no broadcasting needed, omitting the last optional argument;
-  auto cg_outputs = fe1.runFusion({aten_input, cg_tv1}, lparams0);
-
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {aten_input},
-      {aten_output},
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
-
- }
-
 TEST(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -10957,7 +10882,115 @@ TEST(NVFuserTest, FusionAdvancedComputeAtTransposed6_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionManualMultiKernel_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int bid_x = 80;
+  constexpr int tid_x = 4096;
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = sum(tv0, {0});
+
+  TensorView* tv2 = add(tv1, tv0); // implicit bcast
+
+  TensorView* tv3 = sum(tv2, {1});
+
+  fusion.addOutput(tv3);
+
+  const auto options =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
+  auto aten_output =
+      aten_input.to(at::kDouble).sum({0}).add(aten_input).sum({1});
+
+  // Setup and run first fusion
+
+  Fusion fusion0;
+  auto clone0 = Fusion::copy(&fusion, &fusion0);
+
+  fusion0.removeOutput(clone0.clone(tv3));
+  fusion0.addOutput(clone0.clone(tv1));
+
+  // Apply reduction heuristic
+  auto reduction_params0 =
+      getReductionHeuristics(&fusion0, {aten_input}, clone0.clone(tv1));
+  TORCH_CHECK(reduction_params0, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion0, reduction_params0.value(), clone0.clone(tv1), {});
+
+  auto lparams0 = reduction_params0.value().lparams;
+
+  FusionExecutor fe0;
+  fe0.compileFusion(&fusion0);
+  auto cg_tv1 = fe0.runFusion({aten_input}, lparams0)[0];
+
+  // Setup and run second fusion
+
+  Fusion fusion1;
+  auto clone1 = Fusion::copy(&fusion, &fusion1);
+  fusion1.addInput(clone1.clone(tv1));
+
+  // Apply reduction heuristic
+  auto reduction_params1 =
+      getReductionHeuristics(&fusion1, {aten_input, cg_tv1}, clone1.clone(tv3));
+
+  TORCH_CHECK(reduction_params1, "Reduction schedule was not generated!");
+  scheduleReduction(&fusion1, reduction_params1.value(), clone1.clone(tv3), {});
+
+  auto lparams = reduction_params1.value().lparams;
+
+  FusionExecutor fe1;
+  fe1.compileFusion(&fusion1);
+  // no broadcasting needed, omitting the last optional argument;
+  auto cg_outputs = fe1.runFusion({aten_input, cg_tv1}, lparams0);
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {aten_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+
+TEST(NVFuserTest, FusionSegment_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = transpose(tv0, {{0, 1}}); // level 0
+
+  TensorView* tv2 = add(tv1, new Double(1)); // level 1
+  TensorView* tv3 = add(tv2, new Double(2)); // level 2
+  TensorView* tv4 = add(tv2, new Double(3)); // level 2
+  TensorView* tv5 = add(tv2, new Double(4)); // level 2
+  TensorView* tv6 = add(tv4, tv3); // level 3
+  TensorView* tv7 = add(tv6, tv5); // level 4
+  TensorView* tv8 = add(tv2, tv5); // level 3
+
+  TensorView* tv9 = sum(tv7, {0});
+  TensorView* tv10 = sum(tv8, {1});
+
+  fusion.addOutput(tv9);
+  fusion.addOutput(tv10);
+  fusion.printMath();
+  for (auto expr : fusion.exprs()) {
+    std::cout << expr->name() << "  " << expr << std::endl;
+  }
+
+  SingleReductionKernels kernels(&fusion);
+  std::cout << &kernels << std::endl;
+  std::cout << "============" << std::endl;
+  kernels.segment();
+}
+
 } // namespace jit
 } // namespace torch
-
-#endif // #if defined(USE_CUDA)
+// #endif // #if defined(USE_CUDA)

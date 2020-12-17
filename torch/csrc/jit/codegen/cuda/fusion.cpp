@@ -76,7 +76,7 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     to->val_set_.insert(ir_cloner.clone(val));
   }
 
-  for (auto expr : from->expr_set_){
+  for (auto expr : from->expr_set_) {
     to->expr_set_.insert(ir_cloner.clone(expr));
   }
 
@@ -88,7 +88,6 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
-
 
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;

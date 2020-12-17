@@ -70,7 +70,7 @@ void IterVisitor::handle(Expr* e) {
   OptOutDispatch::handle(e);
 }
 
-  // This handle functions is called on every Val* in topological order,
+// This handle functions is called on every Val* in topological order,
 // starting from outputs to inputs.
 void IterVisitor::handle(Val* v) {
   OptOutDispatch::handle(v);
