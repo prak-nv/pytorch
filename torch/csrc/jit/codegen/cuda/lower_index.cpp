@@ -299,7 +299,7 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
     auto out_avg = lowerDstIndex(wop->outAvg());
     auto out_var = lowerDstIndex(wop->outVar());
     auto out_N = lowerDstIndex(wop->outN());
-    
+
     pushBack(ir_builder_.create<kir::WelfordOp>(
         out_var,
         out_avg,

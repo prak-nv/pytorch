@@ -585,13 +585,13 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
 
         const auto n_td = n_tv->domain();
         const auto n_root = n_td->getRootDomain();
-        
+
         const auto avg_td = avg_tv->domain();
         const auto avg_root = avg_td->getRootDomain();
 
         setMaybeMapped(in_td, in_root[it], var_td, var_root[it]);
         setMaybeMapped(in_td, in_root[it], avg_td, avg_root[it]);
-        setMaybeMapped(in_td, in_root[it], n_td, n_root[it]);    
+        setMaybeMapped(in_td, in_root[it], n_td, n_root[it]);
       } else {
         setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
       }

@@ -446,7 +446,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
       const auto out_avg = welford->outAvg()->as<TensorView>();
       const auto out_N = welford->outN()->as<TensorView>();
 
-       // Welford Params
+      // Welford Params
       kir::Expr* alloc_var = nullptr;
       kir::Expr* alloc_avg = nullptr;
       kir::Expr* alloc_N = nullptr;
