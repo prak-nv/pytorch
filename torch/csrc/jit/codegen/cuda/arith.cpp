@@ -228,19 +228,40 @@ TensorView* arithOpOverloads(
       ->template as<TensorView>();
 }
 
+namespace {
+enum class Category { Scalar, ZeroDimTensor, DimTensor };
+
+inline Category getCategory(const Val* v) {
+  if (v->isA<TensorView>()) {
+    if (v->as<TensorView>()->nDims() > 0) {
+      return Category::DimTensor;
+    } else {
+      return Category::ZeroDimTensor;
+    }
+  } else {
+    return Category::Scalar;
+  }
+}
+
+// replicated logic from Aten/native/TypeProperties.cpp, minus complex support
+DataType getCommonType(DataType higher, DataType lower) {
+  if (isFloatingPointType(higher)) {
+    return higher;
+  }
+  if (higher == DataType::Bool || isFloatingPointType(lower)) {
+    return promote_type(higher, lower);
+  }
+  if (higher != DataType::Null) {
+    return higher;
+  }
+  return lower;
+}
+} // namespace
+
 // Type promotion logic for binary operators
 DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
   DataType v1_dtype = v1->getDataType().value();
   DataType v2_dtype = v2->getDataType().value();
-
-  // If we have a tensor view in one argument but a scalar in the other, don't
-  // type promote, just use the tensorview type
-  if (v1->isA<TensorView>() && !v2->isA<TensorView>()) {
-    v2_dtype = v1_dtype;
-  }
-  if (v2->isA<TensorView>() && !v1->isA<TensorView>()) {
-    v1_dtype = v2_dtype;
-  }
 
   const bool floating_input =
       isFloatingPointType(v1_dtype) || isFloatingPointType(v2_dtype);
@@ -251,11 +272,27 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
   const bool all_integer_input =
       isIntegralType(v1_dtype) && isIntegralType(v2_dtype);
 
+  // Combine categories
+  const auto v1_cat = getCategory(v1);
+  const auto v2_cat = getCategory(v2);
+  if (v1_cat != v2_cat) {
+    const DataType higher = v1_cat > v2_cat ? v1_dtype : v2_dtype;
+    const DataType lower = v1_cat > v2_cat ? v2_dtype : v1_dtype;
+    const DataType common_type = getCommonType(higher, lower);
+    v1_dtype = common_type;
+    v2_dtype = common_type;
+  }
+
   if (isIntegerOp(op_type) || (alsoBooleanOperator(op_type) && integer_input)) {
     // If integer op or maybe bool op with integer inputs meaning binary op
     if (integer_input && all_integer_input) {
       return promote_type(v1_dtype, v2_dtype);
     } else if (integer_input && !all_integer_input) {
+      TORCH_CHECK(
+          !floating_input,
+          "Operator ",
+          op_type,
+          " not supported with floating point inputs.");
       return isIntegralType(v1_dtype) ? v1_dtype : v2_dtype;
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -264,7 +301,6 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
           "Inputs should be manually casted first.");
     }
   } else if (isLogicalOp(op_type)) {
-    // If boolean op
     return DataType::Bool;
   } else if (alsoBooleanOperator(op_type)) {
     // If boolean op that can't have floating inputs (& or |)
@@ -424,12 +460,12 @@ TensorView* ceilDiv(TensorView* v1, TensorView* v2) {
 // andOp
 Val* andOp(Val* v1, Val* v2) {
   TORCH_CHECK(
-      v1->getDataType().value() == DataType::Bool,
-      "Input1 should be of type bool, not ",
+      !isFloatingPointType(v1->getDataType().value()),
+      "Input1 should not be a floating point type, but received: ",
       v1->getDataType().value());
   TORCH_CHECK(
-      v2->getDataType().value() == DataType::Bool,
-      "Input2 should be of type bool, not ",
+      !isFloatingPointType(v2->getDataType().value()),
+      "Input2 should not be a floating point type, but received: ",
       v2->getDataType().value());
   return binaryOp(BinaryOpType::And, v1, v2);
 }
@@ -1012,7 +1048,7 @@ TensorView* sum_to(TensorView* in, const std::vector<Int*>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (int i = leading_dims; i < root.size(); i++) {
+  for (int i = leading_dims; i < int(root.size()); i++) {
     if (sum_to_size[i - leading_dims]->isOneInt() &&
         !root[i]->rawExtent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
