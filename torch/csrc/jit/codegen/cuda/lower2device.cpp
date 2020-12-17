@@ -296,14 +296,14 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
     const auto lowered_node = ir_builder_.create<kir::WelfordOp>(
         lowerValue(node->outVar()),
         lowerValue(node->outAvg()),
-        lowerValue(node->outAvg()),
+        lowerValue(node->outN()),
         lowerOptional(node->initVar()),
         lowerOptional(node->initAvg()),
         lowerValue(node->initN()),
         lowerOptional(node->inVar()),
         lowerValue(node->inAvg()),
         lowerValue(node->inN()));
-
+        
     TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
   }
 

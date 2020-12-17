@@ -63,7 +63,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
               << "> " << varName(tv);
       } else {
         TORCH_INTERNAL_ASSERT(val->isScalar());
-        TORCH_INTERNAL_ASSERT(val->definition() == nullptr);
+        TORCH_INTERNAL_ASSERT(val->definition() == nullptr || val->definition()->isA<kir::WelfordOp>());
         code_ << val->dtype() << " " << gen(val);
       }
 

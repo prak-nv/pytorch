@@ -313,20 +313,16 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
         wop->inVar() ? lowerSrcIndex(wop->inVar(), wop->outAvg()) : nullptr;
     const auto in_avg = lowerSrcIndex(wop->inAvg(), wop->outAvg());
 
-    auto out_var = lowerDstIndex(out_tv);
-    auto out_avg = followIndex(
+    auto out_avg = lowerDstIndex(out_tv);
+    auto out_var = followIndex(
         ir_builder_,
-        out_var->as<kir::TensorIndex>(),
-        wop->outAvg()->as<kir::TensorView>()->fuserTv());
-    auto out_N = followIndex(
-        ir_builder_,
-        out_var->as<kir::TensorIndex>(),
-        wop->outAvg()->as<kir::TensorView>()->fuserTv());
+        out_avg->as<kir::TensorIndex>(),
+        wop->outVar()->as<kir::TensorView>()->fuserTv());
 
     pushBack(ir_builder_.create<kir::WelfordOp>(
         out_var,
         out_avg,
-        out_N,
+        wop->outN(),
         wop->initVar(),
         wop->initAvg(),
         wop->initN(),

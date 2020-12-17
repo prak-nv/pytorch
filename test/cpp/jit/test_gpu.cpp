@@ -10303,7 +10303,7 @@ TEST(NVFuserTest, FusionWelfordOp_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  std::vector<TensorView*> tvs = Welford(tv0, {0});
+  std::vector<TensorView*> tvs = Welford(tv0, {1});
   auto tv2 = tvs[0];
   auto tv3 = tvs[1];
   fusion.addOutput(tv2);
@@ -10311,7 +10311,7 @@ TEST(NVFuserTest, FusionWelfordOp_CUDA) {
 
   // add output number to the fusion output to enable traversal
   fusion.addOutput(tv3->definition()->as<WelfordOp>()->outN());
-
+  
   fusion.printMath();
   fusion.printKernel();
 }
