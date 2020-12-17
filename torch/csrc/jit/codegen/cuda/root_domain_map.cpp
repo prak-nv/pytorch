@@ -578,14 +578,20 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
         const auto welford = e->as<WelfordOp>();
         const auto var_tv = welford->outVar()->as<TensorView>();
         const auto avg_tv = welford->outAvg()->as<TensorView>();
+        const auto n_tv = welford->outN()->as<TensorView>();
 
         const auto var_td = var_tv->domain();
         const auto var_root = var_td->getRootDomain();
+
+        const auto n_td = n_tv->domain();
+        const auto n_root = n_td->getRootDomain();
+        
         const auto avg_td = avg_tv->domain();
         const auto avg_root = avg_td->getRootDomain();
 
         setMaybeMapped(in_td, in_root[it], var_td, var_root[it]);
         setMaybeMapped(in_td, in_root[it], avg_td, avg_root[it]);
+        setMaybeMapped(in_td, in_root[it], n_td, n_root[it]);    
       } else {
         setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
       }

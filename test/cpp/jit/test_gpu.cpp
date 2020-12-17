@@ -10633,14 +10633,19 @@ TEST(NVFuserTest, FusionWelfordOp_CUDA) {
 
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
-  std::vector<TensorView*> tvs = Welford(tv0, {1});
+  auto tv1 = mul(tv0,new Double(1));
+  std::vector<TensorView*> tvs = Welford(tv1, {1});
   auto tv2 = tvs[0];
   auto tv3 = tvs[1];
   fusion.addOutput(tv2);
   fusion.addOutput(tv3);
-
+  auto tvN = tv3->definition()->as<WelfordOp>()->outN()->as<TensorView>();
+  fusion.addOutput(tvN);
+  tv1 ->computeAt(tv3,-1);
+  
+  
   // add output number to the fusion output to enable traversal
-  fusion.addOutput(tv3->definition()->as<WelfordOp>()->outN());
+  
 
   fusion.printMath();
   fusion.printKernel();

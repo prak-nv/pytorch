@@ -344,7 +344,7 @@ WelfordOp::WelfordOp(
   // Check output type
   TORCH_INTERNAL_ASSERT(out_var->getValType().value() == ValType::TensorView);
   TORCH_INTERNAL_ASSERT(out_avg->getValType().value() == ValType::TensorView);
-  TORCH_INTERNAL_ASSERT(out_N->getValType().value() == ValType::Scalar);
+  TORCH_INTERNAL_ASSERT(out_N->getValType().value() == ValType::TensorView);
 
   // check initial value
   TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Scalar);

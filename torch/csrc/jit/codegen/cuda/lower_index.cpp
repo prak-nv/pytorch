@@ -280,21 +280,6 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
   }
 }
 
-namespace {
-kir::TensorIndex* followIndex(
-    kir::IrBuilder& ir_builder,
-    kir::TensorIndex* ti,
-    TensorView* tv) {
-  TORCH_INTERNAL_ASSERT(ti->view()->domain()->nDims() == tv->domain()->nDims());
-  int n_dims = ti->nDims();
-  std::vector<kir::Val*> indices(n_dims);
-  for (int i = 0; i < n_dims; i++) {
-    indices[i] = ti->index(i);
-  }
-  return ir_builder.create<kir::TensorIndex>(tv, indices);
-}
-} // namespace
-
 void IndexLowering::visit(const kir::WelfordOp* wop) {
   TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(wop));
 
@@ -311,16 +296,14 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
         wop->inVar() ? lowerSrcIndex(wop->inVar(), wop->outAvg()) : nullptr;
     const auto in_avg = lowerSrcIndex(wop->inAvg(), wop->outAvg());
 
-    auto out_avg = lowerDstIndex(out_tv);
-    auto out_var = followIndex(
-        ir_builder_,
-        out_avg->as<kir::TensorIndex>(),
-        wop->outVar()->as<kir::TensorView>()->fuserTv());
-
+    auto out_avg = lowerDstIndex(wop->outAvg());
+    auto out_var = lowerDstIndex(wop->outVar());
+    auto out_N = lowerDstIndex(wop->outN());
+    
     pushBack(ir_builder_.create<kir::WelfordOp>(
         out_var,
         out_avg,
-        wop->outN(),
+        out_N,
         wop->initVar(),
         wop->initAvg(),
         wop->initN(),

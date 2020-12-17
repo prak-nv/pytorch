@@ -537,7 +537,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
                  << ",\n";
       }
       indent() << " " << gen(in_avg) << ",\n";
-      indent() << " " << gen(in_N) << ");\n";
+      indent() << " (" << out_N->dtype() << ")" << gen(in_N) << ");\n";
       return;
     }
     return;

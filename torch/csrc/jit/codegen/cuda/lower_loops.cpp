@@ -433,19 +433,6 @@ void LoopNestGenerator::handle(const Expr* expr) {
     }
   }
 
-  // Welford Params
-  kir::Expr* alloc_var = nullptr;
-  kir::Expr* alloc_avg = nullptr;
-
-  if (expr->isA<WelfordOp>()) {
-    auto o_var = expr->as<WelfordOp>()->outVar()->as<TensorView>();
-    auto o_avg = expr->as<WelfordOp>()->outAvg()->as<TensorView>();
-    if (!fusion_->hasOutput(o_var)) {
-      alloc_var = pushAlloc(o_var);
-      alloc_avg = pushAlloc(o_avg);
-    }
-  }
-
   //  If this is a reduction, initialize the output (open for loops to inner
   //  most, predicate, initialize, place next after allocation if exists,
   //  close to computeAt)
@@ -453,16 +440,29 @@ void LoopNestGenerator::handle(const Expr* expr) {
     if (expr->isA<ReductionOp>()) {
       initReduction(out, expr->as<ReductionOp>()->init(), alloc_expr);
     } else if (expr->isA<WelfordOp>()) {
+      // alloc and init for welfordOp
       const auto welford = expr->as<WelfordOp>();
       const auto out_var = welford->outVar()->as<TensorView>();
       const auto out_avg = welford->outAvg()->as<TensorView>();
+      const auto out_N = welford->outN()->as<TensorView>();
+
+       // Welford Params
+      kir::Expr* alloc_var = nullptr;
+      kir::Expr* alloc_avg = nullptr;
+      kir::Expr* alloc_N = nullptr;
+
+      if (!fusion_->hasOutput(out_var)) {
+        alloc_var = pushAlloc(out_var);
+        alloc_avg = pushAlloc(out_avg);
+        alloc_avg = pushAlloc(out_N);
+      }
       const auto init_var =
-          welford->initVar() ? welford->initVar() : new Int(0);
+          welford->initVar() ? welford->initVar() : new Double(0);
       const auto init_avg =
-          welford->initAvg() ? welford->initAvg() : new Int(0);
+          welford->initAvg() ? welford->initAvg() : new Double(0);
       initReduction(out_var, init_var, alloc_var);
       initReduction(out_avg, init_avg, alloc_avg);
-      // Only WelfordOp expected here
+      initReduction(out_N, welford->initN(), alloc_N);
     }
   }
 
