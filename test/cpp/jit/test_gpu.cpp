@@ -10121,36 +10121,10 @@ TEST(NVFuserTest, FusionIssue532_CUDA) {
 TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   const bool cyclic = std::getenv("NO_CYCLIC") == nullptr;
   const bool from_file = std::getenv("FROM_FILE");
+  const bool perf_measure = std::getenv("PERF_MEASURE");
 
-  constexpr int M = 154, K = 45, N = 1524;
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  // Algorithm
-  // TensorView* tv0 = makeSymbolicTensor(2); // (M, K)
-  TensorView* tv0 = makeConcreteTensor({M, K}); // (M, K)
-  // TensorView* tv1 = makeSymbolicTensor(2); // (K, N)
-  TensorView* tv1 = makeConcreteTensor({K, N}); // (K, N)
-  TensorView* tv2 = broadcast(tv0, {false, false, true}); // (M, K, B)
-  TensorView* tv3 = broadcast(tv1, {true, false, false}); // (B, K, N)
-  TensorView* tv4 = mul(tv2, tv3); // M, K, N
-  TensorView* tv5 = sum(tv4, {1}); // M, R, N
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  fusion.addOutput(tv5);
-
-  // For register blocking of input matrices
-  auto tv6 = tv2->cache_after();
-  auto tv7 = tv3->cache_after();
-  // For reduction using registers
-  auto tv8 = tv5->cache_before();
-  // Intermediate shared-memory buffer to store the final results in a
-  // coalesced manner
-  auto tv9 = tv5->cache_before();
-  tv9->setMemoryType(MemoryType::Shared);
-
-  fusion.printMath();
+  int M = 154, K = 45, N = 1524;
+  M = K = N = 4096;
 
   // Each thread block computes a M_BLOCK x N_BLOCK elements
   const int M_BLOCK = 64;
@@ -10163,125 +10137,10 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
 
   const int BDIM = (M_BLOCK / M_THREAD) * (N_BLOCK / N_THREAD);
 
-  // Tiling step 1: Set the overall tiling for thread blocks
-
-  // Tiles the matrices for thread blocks. Each thread block computes
-  // matrix multiplication of (M_BLOCK, K) and (K, N_BLOCK).
-  tv5->split(1, N_BLOCK);
-  tv5->split(0, M_BLOCK);
-  // M/M_BLOCK, M_BLOCK, N/N_BLOCK, N_BLOCK
-  tv5->reorder({{0, 0}, {1, 2}, {2, 1}, {3, 3}});
-  // M/M_BLOCK, N/N_BLOCK, M_BLOCK, N_BLOCK
-
-  tv8->computeAt(tv5, 2);
-
-  // Tiles the reduction axis by K_BLOCK
-  tv8->split(-1, K_BLOCK);
-  // M/M_BLOCK, N/N_BLOCK, M_BLOCK, N_BLOCK, K/K_BLOCK, K_BLOCK
-  tv8->reorder({{4, 2}, {5, 3}, {2, 4}, {3, 5}});
-  // M/M_BLOCK, N/N_BLOCK, K/K_BLOCK, K_BLOCK, M_BLOCK, N_BLOCK
-
-  // Inlines input tensors inside the M/M_BLOCK, N/N_BLOCK and
-  // K/K_BLOCK loops
-  tv0->computeAt(tv8, 3);
-  tv1->computeAt(tv8, 3);
-
-  std::cerr << "Tiing step 1 done\n";
-  fusion.printMath();
-
-  // Tiling step 2: Tiling input SMEM buffers
-
-  // Loads a M_BLOCK x K_BLOCK block of A from gmem to smem
-  tv2->setMemoryType(MemoryType::Shared);
-  tv2->reorder({{-3, -2}, {-2, -3}});
-  if (std::getenv("TV2_SWIZZLE")) {
-    tv2->swizzle(SwizzleType::Transpose, {-3, -2});
-  }
-  tv2->merge(-3, -2);
-  tv2->split(-2, BDIM);
-
-  // Loads a K_BLOCK x N_BLOCK block of B from gmem to smem
-  tv3->merge(-3, -1);
-  tv3->split(-2, BDIM);
-  tv3->setMemoryType(MemoryType::Shared);
-
-  std::cerr << "Tiling step 2 done\n";
-  fusion.printMath();
-
-  // Tiling step 3: Computes outer product of M_THREAD x N_THREAD with
-  // register blocking
-  std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8, tv9});
-  for (auto tv : intermediate_blocks) {
-    if (cyclic) {
-      // ..., M_BLOCK, N_BLOCK
-      tv->split(-2, M_BLOCK / M_THREAD);
-      // ..., M_THREAD, M_BLOCK / M_THREAD, N_BLOCK
-      tv->split(-1, N_BLOCK / N_THREAD);
-      // ..., M_THREAD, M_BLOCK / M_THREAD, N_THREAD, N_BLOCK / N_THREAD
-      tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}});
-      // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
-      if (tv == tv9) {
-        tv->swizzle(SwizzleType::Transpose, {-4, -1});
-      }
-      tv->merge(-4, -3);
-      // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
-    } else {
-      // ..., M_BLOCK, N_BLOCK
-      tv->split(-2, M_THREAD);
-      // ..., M_BLOCK / M_THREAD, M_THREAD, N_BLOCK
-      tv->split(-1, N_THREAD);
-      // ..., M_BLOCK / M_THREAD, M_THREAD, N_BLOCK / N_THREAD, N_THREAD
-      tv->reorder({{-2, -3}, {-3, -2}});
-      // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
-      tv->merge(-4, -3);
-      // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
-    }
-  }
-
-  fusion.printMath();
-
-  tv6->computeAt(tv4, -3);
-  tv7->computeAt(tv4, -3);
-  tv4->computeAt(tv8, -1);
-
-  std::cerr << "Tiling step 3 done\n";
-  fusion.printMath();
-
-  // Tiling step 4: Stores results back to gmem through smem
-  tv5->merge(-2, -1);
-  tv5->split(-1, BDIM);
-
-  std::cerr << "Tiling step 4 done\n";
-  fusion.printMath();
-  fusion.printKernel();
-
-  // Parallelization
-  // Block binding
-  tv5->axis(0)->parallelize(ParallelType::BIDx);
-  tv5->axis(1)->parallelize(ParallelType::BIDy);
-  // Thread binding
-  tv2->axis(-2)->parallelize(ParallelType::TIDx);
-  tv3->axis(-2)->parallelize(ParallelType::TIDx);
-  tv8->axis(-3)->parallelize(ParallelType::TIDx);
-  tv9->axis(2)->parallelize(ParallelType::TIDx);
-  tv5->axis(-1)->parallelize(ParallelType::TIDx);
-
-  tv8->axis(-1)->parallelize(ParallelType::Unswitch);
-  tv8->axis(-2)->parallelize(ParallelType::Unswitch);
-  tv4->axis(-1)->parallelize(ParallelType::Unswitch);
-  tv4->axis(-2)->parallelize(ParallelType::Unswitch);
-
-  std::cerr << "After parallelization\n";
-  fusion.printMath();
-  fusion.printKernel();
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  at::Tensor t0 = at::randn({M, K}, options);
-  at::Tensor t1 = at::randn({K, N}, options);
-  std::vector<IValue> aten_inputs = {t0, t1};
-
+  Fusion fusion;
+  FusionGuard fg(&fusion);
   FusionExecutor fe;
+
   if (from_file) {
     auto path = std::getenv("FROM_FILE");
     std::cerr << "Loading code from " << path << std::endl;
@@ -10289,18 +10148,207 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     std::stringstream buffer;
     buffer << cuda_src.rdbuf();
     std::string cuda_src_str = buffer.str();
-    std::cerr << "Compiling " << cuda_src_str << std::endl;
-    fe.debugCompileFusionFromStr(
-        &fusion, cuda_src_str, "CudaCodeGen::kernel1", 1);
+    //std::cerr << "Compiling " << cuda_src_str << std::endl;
+    fe.compileRtc(cuda_src_str, "CudaCodeGen::kernel1");
   } else {
+    // Algorithm
+    // TensorView* tv0 = makeSymbolicTensor(2); // (M, K)
+    TensorView* tv0 = makeConcreteTensor({M, K}); // (M, K)
+    // TensorView* tv1 = makeSymbolicTensor(2); // (K, N)
+    TensorView* tv1 = makeConcreteTensor({K, N}); // (K, N)
+    TensorView* tv2 = broadcast(tv0, {false, false, true}); // (M, K, B)
+    TensorView* tv3 = broadcast(tv1, {true, false, false}); // (B, K, N)
+    TensorView* tv4 = mul(tv2, tv3); // M, K, N
+    TensorView* tv5 = sum(tv4, {1}); // M, R, N
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    fusion.addOutput(tv5);
+
+    // For register blocking of input matrices
+    auto tv6 = tv2->cache_after();
+    auto tv7 = tv3->cache_after();
+    // For reduction using registers
+    auto tv8 = tv5->cache_before();
+    // Intermediate shared-memory buffer to store the final results in a
+    // coalesced manner
+    auto tv9 = tv5->cache_before();
+    tv9->setMemoryType(MemoryType::Shared);
+
+    fusion.printMath();
+
+    // Tiling step 1: Set the overall tiling for thread blocks
+
+    // Tiles the matrices for thread blocks. Each thread block computes
+    // matrix multiplication of (M_BLOCK, K) and (K, N_BLOCK).
+    tv5->split(1, N_BLOCK);
+    tv5->split(0, M_BLOCK);
+    // M/M_BLOCK, M_BLOCK, N/N_BLOCK, N_BLOCK
+    tv5->reorder({{0, 0}, {1, 2}, {2, 1}, {3, 3}});
+    // M/M_BLOCK, N/N_BLOCK, M_BLOCK, N_BLOCK
+
+    tv8->computeAt(tv5, 2);
+
+    // Tiles the reduction axis by K_BLOCK
+    tv8->split(-1, K_BLOCK);
+    // M/M_BLOCK, N/N_BLOCK, M_BLOCK, N_BLOCK, K/K_BLOCK, K_BLOCK
+    tv8->reorder({{4, 2}, {5, 3}, {2, 4}, {3, 5}});
+    // M/M_BLOCK, N/N_BLOCK, K/K_BLOCK, K_BLOCK, M_BLOCK, N_BLOCK
+
+    // Inlines input tensors inside the M/M_BLOCK, N/N_BLOCK and
+    // K/K_BLOCK loops
+    tv0->computeAt(tv8, 3);
+    tv1->computeAt(tv8, 3);
+
+    std::cerr << "Tiing step 1 done\n";
+    fusion.printMath();
+
+    // Tiling step 2: Tiling input SMEM buffers
+
+    // Loads a M_BLOCK x K_BLOCK block of A from gmem to smem
+    tv2->setMemoryType(MemoryType::Shared);
+    tv2->reorder({{-3, -2}, {-2, -3}});
+    if (std::getenv("TV2_SWIZZLE")) {
+      tv2->swizzle(SwizzleType::Transpose, {-3, -2});
+    }
+    tv2->merge(-3, -2);
+    tv2->split(-2, BDIM);
+
+    // Loads a K_BLOCK x N_BLOCK block of B from gmem to smem
+    tv3->merge(-3, -1);
+    tv3->split(-2, BDIM);
+    tv3->setMemoryType(MemoryType::Shared);
+
+    std::cerr << "Tiling step 2 done\n";
+    fusion.printMath();
+
+    // Tiling step 3: Computes outer product of M_THREAD x N_THREAD with
+    // register blocking
+    std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8, tv9});
+    for (auto tv : intermediate_blocks) {
+      if (cyclic) {
+        // ..., M_BLOCK, N_BLOCK
+        tv->split(-2, M_BLOCK / M_THREAD);
+        // ..., M_THREAD, M_BLOCK / M_THREAD, N_BLOCK
+        tv->split(-1, N_BLOCK / N_THREAD);
+        // ..., M_THREAD, M_BLOCK / M_THREAD, N_THREAD, N_BLOCK / N_THREAD
+        tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}});
+        // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
+        if (tv == tv9) {
+          tv->swizzle(SwizzleType::Transpose, {-4, -1});
+        }
+        tv->merge(-4, -3);
+        // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
+      } else {
+        // ..., M_BLOCK, N_BLOCK
+        tv->split(-2, M_THREAD);
+        // ..., M_BLOCK / M_THREAD, M_THREAD, N_BLOCK
+        tv->split(-1, N_THREAD);
+        // ..., M_BLOCK / M_THREAD, M_THREAD, N_BLOCK / N_THREAD, N_THREAD
+        tv->reorder({{-2, -3}, {-3, -2}});
+        // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
+        tv->merge(-4, -3);
+        // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
+      }
+    }
+
+    fusion.printMath();
+
+    tv6->computeAt(tv4, -3);
+    tv7->computeAt(tv4, -3);
+    tv4->computeAt(tv8, -1);
+
+    std::cerr << "Tiling step 3 done\n";
+    fusion.printMath();
+
+    // Tiling step 4: Stores results back to gmem through smem
+    tv5->merge(-2, -1);
+    tv5->split(-1, BDIM);
+
+    std::cerr << "Tiling step 4 done\n";
+    fusion.printMath();
+    fusion.printKernel();
+
+    // Parallelization
+    // Block binding
+    tv5->axis(0)->parallelize(ParallelType::BIDx);
+    tv5->axis(1)->parallelize(ParallelType::BIDy);
+    // Thread binding
+    tv2->axis(-2)->parallelize(ParallelType::TIDx);
+    tv3->axis(-2)->parallelize(ParallelType::TIDx);
+    tv8->axis(-3)->parallelize(ParallelType::TIDx);
+    tv9->axis(2)->parallelize(ParallelType::TIDx);
+    tv5->axis(-1)->parallelize(ParallelType::TIDx);
+
+    tv8->axis(-1)->parallelize(ParallelType::Unswitch);
+    tv8->axis(-2)->parallelize(ParallelType::Unswitch);
+    tv4->axis(-1)->parallelize(ParallelType::Unswitch);
+    tv4->axis(-2)->parallelize(ParallelType::Unswitch);
+
+    std::cerr << "After parallelization\n";
+    fusion.printMath();
+    fusion.printKernel();
+
     fe.compileFusion(&fusion);
   }
-  auto outputs = fe.runFusion(aten_inputs);
 
-  auto aten_output = t0.to(at::kDouble).matmul(t1.to(at::kDouble));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, K}, options);
+  at::Tensor t1 = at::randn({K, N}, options);
+  at::Tensor out = at::empty({M, N}, options);
+  std::vector<IValue> aten_inputs = {t0, t1};
 
-  testValidate(
-      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  LaunchParams lp(
+      (M + M_BLOCK - 1) / M_BLOCK, // gdimx
+      (N + N_BLOCK - 1) / N_BLOCK, // gdimy
+      1, // gdimz
+      256, // bdimx
+      1, // bdimy
+      1 // bdimz
+  );
+
+  if (perf_measure) {
+    const int num_iterations = 200;
+    for (int i = 0; i < num_iterations; ++i) {
+      if (from_file) {
+        fe.runRtc(lp, {t0, t1, out});
+      } else {
+        fe.runFusion(aten_inputs);
+      }
+    }
+    cudaEvent_t ev_start, ev_end;
+    cudaEventCreate(&ev_start);
+    cudaEventCreate(&ev_end);
+    cudaEventRecord(ev_start, at::cuda::getCurrentCUDAStream());
+    for (int i = 0; i < num_iterations; ++i) {
+      if (from_file) {
+        fe.runRtc(lp, {t0, t1, out});
+      } else {
+        fe.runFusion(aten_inputs);
+      }
+    }
+    cudaEventRecord(ev_end, at::cuda::getCurrentCUDAStream());
+    cudaDeviceSynchronize();
+    float elapsed_ms = 0;
+    cudaEventElapsedTime(&elapsed_ms, ev_start, ev_end);
+    elapsed_ms /= num_iterations;
+    std::cout << "Elapsed time (ms): " << elapsed_ms << "\n"
+              << "TFLOPS: " << (float(M) * float(K) * float(N) * 2 / elapsed_ms * 0.001 * 0.001 * 0.001)
+              << std::endl;
+    return;
+  }
+
+  if (from_file) {
+    fe.runRtc(lp, {t0, t1, out});
+    auto aten_output = t0.matmul(t1);
+    TORCH_CHECK(aten_output.allclose(out));
+  } else {
+    fe.runFusion(aten_inputs, {out});
+    auto aten_output = t0.to(at::kDouble).matmul(t1.to(at::kDouble));
+    testValidate(
+        &fusion, {out}, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  }
+
 }
 
 TEST(NVFuserTest, FusionLoopUnswitch_CUDA) {
@@ -10696,15 +10744,15 @@ __global__ void kernel1(
         tmp_N,
         0.f,
         in,
-        (long) 1, 
+        (long) 1,
         &work_buf_M2[0],
         &work_buf_avg[0],
         &work_buf_N[0],
         sync_flag,
-        (float*)shared_buf_M2, 
+        (float*)shared_buf_M2,
         (float*)shared_buf_avg,
         (long*)shared_buf_N,
-        threadIdx.x<out_var.size[0], 
+        threadIdx.x<out_var.size[0],
         0.f);
     if(T_pred){
         out_var[threadIdx.x*out_var.stride[0]]=tmp_M2/tmp_N;
