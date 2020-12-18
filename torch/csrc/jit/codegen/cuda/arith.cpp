@@ -484,7 +484,8 @@ TensorView* andOp(TensorView* v1, TensorView* v2) {
 // TODO: How do we adjust this so we can reduce to a single scalar value?
 static TensorView* newForReduction(
     TensorView* tv,
-    const std::vector<unsigned int>& axes) {
+    const std::vector<unsigned int>& axes,
+    DataType data_type = DataType::Null) {
   auto orig_domain = TensorDomain::noReductions(tv->getRootDomain());
   std::set<unsigned int> axes_set(axes.begin(), axes.end());
 
@@ -524,7 +525,10 @@ static TensorView* newForReduction(
 
   TensorDomain* td =
       new TensorDomain(new_domain, std::vector<bool>(new_domain.size(), true));
-  return new TensorView(td, tv->getDataType().value());
+
+  data_type =
+      data_type == DataType::Null ? tv->getDataType().value() : data_type;
+  return new TensorView(td, data_type);
 }
 
 TensorView* reductionOp(
@@ -756,7 +760,7 @@ std::vector<TensorView*> Welford(
   // Create tensor outputs
   TensorView* out_var = newForReduction(tv, uint_axes);
   TensorView* out_avg = newForReduction(tv, uint_axes);
-  TensorView* out_N = newForReduction(tv, uint_axes);
+  TensorView* out_N = newForReduction(tv, uint_axes, DataType::Int);
 
   new WelfordOp(
       out_var,
@@ -769,7 +773,7 @@ std::vector<TensorView*> Welford(
       tv,
       new Int(1)); /*in var/avg/count */
 
-  return {out_var, out_avg};
+  return {out_var, out_avg, out_N};
 }
 
 TensorView* transpose(

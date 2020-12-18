@@ -10631,22 +10631,46 @@ TEST(NVFuserTest, FusionWelfordOp_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  int M = 64, N = 128;
+
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
   auto tv1 = mul(tv0, new Double(1));
   std::vector<TensorView*> tvs = Welford(tv1, {1});
-  auto tv2 = tvs[0];
-  auto tv3 = tvs[1];
-  fusion.addOutput(tv2);
-  fusion.addOutput(tv3);
-  auto tvN = tv3->definition()->as<WelfordOp>()->outN()->as<TensorView>();
-  fusion.addOutput(tvN);
-  tv1->computeAt(tv3, -1);
+  auto tv_M2 = tvs[0];
+  auto tv_avg = tvs[1];
+  auto tv_N = tvs[2];
+  fusion.addOutput(tv_M2);
+  fusion.addOutput(tv_avg);
+  fusion.addOutput(tv_N);
 
-  // add output number to the fusion output to enable traversal
+  tv_avg->split(1, 32);
+  tv_avg->split(0, 32);
+  tv_avg->split(0, 4);
+  tv1->computeAt(tv_avg, -1);
 
-  fusion.printMath();
-  fusion.printKernel();
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N}, options);
+  at::Tensor t_var = at::empty({M}, options);
+  at::Tensor t_avg = at::empty({M}, options);
+  at::Tensor t_N = at::empty({M}, options_int);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t0});
+
+  // by default Welford outputs sum of square diff so need to divide to get var
+  outputs[0] /= N;
+
+  testValidate(
+      &fusion,
+      outputs,
+      {t0},
+      {t0.var({1}, false), t0.mean({1}), at::ones({M}, options_int) * N},
+      __LINE__,
+      __FILE__);
 }
 
 TEST(NVFuserTest, FusionRefSumOp_CUDA) {
