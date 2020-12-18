@@ -48,6 +48,9 @@ Value* createConditionalConstant(Node* profile_ivalue) {
   if (profile_ivalue->hasAttribute(Symbol::attr("profiled_int_list"))) {
     // int[]
     val = IValue(profile_ivalue->is(Symbol::attr("profiled_int_list")));
+  } else if (profile_ivalue->hasAttribute(Symbol::attr("profiled_size"))) {
+    // int[]
+    val = IValue(profile_ivalue->is(Symbol::attr("profiled_size")));
   } else if (profile_ivalue->hasAttribute(Symbol::attr("profiled_bool"))) {
     // bool
     val = IValue(
@@ -1183,6 +1186,7 @@ void guardFusionGroup(Node* fusion) {
       auto const_o = createConditionalConstant(fusion->input(offset)->node());
       const_o->node()->moveBefore(versioning_if);
       Value* ivalue_check = nullptr;
+
       if (fusion->input(offset)->node()->hasAttribute(
               Symbol::attr("profiled_bool"))) {
         // aten::eq doesn't support comparison between two boolean
@@ -1195,6 +1199,14 @@ void guardFusionGroup(Node* fusion) {
                 ->create(aten::__xor__, {xor_n->output(), const_true}, 1)
                 ->insertBefore(versioning_if)
                 ->output();
+      } else if (fusion->input(offset)->node()->hasAttribute(
+              Symbol::attr("profiled_size"))) {
+        // TODO(profile_size): check sizes here with special size comparison op
+        //TORCH_INTERNAL_ASSERT(false, "not implemented yet");
+        ivalue_check = fusion->owningGraph()
+                           ->create(c10::Symbol::fromQualString("prim::CudaFusionSizeEq"), {profiled_ival, const_o}, 1)
+                           ->insertBefore(versioning_if)
+                           ->output();
       } else {
         ivalue_check = fusion->owningGraph()
                            ->create(aten::eq, {profiled_ival, const_o}, 1)

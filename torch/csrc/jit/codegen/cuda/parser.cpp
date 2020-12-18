@@ -25,9 +25,11 @@ constexpr auto kNumBinaryOps = 29;
 constexpr auto kNumBinaryOpsWithAlpha = 4;
 constexpr auto kNumLerpOps = 2;
 constexpr auto kNumLayernormFwd = 2;
+constexpr auto kNumSumToSize = 2;
 
 namespace {
 
+static const auto sizeAttr = Symbol::attr("profiled_size");
 static const auto intListAttr = Symbol::attr("profiled_int_list");
 static const auto boolAttr = Symbol::attr("profiled_bool");
 
@@ -1065,6 +1067,41 @@ class IrParser {
     }
 
     {
+      std::array<const char*, kNumSumToSize> SumToSize = {
+          "aten::_grad_sum_to_size(Tensor(a) self, int[]? size) -> Tensor(a)",
+          "aten::sum_to_size(Tensor self, int[] size) -> Tensor"};
+      for (auto signature : SumToSize) {
+        auto ptr_op = getOperatorForLiteral(signature);
+        registerParseRule(
+            ptr_op,
+            [](const Node* node,
+               std::unordered_map<size_t, CgValue>& value_map) -> void {
+
+              auto self = value_map[node->input(0)->unique()];
+              auto size_to = constant_as<c10::List<int64_t>>(node->input(1));
+              TORCH_INTERNAL_ASSERT(
+                  size_to.has_value(),
+                  "aten::sum cannot be fused with dynamic axes");
+              if (size_to->empty()) {
+                auto out = sum_to(self->as<TensorView>(), size_to->vec());
+                value_map.emplace(node->output()->unique(), out);
+              } else {
+                // We are introducing alias here!
+                value_map.emplace(node->output()->unique(), self);
+              }
+            },
+            [](const Node* node) -> bool {
+              // we don't support dynamic reduction axes;
+              // if (node->inputs()[1]->node()->kind() != prim::Constant) {
+              //   return false;
+              // }
+              return true;
+            },
+            OperatorType::Reduction);
+      }
+    }
+
+    {
       auto ptr_op = getOperatorForLiteral(
           "aten::type_as(Tensor self, Tensor other) -> Tensor");
       registerParseRule(
@@ -1213,6 +1250,46 @@ ProfileIValueOp* insertProfileIValueOp(
   return pn;
 }
 
+void profileSize(ProfilingRecord* pr, Node* node, size_t offset) {
+  auto pn = insertProfileIValueOp(node, offset, pr);
+
+  std::function<void(Stack&)> ivalue_profiler = [pr, pn](Stack& stack) {
+    std::lock_guard<std::mutex> lock(pr->mutex_);
+
+    // TODO: we don't care about merging multiple profiling runs as we don't
+    // support it at all;
+    int64_t frame_id = 0;
+    pop(stack, frame_id);
+    IValue value;
+    pop(stack, value);
+
+    std::vector<int64_t> size_vec;
+    // TODO(profile_size): double check optional[size]?
+    if (value.isIntList()) {
+      size_vec = value.toIntVector();
+    } else if (value.isNone()) {
+      size_vec.clear();
+    } else {
+      TORCH_INTERNAL_ASSERT(false,
+          "profileSize does not support data type: ", value.tagKind());
+    }
+    if (!pn->hasAttribute(sizeAttr)) {
+      pn->is_(sizeAttr, size_vec);
+    } else {
+      auto profiled_ints = pn->is(sizeAttr);
+      TORCH_INTERNAL_ASSERT(
+          profiled_ints.size() == size_vec.size() &&
+              std::equal(
+                  profiled_ints.begin(),
+                  profiled_ints.end(),
+                  size_vec.begin()),
+          "profiling ivalue doesn't support merge");
+    }
+    push(stack, value);
+  };
+  pn->setCallback(ivalue_profiler);
+}
+
 void profileIntList(ProfilingRecord* pr, Node* node, size_t offset) {
   auto pn = insertProfileIValueOp(node, offset, pr);
 
@@ -1335,6 +1412,27 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
         break;
       case 2:
         profileBool(pr, node, offset);
+        break;
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  static auto sum_to_size_schema =
+      getOperatorForLiteral(
+          "aten::sum_to_size(Tensor self, int[] size) -> Tensor")
+          ->schema();
+  static auto grad_sum_to_size_schema =
+      getOperatorForLiteral(
+          "aten::_grad_sum_to_size(Tensor(a) self, int[]? size) -> Tensor(a)")
+          ->schema();
+  if (node->matches(sum_to_size_schema) || node->matches(grad_sum_to_size_schema)) {
+    switch (offset) {
+      case 1:
+        // TODO(profile_size): double check optional[size]?
+        profileSize(pr, node, offset);
+        //profileIntList(pr, node, offset);
         break;
       default:
         return false;

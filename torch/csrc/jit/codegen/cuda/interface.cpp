@@ -182,6 +182,47 @@ bool complyWith(
 
 namespace {
 
+RegisterOperators size_eq_guard({
+    Operator(
+        "prim::CudaFusionSizeEq(int[] size, int[] ref) -> bool",
+        // prim::CudaFusionGuard returns a fresh Boolean type without aliasing.
+        // if we would ever return refined tensor, which would change aliasing
+        // analysis, we should update aliasdb pass.
+        [](const Node* node) -> Operation {
+          return [node](Stack* stack) {
+            at::ArrayRef<IValue> inputs = last(stack, 2);
+            drop(stack, 2);
+
+            if (!fuser::cuda::getCudaFusionGuardMode()) {
+              push(stack, IValue(true));
+              return;
+            }
+
+            auto inp = inputs[0].toIntList();
+            auto ref = inputs[1].toIntList();
+
+            if (inp.size() != ref.size()) {
+              push(stack, IValue(false));
+              return;
+            }
+
+            for (size_t i = 0; i < inp.size(); i++) {
+              printf("check %d, %d", int(inp[i]), int(ref[i]));
+              if (((inp[i] == 1) != (ref[i] == 1))) {
+                printf("  check failed\n");
+                push(stack, IValue(false));
+                return;
+              }
+            }
+            printf("  check success\n");
+
+            push(stack, IValue(true));
+            return;
+          };
+        },
+        aliasAnalysisFromSchema()),
+});
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 RegisterOperators reg_fusion({
     Operator(
