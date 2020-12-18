@@ -80,6 +80,7 @@ class NaiveTypePropagator {
       case aten::relu:
       case aten::sigmoid:
       case aten::threshold:
+      case aten::softplus:
       case aten::clamp:
       case aten::gelu:
       case aten::tanh: {

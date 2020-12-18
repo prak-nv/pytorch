@@ -1242,6 +1242,14 @@ const std::vector<std::string> functions = {
                 return grad_output * mask, None, None
             return torch.threshold(self, threshold, value), backward
 
+        def softplus(self,
+                      beta: number,
+                      threshold: number):
+            def backward(grad_output):
+                z = torch.exp(self * beta)
+                return torch.where( (self * beta) > threshold, grad_output, grad_output * (z - 1.) / z), None, None
+            return torch.softplus(self, beta, threshold), backward
+
         def fmod(self,
                  other: number):
             def backward(grad_output):

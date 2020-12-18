@@ -4,6 +4,8 @@ import random
 
 import torch
 
+from torch.nn import functional
+
 from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR
 from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithSeed
 
@@ -1301,6 +1303,7 @@ class TestCudaFuser(JitTestCase):
         o = t(x)
         self.assertEqual(o.dtype, jit_o.dtype)
         self.assertEqual(o, jit_o)
+        
         self.assertGraphContains(t_jit.graph_for(x), FUSION_GUARD)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
@@ -1341,6 +1344,31 @@ class TestCudaFuser(JitTestCase):
         # have been optimized away
         self.assertGraphContainsExactly(t_jit.graph_for(x, y), FUSION_GUARD, 0)
 
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_softplus_fuser(self):
+        
+        def shifted_softplus(x: torch.Tensor, shift: float):
+            return functional.softplus(x) - shift
+
+        jitted = torch.jit.script(shifted_softplus)
+        inp = torch.randn(4, 2, dtype=torch.float32, device="cuda").requires_grad_()
+        grad = torch.randn(4, 2, dtype=torch.float32, device="cuda")
+
+        aten_o = shifted_softplus(inp, 0.693147)
+        aten_o.backward(grad)
+        aten_grad = inp.grad
+
+        for i in range(3):
+            jit_o = jitted(inp, 0.693147)
+            jit_o.backward(grad)
+            jit_grad = inp.grad
+
+        assert torch.allclose(jit_o, aten_o)
+        assert torch.allclose(jit_grad, aten_grad)
+        self.assertGraphContains(jitted.graph_for(inp, 0.693147), FUSION_GROUP, True)
 
 class TestPassManagerCudaFuser(JitTestCase):
 
@@ -1388,7 +1416,6 @@ class TestPassManagerCudaFuser(JitTestCase):
         self.assertTrue(torch._C._jit_nvfuser_enabled())
         self.assertTrue(torch._C._jit_set_nvfuser_enabled(False))
         self.assertFalse(torch._C._jit_nvfuser_enabled())
-
 
 if __name__ == '__main__':
     run_tests()
