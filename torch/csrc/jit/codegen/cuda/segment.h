@@ -1,14 +1,37 @@
+#include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/ir_base_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
+
 #include <deque>
-#include <vector>
+#include <list>
+#include <sstream>
+#include <unordered_set>
 
 namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
 
-// Segmentation selection is based on the theorem 4.2 in the paper:
+// TODO: Clean up deque, use vector when possible
+// TODO: Review const model, and objects
+// TODO: Rename,
+//  segment -> fusion_segmenter.cpp/.h
+//  FusionSegmentFinder
+//    Responsible for going through DAG and proposing things we could try to
+//    fuse together, calls "canGenerateCode" on these proposed segments to see
+//    if they are valid and we can generate code for them.
+//  FusionSegment
+//    A group of exprs that are segmented together
+//  FusionSegmentConnections
+//    Holds vals and what they connect. In other words it's a val that is an
+//    output of a FusionSegment "from" and an input of FusionSegment "to".
+//    There's nothing preventing from a val being between segments twice.
+//    TODO: make sure there's nothing wrong with segmentation on nodes that
+//    have the same value input twice. i.e. (B = A*A)
+
+// Selecting segments to propose is based on the theorem 4.2 in the paper which
+// makes sure when segment the segmented graph will be a DAG (assumes Fusion is
+// already a DAG)
 //
 // Julien Herrmann, Yusuf Özkaya, Bora Uçar, Kamer Kaya, Umit Catalyurek.
 // Multilevel Algorithms for Acyclic Partitioning of Directed Acyclic Graphs.
@@ -121,24 +144,13 @@ std::ostream& operator<<(std::ostream& os, SegmentCandidateFinder* scf) {
   return os << scf->toString();
 }
 
-class TORCH_CUDA_API SingleReductionKernels : public SegmentCandidateFinder {
+class TORCH_CUDA_API SingleReductionSegmenter : public SegmentCandidateFinder {
  public:
-  SingleReductionKernels(const Fusion* fusion)
+  SingleReductionSegmenter(const Fusion* fusion)
       : SegmentCandidateFinder(fusion) {}
 
   // TODO: May be good to have this arg as a const Fusion
-  virtual bool canGenerateCode(Fusion* fusion) override {
-    bool has_reduction = false;
-    for (auto expr : fusion->exprs()) {
-      if (expr->getExprType().value() == ExprType::ReductionOp) {
-        if (has_reduction) {
-          return false;
-        }
-        has_reduction = true;
-      }
-    }
-    return true;
-  }
+  bool canGenerateCode(Fusion* fusion) final;
 };
 
 } // namespace cuda

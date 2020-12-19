@@ -10985,7 +10985,7 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
     std::cout << expr->name() << "  " << expr << std::endl;
   }
 
-  SingleReductionKernels kernels(&fusion);
+  SingleReductionSegmenter kernels(&fusion);
   std::cout << &kernels << std::endl;
   std::cout << "============" << std::endl;
   kernels.segment();

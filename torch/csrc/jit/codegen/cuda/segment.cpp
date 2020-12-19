@@ -2,8 +2,7 @@
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 
-#include <list>
-#include <sstream>
+#include <vector>
 
 namespace torch {
 namespace jit {
@@ -429,6 +428,19 @@ void SegmentCandidateFinder::segment() {
 
     mergeNodes();
   }
+}
+
+bool SingleReductionSegmenter::canGenerateCode(Fusion* fusion) {
+  bool has_reduction = false;
+  for (auto expr : fusion->exprs()) {
+    if (expr->getExprType().value() == ExprType::ReductionOp) {
+      if (has_reduction) {
+        return false;
+      }
+      has_reduction = true;
+    }
+  }
+  return true;
 }
 
 } // namespace cuda
