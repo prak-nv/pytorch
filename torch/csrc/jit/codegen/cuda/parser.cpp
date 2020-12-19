@@ -1084,7 +1084,7 @@ class IrParser {
               TORCH_INTERNAL_ASSERT(
                   size_to.has_value(),
                   "aten::sum cannot be fused with dynamic axes");
-              if (size_to->empty()) {
+              if (!size_to->empty()) {
                 auto out = sum_to(self->as<TensorView>(), size_to->vec());
                 value_map.emplace(node->output()->unique(), out);
               } else {
