@@ -42,14 +42,15 @@ typedef bool (*MergeQueryFuncPtr)(const Node*);
 // TODO: add a mutex to make it thread safe.
 class IrParser {
   enum class OperatorType { ElementWise, Reduction, Normalization };
+  typedef OperatorType (*OperatorTypeFuncPtr)(const Node*);
 
   class RegistrationEntry {
    public:
     RegistrationEntry(
         ParseFuncPtr parse_f,
         MergeQueryFuncPtr merge_f = nullptr,
-        OperatorType type = OperatorType::ElementWise)
-        : parse_f_(parse_f), merge_f_(merge_f), type_(type) {}
+        OperatorTypeFuncPtr type_f = nullptr)
+        : parse_f_(parse_f), merge_f_(merge_f), type_f_(type_f) {}
 
     void parse(const Node* node, std::unordered_map<size_t, CgValue>& values)
         const {
@@ -63,14 +64,15 @@ class IrParser {
       return merge_f_(node);
     }
 
-    bool isType(OperatorType type) const {
-      return type_ == type;
+    bool isType(const Node* node, OperatorType type) const {
+      auto n_type = type_f_ == nullptr ? OperatorType::ElementWise : type_f_(node);
+      return n_type == type;
     }
 
    private:
     ParseFuncPtr parse_f_;
     MergeQueryFuncPtr merge_f_;
-    OperatorType type_;
+    OperatorTypeFuncPtr type_f_;
   };
 
  public:
@@ -182,7 +184,7 @@ class IrParser {
     initRegistry();
 
     auto reg_entry = lookupInRegistry(node);
-    return reg_entry != nullptr && reg_entry->isType(OperatorType::Reduction);
+    return reg_entry != nullptr && reg_entry->isType(node, OperatorType::Reduction);
   }
 
   static bool isNormalizationNode(const Node* node) {
@@ -190,14 +192,14 @@ class IrParser {
 
     auto reg_entry = lookupInRegistry(node);
     return reg_entry != nullptr &&
-        reg_entry->isType(OperatorType::Normalization);
+        reg_entry->isType(node, OperatorType::Normalization);
   }
 
   static bool isElementWiseNode(const Node* node) {
     initRegistry();
 
     auto reg_entry = lookupInRegistry(node);
-    return reg_entry != nullptr && reg_entry->isType(OperatorType::ElementWise);
+    return reg_entry != nullptr && reg_entry->isType(node, OperatorType::ElementWise);
   }
 
   // TODO: is_reduction is too hacky here. we should categorize operation types
@@ -207,11 +209,11 @@ class IrParser {
       std::shared_ptr<Operator>& op,
       ParseFuncPtr parse_fn,
       MergeQueryFuncPtr merge_query_fn = nullptr,
-      OperatorType type = OperatorType::ElementWise) {
+      OperatorTypeFuncPtr type_fn = nullptr) {
     jit_operator_registry_.emplace(
         std::piecewise_construct,
         std::forward_as_tuple(canonicalSchemaString(op->schema())),
-        std::forward_as_tuple(parse_fn, merge_query_fn, type));
+        std::forward_as_tuple(parse_fn, merge_query_fn, type_fn));
   }
 
  private:
@@ -623,7 +625,7 @@ class IrParser {
             value_map.emplace(node->output()->unique(), output);
           },
           [](const Node* node) -> bool { return true; },
-          OperatorType::Normalization);
+          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
     }
 
     {
@@ -709,7 +711,7 @@ class IrParser {
           },
           // TODO: #ProfileIValue List should update this
           [](const Node* node) -> bool { return true; },
-          OperatorType::Normalization);
+          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
     }
 
     {
@@ -808,7 +810,7 @@ class IrParser {
             },
             // TODO: #ProfileIValue List should update this
             [](const Node* node) -> bool { return true; },
-            OperatorType::Normalization);
+            [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
       }
     }
 
@@ -924,7 +926,7 @@ class IrParser {
           },
           // TODO: #ProfileIValue List should update this
           [](const Node* node) -> bool { return true; },
-          OperatorType::Normalization);
+          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
     }
 
     {
@@ -968,7 +970,7 @@ class IrParser {
             }
             return true;
           },
-          OperatorType::Normalization);
+          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
     }
 
     {
@@ -1012,7 +1014,7 @@ class IrParser {
             }
             return true;
           },
-          OperatorType::Normalization);
+          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
     }
 
     {
@@ -1063,7 +1065,7 @@ class IrParser {
             }
             return true;
           },
-          OperatorType::Reduction);
+          [](const Node* node) -> OperatorType { return OperatorType::Reduction; });
     }
 
     {
@@ -1092,12 +1094,21 @@ class IrParser {
             },
             [](const Node* node) -> bool {
               // we don't support dynamic reduction axes;
-              // if (node->inputs()[1]->node()->kind() != prim::Constant) {
-              //   return false;
-              // }
+              if (node->inputs()[1]->node()->kind() != prim::Constant) {
+                return false;
+              }
               return true;
+              // auto size_to = constant_as<c10::List<int64_t>>(node->input(1));
+              // return size_to.has_value() && !size_to->empty();
             },
-            OperatorType::Reduction);
+            [](const Node* node) -> OperatorType {
+              auto size_to = constant_as<c10::List<int64_t>>(node->input(1));
+              if (size_to->empty()) {
+                return OperatorType::ElementWise; 
+              } else {
+                return OperatorType::Reduction; 
+              }
+            });
       }
     }
 

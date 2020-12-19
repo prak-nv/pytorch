@@ -184,7 +184,8 @@ namespace {
 
 RegisterOperators size_eq_guard({
     Operator(
-        "prim::CudaFusionSizeEq(int[] size, int[] ref) -> bool",
+        //"prim::CudaFusionSizeEq(int[] size, int[] ref) -> bool",
+        "prim::CudaFusionSizeEq(...) -> bool",
         // prim::CudaFusionGuard returns a fresh Boolean type without aliasing.
         // if we would ever return refined tensor, which would change aliasing
         // analysis, we should update aliasdb pass.
@@ -198,25 +199,39 @@ RegisterOperators size_eq_guard({
               return;
             }
 
-            auto inp = inputs[0].toIntList();
+            // auto inp = inputs[0].toIntList();
+            TORCH_INTERNAL_ASSERT(inputs[1].isIntList(), "reference needs to be of int list");
             auto ref = inputs[1].toIntList();
 
-            if (inp.size() != ref.size()) {
-              push(stack, IValue(false));
-              return;
-            }
+            auto ret = true;
+            if (ref.empty()) {
+              ret = inputs[0].isNone();
+            } else {
+              if (inputs[0].isIntList()) {
+                auto inp = inputs[0].toIntList();
+                if (inp.size() != ref.size()) {
+                  push(stack, IValue(false));
+                  return;
+                }
 
-            for (size_t i = 0; i < inp.size(); i++) {
-              printf("check %d, %d", int(inp[i]), int(ref[i]));
-              if (((inp[i] == 1) != (ref[i] == 1))) {
-                printf("  check failed\n");
-                push(stack, IValue(false));
-                return;
+                for (size_t i = 0; i < inp.size(); i++) {
+                  printf("check %d, %d", int(inp[i]), int(ref[i]));
+                  if (((inp[i] == 1) != (ref[i] == 1))) {
+                    ret = false;
+                    break;
+                  }
+                }
+              } else {
+                ret = false;
               }
             }
-            printf("  check success\n");
 
-            push(stack, IValue(true));
+            if (ret) {
+              printf("  check success\n");
+            } else {
+              printf("  check failed\n");
+            }
+            push(stack, IValue(ret));
             return;
           };
         },
