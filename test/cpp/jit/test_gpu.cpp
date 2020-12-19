@@ -10127,13 +10127,17 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   M = K = N = 4096;
 
   // Each thread block computes a M_BLOCK x N_BLOCK elements
-  const int M_BLOCK = 64;
-  const int N_BLOCK = 64;
+  //const int M_BLOCK = 64;
+  //const int N_BLOCK = 64;
+  const int M_BLOCK = 128;
+  const int N_BLOCK = 128;
   const int K_BLOCK = 8;
 
   // Each thread computes a block of M_THREAD x N_THREAD elements
-  const int M_THREAD = 4;
-  const int N_THREAD = 4;
+  //const int M_THREAD = 4;
+  //const int N_THREAD = 4;
+  const int M_THREAD = 8;
+  const int N_THREAD = 8;
 
   const int BDIM = (M_BLOCK / M_THREAD) * (N_BLOCK / N_THREAD);
 
@@ -10149,7 +10153,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     buffer << cuda_src.rdbuf();
     std::string cuda_src_str = buffer.str();
     //std::cerr << "Compiling " << cuda_src_str << std::endl;
-    fe.compileRtc(cuda_src_str, "CudaCodeGen::kernel1");
+    fe.compileRtc(cuda_src_str, "CudaCodeGen::kernel1", true);
   } else {
     // Algorithm
     // TensorView* tv0 = makeSymbolicTensor(2); // (M, K)
@@ -10223,7 +10227,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
 
     // Tiling step 3: Computes outer product of M_THREAD x N_THREAD with
     // register blocking
-    std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8, tv9});
+    std::vector<TensorView*> intermediate_blocks({tv4, tv6, tv7, tv8, tv9, tv5});
     for (auto tv : intermediate_blocks) {
       if (cyclic) {
         // ..., M_BLOCK, N_BLOCK
@@ -10234,7 +10238,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
         tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}});
         // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
         if (tv == tv9) {
-          tv->swizzle(SwizzleType::Transpose, {-4, -1});
+          //tv->swizzle(SwizzleType::Transpose, {-4, -1});
         }
         tv->merge(-4, -3);
         // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
@@ -10261,6 +10265,8 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     fusion.printMath();
 
     // Tiling step 4: Stores results back to gmem through smem
+    tv5->reorder({{-2, -3}});
+    tv9->computeAt(tv5, -3);
     tv5->merge(-2, -1);
     tv5->split(-1, BDIM);
 
@@ -10276,7 +10282,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     tv2->axis(-2)->parallelize(ParallelType::TIDx);
     tv3->axis(-2)->parallelize(ParallelType::TIDx);
     tv8->axis(-3)->parallelize(ParallelType::TIDx);
-    tv9->axis(2)->parallelize(ParallelType::TIDx);
+    tv9->axis(-2)->parallelize(ParallelType::TIDx);
     tv5->axis(-1)->parallelize(ParallelType::TIDx);
 
     tv8->axis(-1)->parallelize(ParallelType::Unswitch);
