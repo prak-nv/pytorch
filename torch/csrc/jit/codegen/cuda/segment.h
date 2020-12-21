@@ -74,18 +74,25 @@ class SegmentedGroup {
   // level values of this, neighbors, and merged neighbors of neighbors
   std::deque<SegmentedGroup*> getMergeCandidates();
 
+  bool isInputGroup();
+
+ public:
   // "Ancestor nodes", towards inputs of segmentedDAG
   std::deque<SegmentedEdge*> producer_edges;
 
   // "Descendent nodes", towards outputs of segmentedDAG
   std::deque<SegmentedEdge*> consumer_edges;
 
+  std::deque<Val*> input_vals;
+  std::deque<Val*> output_vals;
+
   // Exprs that make up the group
   std::deque<Expr*> exprs_;
 
-  // ==== Stateful traversal information below ====
+  // Doesn't have any producer edges mapped to an Expr, they're all inputs of
+  // the original fusion.
 
-  bool is_input = false;
+  // ==== Stateful traversal information below ====
 
   // Maximum path distance from an input segmented group required for
   // Theorem 4.2
@@ -113,6 +120,8 @@ class TORCH_CUDA_API SegmentCandidateFinder {
 
   virtual bool canGenerateCode(Fusion* fusion) = 0;
 
+  Fusion makeFusion(SegmentedGroup* sg);
+
   std::string toString();
 
  private:
@@ -124,7 +133,7 @@ class TORCH_CUDA_API SegmentCandidateFinder {
 
   bool codeGenSupportedMerge(SegmentedGroup* sg1, SegmentedGroup* sg2);
 
- private:
+ protected:
   // Lifetime of the graph view of the fusion and segmentation
   std::list<SegmentedEdge> edges;
   std::list<SegmentedGroup> groups;
@@ -137,7 +146,9 @@ class TORCH_CUDA_API SegmentCandidateFinder {
 
   std::unordered_set<SegmentedGroup*> to_merge;
 
-  Fusion fusion_;
+  // Maintain my own fusion the state of which is not always the same as the
+  // original provided fusion.
+  Fusion complete_fusion;
 };
 
 std::ostream& operator<<(std::ostream& os, SegmentCandidateFinder* scf) {
@@ -151,6 +162,12 @@ class TORCH_CUDA_API SingleReductionSegmenter : public SegmentCandidateFinder {
 
   // TODO: May be good to have this arg as a const Fusion
   bool canGenerateCode(Fusion* fusion) final;
+
+  void generateFusions();
+
+  std::vector<Fusion> fusions;
+
+  void scheduleFusions();
 };
 
 } // namespace cuda

@@ -10882,81 +10882,84 @@ TEST(NVFuserTest, FusionAdvancedComputeAtTransposed6_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionManualMultiKernel_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+// TEST(NVFuserTest, FusionManualMultiKernel_CUDA) {
+//   Fusion fusion;
+//   FusionGuard fg(&fusion);
 
-  constexpr int bid_x = 80;
-  constexpr int tid_x = 4096;
+//   constexpr int bid_x = 80;
+//   constexpr int tid_x = 4096;
 
-  TensorView* tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
+//   TensorView* tv0 = makeSymbolicTensor(2);
+//   fusion.addInput(tv0);
 
-  TensorView* tv1 = sum(tv0, {0});
+//   TensorView* tv1 = sum(tv0, {0});
 
-  TensorView* tv2 = add(tv1, tv0); // implicit bcast
+//   TensorView* tv2 = add(tv1, tv0); // implicit bcast
 
-  TensorView* tv3 = sum(tv2, {1});
+//   TensorView* tv3 = sum(tv2, {1});
 
-  fusion.addOutput(tv3);
+//   fusion.addOutput(tv3);
 
-  const auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+//   const auto options =
+//       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
-  auto aten_output =
-      aten_input.to(at::kDouble).sum({0}).add(aten_input).sum({1});
+//   at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
+//   auto aten_output =
+//       aten_input.to(at::kDouble).sum({0}).add(aten_input).sum({1});
 
-  // Setup and run first fusion
+//   // Setup and run first fusion
 
-  Fusion fusion0;
-  auto clone0 = Fusion::copy(&fusion, &fusion0);
+//   Fusion fusion0;
+//   auto clone0 = Fusion::copy(&fusion, &fusion0);
 
-  fusion0.removeOutput(clone0.clone(tv3));
-  fusion0.addOutput(clone0.clone(tv1));
+//   fusion0.removeOutput(clone0.clone(tv3));
+//   fusion0.addOutput(clone0.clone(tv1));
 
-  // Apply reduction heuristic
-  auto reduction_params0 =
-      getReductionHeuristics(&fusion0, {aten_input}, clone0.clone(tv1));
-  TORCH_CHECK(reduction_params0, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion0, reduction_params0.value(), clone0.clone(tv1), {});
+//   // Apply reduction heuristic
+//   auto reduction_params0 =
+//       getReductionHeuristics(&fusion0, {aten_input}, clone0.clone(tv1));
+//   TORCH_CHECK(reduction_params0, "Reduction schedule was not generated!");
+//   scheduleReduction(&fusion0, reduction_params0.value(), clone0.clone(tv1),
+//   {});
 
-  auto lparams0 = reduction_params0.value().lparams;
+//   auto lparams0 = reduction_params0.value().lparams;
 
-  FusionExecutor fe0;
-  fe0.compileFusion(&fusion0);
-  auto cg_tv1 = fe0.runFusion({aten_input}, lparams0)[0];
+//   FusionExecutor fe0;
+//   fe0.compileFusion(&fusion0);
+//   auto cg_tv1 = fe0.runFusion({aten_input}, lparams0)[0];
 
-  // Setup and run second fusion
+//   // Setup and run second fusion
 
-  Fusion fusion1;
-  auto clone1 = Fusion::copy(&fusion, &fusion1);
-  fusion1.addInput(clone1.clone(tv1));
+//   Fusion fusion1;
+//   auto clone1 = Fusion::copy(&fusion, &fusion1);
+//   fusion1.addInput(clone1.clone(tv1));
 
-  // Apply reduction heuristic
-  auto reduction_params1 =
-      getReductionHeuristics(&fusion1, {aten_input, cg_tv1}, clone1.clone(tv3));
+//   // Apply reduction heuristic
+//   auto reduction_params1 =
+//       getReductionHeuristics(&fusion1, {aten_input, cg_tv1},
+//       clone1.clone(tv3));
 
-  TORCH_CHECK(reduction_params1, "Reduction schedule was not generated!");
-  scheduleReduction(&fusion1, reduction_params1.value(), clone1.clone(tv3), {});
+//   TORCH_CHECK(reduction_params1, "Reduction schedule was not generated!");
+//   scheduleReduction(&fusion1, reduction_params1.value(), clone1.clone(tv3),
+//   {});
 
-  auto lparams = reduction_params1.value().lparams;
+//   auto lparams = reduction_params1.value().lparams;
 
-  FusionExecutor fe1;
-  fe1.compileFusion(&fusion1);
-  // no broadcasting needed, omitting the last optional argument;
-  auto cg_outputs = fe1.runFusion({aten_input, cg_tv1}, lparams0);
+//   FusionExecutor fe1;
+//   fe1.compileFusion(&fusion1);
+//   // no broadcasting needed, omitting the last optional argument;
+//   auto cg_outputs = fe1.runFusion({aten_input, cg_tv1}, lparams0);
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {aten_input},
-      {aten_output},
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
-}
+//   testValidate(
+//       &fusion,
+//       cg_outputs,
+//       {aten_input},
+//       {aten_output},
+//       __LINE__,
+//       __FILE__,
+//       "",
+//       lparams);
+// }
 
 TEST(NVFuserTest, FusionSegment_CUDA) {
   Fusion fusion;
@@ -10980,15 +10983,19 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
 
   fusion.addOutput(tv9);
   fusion.addOutput(tv10);
+  // fusion.printMath();
+  // for (auto expr : fusion.exprs()) {
+  //   std::cout << expr->name() << "  " << expr << std::endl;
+  // }
+
   fusion.printMath();
-  for (auto expr : fusion.exprs()) {
-    std::cout << expr->name() << "  " << expr << std::endl;
-  }
 
   SingleReductionSegmenter kernels(&fusion);
-  std::cout << &kernels << std::endl;
-  std::cout << "============" << std::endl;
+  std::cout << 1 << std::endl;
   kernels.segment();
+  std::cout << 2 << std::endl;
+  std::cout << &kernels << std::endl;
+  kernels.generateFusions();
 }
 
 } // namespace jit

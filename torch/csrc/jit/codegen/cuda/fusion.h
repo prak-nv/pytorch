@@ -48,6 +48,9 @@ namespace cuda {
 class Fusion;
 class TensorView;
 
+// Give segment candidate finder access to the maps that copy fusions
+class SegmentCandidateFinder;
+
 //! Fusion Guard is our "context manager". It holds the actrive fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class TORCH_CUDA_API FusionGuard {
@@ -85,12 +88,6 @@ class TORCH_CUDA_API Fusion final {
   friend void swap(Fusion& a, Fusion& b) noexcept;
 
   void clear() noexcept;
-
-  static IrCloner copy(const Fusion* from, Fusion* to);
-
-  // Extract out copy constructor so we can return the cloner used which
-  // contains the ir maps from other to this.
-  IrCloner clone(const Fusion& other);
 
   //! Break dependency chains associated with Expr, remove references to expr
   //! delete expr
@@ -193,6 +190,11 @@ class TORCH_CUDA_API Fusion final {
 
   bool hasInput(const Val* val) const;
   bool hasOutput(const Val* val) const;
+
+ protected:
+  friend SegmentCandidateFinder;
+
+  static IrCloner copy(const Fusion* from, Fusion* to);
 
  private:
   // Return an int that monotonically increases for each val/expr, some are

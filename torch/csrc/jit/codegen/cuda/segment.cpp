@@ -1,6 +1,8 @@
 #include <torch/csrc/jit/codegen/cuda/segment.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
+#include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 
 #include <vector>
 
@@ -96,7 +98,6 @@ std::deque<SegmentedGroup*> SegmentedGroup::getMergeCandidates() {
 }
 
 void SegmentedGroup::clearTraversalInfo() {
-  is_input = false;
   level = -1;
   visited = false;
   merge_with = nullptr;
@@ -197,6 +198,31 @@ void SegmentCandidateFinder::mergeNodes() {
     // Make the new joined node
     groups.push_back(SegmentedGroup());
     auto& joined_group = groups.back();
+
+    std::unordered_set<Val*> added;
+    auto inputs = group1->input_vals;
+    inputs.insert(
+        inputs.end(), group2->input_vals.begin(), group2->input_vals.end());
+    for (auto input : inputs) {
+      if (added.find(input) != added.end()) {
+        continue;
+      }
+      joined_group.input_vals.push_back(input);
+      added.emplace(input);
+    }
+
+    added.clear();
+    auto outputs = group1->output_vals;
+    outputs.insert(
+        outputs.end(), group2->output_vals.begin(), group2->output_vals.end());
+    for (auto output : outputs) {
+      if (added.find(output) != added.end()) {
+        continue;
+      }
+      joined_group.output_vals.push_back(output);
+      added.emplace(output);
+    }
+
     for (auto expr : group1->exprs_) {
       joined_group.exprs_.push_back(expr);
     }
@@ -263,7 +289,6 @@ void SegmentCandidateFinder::mergeNodes() {
       clean_up_edges.emplace(edge);
     }
 
-    std::cout << "Group: " << &joined_group << std::endl;
     edges.remove_if([this](SegmentedEdge& edge) {
       bool found =
           this->clean_up_edges.find(&edge) != this->clean_up_edges.end();
@@ -280,11 +305,65 @@ void SegmentCandidateFinder::mergeNodes() {
   }
 }
 
+Fusion SegmentCandidateFinder::makeFusion(SegmentedGroup* sg) {
+  Fusion segmented_fusion;
+
+  auto complete_to_segment_map =
+      Fusion::copy(&complete_fusion, &segmented_fusion);
+
+  for (auto inp : segmented_fusion.inputs()) {
+    segmented_fusion.removeInput(inp);
+  }
+  for (auto out : segmented_fusion.outputs()) {
+    segmented_fusion.removeOutput(out);
+  }
+
+  std::unordered_set<Val*> added;
+
+  for (auto inp : sg->input_vals) {
+    if (added.find(inp) != added.end()) {
+      continue;
+    }
+    added.emplace(inp);
+    segmented_fusion.addInput(complete_to_segment_map.clone(inp));
+  }
+
+  for (auto edge : sg->producer_edges) {
+    auto val = edge->val_;
+    if (added.find(val) != added.end()) {
+      continue;
+    }
+    added.emplace(val);
+    segmented_fusion.addInput(complete_to_segment_map.clone(val));
+  }
+
+  added.clear();
+
+  for (auto out : sg->output_vals) {
+    if (added.find(out) != added.end()) {
+      continue;
+    }
+    added.emplace(out);
+    segmented_fusion.addOutput(complete_to_segment_map.clone(out));
+  }
+
+  for (auto edge : sg->consumer_edges) {
+    auto val = edge->val_;
+    if (added.find(val) != added.end()) {
+      continue;
+    }
+    added.emplace(val);
+    segmented_fusion.addOutput(complete_to_segment_map.clone(val));
+  }
+
+  return segmented_fusion;
+}
+
 bool SegmentCandidateFinder::codeGenSupportedMerge(
     SegmentedGroup* sg1,
     SegmentedGroup* sg2) {
-  std::vector<Val*> old_inputs = fusion_.inputs();
-  std::vector<Val*> old_outputs = fusion_.outputs();
+  std::vector<Val*> old_inputs = complete_fusion.inputs();
+  std::vector<Val*> old_outputs = complete_fusion.outputs();
   std::deque<Expr*> exprs = sg1->exprs_;
   // We will want to retraverse all values, make sure that traversal is
   // deterministic from one run to the next
@@ -320,67 +399,77 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     }
   }
 
+  // TODO: Clean this up, it's very repetitive, could be done in a guard if that
+  // seems to make sense.
   for (auto old_inp : old_inputs) {
-    fusion_.removeInput(old_inp);
+    complete_fusion.removeInput(old_inp);
   }
 
   for (auto old_out : old_outputs) {
-    fusion_.removeOutput(old_out);
+    complete_fusion.removeOutput(old_out);
   }
 
   for (auto new_inp : new_inputs) {
-    fusion_.addInput(new_inp);
+    complete_fusion.addInput(new_inp);
   }
 
   for (auto new_out : new_outputs) {
-    fusion_.addOutput(new_out);
+    complete_fusion.addOutput(new_out);
   }
 
-  bool can_gen = this->canGenerateCode(&fusion_);
-  // if(can_gen){
-  //   // std::cout<<"Can generate the fusion:\n";
-  //   // fusion_.printMath();
-  // }
+  bool can_gen = this->canGenerateCode(&complete_fusion);
 
   for (auto new_inp : new_inputs) {
-    fusion_.removeInput(new_inp);
+    complete_fusion.removeInput(new_inp);
   }
 
   for (auto new_out : new_outputs) {
-    fusion_.removeOutput(new_out);
+    complete_fusion.removeOutput(new_out);
   }
 
   for (auto old_inp : old_inputs) {
-    fusion_.addInput(old_inp);
+    complete_fusion.addInput(old_inp);
   }
 
   for (auto old_out : old_outputs) {
-    fusion_.addOutput(old_out);
+    complete_fusion.addOutput(old_out);
   }
 
   return can_gen;
 }
 
 SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion)
-    : fusion_(*fusion) {
+    : complete_fusion(*fusion) {
   // Need this for initialization of the DAG we'll process
 
   std::unordered_map<Expr*, SegmentedGroup*> expr2group;
-  for (auto expr : fusion_.exprs()) {
+  for (auto expr : complete_fusion.exprs()) {
     groups.push_back(SegmentedGroup(expr));
     expr2group.insert(std::make_pair(expr, &groups.back()));
   }
 
-  for (auto expr : fusion_.exprs()) {
+  for (auto expr : complete_fusion.exprs()) {
+    auto expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
+      if (inp->isFusionInput()) {
+        expr_group->input_vals.push_back(inp);
+        continue;
+      }
+
+      // Could be something like a constant scalar, definition is nullptr, but
+      // isn't an "input" to the fusion. At least not one provided by an
+      // external source.
       if (inp->definition() == nullptr) {
         continue;
       }
+
       auto def_group = expr2group.at(inp->definition());
-      auto expr_group = expr2group.at(expr);
       edges.push_back(SegmentedEdge(def_group, expr_group, inp));
-      def_group->consumer_edges.push_back(&edges.back());
       expr_group->producer_edges.push_back(&edges.back());
+      def_group->consumer_edges.push_back(&edges.back());
+    }
+    for (auto out : expr->outputs()) {
+      expr_group->output_vals.push_back(out);
     }
   }
 }
@@ -442,6 +531,19 @@ bool SingleReductionSegmenter::canGenerateCode(Fusion* fusion) {
   }
   return true;
 }
+
+void SingleReductionSegmenter::generateFusions() {
+  TORCH_INTERNAL_ASSERT(
+      groups.size() > 1,
+      "Didn't do any segmentation. Don't support trivial segmentation.");
+
+  for (auto group : groups) {
+    fusions.push_back(makeFusion(&group));
+    fusions.back();
+  }
+}
+
+void SingleReductionSegmenter::scheduleFusions() {}
 
 } // namespace cuda
 } // namespace fuser
