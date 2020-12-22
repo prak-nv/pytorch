@@ -4,15 +4,15 @@
 #include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 
-#include <vector>
+#include <sstream>
 
 namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
 
-std::deque<SegmentedGroup*> SegmentedGroup::getNeighbors() {
-  std::deque<SegmentedGroup*> neighbors;
+std::vector<SegmentedGroup*> SegmentedGroup::getNeighbors() {
+  std::vector<SegmentedGroup*> neighbors;
   for (auto inp : producer_edges) {
     neighbors.push_back(inp->from_);
   }
@@ -22,12 +22,17 @@ std::deque<SegmentedGroup*> SegmentedGroup::getNeighbors() {
   return neighbors;
 }
 
-std::deque<SegmentedGroup*> SegmentedGroup::getMergeCandidates() {
-  std::deque<SegmentedGroup*> neighbors = getNeighbors();
+std::vector<SegmentedGroup*> SegmentedGroup::getMergeCandidates() {
+  std::vector<SegmentedGroup*> neighbors = getNeighbors();
+
+  // Don't look for candidates if already merged
+  if (merged) {
+    return {};
+  }
 
   // Can this node be merged with another? Check if neighbors are merged, if
-  // so and merged neighbor, or node merged with neighbor is within 1 level,
-  // can't merge this node
+  // so and merged neighbor is within 1 level or node merged with neighbor is
+  // within 1 level, can't merge this node with anything else.
   bool can_merge_this = true;
   for (size_t i = 0; i < neighbors.size(); i++) {
     if (!neighbors[i]->merged) {
@@ -44,9 +49,9 @@ std::deque<SegmentedGroup*> SegmentedGroup::getMergeCandidates() {
     return {};
   }
 
-  std::deque<bool> can_merge(true, neighbors.size());
+  std::vector<bool> can_merge(true, neighbors.size());
 
-  // Find neighbors who level is only 1 differant than this groups level
+  // Find neighbors with a level that is only 1 differant than this groups level
   for (size_t i = 0; i < neighbors.size(); i++) {
     if (std::abs(neighbors[i]->level - level) > 1) {
       can_merge[i] = false;
@@ -88,7 +93,7 @@ std::deque<SegmentedGroup*> SegmentedGroup::getMergeCandidates() {
     }
   }
 
-  std::deque<SegmentedGroup*> merge_candidates;
+  std::vector<SegmentedGroup*> merge_candidates;
   for (size_t i = 0; i < neighbors.size(); i++) {
     if (can_merge[i]) {
       merge_candidates.push_back(neighbors[i]);
@@ -104,7 +109,7 @@ void SegmentedGroup::clearTraversalInfo() {
   merged = false;
 }
 
-std::ostream& operator<<(std::ostream& os, SegmentedGroup* group) {
+std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   os << "g{";
   for (size_t i = 0; i < group->exprs_.size(); i++) {
     os << group->exprs_[i]->name();
@@ -115,7 +120,7 @@ std::ostream& operator<<(std::ostream& os, SegmentedGroup* group) {
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, SegmentedEdge* edge) {
+std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
   os << "e{ " << edge->from_ << " -> " << edge->to_ << " }" << std::endl;
   return os;
 }
@@ -151,6 +156,7 @@ void SegmentCandidateFinder::resetLevels() {
       next_to_visit.push_back(visit);
       continue;
     }
+
     visit->visited = true;
 
     to_visit.insert(to_visit.end(), next_to_visit.begin(), next_to_visit.end());
@@ -165,25 +171,202 @@ void SegmentCandidateFinder::resetLevels() {
       visit->level = std::max(visit->level, inp->from_->level + 1);
     }
   }
+  TORCH_INTERNAL_ASSERT(next_to_visit.empty(), "Error in graph, is not a DAG.");
 }
 
-std::string SegmentCandidateFinder::toString() {
+std::string SegmentCandidateFinder::toString(int verbosity) const {
   std::stringstream ss;
   for (auto group : groups) {
   }
   for (auto group : groups) {
     ss << &group << "\n";
 
-    if (group.consumer_edges.size() > 0) {
-      ss << "  Consumed by groups: { \n";
-      for (auto consumer_edge : group.consumer_edges) {
-        ss << "    " << consumer_edge->to_ << "\n";
+    if (verbosity > 1) {
+      if (group.producer_edges.size() > 0) {
+        ss << "  produced by groups: { \n";
+        for (auto producer_edge : group.producer_edges) {
+          ss << "    " << producer_edge->from_ << " via " << producer_edge->val_
+             << "\n";
+        }
+        ss << "  }"
+           << "\n";
       }
-      ss << "  }"
-         << "\n";
+    }
+    if (verbosity > 0) {
+      if (group.consumer_edges.size() > 0) {
+        ss << "  Consumed by groups: { \n";
+        for (auto consumer_edge : group.consumer_edges) {
+          ss << "    " << consumer_edge->to_ << "\n";
+        }
+        ss << "  }"
+           << "\n";
+      }
     }
   }
   return ss.str();
+}
+
+namespace {
+
+std::vector<Val*> uniqueValConcat(
+    const std::vector<std::vector<Val*>>& val_vecs) {
+  std::vector<Val*> unique_vals;
+  std::unordered_set<Val*> added;
+  for (auto vec : val_vecs) {
+    for (auto val : vec) {
+      if (added.find(val) == added.end()) {
+        unique_vals.push_back(val);
+        added.emplace(val);
+      }
+    }
+  }
+  return unique_vals;
+}
+
+// Concat's producer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
+std::vector<SegmentedEdge*> getMergedProducerEdges(
+    const SegmentedGroup* sg1,
+    const SegmentedGroup* sg2) {
+  TORCH_INTERNAL_ASSERT(
+      sg1 != nullptr && sg2 != nullptr,
+      "This function doesn't handle trivial.");
+
+  auto producer_edges = sg1->producer_edges;
+  producer_edges.insert(
+      producer_edges.end(),
+      sg2->producer_edges.begin(),
+      sg2->producer_edges.end());
+
+  producer_edges.erase(
+      std::remove_if(
+          producer_edges.begin(),
+          producer_edges.end(),
+          [&sg1, &sg2](SegmentedEdge* se) {
+            return (se->to_ == sg1 && se->from_ == sg2) ||
+                (se->to_ == sg2 && se->from_ == sg1);
+          }),
+      producer_edges.end());
+
+  return producer_edges;
+}
+
+// Concat's consumer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
+std::vector<SegmentedEdge*> getMergedConsumerEdges(
+    const SegmentedGroup* sg1,
+    const SegmentedGroup* sg2) {
+  TORCH_INTERNAL_ASSERT(
+      sg1 != nullptr && sg2 != nullptr,
+      "This function doesn't handle trivial.");
+
+  auto consumer_edges = sg1->consumer_edges;
+  consumer_edges.insert(
+      consumer_edges.end(),
+      sg2->consumer_edges.begin(),
+      sg2->consumer_edges.end());
+
+  consumer_edges.erase(
+      std::remove_if(
+          consumer_edges.begin(),
+          consumer_edges.end(),
+          [&sg1, &sg2](SegmentedEdge* se) {
+            return (se->to_ == sg1 && se->from_ == sg2) ||
+                (se->to_ == sg2 && se->from_ == sg1);
+          }),
+      consumer_edges.end());
+
+  return consumer_edges;
+}
+
+// Returns a determinstic, unique set of inputs of the segment group, sg1, or
+// the combined group sg1 + sg2
+std::vector<Val*> getAllInputs(
+    const SegmentedGroup* sg1,
+    const SegmentedGroup* sg2 = nullptr) {
+  std::vector<SegmentedEdge*> merged_producer_edges;
+
+  if (sg1 != nullptr && sg2 != nullptr) {
+    merged_producer_edges = getMergedProducerEdges(sg1, sg2);
+  } else if (sg1 != nullptr) {
+    merged_producer_edges = sg1->producer_edges;
+  } else if (sg2 != nullptr) {
+    merged_producer_edges = sg2->producer_edges;
+  }
+
+  std::vector<Val*> producer_edge_vals;
+
+  std::transform(
+      merged_producer_edges.begin(),
+      merged_producer_edges.end(),
+      std::back_inserter(producer_edge_vals),
+      [](SegmentedEdge* se) { return se->val_; });
+
+  return uniqueValConcat(
+      {sg1 == nullptr ? std::vector<Val*>() : sg1->input_vals,
+       sg2 == nullptr ? std::vector<Val*>() : sg2->input_vals,
+       producer_edge_vals});
+}
+
+// Returns a determinstic, unique set of outputs of the segment group, sg1, or
+// the combined group sg1 + sg2
+std::vector<Val*> getAllOutputs(
+    const SegmentedGroup* sg1,
+    const SegmentedGroup* sg2 = nullptr) {
+  std::vector<SegmentedEdge*> merged_consumer_edges;
+
+  if (sg1 != nullptr && sg2 != nullptr) {
+    merged_consumer_edges = getMergedConsumerEdges(sg1, sg2);
+  } else if (sg1 != nullptr) {
+    merged_consumer_edges = sg1->consumer_edges;
+  } else if (sg2 != nullptr) {
+    merged_consumer_edges = sg2->consumer_edges;
+  }
+
+  std::vector<Val*> consumer_edge_vals;
+
+  std::transform(
+      merged_consumer_edges.begin(),
+      merged_consumer_edges.end(),
+      std::back_inserter(consumer_edge_vals),
+      [](SegmentedEdge* se) { return se->val_; });
+
+  auto output_vals =
+      uniqueValConcat({sg1 == nullptr ? std::vector<Val*>() : sg1->output_vals,
+                       sg2 == nullptr ? std::vector<Val*>() : sg2->output_vals,
+                       consumer_edge_vals});
+
+  return output_vals;
+}
+
+} // namespace
+
+// Disconect group from neighbors, and return edges that were disconnected
+std::unordered_set<SegmentedEdge*> SegmentCandidateFinder::disconnectGroup(
+    SegmentedGroup* group) {
+  std::unordered_set<SegmentedEdge*> removed_edges(
+      group->producer_edges.begin(), group->producer_edges.end());
+
+  for (auto edge : group->producer_edges) {
+    auto from = edge->from_;
+    auto& from_edges = from->consumer_edges;
+    auto from_edge_it = std::find(from_edges.begin(), from_edges.end(), edge);
+    TORCH_INTERNAL_ASSERT(
+        from_edge_it != from_edges.end(), "Could not find edge to remove.");
+    from_edges.erase(from_edge_it);
+  }
+
+  for (auto edge : group->consumer_edges) {
+    auto to = edge->to_;
+    auto& to_edges = to->producer_edges;
+    auto to_edge_it = std::find(to_edges.begin(), to_edges.end(), edge);
+    TORCH_INTERNAL_ASSERT(
+        to_edge_it != to_edges.end(), "Could not find edge to remove.");
+    to_edges.erase(to_edge_it);
+  }
+
+  group->producer_edges.clear();
+  group->consumer_edges.clear();
+
+  return removed_edges;
 }
 
 void SegmentCandidateFinder::mergeNodes() {
@@ -199,255 +382,174 @@ void SegmentCandidateFinder::mergeNodes() {
     groups.push_back(SegmentedGroup());
     auto& joined_group = groups.back();
 
-    std::unordered_set<Val*> added;
-    auto inputs = group1->input_vals;
-    inputs.insert(
-        inputs.end(), group2->input_vals.begin(), group2->input_vals.end());
-    for (auto input : inputs) {
-      if (added.find(input) != added.end()) {
-        continue;
-      }
-      joined_group.input_vals.push_back(input);
-      added.emplace(input);
-    }
+    joined_group.input_vals =
+        uniqueValConcat({group1->input_vals, group2->input_vals});
 
-    added.clear();
-    auto outputs = group1->output_vals;
-    outputs.insert(
-        outputs.end(), group2->output_vals.begin(), group2->output_vals.end());
-    for (auto output : outputs) {
-      if (added.find(output) != added.end()) {
-        continue;
-      }
-      joined_group.output_vals.push_back(output);
-      added.emplace(output);
-    }
+    joined_group.output_vals =
+        uniqueValConcat({group1->output_vals, group2->output_vals});
 
-    for (auto expr : group1->exprs_) {
-      joined_group.exprs_.push_back(expr);
-    }
+    joined_group.exprs_ = group1->exprs_;
+    joined_group.exprs_.insert(
+        joined_group.exprs_.end(),
+        group2->exprs_.begin(),
+        group2->exprs_.end());
 
-    for (auto expr : group2->exprs_) {
-      joined_group.exprs_.push_back(expr);
-    }
-
-    // Reconnect producer edges to the rest of the graph
-    auto producer_edges = group1->producer_edges;
-    producer_edges.insert(
-        producer_edges.end(),
-        group2->producer_edges.begin(),
-        group2->producer_edges.end());
-
+    auto producer_edges = getMergedProducerEdges(group1, group2);
+    // Connect joined group to resulting neighbors
     for (auto edge : producer_edges) {
       auto from = edge->from_;
       auto val = edge->val_;
 
-      if (edge->from_ == group1 && edge->to_ == group2) {
-        continue;
-      }
-      if (edge->to_ == group1 && edge->from_ == group2) {
-        continue;
-      }
-
-      auto& from_edges = from->consumer_edges;
-      auto from_edge_it = std::find(from_edges.begin(), from_edges.end(), edge);
-
       edges.push_back(SegmentedEdge(from, &joined_group, val));
 
       joined_group.producer_edges.push_back(&edges.back());
-      from_edges.push_back(&edges.back());
-
-      from_edges.erase(from_edge_it);
-      clean_up_edges.emplace(edge);
+      from->consumer_edges.push_back(&edges.back());
     }
 
-    // Reconnect consumer edges to the rest of the graph
-    auto consumer_edges = group1->consumer_edges;
-    consumer_edges.insert(
-        consumer_edges.end(),
-        group2->consumer_edges.begin(),
-        group2->consumer_edges.end());
+    auto consumer_edges = getMergedConsumerEdges(group1, group2);
 
     for (auto edge : consumer_edges) {
-      if (edge->from_ == group1 && edge->to_ == group2) {
-        continue;
-      }
-      if (edge->to_ == group1 && edge->from_ == group2) {
-        continue;
-      }
-
       auto to = edge->to_;
       auto val = edge->val_;
-      auto& to_edges = edge->to_->producer_edges;
-      auto to_edge_it = std::find(to_edges.begin(), to_edges.end(), edge);
 
       edges.push_back(SegmentedEdge(&joined_group, to, val));
       joined_group.consumer_edges.push_back(&edges.back());
-      to_edges.push_back(&edges.back());
-
-      to_edges.erase(to_edge_it);
-      clean_up_edges.emplace(edge);
+      edge->to_->producer_edges.push_back(&edges.back());
     }
-
-    edges.remove_if([this](SegmentedEdge& edge) {
-      bool found =
-          this->clean_up_edges.find(&edge) != this->clean_up_edges.end();
-      this->clean_up_edges.erase(&edge);
-      return found;
-    });
-
-    groups.remove_if([this](SegmentedGroup& group) {
-      bool found =
-          this->clean_up_groups.find(&group) != this->clean_up_groups.end();
-      this->clean_up_groups.erase(&group);
-      return found;
-    });
   }
+
+  for (auto group : clean_up_groups) {
+    auto disconnected_edges = disconnectGroup(group);
+    clean_up_edges.insert(disconnected_edges.begin(), disconnected_edges.end());
+  }
+
+  edges.remove_if([this](SegmentedEdge& edge) {
+    return this->clean_up_edges.find(&edge) != this->clean_up_edges.end();
+  });
+
+  groups.remove_if([this](SegmentedGroup& group) {
+    return this->clean_up_groups.find(&group) != this->clean_up_groups.end();
+  });
+
+  clean_up_edges.clear();
+  clean_up_groups.clear();
 }
 
-Fusion SegmentCandidateFinder::makeFusion(SegmentedGroup* sg) {
-  Fusion segmented_fusion;
+std::unique_ptr<Fusion> SegmentCandidateFinder::makeFusion(SegmentedGroup* sg) {
+  std::unique_ptr<Fusion> segmented_fusion = std::make_unique<Fusion>();
 
   auto complete_to_segment_map =
-      Fusion::copy(&complete_fusion, &segmented_fusion);
+      Fusion::copy(&complete_fusion, segmented_fusion.get());
 
-  for (auto inp : segmented_fusion.inputs()) {
-    segmented_fusion.removeInput(inp);
+  for (auto inp : segmented_fusion->inputs()) {
+    segmented_fusion->removeInput(inp);
   }
-  for (auto out : segmented_fusion.outputs()) {
-    segmented_fusion.removeOutput(out);
-  }
-
-  std::unordered_set<Val*> added;
-
-  for (auto inp : sg->input_vals) {
-    if (added.find(inp) != added.end()) {
-      continue;
-    }
-    added.emplace(inp);
-    segmented_fusion.addInput(complete_to_segment_map.clone(inp));
+  for (auto out : segmented_fusion->outputs()) {
+    segmented_fusion->removeOutput(out);
   }
 
-  for (auto edge : sg->producer_edges) {
-    auto val = edge->val_;
-    if (added.find(val) != added.end()) {
-      continue;
-    }
-    added.emplace(val);
-    segmented_fusion.addInput(complete_to_segment_map.clone(val));
+  for (auto inp : getAllInputs(sg)) {
+    segmented_fusion->addInput(complete_to_segment_map.clone(inp));
   }
 
-  added.clear();
-
-  for (auto out : sg->output_vals) {
-    if (added.find(out) != added.end()) {
-      continue;
-    }
-    added.emplace(out);
-    segmented_fusion.addOutput(complete_to_segment_map.clone(out));
-  }
-
-  for (auto edge : sg->consumer_edges) {
-    auto val = edge->val_;
-    if (added.find(val) != added.end()) {
-      continue;
-    }
-    added.emplace(val);
-    segmented_fusion.addOutput(complete_to_segment_map.clone(val));
+  for (auto out : getAllOutputs(sg)) {
+    segmented_fusion->addOutput(complete_to_segment_map.clone(out));
   }
 
   return segmented_fusion;
 }
 
+namespace {
+
+// Guard to temporarily change the inputs and outputs of a fusion. On
+// destruction will return fusion to original state.
+class FusionSegmentGuard {
+ public:
+  FusionSegmentGuard() = delete;
+  FusionSegmentGuard(FusionSegmentGuard const&) = delete;
+  FusionSegmentGuard& operator=(FusionSegmentGuard const&) = delete;
+
+  FusionSegmentGuard(
+      Fusion* fusion,
+      const std::vector<Val*>& inputs,
+      const std::vector<Val*>& outputs)
+      : fusion_(fusion),
+        old_inputs(fusion->inputs()),
+        old_outputs(fusion->outputs()),
+        new_inputs(inputs),
+        new_outputs(outputs) {
+    for (auto old_inp : old_inputs) {
+      fusion_->removeInput(old_inp);
+    }
+
+    for (auto old_out : old_outputs) {
+      fusion_->removeOutput(old_out);
+    }
+
+    for (auto new_inp : new_inputs) {
+      fusion_->addInput(new_inp);
+    }
+
+    for (auto new_out : new_outputs) {
+      fusion_->addOutput(new_out);
+    }
+  }
+
+  ~FusionSegmentGuard() {
+    for (auto new_inp : new_inputs) {
+      fusion_->removeInput(new_inp);
+    }
+
+    for (auto new_out : new_outputs) {
+      fusion_->removeOutput(new_out);
+    }
+
+    for (auto old_inp : old_inputs) {
+      fusion_->addInput(old_inp);
+    }
+
+    for (auto old_out : old_outputs) {
+      fusion_->addOutput(old_out);
+    }
+  }
+
+ private:
+  Fusion* const fusion_;
+  const std::vector<Val*> old_inputs;
+  const std::vector<Val*> old_outputs;
+  const std::vector<Val*> new_inputs;
+  const std::vector<Val*> new_outputs;
+};
+
+} // namespace
+
 bool SegmentCandidateFinder::codeGenSupportedMerge(
     SegmentedGroup* sg1,
     SegmentedGroup* sg2) {
-  std::vector<Val*> old_inputs = complete_fusion.inputs();
-  std::vector<Val*> old_outputs = complete_fusion.outputs();
-  std::deque<Expr*> exprs = sg1->exprs_;
-  // We will want to retraverse all values, make sure that traversal is
-  // deterministic from one run to the next
-  std::vector<Val*> deterministic_vals;
-  exprs.insert(exprs.end(), sg2->exprs_.begin(), sg2->exprs_.end());
-  std::unordered_set<Val*> used;
-  std::unordered_set<Val*> produced;
-  for (auto expr : exprs) {
-    for (auto inp : expr->inputs()) {
-      used.emplace(inp);
-      deterministic_vals.push_back(inp);
-    }
-    for (auto out : expr->outputs()) {
-      produced.emplace(out);
-      deterministic_vals.push_back(out);
-    }
-  }
-
-  // By property of how segmentation is done, if there is a use of a Val in
-  // the fusion group, it is only used in the fusion group
-
-  std::vector<Val*> new_inputs;
-  std::vector<Val*> new_outputs;
-  for (auto val : deterministic_vals) {
-    if (used.find(val) == used.end()) {
-      // Only produced, must be output
-      new_outputs.push_back(val);
-    }
-
-    if (produced.find(val) == produced.end()) {
-      // Only used, must be input
-      new_inputs.push_back(val);
-    }
-  }
-
-  // TODO: Clean this up, it's very repetitive, could be done in a guard if that
-  // seems to make sense.
-  for (auto old_inp : old_inputs) {
-    complete_fusion.removeInput(old_inp);
-  }
-
-  for (auto old_out : old_outputs) {
-    complete_fusion.removeOutput(old_out);
-  }
-
-  for (auto new_inp : new_inputs) {
-    complete_fusion.addInput(new_inp);
-  }
-
-  for (auto new_out : new_outputs) {
-    complete_fusion.addOutput(new_out);
-  }
+  FusionSegmentGuard fsg(
+      &complete_fusion, getAllInputs(sg1, sg2), getAllOutputs(sg1, sg2));
 
   bool can_gen = this->canGenerateCode(&complete_fusion);
-
-  for (auto new_inp : new_inputs) {
-    complete_fusion.removeInput(new_inp);
-  }
-
-  for (auto new_out : new_outputs) {
-    complete_fusion.removeOutput(new_out);
-  }
-
-  for (auto old_inp : old_inputs) {
-    complete_fusion.addInput(old_inp);
-  }
-
-  for (auto old_out : old_outputs) {
-    complete_fusion.addOutput(old_out);
-  }
 
   return can_gen;
 }
 
 SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion)
-    : complete_fusion(*fusion) {
-  // Need this for initialization of the DAG we'll process
+    : complete_fusion(*fusion) {}
 
+void SegmentCandidateFinder::segment() {
+  // TODO: Make traversal items local to this function.
+
+  // Need this for initialization of the DAG that is process
   std::unordered_map<Expr*, SegmentedGroup*> expr2group;
+
+  // Initialize DAG, convert each expr to a segment group
   for (auto expr : complete_fusion.exprs()) {
     groups.push_back(SegmentedGroup(expr));
     expr2group.insert(std::make_pair(expr, &groups.back()));
   }
 
+  // Create edges between the Exprs. Mark inputs and outputs of the fusion.
   for (auto expr : complete_fusion.exprs()) {
     auto expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
@@ -469,14 +571,13 @@ SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion)
       def_group->consumer_edges.push_back(&edges.back());
     }
     for (auto out : expr->outputs()) {
-      expr_group->output_vals.push_back(out);
+      if (out->isFusionOutput()) {
+        expr_group->output_vals.push_back(out);
+      }
     }
   }
-}
 
-void SegmentCandidateFinder::segment() {
   bool merged_nodes = true;
-
   while (merged_nodes) {
     // Reset stateful traversal details in SegmentedGroups
     resetTraversal();
@@ -538,12 +639,60 @@ void SingleReductionSegmenter::generateFusions() {
       "Didn't do any segmentation. Don't support trivial segmentation.");
 
   for (auto group : groups) {
-    fusions.push_back(makeFusion(&group));
-    fusions.back();
+    fusion_executors.push_back(
+        std::make_unique<FusionExecutorCache>(makeFusion(&group)));
   }
 }
 
-void SingleReductionSegmenter::scheduleFusions() {}
+bool readyToExecute(
+    const SegmentedGroup* group,
+    const std::unordered_map<Val*, IValue>& tensor_map) {
+  return std::all_of(
+      group->producer_edges.begin(),
+      group->producer_edges.end(),
+      [&tensor_map](const SegmentedEdge* edge) {
+        return tensor_map.find(edge->val_) != tensor_map.end();
+      });
+}
+
+std::vector<at::Tensor> SingleReductionSegmenter::runFusionWithInputs(
+    const at::ArrayRef<IValue>& inputs) {
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == complete_fusion.inputs().size(),
+      "Inputs were not set up correctly, recieved ",
+      inputs.size(),
+      " inputs but expecting ",
+      complete_fusion.inputs().size());
+
+  std::unordered_map<Val*, IValue> tensor_map;
+  for (size_t i = 0; i < inputs.size(); i++) {
+    tensor_map.emplace(std::make_pair(complete_fusion.inputs()[i], inputs[i]));
+  }
+
+  std::vector<bool> group_ran(groups.size(), false);
+
+  while (!std::all_of(
+      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
+    bool one_ran = false;
+    auto group_it = groups.begin();
+    for (size_t i = 0; i < groups.size(); i++, group_it++) {
+      if (group_ran[i]) {
+        continue;
+      }
+      if (readyToExecute(&(*group_it), tensor_map)) {
+        // run group
+        one_ran = true;
+      }
+    }
+    TORCH_INTERNAL_ASSERT(
+        one_ran,
+        "Couldn't run all groups, something must have gone wrong in segmentation.");
+  }
+
+  // std::vector<IValue> inputs;
+
+  return std::vector<at::Tensor>();
+}
 
 } // namespace cuda
 } // namespace fuser

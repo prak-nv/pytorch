@@ -10991,9 +10991,7 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
   fusion.printMath();
 
   SingleReductionSegmenter kernels(&fusion);
-  std::cout << 1 << std::endl;
   kernels.segment();
-  std::cout << 2 << std::endl;
   std::cout << &kernels << std::endl;
   kernels.generateFusions();
 }
