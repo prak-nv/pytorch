@@ -182,6 +182,7 @@ bool complyWith(
 
 namespace {
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 RegisterOperators size_eq_guard({
     Operator(
         //"prim::CudaFusionSizeEq(int[] size, int[] ref) -> bool",
@@ -190,7 +191,7 @@ RegisterOperators size_eq_guard({
         // if we would ever return refined tensor, which would change aliasing
         // analysis, we should update aliasdb pass.
         [](const Node* node) -> Operation {
-          return [node](Stack* stack) {
+          return [](Stack* stack) {
             at::ArrayRef<IValue> inputs = last(stack, 2);
             drop(stack, 2);
 
@@ -200,7 +201,8 @@ RegisterOperators size_eq_guard({
             }
 
             // auto inp = inputs[0].toIntList();
-            TORCH_INTERNAL_ASSERT(inputs[1].isIntList(), "reference needs to be of int list");
+            TORCH_INTERNAL_ASSERT(
+                inputs[1].isIntList(), "reference needs to be of int list");
             auto ref = inputs[1].toIntList();
 
             auto ret = true;

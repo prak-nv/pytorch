@@ -208,10 +208,9 @@ struct CudaGraphFuser {
         } else if (
             // TODO: extend the supporting inputs here.
             (input->type()->isSubtypeOf(FloatType::get()) &&
-             input->node()->kind() != prim::Constant)
-            ) {
-            // || (n->kind() == aten::_grad_sum_to_size &&
-            //  input->type()->isSubtypeOf(ListType::ofInts()))) {
+             input->node()->kind() != prim::Constant)) {
+          // || (n->kind() == aten::_grad_sum_to_size &&
+          //  input->type()->isSubtypeOf(ListType::ofInts()))) {
           auto in_group = subgraph.addInput();
           in_group->setType(input->type());
           inputs_map[input] = in_group;
@@ -240,7 +239,8 @@ struct CudaGraphFuser {
                 return in_group;
               });
 
-          subgraph.insertNode(in_const); inputs_map[input] = in_const->output();
+          subgraph.insertNode(in_const);
+          inputs_map[input] = in_const->output();
         } else {
           // TODO: we need to figure out what are supported input scalar
           auto in_group = subgraph.addInput();
@@ -1202,13 +1202,17 @@ void guardFusionGroup(Node* fusion) {
                 ->insertBefore(versioning_if)
                 ->output();
       } else if (fusion->input(offset)->node()->hasAttribute(
-              Symbol::attr("profiled_size"))) {
+                     Symbol::attr("profiled_size"))) {
         // TODO(profile_size): check sizes here with special size comparison op
-        //TORCH_INTERNAL_ASSERT(false, "not implemented yet");
-        ivalue_check = fusion->owningGraph()
-                           ->create(c10::Symbol::fromQualString("prim::CudaFusionSizeEq"), {profiled_ival, const_o}, 1)
-                           ->insertBefore(versioning_if)
-                           ->output();
+        // TORCH_INTERNAL_ASSERT(false, "not implemented yet");
+        ivalue_check =
+            fusion->owningGraph()
+                ->create(
+                    c10::Symbol::fromQualString("prim::CudaFusionSizeEq"),
+                    {profiled_ival, const_o},
+                    1)
+                ->insertBefore(versioning_if)
+                ->output();
       } else {
         ivalue_check = fusion->owningGraph()
                            ->create(aten::eq, {profiled_ival, const_o}, 1)

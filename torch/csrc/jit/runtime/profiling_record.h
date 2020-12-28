@@ -202,7 +202,7 @@ struct ProfilingRecord {
     return profiled_graph_;
   }
 
- TORCH_API ProfileIValueOp* createProfileIValueNode(Value* in_val);
+  TORCH_API ProfileIValueOp* createProfileIValueNode(Value* in_val);
 
  private:
   ProfileOp* createProfileNode(

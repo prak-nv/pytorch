@@ -65,7 +65,8 @@ class IrParser {
     }
 
     bool isType(const Node* node, OperatorType type) const {
-      auto n_type = type_f_ == nullptr ? OperatorType::ElementWise : type_f_(node);
+      auto n_type =
+          type_f_ == nullptr ? OperatorType::ElementWise : type_f_(node);
       return n_type == type;
     }
 
@@ -184,7 +185,8 @@ class IrParser {
     initRegistry();
 
     auto reg_entry = lookupInRegistry(node);
-    return reg_entry != nullptr && reg_entry->isType(node, OperatorType::Reduction);
+    return reg_entry != nullptr &&
+        reg_entry->isType(node, OperatorType::Reduction);
   }
 
   static bool isNormalizationNode(const Node* node) {
@@ -199,7 +201,8 @@ class IrParser {
     initRegistry();
 
     auto reg_entry = lookupInRegistry(node);
-    return reg_entry != nullptr && reg_entry->isType(node, OperatorType::ElementWise);
+    return reg_entry != nullptr &&
+        reg_entry->isType(node, OperatorType::ElementWise);
   }
 
   // TODO: is_reduction is too hacky here. we should categorize operation types
@@ -625,7 +628,9 @@ class IrParser {
             value_map.emplace(node->output()->unique(), output);
           },
           [](const Node* node) -> bool { return true; },
-          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
+          [](const Node* node) -> OperatorType {
+            return OperatorType::Normalization;
+          });
     }
 
     {
@@ -711,7 +716,9 @@ class IrParser {
           },
           // TODO: #ProfileIValue List should update this
           [](const Node* node) -> bool { return true; },
-          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
+          [](const Node* node) -> OperatorType {
+            return OperatorType::Normalization;
+          });
     }
 
     {
@@ -810,7 +817,9 @@ class IrParser {
             },
             // TODO: #ProfileIValue List should update this
             [](const Node* node) -> bool { return true; },
-            [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
+            [](const Node* node) -> OperatorType {
+              return OperatorType::Normalization;
+            });
       }
     }
 
@@ -926,7 +935,9 @@ class IrParser {
           },
           // TODO: #ProfileIValue List should update this
           [](const Node* node) -> bool { return true; },
-          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
+          [](const Node* node) -> OperatorType {
+            return OperatorType::Normalization;
+          });
     }
 
     {
@@ -970,7 +981,9 @@ class IrParser {
             }
             return true;
           },
-          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
+          [](const Node* node) -> OperatorType {
+            return OperatorType::Normalization;
+          });
     }
 
     {
@@ -1014,7 +1027,9 @@ class IrParser {
             }
             return true;
           },
-          [](const Node* node) -> OperatorType { return OperatorType::Normalization; });
+          [](const Node* node) -> OperatorType {
+            return OperatorType::Normalization;
+          });
     }
 
     {
@@ -1065,7 +1080,9 @@ class IrParser {
             }
             return true;
           },
-          [](const Node* node) -> OperatorType { return OperatorType::Reduction; });
+          [](const Node* node) -> OperatorType {
+            return OperatorType::Reduction;
+          });
     }
 
     {
@@ -1078,7 +1095,6 @@ class IrParser {
             ptr_op,
             [](const Node* node,
                std::unordered_map<size_t, CgValue>& value_map) -> void {
-
               auto self = value_map[node->input(0)->unique()];
               auto size_to = constant_as<c10::List<int64_t>>(node->input(1));
               TORCH_INTERNAL_ASSERT(
@@ -1104,9 +1120,9 @@ class IrParser {
             [](const Node* node) -> OperatorType {
               auto size_to = constant_as<c10::List<int64_t>>(node->input(1));
               if (size_to->empty()) {
-                return OperatorType::ElementWise; 
+                return OperatorType::ElementWise;
               } else {
-                return OperatorType::Reduction; 
+                return OperatorType::Reduction;
               }
             });
       }
@@ -1280,8 +1296,8 @@ void profileSize(ProfilingRecord* pr, Node* node, size_t offset) {
     } else if (value.isNone()) {
       size_vec.clear();
     } else {
-      TORCH_INTERNAL_ASSERT(false,
-          "profileSize does not support data type: ", value.tagKind());
+      TORCH_INTERNAL_ASSERT(
+          false, "profileSize does not support data type: ", value.tagKind());
     }
     if (!pn->hasAttribute(sizeAttr)) {
       pn->is_(sizeAttr, size_vec);
@@ -1290,9 +1306,7 @@ void profileSize(ProfilingRecord* pr, Node* node, size_t offset) {
       TORCH_INTERNAL_ASSERT(
           profiled_ints.size() == size_vec.size() &&
               std::equal(
-                  profiled_ints.begin(),
-                  profiled_ints.end(),
-                  size_vec.begin()),
+                  profiled_ints.begin(), profiled_ints.end(), size_vec.begin()),
           "profiling ivalue doesn't support merge");
     }
     push(stack, value);
@@ -1438,7 +1452,8 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
       getOperatorForLiteral(
           "aten::_grad_sum_to_size(Tensor(a) self, int[]? size) -> Tensor(a)")
           ->schema();
-  if (node->matches(sum_to_size_schema) || node->matches(grad_sum_to_size_schema)) {
+  if (node->matches(sum_to_size_schema) ||
+      node->matches(grad_sum_to_size_schema)) {
     switch (offset) {
       // argument 1: reduction sizes;
       case 1:
