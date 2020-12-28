@@ -1264,7 +1264,7 @@ ProfileIValueOp* insertProfileIValueOp(
 void profileSize(ProfilingRecord* pr, Node* node, size_t offset) {
   auto pn = insertProfileIValueOp(node, offset, pr);
 
-  std::function<void(Stack&)> ivalue_profiler = [pr, pn](Stack& stack) {
+  const auto ivalue_profiler = [pr, pn](Stack& stack) {
     std::lock_guard<std::mutex> lock(pr->mutex_);
 
     // TODO: we don't care about merging multiple profiling runs as we don't
@@ -1275,7 +1275,6 @@ void profileSize(ProfilingRecord* pr, Node* node, size_t offset) {
     pop(stack, value);
 
     std::vector<int64_t> size_vec;
-    // TODO(profile_size): double check optional[size]?
     if (value.isIntList()) {
       size_vec = value.toIntVector();
     } else if (value.isNone()) {
@@ -1304,7 +1303,7 @@ void profileSize(ProfilingRecord* pr, Node* node, size_t offset) {
 void profileIntList(ProfilingRecord* pr, Node* node, size_t offset) {
   auto pn = insertProfileIValueOp(node, offset, pr);
 
-  std::function<void(Stack&)> ivalue_profiler = [pr, pn](Stack& stack) {
+  const auto ivalue_profiler = [pr, pn](Stack& stack) {
     std::lock_guard<std::mutex> lock(pr->mutex_);
 
     // TODO: we don't care about merging multiple profiling runs as we don't
@@ -1337,7 +1336,7 @@ void profileIntList(ProfilingRecord* pr, Node* node, size_t offset) {
 void profileBool(ProfilingRecord* pr, Node* node, size_t offset) {
   auto pn = insertProfileIValueOp(node, offset, pr);
 
-  std::function<void(Stack&)> ivalue_profiler = [pr, pn](Stack& stack) {
+  const auto ivalue_profiler = [pr, pn](Stack& stack) {
     std::lock_guard<std::mutex> lock(pr->mutex_);
 
     // TODO: we don't care about merging multiple profiling runs as we don't
@@ -1405,7 +1404,6 @@ bool isNodeParsible(const Node* node) {
   return IrParser::canParseNode(node);
 }
 
-// TODO: we should incorporate this to our parser as well;
 bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
   // is skip constant necessary?
   if (node->input(offset)->node()->kind() == prim::Constant) {
@@ -1418,9 +1416,11 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
           ->schema();
   if (node->matches(reduction_operator_schema)) {
     switch (offset) {
+      // argument 1: reduction axes;
       case 1:
         profileIntList(pr, node, offset);
         break;
+      // argument 2: keepdim;
       case 2:
         profileBool(pr, node, offset);
         break;
@@ -1440,10 +1440,10 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
           ->schema();
   if (node->matches(sum_to_size_schema) || node->matches(grad_sum_to_size_schema)) {
     switch (offset) {
+      // argument 1: reduction sizes;
       case 1:
         // TODO(profile_size): double check optional[size]?
         profileSize(pr, node, offset);
-        //profileIntList(pr, node, offset);
         break;
       default:
         return false;
@@ -1455,9 +1455,7 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
 }
 
 void insertProfileNodesForCUDAFuser_(Block* block, ProfilingRecord* pr) {
-  for (auto it = block->nodes().begin(); it != block->nodes().end(); ++it) {
-    auto n = *it;
-
+  for (const auto& n : block->nodes()) {
     for (size_t offset = 0; offset < n->inputs().size(); offset++) {
       insertProfileIValue(pr, n, offset);
     }

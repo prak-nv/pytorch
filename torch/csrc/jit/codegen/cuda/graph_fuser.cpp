@@ -194,12 +194,9 @@ struct CudaGraphFuser {
     // them
     // we insert tensors first because the fuser assumes that to be the case
     // (as a legacy from tensors only)
-    std::cout << "    merge node: " << *n << std::endl;
     WithInsertPoint guard(*subgraph.nodes().begin());
     for (auto input : n->inputs()) {
-      std::cout << "        check input: " << *input->node() << std::endl;
       if (inputs_map.count(input) == 0) {
-        std::cout << " ---add tensor inputs--- ";
         // TODO: we are following the convention for no good reason;
         //       we don't need tensor to come before any other inputs.
         if (input->type()->isSubtypeOf(TensorType::get())) {
@@ -220,7 +217,6 @@ struct CudaGraphFuser {
           inputs_map[input] = in_group;
           group->addInput(input);
         } else if (input->node()->kind() == prim::Constant) {
-          std::cout << " ---constant warning--- ";
           // inline the constants directly in the body of the fused group.
 
           // we'll only merge constant into a non-empty graph, which will always
@@ -246,7 +242,6 @@ struct CudaGraphFuser {
 
           subgraph.insertNode(in_const); inputs_map[input] = in_const->output();
         } else {
-          std::cout << " ---add scalar input--- ";
           // TODO: we need to figure out what are supported input scalar
           auto in_group = subgraph.addInput();
           in_group->setType(input->type());
@@ -288,7 +283,6 @@ struct CudaGraphFuser {
     // propogate position information for the new node so we can always
     // have a valid mapping
     group->insertBefore(n);
-    std::cout << " create singleton group with node " << *n << std::endl;
     Node* mergedNode = mergeNodeIntoGroup(group, n);
     for (size_t i = 0; i < n->outputs().size(); i++) {
       getSubgraph(group).registerOutput(mergedNode->output(i));
@@ -316,17 +310,13 @@ struct CudaGraphFuser {
         // an output of the fusion group.
         aliasDb_->moveBeforeTopologicallyValid(producer->node(), consumer);
 
-    std::cout << "try to fuse : " << *producer->node() << "   ";
-
     if (!shouldFuse) {
-      std::cout << "shouldn't fuse" << std::endl;
       return at::nullopt;
     }
 
     if ((consumer->inputs().size() + consumer->outputs().size() +
          producer->node()->inputs().size() +
          producer->node()->outputs().size()) > subgraph_arg_limit_) {
-      std::cout << "exceeds limits" << std::endl;
       return at::nullopt;
     }
 
@@ -337,7 +327,6 @@ struct CudaGraphFuser {
 
     if (producer->node()->kind() == kind_) {
       mergeFusionGroups(group, producer->node());
-      std::cout << "fuse groups" << std::endl;
       return group;
     }
     Node* merged = mergeNodeIntoGroup(group, producer->node());
@@ -357,7 +346,6 @@ struct CudaGraphFuser {
       }
     }
     producer->node()->destroy();
-    std::cout << "fuse node" << std::endl;
     return group;
   }
 

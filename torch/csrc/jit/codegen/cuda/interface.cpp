@@ -215,7 +215,6 @@ RegisterOperators size_eq_guard({
                 }
 
                 for (size_t i = 0; i < inp.size(); i++) {
-                  printf("check %d, %d", int(inp[i]), int(ref[i]));
                   if (((inp[i] == 1) != (ref[i] == 1))) {
                     ret = false;
                     break;
@@ -226,11 +225,6 @@ RegisterOperators size_eq_guard({
               }
             }
 
-            if (ret) {
-              printf("  check success\n");
-            } else {
-              printf("  check failed\n");
-            }
             push(stack, IValue(ret));
             return;
           };
