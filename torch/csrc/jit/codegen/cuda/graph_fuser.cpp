@@ -937,7 +937,7 @@ struct CudaGraphFuser {
       any_changed = false;
       refreshAliasDb();
       for (auto it = block_->nodes().rbegin(); it != block_->nodes().rend();) {
-        bool changed;
+        bool changed = false;
         std::tie(it, changed) = scanNode(*it);
         any_changed |= changed;
       }
