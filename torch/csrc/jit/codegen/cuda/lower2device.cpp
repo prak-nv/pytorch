@@ -132,7 +132,7 @@ void GpuLower::lower() {
   //   std::cout<<expr<<std::endl;
 
   const auto lowered_exprs =
-      LoopNestGenerator::loweredExprs(fusion_, sorted_exprs);
+      LoopNestGenerator::loweredExprs(fusion_, sorted_exprs, ca_maps);
 
   // Insert allocations
   const auto alloced_exprs =

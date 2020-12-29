@@ -19,8 +19,11 @@ namespace cuda {
 
 LoopNestGenerator::LoopNestGenerator(
     Fusion* fusion,
-    const std::vector<Expr*>& exprs)
-    : fusion_(fusion), ir_builder_(GpuLower::current()->kernel()) {
+    const std::vector<Expr*>& exprs,
+    const ComputeAtMap& ca_maps)
+    : fusion_(fusion),
+      ir_builder_(GpuLower::current()->kernel()),
+      ca_maps_(ca_maps) {
   generate(exprs);
 }
 
@@ -108,8 +111,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
   int64_t last_ca_view_ind = 0;
 
   // Look at each axis individually in out's domain
-  for (int64_t out_i = 0; out_i < (int64_t)out->getThisComputeAtAxis();
-       out_i++) {
+  for (int64_t out_i = 0; out_i < (int64_t)ca_maps_.producedAt(out); out_i++) {
     // Grab the axis information
     auto ca_point = out->getComputeAtAxis(out_i);
     auto ca_view = ca_point.second;
@@ -145,6 +147,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
       // Update the last view processed
       last_ca_view_ind = ca_i;
       last_ca_view = ca_view;
+
       if (ca_view->getComputeAtAxis(ca_i).first == ca_id) {
         break;
       }

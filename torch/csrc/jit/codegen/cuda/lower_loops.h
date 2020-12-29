@@ -7,6 +7,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
+#include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
 
 namespace torch {
@@ -32,14 +33,18 @@ class TORCH_CUDA_API LoopNestGenerator {
  public:
   static std::vector<kir::Expr*> loweredExprs(
       Fusion* fusion,
-      const std::vector<Expr*>& exprs) {
+      const std::vector<Expr*>& exprs,
+      const ComputeAtMap& ca_maps) {
     FUSER_PERF_SCOPE("LoopNestGenerator::loweredExprs");
-    LoopNestGenerator generator(fusion, exprs);
+    LoopNestGenerator generator(fusion, exprs, ca_maps);
     return generator.lowered_exprs_;
   }
 
  private:
-  LoopNestGenerator(Fusion* fusion, const std::vector<Expr*>& exprs);
+  LoopNestGenerator(
+      Fusion* fusion,
+      const std::vector<Expr*>& exprs,
+      const ComputeAtMap& ca_maps);
 
   // Open a new inner most for loop, track which TV it was constructed from
   // according to the computeAt chain.
@@ -69,6 +74,8 @@ class TORCH_CUDA_API LoopNestGenerator {
 
   // Kernel IR builder
   kir::IrBuilder ir_builder_;
+
+  const ComputeAtMap& ca_maps_;
 };
 
 } // namespace cuda
