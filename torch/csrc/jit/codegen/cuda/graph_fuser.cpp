@@ -209,19 +209,12 @@ struct CudaGraphFuser {
             // TODO: extend the supporting inputs here.
             (input->type()->isSubtypeOf(FloatType::get()) &&
              input->node()->kind() != prim::Constant)) {
-          // || (n->kind() == aten::_grad_sum_to_size &&
-          //  input->type()->isSubtypeOf(ListType::ofInts()))) {
           auto in_group = subgraph.addInput();
           in_group->setType(input->type());
           inputs_map[input] = in_group;
           group->addInput(input);
         } else if (input->node()->kind() == prim::Constant) {
           // inline the constants directly in the body of the fused group.
-
-          // we'll only merge constant into a non-empty graph, which will always
-          // have inputs
-          // Value* dummy_input = subgraph.inputs()[0];
-
           Node* in_const =
               subgraph.createClone(input->node(), [&](Value* v) -> Value* {
                 if (v->node()->kind() != prim::profile_ivalue) {
@@ -238,7 +231,6 @@ struct CudaGraphFuser {
                 in_group->setType(v->type());
                 return in_group;
               });
-
           subgraph.insertNode(in_const);
           inputs_map[input] = in_const->output();
         } else {
@@ -250,7 +242,6 @@ struct CudaGraphFuser {
         }
       }
     }
-
     // copy n into the graph, remapping its inputs to internal nodes
     Node* in_graph = subgraph.createClone(
         n, [&](Value* k) -> Value* { return inputs_map[k]; });
@@ -803,37 +794,23 @@ struct CudaGraphFuser {
             "only supports reduction axes and keepdim being constant");
 
         // hmmm, do I need to setInsertPoint...
-        Node* in1_const =
-            graph->createClone(n->input(1)->node(), [&](Value* v) -> Value* {
-              // if constant ever has an input, it has to come from
-              // profile_ivalue dependency
-              if (v->node()->kind() == prim::Param &&
-                  fusion_group->input(v->offset())->node()->kind() ==
-                      prim::profile_ivalue) {
-                // we need to map it along profile_ivalue dependency
-                return fusion_group->input(v->offset());
-              } else {
-                throw std::runtime_error(
-                    std::string("unexpected input from node") +
-                    v->node()->kind().toDisplayString());
-              }
-            });
+        const auto map_inputs = [&](Value* v) -> Value* {
+          // if constant ever has an input, it has to come from
+          // profile_ivalue dependency
+          if (v->node()->kind() == prim::Param &&
+              fusion_group->input(v->offset())->node()->kind() ==
+                  prim::profile_ivalue) {
+            // we need to map it along profile_ivalue dependency
+            return fusion_group->input(v->offset());
+          } else {
+            throw std::runtime_error(
+                std::string("unexpected input from node") +
+                v->node()->kind().toDisplayString());
+          }
+        };
+        Node* in1_const = graph->createClone(n->input(1)->node(), map_inputs);
         graph->insertNode(in1_const);
-        Node* in2_const =
-            graph->createClone(n->input(2)->node(), [&](Value* v) -> Value* {
-              // if constant ever has an input, it has to come from
-              // profile_ivalue dependency
-              if (v->node()->kind() == prim::Param &&
-                  fusion_group->input(v->offset())->node()->kind() ==
-                      prim::profile_ivalue) {
-                // we need to map it along profile_ivalue dependency
-                return fusion_group->input(v->offset());
-              } else {
-                throw std::runtime_error(
-                    std::string("unexpected input from node") +
-                    v->node()->kind().toDisplayString());
-              }
-            });
+        Node* in2_const = graph->createClone(n->input(2)->node(), map_inputs);
         graph->insertNode(in2_const);
 
         std::vector<Value*> inputs = {
