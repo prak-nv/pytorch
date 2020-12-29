@@ -547,6 +547,7 @@ if(NOT INTERN_BUILD_MOBILE OR NOT BUILD_CAFFE2_MOBILE)
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/kernel_ir_builder.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/kernel_ir_printer.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/lower_alias_memory.cpp
+      ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/lower_compute_at_map.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/lower_expr_sort.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/lower_index.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/lower_insert_syncs.cpp
@@ -565,6 +566,7 @@ if(NOT INTERN_BUILD_MOBILE OR NOT BUILD_CAFFE2_MOBILE)
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/register_interface.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/root_domain_map.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/scheduler.cpp
+      ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/segmenter_helper.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/shape_inference.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/tensor_view.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/transform_iter.cpp

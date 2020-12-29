@@ -3,6 +3,7 @@
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
+#include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
 #include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/lower_index.h>
 #include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
@@ -110,6 +111,9 @@ void GpuLower::lower() {
   ComputeAtRootDomainMap ca_root_map;
   ca_root_map.build();
 
+  ComputeAtMap ca_maps;
+  ca_maps.build();
+
   // Set the kernel inputs & outputs
   for (auto input : fusion_->inputs()) {
     kernel_->addInput(GpuLower::lowerValue(input));
@@ -119,8 +123,13 @@ void GpuLower::lower() {
   }
 
   // Run our passes keeping the lowered expressions and forwarding them
-  const auto lowered_exprs = LoopNestGenerator::loweredExprs(
-      fusion_, reorderExprsForComputeAt(fusion_->exprs()));
+  auto sorted_exprs = reorderExprsTest(ca_maps);
+  // std::cout<<"==========="<<std::endl;
+  // for(auto expr : sorted_exprs)
+  //   std::cout<<expr<<std::endl;
+
+  const auto lowered_exprs =
+      LoopNestGenerator::loweredExprs(fusion_, sorted_exprs);
 
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, lowered_exprs, preds, ca_root_map);
