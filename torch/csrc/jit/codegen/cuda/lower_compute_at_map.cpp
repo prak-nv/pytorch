@@ -62,6 +62,26 @@ void ComputeAtMap::build() {
           disjoint_set->emplace(c_id);
           disjoint_iter_sets_.emplace(std::make_pair(c_id, disjoint_set));
 
+          if (c_id->isParallelized()) {
+            auto parallel_entry_it =
+                parallel_type_map_.find(disjoint_set.get());
+            if (parallel_entry_it != parallel_type_map_.end()) {
+              TORCH_INTERNAL_ASSERT(
+                  parallel_entry_it->second->getParallelType() ==
+                      c_id->getParallelType(),
+                  "Compute at iteration domain ",
+                  c_id,
+                  " in tensor ",
+                  c_tv,
+                  " maps to another tensor's iter domain ",
+                  parallel_entry_it->second,
+                  " however parallelization strategies do not match. ",
+                  "Only one of these parallel strategies should be set.");
+            } else {
+              parallel_type_map_[disjoint_set.get()] = c_id;
+            }
+          }
+
           if (terminating_output) {
             int ca_pos = (int)std::distance(
                              c_tv->domain()->domain().begin(),
@@ -83,6 +103,29 @@ void ComputeAtMap::build() {
       }
     }
   }
+}
+
+bool ComputeAtMap::areMapped(IterDomain* id0, IterDomain* id1) const {
+  auto set0_it = disjoint_iter_sets_.find(id0);
+  auto set1_it = disjoint_iter_sets_.find(id1);
+  if (set0_it == disjoint_iter_sets_.end() ||
+      set1_it == disjoint_iter_sets_.end()) {
+    return false;
+  }
+  return (set0_it->second.get() == set1_it->second.get());
+}
+
+IterDomain* ComputeAtMap::getParallelizedMappedID(IterDomain* id) const {
+  auto disjoint_set_it = disjoint_iter_sets_.find(id);
+  if (disjoint_set_it == disjoint_iter_sets_.end()) {
+    return id;
+  }
+  auto parallelized_id_it =
+      parallel_type_map_.find(disjoint_set_it->second.get());
+  if (parallelized_id_it == parallel_type_map_.end()) {
+    return id;
+  }
+  return parallelized_id_it->second;
 }
 
 } // namespace cuda

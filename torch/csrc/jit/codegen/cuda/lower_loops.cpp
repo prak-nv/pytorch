@@ -19,8 +19,11 @@ namespace cuda {
 
 LoopNestGenerator::LoopNestGenerator(
     Fusion* fusion,
-    const std::vector<Expr*>& exprs)
-    : fusion_(fusion), ir_builder_(GpuLower::current()->kernel()) {
+    const std::vector<Expr*>& exprs,
+    const ComputeAtMap& ca_maps)
+    : fusion_(fusion),
+      ir_builder_(GpuLower::current()->kernel()),
+      ca_maps_(ca_maps) {
   generate(exprs);
 }
 
@@ -40,7 +43,7 @@ kir::Expr* LoopNestGenerator::pushAlloc(TensorView* tv) {
   // Grab the dimensions the allocation will be based on to compute a size
   std::vector<Val*> alloc_dims;
   for (size_t i = 0; i < tv->nDims(); i++) {
-    IterDomain* compute_at_dim = tv->getComputeAtAxis(i).first;
+    IterDomain* compute_at_dim = ca_maps_.getParallelizedMappedID(tv->axis(i));
     IterDomain* local_dim = tv->axis(i);
     const auto memory_type = tv->getMemoryType();
     if (
@@ -199,7 +202,7 @@ void LoopNestGenerator::initReduction(
   // buffer memory location
   std::vector<kir::IterDomain*> ids;
   for (size_t i = alloc_pos; i < tv->nDims(); i++) {
-    IterDomain* ca_dim = tv->getComputeAtAxis(i).first;
+    IterDomain* ca_dim = ca_maps_.getParallelizedMappedID(tv->axis(i));
     IterDomain* local_dim = tv->axis(i);
     if (local_dim->isReduction())
       continue;
@@ -321,11 +324,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
   }
   if (shared_memory_sync) {
     // Push "sync" to the back of the last for loop
-    if (!for_loops_.empty()) {
-      for_loops_.back()->body().push_back(ir_builder_.create<kir::Sync>());
-    } else {
-      lowered_exprs_.push_back(ir_builder_.create<kir::Sync>());
-    }
+    pushBack(ir_builder_.create<kir::Sync>());
     cleanSharedMemory();
   }
 
@@ -340,8 +339,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
   int64_t last_ca_view_ind = 0;
 
   // Look at each axis individually in out's domain
-  for (int64_t out_i = 0; out_i < (int64_t)out->getThisComputeAtAxis();
-       out_i++) {
+  for (int64_t out_i = 0; out_i < (int64_t)ca_maps_.producedAt(out); out_i++) {
     // Grab the axis information
     auto ca_point = out->getComputeAtAxis(out_i);
     auto ca_view = ca_point.second;
@@ -377,6 +375,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
       // Update the last view processed
       last_ca_view_ind = ca_i;
       last_ca_view = ca_view;
+
       if (ca_view->getComputeAtAxis(ca_i).first == ca_id) {
         break;
       }

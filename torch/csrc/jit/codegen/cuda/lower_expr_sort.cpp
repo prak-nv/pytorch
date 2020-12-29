@@ -59,9 +59,7 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
       return false;
     }
 
-    auto set1 = ca_maps_.disjoint_iter_sets().at(domain1.back()).get();
-    auto set2 = ca_maps_.disjoint_iter_sets().at(domain2.back()).get();
-    return set1 == set2;
+    return ca_maps_.areMapped(domain1.back(), domain2.back());
   }
 
   SegmentedGroup* makeEmptyGroup() override {
@@ -99,23 +97,19 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
         resulting_ca_axes.push_back(*it2++);
       } else if (it2 == domain2.end()) {
         resulting_ca_axes.push_back(*it1++);
-      } else if (
-          ca_maps_.disjoint_iter_sets().at(*it1) ==
-          ca_maps_.disjoint_iter_sets().at(*it2)) {
+      } else if (ca_maps_.areMapped(*it1, *it2)) {
         resulting_ca_axes.push_back(*it1);
         ++it1;
         ++it2;
       } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
-                   return ca_maps_.disjoint_iter_sets().at(id1) ==
-                       ca_maps_.disjoint_iter_sets().at(*it2);
+                   return ca_maps_.areMapped(id1, *it2);
                  })) {
         // Increment it1, as a later iter domain matches the current one in
         // domain2
         resulting_ca_axes.push_back(*it1++);
 
       } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
-                   return ca_maps_.disjoint_iter_sets().at(id2) ==
-                       ca_maps_.disjoint_iter_sets().at(*it1);
+                   return ca_maps_.areMapped(id2, *it1);
                  })) {
         // Increment it2, as a later iter domain matches the current one in
         // domain1
@@ -161,8 +155,7 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
         if (p_last_id == nullptr) {
           continue;
         }
-        if (ca_maps_.disjoint_iter_sets().find(p_last_id)->second ==
-            ca_maps_.disjoint_iter_sets().find(g_last_id)->second) {
+        if (ca_maps_.areMapped(p_last_id, g_last_id)) {
           matching_neighbor = true;
         }
       }
@@ -208,7 +201,7 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
   // when we've stopped merging nodes.
   size_t n_groups = 0;
 
-  const ComputeAtMap ca_maps_;
+  const ComputeAtMap& ca_maps_;
 };
 
 std::vector<Expr*> reorderExprsTest(const ComputeAtMap& ca_map) {

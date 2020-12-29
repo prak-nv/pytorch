@@ -129,7 +129,7 @@ void GpuLower::lower() {
   //   std::cout<<expr<<std::endl;
 
   const auto lowered_exprs =
-      LoopNestGenerator::loweredExprs(fusion_, sorted_exprs);
+      LoopNestGenerator::loweredExprs(fusion_, sorted_exprs, ca_maps);
 
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, lowered_exprs, preds, ca_root_map);
