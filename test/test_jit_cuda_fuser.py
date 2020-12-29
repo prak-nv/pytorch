@@ -3,7 +3,6 @@ import os
 import random
 
 import torch
-import torch.autograd.profiler as profiler
 
 from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR
 from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithSeed
@@ -1389,7 +1388,7 @@ class TestCudaFuser(JitTestCase):
         self.assertEqual(o, jit_o)
         self.assertGraphContains(t_jit.graph_for(x, y, (4, 1)), FUSION_GUARD)
 
-        #updated shape
+        # updated shape
         x = torch.randn([2, 5, 8], dtype=dtype, device=device)
         y = torch.randn([2, 5, 8], dtype=dtype, device=device)
         # (TODO) check executed kernel, should extend autograd.profiler to fused
@@ -1414,7 +1413,6 @@ class TestCudaFuser(JitTestCase):
 
         def t(x: torch.Tensor, y: torch.Tensor):
             o = torch.add(x, y)
-            #o = torch.add(o, 1.0)
             o = torch.relu(o)
             return o
 
