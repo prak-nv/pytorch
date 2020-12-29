@@ -1,4 +1,4 @@
-#if defined(USE_CUDA)
+// #if defined(USE_CUDA)
 #include <gtest/gtest.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
@@ -18,6 +18,7 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
+#include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/mutator.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
@@ -4790,6 +4791,9 @@ TEST(NVFuserTest, FusionSoftmax1D_CUDA) {
   for (auto tv : tensors_to_parallelize) {
     tv->axis(-1)->parallelize(ParallelType::TIDx);
   }
+
+  // fusion.printMath();
+  // fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dimx}, options);
@@ -11425,7 +11429,64 @@ TEST(NVFuserTest, FusionTransposeWithSwizzle1DThreadBlock_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionSegment_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeConcreteTensor({9, 5});
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = add(tv0, new Double(1));
+  TensorView* tv2 = add(tv1, new Double(2));
+  TensorView* tv3 = add(tv1, new Double(3));
+  TensorView* tv4 = sum(tv3, {1});
+
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv4);
+
+  // fusion.printMath();
+
+  tv4->split(1, 4);
+  auto tv5 = tv4->rFactor({2});
+  // fusion.printMath();
+
+  tv1->computeAt(tv5, -1);
+
+  // std::cout << tv2 << std::endl;
+  // std::cout << tv2->getRelativeComputeAtAxis() << " / "
+  //           << tv2->getThisComputeAtAxis() << std::endl;
+
+  // reorderExprsTest(&fusion);
+  fusion.printKernel();
+
+  // fusion.printKernel();
+  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // at::Tensor aten_input = at::randn({63, 65}, options);
+
+  // auto t1 = aten_input.add(1.0);
+  // auto t2 = t1.add(2.0);
+  // auto t3 = t1.add(3.0);
+  // auto t4 = t3.sum(1);
+
+  // std::vector<at::Tensor> aten_outputs = {t2, t4};
+
+  //   FusionExecutor fe;
+  //   fe.compileFusion(&fusion);
+
+  //   auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+  //   testValidate(
+  //       &fusion,
+  //       cg_outputs,
+  //       {aten_input},
+  //       aten_outputs,
+  //       __LINE__,
+  //       __FILE__,
+  //       "",
+  //       lparams);
+}
+
 } // namespace jit
 } // namespace torch
 
-#endif // #if defined(USE_CUDA)
+// #endif // #if defined(USE_CUDA)

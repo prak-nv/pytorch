@@ -2,362 +2,230 @@
 
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
+#include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
+#include <torch/csrc/jit/codegen/cuda/lower_utils.h>
+#include <torch/csrc/jit/codegen/cuda/segmenter_helper.h>
+
+#include <unordered_map>
+#include <unordered_set>
 
 namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
+
 namespace {
-
-TensorView* findOutputTensor(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(
-      expr->outputs().size() <= 1, "Unexpected number of outputs");
-  if (expr->outputs().size() != 1) {
-    return nullptr;
+// TODO: Remove
+template <class T>
+void print(const std::unordered_set<T>* set) {
+  std::cout << "{";
+  for (auto it = set->begin(); it != set->end(); it++) {
+    std::cout << (*it);
+    std::cout << ", ";
   }
-  auto out = expr->output(0);
-  if (out->getValType() != ValType::TensorView) {
-    return nullptr;
-  }
-  return out->as<TensorView>();
+  std::cout << "}\n";
 }
-
-void findTargetTensor(Expr* expr, TensorView*& target, unsigned& score) {
-  TORCH_INTERNAL_ASSERT(expr->outputs().size() <= 1);
-
-  TensorView* out_tv = findOutputTensor(expr);
-  if (out_tv == nullptr) {
-    target = nullptr;
-    score = 0;
-    return;
-  }
-
-  if (!out_tv->hasComputeAt()) {
-    target = out_tv;
-    // No computeAt, so this should come last.
-    score = std::numeric_limits<unsigned>::max();
-    return;
-  }
-
-  // Note this returns the computeAt position
-  int pos = (int)out_tv->getRelativeComputeAtAxis();
-  target = out_tv->getComputeAtView();
-  while (target->hasComputeAt()) {
-    if ((int)target->getThisComputeAtAxis() < pos) {
-      break;
-    }
-    // getComputeAtRelPos accepts an axis index.
-    pos = pos == 0 ? 0 : target->getComputeAtRelPos(pos - 1) + 1;
-    target = target->getComputeAtView();
-  }
-
-  score = pos;
-}
-
-// Type definitions for brevity
-using ExprListT = std::vector<Expr*>;
-using TargetGroupMapT = std::unordered_map<TensorView*, ExprListT>;
-using ExprTargetMapT = std::unordered_map<Expr*, TensorView*>;
-using ScoreT = unsigned;
-using ExprScoreMapT = std::unordered_map<const Expr*, ScoreT>;
-
-void sanityCheck(
-    const ExprListT& exprs,
-    const ExprListT& reordered_exprs,
-    const ExprScoreMapT& scores,
-    const ExprTargetMapT& target_map,
-    const TargetGroupMapT& computed_at_exprs) {
-  const auto num_exprs = exprs.size();
-  TORCH_INTERNAL_ASSERT(scores.size() == num_exprs);
-  TORCH_INTERNAL_ASSERT(
-      reordered_exprs.size() + target_map.size() == num_exprs);
-  int num_computed_exprs = std::accumulate(
-      computed_at_exprs.begin(),
-      computed_at_exprs.end(),
-      0,
-      [](int acc, const std::pair<TensorView*, ExprListT>& p) {
-        return acc + p.second.size();
-      });
-  TORCH_INTERNAL_ASSERT(num_computed_exprs == (int)target_map.size());
-}
-
-// Arrange exprs into loop-nest groups. Loop-nest groups are
-// disjoint grouping of expressions based on the expression
-// where each expression is computed at.
-void groupExpressions(
-    Expr* expr,
-    ExprListT& reordered_exprs,
-    ExprTargetMapT& target_map,
-    TargetGroupMapT& computed_at_exprs,
-    ExprScoreMapT& scores) {
-  TensorView* target_tensor = nullptr;
-  ScoreT score = 0;
-  findTargetTensor(expr, target_tensor, score);
-  scores.emplace(expr, score);
-  if (target_tensor == nullptr) {
-    reordered_exprs.push_back(expr);
-  } else {
-    target_map.emplace(expr, target_tensor);
-    if (computed_at_exprs.find(target_tensor) == computed_at_exprs.end()) {
-      computed_at_exprs.emplace(target_tensor, TargetGroupMapT::mapped_type());
-    }
-    auto& exprs = computed_at_exprs[target_tensor];
-    exprs.push_back(expr);
-  }
-}
-
-// Sort each loop-nest group based on axis (i.e., score)
-void sortGroup(ExprListT& exprs, ExprScoreMapT& scores) {
-  std::stable_sort(
-      exprs.begin(),
-      exprs.end(),
-      [&scores](const Expr* expr1, const Expr* expr2) {
-        return scores[expr1] < scores[expr2];
-      });
-}
-
-// If an expression is missing from expr_status, search for all ancestors
-// that are necessary for the expression
-void mapMissingInputsToAncestors(
-    const TensorView* tv,
-    const std::unordered_map<const Expr*, bool>& expr_status,
-    std::vector<const TensorView*>& ancestors) {
-  const Expr* expr = tv->definition();
-  const auto& expr_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-  for (auto input : expr_inputs) {
-    const Expr* input_definition = input->definition();
-    if (input_definition != nullptr) {
-      if (expr_status.find(input_definition) == expr_status.end()) {
-        mapMissingInputsToAncestors(input, expr_status, ancestors);
-      } else {
-        ancestors.push_back(input);
-      }
-    }
-  }
-}
-
-// For each expression, find all TensorView inputs.
-// If an input TensorView is missing from expr_status,
-// find that input's ancestors that are present in expr_status.
-std::unordered_map<const Expr*, std::vector<const TensorView*>> findExprTvInputs(
-    const std::unordered_map<const Expr*, bool>& expr_status) {
-  std::unordered_map<const Expr*, std::vector<const TensorView*>>
-      map_expr_to_tv_inputs;
-
-  // Iterate over all exprs and filter missing expr
-  for (auto item : expr_status) {
-    const auto expr = item.first;
-    const auto& expr_inputs =
-        ir_utils::filterByType<TensorView>(expr->inputs());
-
-    map_expr_to_tv_inputs.insert({expr, std::vector<const TensorView*>()});
-    auto& tv_inputs = map_expr_to_tv_inputs[expr];
-
-    for (auto input : expr_inputs) {
-      const Expr* input_definition = input->definition();
-      bool missing_input = input_definition != nullptr &&
-          expr_status.find(input_definition) == expr_status.end();
-
-      if (missing_input) {
-        // Map missing input to ancestor that is present in exprs_status
-        std::vector<const TensorView*> ancestors;
-        mapMissingInputsToAncestors(input, expr_status, ancestors);
-        tv_inputs.insert(tv_inputs.begin(), ancestors.begin(), ancestors.end());
-      } else {
-        tv_inputs.push_back(input);
-      }
-    }
-  }
-  return map_expr_to_tv_inputs;
-}
-
-// Reorder expressions that are computed at the same position in a
-// breadth-first order.
-void reorderSegmentBreadthFirst(
-    ExprListT::iterator seg_begin,
-    ExprListT::const_iterator seg_end) {
-  // mapping of each expression to a bool flag indicating if it's
-  // already been visited
-  std::unordered_map<const Expr*, bool> expr_status;
-  for (auto it = seg_begin; it != seg_end; ++it) {
-    expr_status.insert({*it, false});
-  }
-
-  // Holds all input TVs necessary for every expression.
-  const auto map_expr_to_tv_inputs = findExprTvInputs(expr_status);
-
-  while (seg_begin != seg_end) {
-    std::vector<const Expr*> visited_exprs;
-    for (auto it = seg_begin; it != seg_end; ++it) {
-      const auto expr = *it;
-      const auto& expr_inputs = map_expr_to_tv_inputs.at(expr);
-
-      // if all input expressions are visited
-      // then expr can be visited
-      const bool ready_to_visit = std::all_of(
-          expr_inputs.begin(),
-          expr_inputs.end(),
-          [&expr_status](const TensorView* input) {
-            const Expr* input_definition = input->definition();
-            return input_definition == nullptr ||
-                (expr_status.find(input_definition) != expr_status.end() &&
-                 expr_status.at(input_definition));
-          });
-      if (ready_to_visit) {
-        std::iter_swap(seg_begin, it);
-        TORCH_INTERNAL_ASSERT(*seg_begin == expr);
-        ++seg_begin;
-        visited_exprs.push_back(expr);
-      }
-    }
-    for (const auto& visited_expr : visited_exprs) {
-      expr_status.at(visited_expr) = true;
-    }
-  }
-}
-
-// Reorder expressions in a group in a breadth-first order. Reordering
-// is done within a subset of expressions that have the same score
-// (i.e., computeAt position). For each subset,
-// reorderSegmentBreadthFirst is called.
-void reorderGroupBreadthFirst(ExprListT& exprs, const ExprScoreMapT& scores) {
-  auto seg_begin = exprs.begin();
-  auto seg_end = exprs.begin();
-  ScoreT seg_score = scores.at(*seg_begin);
-  while (seg_end != exprs.end()) {
-    const auto expr = *seg_end;
-    const auto cur_score = scores.at(expr);
-    if (seg_score == cur_score) {
-      // advance further
-      ++seg_end;
-      continue;
-    } else if (seg_score < cur_score) {
-      // segment ended
-      reorderSegmentBreadthFirst(seg_begin, seg_end);
-      seg_begin = seg_end;
-      seg_score = cur_score;
-    } else {
-      // exprs list is assumed to be sorted in the order of scores, so
-      // this should never be reachable
-      TORCH_INTERNAL_ASSERT(
-          false, "Unexpected expression: ", expr, ", score: ", cur_score);
-    }
-  }
-  reorderSegmentBreadthFirst(seg_begin, seg_end);
-}
-
-void mergeNonRootGroupsIntoRootGroups(
-    TargetGroupMapT& computed_at_exprs,
-    ExprTargetMapT& target_map) {
-  for (auto it = computed_at_exprs.begin(); it != computed_at_exprs.end();) {
-    TensorView* target = it->first;
-    if (target->hasComputeAt()) {
-      Expr* target_expr = target->definition();
-      TensorView* target_of_target = target_map.at(target_expr);
-      auto& target_group = computed_at_exprs.at(target_of_target);
-      auto pos =
-          std::find(target_group.begin(), target_group.end(), target_expr);
-      TORCH_INTERNAL_ASSERT(pos != target_group.end());
-      target_group.insert(pos, it->second.begin(), it->second.end());
-      // Update the target map
-      for (auto& inserted_expr : it->second) {
-        TORCH_INTERNAL_ASSERT(target_map.at(inserted_expr) == target);
-        target_map.at(inserted_expr) = target_of_target;
-      }
-      it = computed_at_exprs.erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
-
-// Merge root loop-nests into reordered_exprs
-void mergeGroupsIntoSortedList(
-    TargetGroupMapT& computed_at_exprs,
-    ExprListT& reordered_exprs) {
-  while (computed_at_exprs.size() > 0) {
-    // Find the root loop-nest that has no dependency with the other
-    // loop-nests
-    TensorView* cur_target = computed_at_exprs.begin()->first;
-    for (auto& group : computed_at_exprs) {
-      auto target = group.first;
-      if (cur_target == target)
-        continue;
-      if (DependencyCheck::isDependencyOf(target, cur_target)) {
-        cur_target = target;
-      }
-    }
-    // cur_target can be visited
-    reordered_exprs.insert(
-        reordered_exprs.end(),
-        computed_at_exprs.at(cur_target).begin(),
-        computed_at_exprs.at(cur_target).end());
-    computed_at_exprs.erase(cur_target);
-  }
-}
-
 } // namespace
 
-// Reorder exprs so that LoopNestGenerator::handle(Expr*) can generate
-// correct loop nests. Vector exprs is assumed to be topologically
-// sorted, but that is not sufficient as tensors computed at
-// outer loops need to be located earlier.
-std::vector<Expr*> reorderExprsForComputeAt(const std::vector<Expr*>& exprs) {
-  ExprListT reordered_exprs;
+class ExprSortPayload : public TraversalPayload {
+ public:
+  std::vector<IterDomain*> ca_domains;
+};
 
-  // expr -> target
-  ExprTargetMapT target_map;
-
-  // target -> [computed at expressions]
-  TargetGroupMapT computed_at_exprs;
-
-  // score of each expression that is calculated based on the
-  // computeAt axis. A lower score of an expression means it should be
-  // placed earlier in the expression list. This is a requirement for
-  // the loop-nest generation of this class to work.
-  ExprScoreMapT scores;
-
-  // 1. Group expressions by target tensors. Non-grouped expressions
-  // are copied into reordered_exprs.
-  for (auto& expr : exprs) {
-    groupExpressions(
-        expr, reordered_exprs, target_map, computed_at_exprs, scores);
+class ExprSortingWithCA : public SegmentCandidateFinder {
+ public:
+  ExprSortingWithCA(const ComputeAtMap& _ca_maps_)
+      : SegmentCandidateFinder(FusionGuard::getCurFusion()),
+        ca_maps_(_ca_maps_) {
+    TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   }
 
-  sanityCheck(exprs, reordered_exprs, scores, target_map, computed_at_exprs);
+  ExprSortingWithCA() = delete;
 
-  // If no computeAt found, no need to reorder.
-  if (computed_at_exprs.size() == 0) {
-    return exprs;
+  ExprSortPayload* payload(SegmentedGroup* sg) {
+    return sg->payload()->as<ExprSortPayload>();
   }
 
-  // 2. Sort each loop-nest group based on axis (i.e., score)
-  for (auto& group : computed_at_exprs) {
-    sortGroup(group.second, scores);
+  bool codeGenSupportedMerge(SegmentedGroup* sg1, SegmentedGroup* sg2)
+      override {
+    auto domain1 = payload(sg1)->ca_domains;
+    auto domain2 = payload(sg2)->ca_domains;
 
-    // Reorder expressions in a breadth-first order
-    reorderGroupBreadthFirst(group.second, scores);
+    if (domain1.empty() && domain2.empty()) {
+      return true;
+    }
+
+    if (domain1.empty() || domain2.empty()) {
+      return false;
+    }
+
+    auto set1 = ca_maps_.disjoint_iter_sets().at(domain1.back()).get();
+    auto set2 = ca_maps_.disjoint_iter_sets().at(domain2.back()).get();
+    return set1 == set2;
   }
 
-  // 3. Merge non-root loop-nests into root loop-nests
-  mergeNonRootGroupsIntoRootGroups(computed_at_exprs, target_map);
-
-  // At this point, only root loop-nests (i.e., no computeAt'ed)
-  // should exist.
-  for (auto& group : computed_at_exprs) {
-    // Guarantee only root loop-nests exist.
-    TensorView* target = group.first;
-    TORCH_INTERNAL_ASSERT(!target->hasComputeAt());
+  SegmentedGroup* makeEmptyGroup() override {
+    groups.push_back(
+        std::make_unique<SegmentedGroup>(std::make_unique<ExprSortPayload>()));
+    return groups.back().get();
   }
 
-  sanityCheck(exprs, reordered_exprs, scores, target_map, computed_at_exprs);
+  SegmentedGroup* makeEmptyGroup(Expr* expr) {
+    groups.push_back(
+        std::make_unique<SegmentedGroup>(std::make_unique<ExprSortPayload>()));
+    auto* group = groups.back().get();
+    group->exprs_.push_back(expr);
+    if (ir_utils::isTVOp(expr)) {
+      auto out_tv = expr->outputs()[0]->as<TensorView>();
+      auto* group_payload = payload(group);
+      for (size_t tv_i = 0; tv_i < ca_maps_.produce_at_map().at(out_tv);
+           tv_i++) {
+        group_payload->ca_domains.push_back(out_tv->axis(tv_i));
+      }
+    }
+    return group;
+  }
 
-  mergeGroupsIntoSortedList(computed_at_exprs, reordered_exprs);
+  SegmentedGroup* makeMergedNode(SegmentedGroup* sg1, SegmentedGroup* sg2)
+      override {
+    std::vector<IterDomain*> resulting_ca_axes;
+    auto& domain1 = payload(sg1)->ca_domains;
+    auto& domain2 = payload(sg2)->ca_domains;
+    auto it1 = domain1.begin();
+    auto it2 = domain2.begin();
 
-  // Reordering completed. Reordered exprs exist in reordered_exprs.
+    while (it1 != domain1.end() && it2 != domain2.end()) {
+      if (it1 == domain1.end()) {
+        resulting_ca_axes.push_back(*it2++);
+      } else if (it2 == domain2.end()) {
+        resulting_ca_axes.push_back(*it1++);
+      } else if (
+          ca_maps_.disjoint_iter_sets().at(*it1) ==
+          ca_maps_.disjoint_iter_sets().at(*it2)) {
+        resulting_ca_axes.push_back(*it1);
+        ++it1;
+        ++it2;
+      } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
+                   return ca_maps_.disjoint_iter_sets().at(id1) ==
+                       ca_maps_.disjoint_iter_sets().at(*it2);
+                 })) {
+        // Increment it1, as a later iter domain matches the current one in
+        // domain2
+        resulting_ca_axes.push_back(*it1++);
 
-  TORCH_INTERNAL_ASSERT(exprs.size() == reordered_exprs.size());
-  return reordered_exprs;
+      } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
+                   return ca_maps_.disjoint_iter_sets().at(id2) ==
+                       ca_maps_.disjoint_iter_sets().at(*it1);
+                 })) {
+        // Increment it2, as a later iter domain matches the current one in
+        // domain1
+        resulting_ca_axes.push_back(*it2++);
+      } else {
+        resulting_ca_axes.push_back(*it1++);
+        resulting_ca_axes.push_back(*it2++);
+      }
+    }
+
+    SegmentedGroup* joined_groups =
+        SegmentCandidateFinder::makeMergedNode(sg1, sg2);
+
+    payload(joined_groups)->ca_domains = resulting_ca_axes;
+
+    return joined_groups;
+  }
+
+  // Update in between attempts to segment. This is called once no more groups
+  // can be merged together. Typically we will want to remove compute at groups
+  // that have finished being grouped together. However if no gruops have been
+  // merged after we've done this, we may need to stop as we could have multiple
+  // disjoint groups that won't be merged.
+  bool interIterUpdate() override {
+    // Go through groups and lower compute at domain
+    bool lowered_ca_domain = false;
+    for (auto& unique_group : groups) {
+      auto group = unique_group.get();
+      IterDomain* g_last_id = nullptr;
+      if (payload(group)->ca_domains.size() > 0) {
+        g_last_id = payload(group)->ca_domains.back();
+      }
+      if (g_last_id == nullptr) {
+        continue;
+      }
+
+      bool matching_neighbor = false;
+      for (auto neighbor : group->getNeighbors()) {
+        IterDomain* p_last_id = nullptr;
+        if (payload(neighbor)->ca_domains.size() > 0) {
+          p_last_id = payload(neighbor)->ca_domains.back();
+        }
+        if (p_last_id == nullptr) {
+          continue;
+        }
+        if (ca_maps_.disjoint_iter_sets().find(p_last_id)->second ==
+            ca_maps_.disjoint_iter_sets().find(g_last_id)->second) {
+          matching_neighbor = true;
+        }
+      }
+
+      if (!matching_neighbor) {
+        payload(group)->ca_domains.pop_back();
+        lowered_ca_domain = true;
+      }
+    }
+
+    // If we couldn't lower compute at domain any further, and we haven't merged
+    // any new groups since the last time we were called, make sure we're done.
+    if (!lowered_ca_domain && n_groups == groups.size()) {
+      // Make sure none of the groups are still connected, as that would mean we
+      // should have been able to merge them.
+
+      TORCH_INTERNAL_ASSERT(
+          std::all_of(
+              groups.begin(),
+              groups.end(),
+              [](std::unique_ptr<SegmentedGroup>& sg) {
+                return sg->producer_edges.empty() && sg->consumer_edges.empty();
+              }),
+          "Couldn't succcessfully sort out the fusion expressions. ",
+          "There are remaining connections of the heirarchical segmentation which should have been ",
+          "flattened to a single ordered group, or disjoint ordered groups.");
+
+      // Successfully finished
+      return false;
+    }
+
+    // Initialize n_groups if this is the first pass.
+    if (n_groups == 0 && groups.size() > 0) {
+      n_groups = groups.size();
+    }
+
+    n_groups = groups.size();
+    // Not done, continue.
+    return true;
+  }
+
+  // Track how many groups we have from iteration to iteration so we can track
+  // when we've stopped merging nodes.
+  size_t n_groups = 0;
+
+  const ComputeAtMap ca_maps_;
+};
+
+std::vector<Expr*> reorderExprsTest(const ComputeAtMap& ca_map) {
+  ExprSortingWithCA sorter(ca_map);
+  sorter.segment();
+  auto groups = sorter.getGroups();
+  TORCH_INTERNAL_ASSERT(
+      groups.size() > 0,
+      "Error during expression sorting, no expressions produced.");
+
+  // We could have multiple groups if they're disjoint. Simply flatten them in
+  // order as they could be in any order.
+  std::vector<Expr*> exprs;
+  for (auto group : groups) {
+    exprs.insert(exprs.end(), group->exprs_.begin(), group->exprs_.end());
+  }
+  return exprs;
 }
 
 } // namespace cuda
