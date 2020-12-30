@@ -21,11 +21,11 @@ TORCH_API std::atomic<bool>& getCudaFusionGuardMode();
 
 // dummy struct to allow API registration
 struct CudaFuserInterface {
-  void (*fn_compile_n_)(Node*) = nullptr;
-  void (*fn_run_n_s_)(const Node*, Stack&) = nullptr;
-  void (*fn_fuse_graph_)(std::shared_ptr<Graph>&) = nullptr;
-  bool (*fn_can_fuse_n_)(const Node*) = nullptr;
-  void (*fn_insert_profile_inodes_)(ProfilingRecord* pr) = nullptr;
+  void (*fn_compile_n)(Node*) = nullptr;
+  void (*fn_run_n_s)(const Node*, Stack&) = nullptr;
+  void (*fn_fuse_graph)(std::shared_ptr<Graph>&) = nullptr;
+  bool (*fn_can_fuse_n)(const Node*) = nullptr;
+  void (*fn_insert_profile_inodes)(ProfilingRecord* pr) = nullptr;
 };
 
 // Get interface, this is used by registration and user facing API internally

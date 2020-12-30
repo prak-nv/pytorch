@@ -22,33 +22,33 @@ CudaFuserInterface* getFuserInterface() {
 
 void compileFusionGroup(Node* fusion_node) {
   TORCH_CHECK(
-      getFuserInterface()->fn_compile_n_ != nullptr,
+      getFuserInterface()->fn_compile_n != nullptr,
       "Running the CUDA fuser requires a CUDA build.");
-  getFuserInterface()->fn_compile_n_(fusion_node);
+  getFuserInterface()->fn_compile_n(fusion_node);
 }
 
 void runFusionGroup(const Node* fusion_node, Stack& stack) {
   TORCH_CHECK(
-      getFuserInterface()->fn_run_n_s_ != nullptr,
+      getFuserInterface()->fn_run_n_s != nullptr,
       "Running the CUDA fuser requires a CUDA build.");
-  getFuserInterface()->fn_run_n_s_(fusion_node, stack);
+  getFuserInterface()->fn_run_n_s(fusion_node, stack);
 }
 
 void fuseGraph(std::shared_ptr<Graph>& graph) {
   TORCH_CHECK(
-      getFuserInterface()->fn_fuse_graph_ != nullptr,
+      getFuserInterface()->fn_fuse_graph != nullptr,
       "Running the CUDA fuser requires a CUDA build.");
-  getFuserInterface()->fn_fuse_graph_(graph);
+  getFuserInterface()->fn_fuse_graph(graph);
 }
 
 bool canFuseNode(const Node* node) {
-  return getFuserInterface()->fn_can_fuse_n_ != nullptr &&
-      getFuserInterface()->fn_can_fuse_n_(node);
+  return getFuserInterface()->fn_can_fuse_n != nullptr &&
+      getFuserInterface()->fn_can_fuse_n(node);
 }
 
 void InsertProfileNodesForCUDAFuser(ProfilingRecord* pr) {
-  if (getFuserInterface()->fn_insert_profile_inodes_) {
-    getFuserInterface()->fn_insert_profile_inodes_(pr);
+  if (getFuserInterface()->fn_insert_profile_inodes) {
+    getFuserInterface()->fn_insert_profile_inodes(pr);
   }
 }
 
