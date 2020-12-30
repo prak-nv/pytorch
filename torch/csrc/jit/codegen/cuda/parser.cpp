@@ -1119,6 +1119,8 @@ class IrParser {
             },
             [](const Node* node) -> OperatorType {
               auto size_to = constant_as<c10::List<int64_t>>(node->input(1));
+              // technically size_to->empty() should never occur, as specialized
+              // _grad_sum_to_size should have been removed by optimization pass
               if (size_to->empty()) {
                 return OperatorType::ElementWise;
               } else {
