@@ -4648,23 +4648,77 @@ TEST(NVFuserTest, FusionAdvancedIndexing8_CUDA) {
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
+  fusion.printKernel();
 
-  const int numel_x = 100;
-  const int numel_y = 200;
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto at_t0 = at::randn({numel_x}, options);
-  auto at_t1 = at::randn({numel_x, numel_y}, options);
+  TORCH_INTERNAL_ASSERT(false, "Enable test");
+  
+  // FusionExecutor fe;
+  // fe.compileFusion(&fusion);
 
-  auto cg_outputs = fe.runFusion({at_t0, at_t1});
+  // const int numel_x = 100;
+  // const int numel_y = 200;
+  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // auto at_t0 = at::randn({numel_x}, options);
+  // auto at_t1 = at::randn({numel_x, numel_y}, options);
 
-  auto aten_output = (at_t0.unsqueeze(-1).expand({numel_x, numel_y}) + at_t1)
-                         .to(at::kDouble)
-                         .sum();
+  // auto cg_outputs = fe.runFusion({at_t0, at_t1});
 
-  testValidate(
-      &fusion, cg_outputs, {at_t0, at_t1}, {aten_output}, __LINE__, __FILE__);
+  // auto aten_output = (at_t0.unsqueeze(-1).expand({numel_x, numel_y}) + at_t1)
+  //                        .to(at::kDouble)
+  //                        .sum();
+
+  // testValidate(
+  //     &fusion, cg_outputs, {at_t0, at_t1}, {aten_output}, __LINE__,
+  //     __FILE__);
+}
+
+TEST(NVFuserTest, FusionAdvancedIndexing9_CUDA) {
+  // Same as 7 but with outer splits instead of inner
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({1, -1});
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // [b0, i1]
+  auto tv2 = add(tv0, new Double(2.0));
+  // [i0, i1]
+  auto tv3 = add(tv1, new Double(3.0));
+
+  // [b0, i1]
+  auto tv4 = add(tv2, new Double(4.0));
+
+  // [io, i1]
+  auto tv5 = add(tv2, tv3);
+
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+
+  fusion.printMath();
+
+  tv0->computeAt(tv4, -1);
+
+  TORCH_INTERNAL_ASSERT(false, "Enable test");
+
+  // auto tv0 = makeSymbolicTensor(1);
+  // fusion.addInput(tv0);
+
+  // auto tv1 = broadcast(tv0, {false, true});
+
+  // auto tv2 = makeSymbolicTensor(2);
+  // fusion.addInput(tv2);
+
+  // auto tv3 = add(tv1, tv2);
+  // auto tv4 = sum(tv3, {0, 1});
+  // fusion.addOutput(tv4);
+
+  // tv4->merge(0, 1);
+  // tv4->split(0, 128, false);
+  // tv4->split(0, 4, false);
+
+  // auto tv5 = tv4->rFactor({0, 1});
 }
 
 // Test a simple Gemm but also play around with fusion executor features

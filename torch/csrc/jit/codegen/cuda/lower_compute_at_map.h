@@ -1,6 +1,7 @@
 #pragma once
 
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -54,10 +55,22 @@ class ComputeAtMap {
   //! same loop nest in the lowered code
   bool areMapped(IterDomain* id0, IterDomain* id1) const;
 
+  bool areMapped(kir::IterDomain* id0, kir::IterDomain* id1) const;
+
   //! Returns an iter domain that is parallelized that the provided iter domain
   //! is mapped to. If no parallelized iter domain exists, returns provided iter
   //! domain.
   IterDomain* getParallelizedMappedID(IterDomain* id) const;
+
+  kir::IterDomain* getParallelizedMappedID(kir::IterDomain* id) const;
+
+  //! Returns an iter domain that is the maximum expanded size of all iter
+  //! domains the one provided maps to. Useful for opening loops to the correct
+  //! iteration size. Not guarenteed to return the same ID every call, but is
+  //! guarenteed to return iter domains in the same disjoint set.
+  IterDomain* getConcreteMappedID(IterDomain* id) const;
+
+  kir::IterDomain* getConcreteMappedID(kir::IterDomain* id) const;
 
  private:
   std::unordered_map<TensorView*, int> produce_at_map_;
@@ -67,10 +80,29 @@ class ComputeAtMap {
       std::shared_ptr<std::unordered_set<IterDomain*>>>
       disjoint_iter_sets_;
 
+  std::unordered_map<
+      kir::IterDomain*,
+      std::shared_ptr<std::unordered_set<kir::IterDomain*>>>
+      kir_disjoint_iter_sets_;
+
   // Tracks if there's a parallel iter domain associated a disjoint iter domain
   // set
-  std::unordered_map<std::unordered_set<IterDomain*>*, IterDomain*>
+  // TODO: Use shared_pointer instead of pointer to the unordered maps
+  std::unordered_map<
+      std::shared_ptr<std::unordered_set<IterDomain*>>,
+      IterDomain*>
       parallel_type_map_;
+
+  std::unordered_map<
+      std::shared_ptr<std::unordered_set<kir::IterDomain*>>,
+      kir::IterDomain*>
+      kir_parallel_type_map_;
+
+  // For each IterDomain set we will track how many concrete root domains were
+  // used to generate the IterDomain
+  std::unordered_map<IterDomain*, int> n_concrete_ids_;
+
+  std::unordered_map<kir::IterDomain*, int> kir_n_concrete_ids_;
 };
 
 } // namespace cuda
