@@ -1388,7 +1388,8 @@ class TestCudaFuser(JitTestCase):
         self.assertEqual(o, jit_o)
         self.assertGraphContains(t_jit.graph_for(x, y, (4, 1)), FUSION_GUARD)
 
-        # updated shape
+        # update shape: old kernel should handle dynamic shape well without
+        # recompilation
         x = torch.randn([2, 5, 8], dtype=dtype, device=device)
         y = torch.randn([2, 5, 8], dtype=dtype, device=device)
         # (TODO) check executed kernel, should extend autograd.profiler to fused
@@ -1438,7 +1439,8 @@ class TestCudaFuser(JitTestCase):
         )[0].graph
         FileCheck().check(FUSION_GUARD).run(bwd_graph)
 
-        # update shape
+        # update shape: old kernel should handle dynamic shape well without
+        # recompilation
         x = torch.randn([2, 5, 8], dtype=dtype, device=device).requires_grad_()
         y = torch.randn([8], dtype=dtype, device=device).requires_grad_()
         ref_x = x.detach().clone().requires_grad_()
@@ -1447,9 +1449,7 @@ class TestCudaFuser(JitTestCase):
         jit_o = t_jit(x, y)
         # (TODO) check executed kernel, should extend autograd.profiler to fused
         # kernels
-        torch.cuda.profiler.start()
         jit_o.backward(grad)
-        torch.cuda.profiler.stop()
         o = t(ref_x, ref_y)
         o.backward(grad)
         self.assertEqual(o.dtype, jit_o.dtype)

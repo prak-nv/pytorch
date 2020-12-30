@@ -29,9 +29,9 @@ constexpr auto kNumSumToSize = 2;
 
 namespace {
 
-static const auto sizeAttr = Symbol::attr("profiled_size");
-static const auto intListAttr = Symbol::attr("profiled_int_list");
-static const auto boolAttr = Symbol::attr("profiled_bool");
+const auto& sizeAttr = Symbol::attr("profiled_size");
+const auto& intListAttr = Symbol::attr("profiled_int_list");
+const auto& boolAttr = Symbol::attr("profiled_bool");
 
 typedef Val* CgValue;
 typedef Expr* CgOp;

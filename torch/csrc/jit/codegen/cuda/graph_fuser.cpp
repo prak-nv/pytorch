@@ -1123,7 +1123,10 @@ void guardFusionGroup(Node* fusion) {
 
     for (const auto& offset : profiled_ivalue_indices) {
       auto val = fb_graph->inputs()[offset];
-      for (auto use : val->uses()) {
+      auto uses = val->uses();
+      // since we are updating use of val in the loop, we have to copy
+      // val->uses() before hand.
+      for (const auto& use : uses) {
         // re-wire inputs and remove conditional constant nodes;
         TORCH_INTERNAL_ASSERT(
             use.user->kind() == prim::Constant,
@@ -1209,7 +1212,7 @@ void guardFusionGroup(Node* fusion) {
       fusion->removeInput(offset);
 
       // step b. remove the extra dependency inside fusion;
-      for (auto use : fusion_graph->inputs()[offset]->uses()) {
+      for (const auto& use : fusion_graph->inputs()[offset]->uses()) {
         TORCH_INTERNAL_ASSERT(
             use.user->kind() == prim::Constant,
             "profile_ivalue at index: ",
@@ -1280,7 +1283,7 @@ void ExtractProfileIValue(Node* profile_ivalue) {
 }
 
 void RemoveProfileIValue(Node* profile_ivalue) {
-  for (auto use : profile_ivalue->output()->uses()) {
+  for (const auto& use : profile_ivalue->output()->uses()) {
     if (use.user->kind() == prim::Constant) {
       use.user->output()->replaceAllUsesWith(profile_ivalue->input());
       use.user->destroy();

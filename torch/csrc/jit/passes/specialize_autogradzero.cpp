@@ -342,7 +342,8 @@ struct AutogradZeroSpecializer {
         const Node* node = n->input(1)->node();
         // propagate profiled none through other profile_ivalue nodes;
         while (!profiled_none_flag && node->kind() == prim::profile_ivalue) {
-          profiled_none_flag |= profiled_none_.count(node->input(0));
+          profiled_none_flag =
+              profiled_none_flag || profiled_none_.count(node->input(0));
           node = node->input(0)->node();
         }
         if (n->input(1)->mustBeNone() || profiled_none_flag) {
