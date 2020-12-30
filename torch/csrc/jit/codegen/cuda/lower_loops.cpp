@@ -147,7 +147,6 @@ void LoopNestGenerator::handle(const Expr* expr) {
       // Update the last view processed
       last_ca_view_ind = ca_i;
       last_ca_view = ca_view;
-
       if (ca_view->getComputeAtAxis(ca_i).first == ca_id) {
         break;
       }
@@ -224,6 +223,149 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   // Process the carefully ordered expressions
   for (const auto* expr : exprs) {
     handle(expr);
+  }
+}
+// ======================================================
+LoopNestGenerator2::LoopNestGenerator2(
+    Fusion* fusion,
+    const std::vector<Expr*>& exprs,
+    const ComputeAtMap& ca_maps)
+    : fusion_(fusion),
+      ir_builder_(GpuLower::current()->kernel()),
+      ca_maps_(ca_maps) {
+  generate(exprs);
+}
+
+namespace {
+
+// TODO(kir): revisit and try to simplify this
+kir::ForLoop* openForHelper2(kir::ForLoop* scope, IterDomain* id) {
+  const auto gpu_lower = GpuLower::current();
+  kir::IrBuilder ir_builder(gpu_lower->kernel());
+  const auto kir_id = gpu_lower->lowerValue(id)->as<kir::IterDomain>();
+  kir::ForLoop* new_scope = nullptr;
+  if (id->isThread()) {
+    std::stringstream ss;
+    ss << id->getParallelType();
+    new_scope = ir_builder.create<kir::ForLoop>(
+        ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
+        kir_id,
+        scope);
+  } else {
+    new_scope = ir_builder.create<kir::ForLoop>(
+        ir_builder.create<kir::Int>(c10::nullopt), kir_id, scope);
+  }
+  if (scope != nullptr) {
+    scope->body().insert(0, new_scope);
+  }
+  return new_scope;
+}
+
+} // namespace
+
+void LoopNestGenerator2::openFor(IterDomain* iter_domain) {
+  if (for_loops_.size() > 0) {
+    const auto new_scope = openForHelper2(for_loops_.back(), iter_domain);
+    // for_loop_allocations_.insert({new_scope, 0});
+    for_loops_.push_back(new_scope);
+  } else {
+    for_loops_.push_back(openForHelper2(nullptr, iter_domain));
+    lowered_exprs_.insert(lowered_exprs_.begin(), for_loops_.back());
+  }
+}
+
+void LoopNestGenerator2::closeFor() {
+  TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+  for_loops_.pop_back();
+}
+
+void LoopNestGenerator2::pushFront(kir::Expr* expr) {
+  if (for_loops_.size() == 0) {
+    lowered_exprs_.insert(lowered_exprs_.begin(), expr);
+  } else {
+    for_loops_.back()->body().insert(0, expr);
+  }
+}
+
+void LoopNestGenerator2::handle(const Expr* expr) {
+  const auto gpu_lower = GpuLower::current();
+
+  // Check if it's a tensor view expression we need to place in the loop nest
+  // structure
+  if (!ir_utils::isTVOp(expr)) {
+    for (auto out : expr->outputs()) {
+      TORCH_INTERNAL_ASSERT(
+          out->getValType().value() == ValType::Scalar,
+          "Unrecognized output type found in expr ",
+          expr,
+          " cannot lower ",
+          out->getValType().value());
+
+      pushFront(ir_builder_.create<kir::Allocate>(
+          gpu_lower->lowerValue(out),
+          MemoryType::Local,
+          ir_builder_.create<kir::Int>(1)));
+    }
+    pushFront(gpu_lower->lowerExpr(expr));
+    return;
+  }
+
+  TensorView* out_tv = expr->output(0)->as<TensorView>();
+
+  // Figure out what the entire loop structure should look like.
+  std::deque<IterDomain*> loop_structure;
+  // Look at each axis individually in out's domain
+  for (int64_t out_i = 0; out_i < (int64_t)ca_maps_.producedAt(out_tv);
+       out_i++) {
+    auto concrete_id = ca_maps_.getConcreteMappedID(out_tv->axis(out_i));
+    auto parallel_id = ca_maps_.getParallelizedMappedID(out_tv->axis(out_i));
+    concrete_id->parallelize(parallel_id->getParallelType());
+    loop_structure.push_back(concrete_id);
+  }
+
+  for (int64_t out_i = (int64_t)ca_maps_.producedAt(out_tv);
+       out_i < out_tv->nDims();
+       out_i++) {
+    loop_structure.push_back(out_tv->axis(out_i));
+  }
+
+  auto out_id_it = loop_structure.begin();
+  auto for_loop_it = for_loops_.begin();
+  auto last_for_loop_matched = for_loops_.begin();
+
+  while (out_id_it != loop_structure.end() && for_loop_it != for_loops_.end()) {
+    auto lowered_out_id =
+        gpu_lower->lowerValue(*out_id_it)->as<kir::IterDomain>();
+    if (ca_maps_.areMapped(lowered_out_id, (*for_loop_it)->iter_domain())) {
+      out_id_it++;
+      last_for_loop_matched = ++for_loop_it;
+    } else {
+      ++for_loop_it;
+    }
+  }
+
+  auto n_loops_to_close =
+      std::distance(last_for_loop_matched, for_loops_.end());
+  for (size_t i = 0; i < n_loops_to_close; i++) {
+    closeFor();
+  }
+
+  for (; out_id_it != loop_structure.end(); ++out_id_it) {
+    openFor(*out_id_it);
+  }
+
+  pushFront(gpu_lower->lowerExpr(expr));
+}
+
+// Generate the loop nest structure and place it in lowered_exprs_
+void LoopNestGenerator2::generate(const std::vector<Expr*>& exprs) {
+  FusionGuard fg(fusion_);
+
+  TORCH_INTERNAL_ASSERT(lowered_exprs_.empty());
+
+  // Process the carefully ordered expressions
+  for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
+    handle(*it);
   }
 }
 
