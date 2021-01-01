@@ -20,7 +20,7 @@ namespace {
 
 //! Get string representation of Allocate size for symbolic comparison
 //!
-class SymbolicSizePrinter : private kir::IrVisitor {
+class SymbolicSizePrinter : private kir::ConstIrVisitor {
  public:
   static std::string printSize(const kir::Allocate* allocate) {
     SymbolicSizePrinter printer;

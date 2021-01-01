@@ -314,21 +314,6 @@ void LoopNestGenerator::handle(const Expr* expr) {
     return;
   }
 
-  //  0) Apply SyncThreads if any shared memory inputs are modified
-  bool shared_memory_sync = false;
-  for (auto in : expr->inputs()) {
-    shared_memory_sync |= isModifiedSharedMemory(in);
-  }
-  if (shared_memory_sync) {
-    // Push "sync" to the back of the last for loop
-    if (!for_loops_.empty()) {
-      for_loops_.back()->body().push_back(ir_builder_.create<kir::Sync>());
-    } else {
-      lowered_exprs_.push_back(ir_builder_.create<kir::Sync>());
-    }
-    cleanSharedMemory();
-  }
-
   TensorView* out = expr->output(0)->as<TensorView>();
 
   // Figure out what the entire loop structure should look like.
@@ -438,9 +423,6 @@ void LoopNestGenerator::handle(const Expr* expr) {
 
   //  Place the expression
   pushBack(gpu_lower->lowerExpr(expr));
-
-  // If output is a shared memory buffer, set modified status
-  modifySharedMemory(out);
 
   // Reduce the loop nest structure back to computeAt
   if (out->getThisComputeAtAxis() == 0) {
@@ -818,16 +800,6 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
 
   TORCH_INTERNAL_ASSERT(lowered_exprs_.empty());
 
-  // Identify all shared memory TensorViews
-  // TODO: Make function to get all used TensorViews / used Vals
-  for (auto v : fusion_->vals()) {
-    if (v->getValType().value() == ValType::TensorView) {
-      if (v->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
-        smem_.insert({v, false});
-      }
-    }
-  }
-
   // Process the carefully ordered expressions
   for (const auto* expr : reorderExprsForComputeAt(exprs)) {
     handle(expr);
@@ -837,27 +809,6 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   for (auto smem_alloc : dynamic_smem_) {
     lowered_exprs_.insert(lowered_exprs_.begin(), smem_alloc);
   }
-}
-
-void LoopNestGenerator::cleanSharedMemory() {
-  for (auto& item : smem_) {
-    item.second = false;
-  }
-}
-
-void LoopNestGenerator::modifySharedMemory(Val* key) {
-  auto it = smem_.find(key);
-  if (it != smem_.end()) {
-    it->second = true;
-  }
-}
-
-bool LoopNestGenerator::isModifiedSharedMemory(Val* key) const {
-  auto it = smem_.find(key);
-  if (it != smem_.end()) {
-    return it->second;
-  }
-  return false;
 }
 
 } // namespace cuda

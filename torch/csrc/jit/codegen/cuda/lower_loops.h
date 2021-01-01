@@ -53,16 +53,6 @@ class TORCH_CUDA_API LoopNestGenerator {
   // Insert allocation at the beginning of the kernel
   std::deque<kir::Allocate*> dynamic_smem_;
 
-  // Clear the modify status for all shared memory buffers
-  void cleanSharedMemory();
-
-  // Toggle modify status for this shared memory buffer
-  void modifySharedMemory(Val* key);
-
-  // Return the status of the shared memory buffer
-  // False if TensorView is not shared memory buffer
-  bool isModifiedSharedMemory(Val* key) const;
-
   // Open a new inner most for loop, track which TV it was constructed from
   // according to the computeAt chain.
   void openFor(IterDomain*);

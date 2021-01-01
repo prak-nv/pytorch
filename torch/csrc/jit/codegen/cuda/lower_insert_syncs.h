@@ -45,8 +45,12 @@ namespace cuda {
 //! If Child - End and Parent has zero remaining operations, then
 //! Parent inherits Child End.
 //!
-std::vector<kir::Expr*> insertThreadSynchronization(
+std::vector<kir::Expr*> insertWARThreadSynchronization(
     const std::vector<kir::Expr*>& exprs);
+
+//! Insert syncs between writing to shared memory and then reading it.
+std::vector<kir::Expr*> insertRAWThreadSynchronization(
+    std::vector<kir::Expr*> exprs);
 
 } // namespace cuda
 } // namespace fuser

@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
+#include <torch/csrc/jit/codegen/cuda/dispatch.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
@@ -156,7 +157,6 @@ class LocalSyncInserter {
       //
       if (detectIntersection(initial_, final_) &&
           !fl->body().exprs().back()->isA<kir::Sync>() && !is_last_op_sync_) {
-        // std::cout << "WAR race detected; Add Sync" << std::endl;
         has_war_hazard_sync_ = true;
         kir::IrBuilder ir_builder(GpuLower::current()->kernel());
         fl->body().push_back(ir_builder.create<kir::Sync>(true));
@@ -215,15 +215,214 @@ class LocalSyncInserter {
   bool has_war_hazard_sync_ = false;
 };
 
+class ExprFlattener : private kir::ConstIrVisitor {
+ private:
+  void handle(kir::Expr* expr) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+      expr->accept(this);
+    } else {
+      exprs.push_back(expr);
+    }
+  }
+
+  void visit(const kir::ForLoop* fl) final {
+    for (auto expr : fl->body().exprs()) {
+      handle(expr);
+    }
+  }
+
+  void visit(const kir::IfThenElse* ite) final {
+    for (auto expr : ite->thenBody().exprs()) {
+      handle(expr);
+    }
+    for (auto expr : ite->elseBody().exprs()) {
+      handle(expr);
+    }
+  }
+
+ private:
+  std::vector<kir::Expr*> exprs;
+
+ public:
+  //! Flattens scopes extracting out a single ordered list of exprs.
+  static std::vector<kir::Expr*> flatten(std::vector<kir::Expr*> loop_nests) {
+    ExprFlattener flattener;
+    for (auto expr : loop_nests) {
+      flattener.handle(expr);
+    }
+    return flattener.exprs;
+  }
+};
+
+class ReadAfterWriteSyncs : public kir::IrVisitor {
+ private:
+  void handle(kir::Expr* expr) {
+    if (!ir_utils::isTVOp(expr) || expr->isA<kir::Allocate>()) {
+      expr->accept(this);
+      return;
+    }
+
+    // Found where a sync needs to be inserted
+    if (sync_between.front().second == expr) {
+      TORCH_INTERNAL_ASSERT(
+          sync_between.front().first->outputs()[0]->isA<kir::TensorView>());
+      auto first_out =
+          sync_between.front().first->outputs()[0]->as<kir::TensorView>();
+
+      TORCH_INTERNAL_ASSERT(expr->outputs()[0]->isA<kir::TensorView>());
+      auto second_out = expr->outputs()[0]->as<kir::TensorView>();
+
+      // Figure out which loop nest the sync needs to go into
+      // Assume it's inlined;
+      auto loops_it = for_loops.end();
+      if (first_out->fuserTv()->getThisComputeAtAxis() > 0) {
+        auto tv = first_out->fuserTv();
+        auto ca_id = tv->getComputeAtAxis(tv->getThisComputeAtAxis() - 1).first;
+        auto lowered_ca_id =
+            GpuLower::current()->lowerValue(ca_id)->as<kir::IterDomain>();
+
+        loops_it = std::find_if(
+            for_loops.begin(),
+            for_loops.end(),
+            [&lowered_ca_id](const auto& loop) {
+              return lowered_ca_id == loop->iter_domain() ||
+                  loop->iter_domain()->parallelType() == ParallelType::Unroll;
+            });
+        TORCH_INTERNAL_ASSERT(loops_it != for_loops.end());
+      }
+
+      kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+      if (loops_it == for_loops.end()) {
+        // insert sync before expr which should be in loop_nests_ somewhere (not
+        // in a for loop)
+        auto expr_it = std::find(loop_nests_.begin(), loop_nests_.end(), expr);
+        TORCH_INTERNAL_ASSERT(
+            expr_it != loop_nests_.end(),
+            "Could not figure out where to insert sync in loop_nests_.");
+        loop_nests_.insert(expr_it, ir_builder.create<kir::Sync>());
+      } else if (loops_it + 1 == for_loops.end()) {
+        for_loops.back()->body().insert_before(
+            expr, ir_builder.create<kir::Sync>());
+      } else {
+        // in loop pointing to loops_it, before the next loop
+        (*loops_it)->body().insert_before(
+            (*(loops_it + 1)), ir_builder.create<kir::Sync>());
+      }
+      sync_between.pop_front();
+    }
+  }
+
+  void visit(kir::ForLoop* fl) final {
+    for_loops.push_back(fl);
+    // Modifying in place, make a copy of the vector
+    const std::vector<kir::Expr*> exprs = fl->body().exprs();
+    for (auto expr : exprs) {
+      handle(expr);
+    }
+    for_loops.pop_back();
+  }
+
+  void visit(kir::IfThenElse*) final {
+    TORCH_INTERNAL_ASSERT(
+        false,
+        "Pass does not support conditional statements, ",
+        "this pass should be run before any conditionals are placed in code.");
+  }
+
+  // Clear the modify status for all shared memory buffers
+  static void cleanSharedMemory(std::unordered_map<kir::Val*, bool>& smem) {
+    for (auto& item : smem) {
+      item.second = false;
+    }
+  }
+
+  // Return the status of the shared memory buffer
+  // False if TensorView is not shared memory buffer
+  bool isModifiedSharedMemory(
+      std::unordered_map<kir::Val*, bool>& smem,
+      std::vector<kir::Val*> keys) const {
+    return std::any_of(keys.begin(), keys.end(), [&smem](kir::Val* key) {
+      auto it = smem.find(key);
+      if (it != smem.end()) {
+        return it->second;
+      }
+      return false;
+    });
+  }
+
+  ReadAfterWriteSyncs(std::vector<kir::Expr*> _loop_nests)
+      : loop_nests_(_loop_nests) {
+    // Fusion shared_memory values
+    // Tracks if shared memory is modified
+    std::unordered_map<kir::Val*, bool> smem;
+
+    // Flatten all the expressions
+    auto flattened_exprs = ExprFlattener::flatten(loop_nests_);
+
+    kir::Expr* prev_tv_expr = nullptr;
+    for (auto expr : flattened_exprs) {
+      if (!ir_utils::isTVOp(expr) || expr->isA<kir::Allocate>()) {
+        continue;
+      }
+
+      bool need_sync = isModifiedSharedMemory(smem, expr->inputs());
+      if (need_sync) {
+        TORCH_INTERNAL_ASSERT(
+            prev_tv_expr != nullptr,
+            "Can't require sync on inputs, however, detected it's needed.");
+        sync_between.push_back(std::make_pair(prev_tv_expr, expr));
+        cleanSharedMemory(smem);
+      }
+
+      for (auto out : expr->outputs()) {
+        if (out->isA<kir::TensorView>()) {
+          if (out->as<kir::TensorView>()->memoryType() == MemoryType::Shared) {
+            smem[out] = true;
+          }
+        }
+      }
+
+      prev_tv_expr = expr;
+    }
+
+    // Insert read after write syncs
+    const std::vector<kir::Expr*> exprs = loop_nests_;
+    for (auto expr : exprs) {
+      handle(expr);
+    }
+
+    TORCH_INTERNAL_ASSERT(
+        sync_between.empty(), "Didn't place all required syncs.");
+  }
+
+ private:
+  std::deque<std::pair<kir::Expr*, kir::Expr*>> sync_between;
+
+  std::vector<kir::ForLoop*> for_loops;
+
+  std::vector<kir::Expr*> loop_nests_;
+
+ public:
+  static std::vector<kir::Expr*> insert(std::vector<kir::Expr*> loop_nests) {
+    ReadAfterWriteSyncs inserter(loop_nests);
+    return inserter.loop_nests_;
+  }
+};
+
 } // namespace
 
-std::vector<kir::Expr*> insertThreadSynchronization(
+std::vector<kir::Expr*> insertRAWThreadSynchronization(
+    std::vector<kir::Expr*> exprs) {
+  FUSER_PERF_SCOPE("insertRAWThreadSynchronization");
+  return ReadAfterWriteSyncs::insert(exprs);
+}
+
+std::vector<kir::Expr*> insertWARThreadSynchronization(
     const std::vector<kir::Expr*>& exprs) {
-  FUSER_PERF_SCOPE("insertThreadSynchronization");
+  FUSER_PERF_SCOPE("insertWARThreadSynchronization");
   LocalSyncInserter::insertSyncs(exprs);
   return exprs;
 }
-
 } // namespace cuda
 } // namespace fuser
 } // namespace jit

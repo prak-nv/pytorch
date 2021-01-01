@@ -24,7 +24,7 @@ using IterDomainMap = std::unordered_map<kir::IterDomain*, kir::IterDomain*>;
 namespace scope_utils {
 
 //! Returns the list of nesting loops starting at `scope`
-//$$ needed?
+// Primarily used in indexing, maybe could be moved there
 std::vector<kir::ForLoop*> getLoops(kir::Expr* scope);
 
 //! Insert expr in scope before ref

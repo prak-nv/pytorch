@@ -16,7 +16,7 @@ namespace {
 
 //! Scan all primary expressions in the Kernel IR and build
 //! lists of specialized nodes and other interesting information
-class KernelIrScanner : private kir::IrVisitor {
+class KernelIrScanner : private kir::ConstIrVisitor {
  public:
   explicit KernelIrScanner(const Kernel* kernel) {
     for (const auto& ir_node : kernel->irNodes()) {
