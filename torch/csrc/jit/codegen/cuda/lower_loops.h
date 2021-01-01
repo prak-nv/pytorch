@@ -45,10 +45,6 @@ class TORCH_CUDA_API LoopNestGenerator {
   // alloc_id, return the node
   kir::Expr* pushAlloc(TensorView*);
 
-  // Fusion shared_memory values
-  // Tracks if shared memory is modified
-  std::unordered_map<Val*, bool> smem_;
-
   // Track dynamic shared memory buffers
   // Insert allocation at the beginning of the kernel
   std::deque<kir::Allocate*> dynamic_smem_;
