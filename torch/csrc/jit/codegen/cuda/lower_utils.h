@@ -100,6 +100,8 @@ namespace loop_utils {
 // outside the first loop in loops. Also find out which index in tv the
 // first dimension that needs to be allocated is. Meaning we need to allocate
 // that local axis and above.
+// TODO: Only remaining use of this is in index compute, remove use from there,
+// or refactor and use in lower_allocation
 std::pair<kir::ForLoop*, int64_t> getAllocPoint(
     const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops);
