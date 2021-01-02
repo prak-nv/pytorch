@@ -107,6 +107,14 @@ class TORCH_CUDA_API IrPrinter : private kir::ConstIrVisitor {
 //! node.
 std::string toString(const kir::Node* stmt, bool implicit_definitions = true);
 
+//! Returns the string representation of a vector of kir::Expr, convenient
+//! debugm echanism during lowering. If the definition of all inputs to an
+//! expression haven't been printed already implicit_definition_ = true will
+//! print them before printing the requested node.
+std::string toString(
+    const std::vector<kir::Expr*>& exprs,
+    bool implicit_definitions = true);
+
 } // namespace kir
 } // namespace cuda
 } // namespace fuser

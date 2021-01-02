@@ -3,6 +3,7 @@
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 
 #include <unordered_set>
@@ -262,26 +263,48 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
       return;
     }
 
-    // Found where a sync needs to be inserted
-    if (sync_between.front().second == expr) {
-      TORCH_INTERNAL_ASSERT(
-          sync_between.front().first->outputs()[0]->isA<kir::TensorView>());
-      auto first_out =
-          sync_between.front().first->outputs()[0]->as<kir::TensorView>();
-
+    if (sync_after.front() == expr) {
+      sync_after.pop_front();
+      // Found that a sync is needed
       TORCH_INTERNAL_ASSERT(expr->outputs()[0]->isA<kir::TensorView>());
-      auto second_out = expr->outputs()[0]->as<kir::TensorView>();
+      auto out_tv = expr->outputs()[0]->as<kir::TensorView>();
 
-      // Figure out which loop nest the sync needs to go into
-      // Assume it's inlined;
-      auto loops_it = for_loops.end();
-      if (first_out->fuserTv()->getThisComputeAtAxis() > 0) {
-        auto tv = first_out->fuserTv();
-        auto ca_id = tv->getComputeAtAxis(tv->getThisComputeAtAxis() - 1).first;
+      // Find where a sync needs to be inserted
+      // This is very similar to how allocations are placed, simply place sync
+      // after the expression instead of placing like allocation where it goes
+      // before before.
+      // TODO: This may be a common operation, could be worth making a utility
+      // out of or saving state for tensor view ID -> for loop
+      // TODO: Explicitly test the 3 cases below
+
+      kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+      auto sync_expr = ir_builder.create<kir::Sync>();
+
+      if (out_tv->fuserTv()->getThisComputeAtAxis() == 0) {
+        // Sync should be placed at global scope, after its outer most loop if
+        // it has one.
+        kir::Expr* place_after = for_loops.size() > 0 ? for_loops[0] : expr;
+        // Find location in loop_nests_
+        auto place_after_it =
+            std::find(loop_nests_.begin(), loop_nests_.end(), place_after);
+        TORCH_INTERNAL_ASSERT(
+            place_after_it != loop_nests_.end(),
+            "Could not figure out where to place synchronization. ",
+            "Tried to place after, ",
+            toString(place_after, false),
+            ", but could not find this expression at the global scope.");
+        loop_nests_.insert(place_after_it + 1, sync_expr);
+      } else {
+        // Find the last loop in computeAt of out_tv, this is the loop where we
+        // would place an allocation for out_tv
+        auto fuser_tv = out_tv->fuserTv();
+        auto ca_id =
+            fuser_tv->getComputeAtAxis(fuser_tv->getThisComputeAtAxis() - 1)
+                .first;
         auto lowered_ca_id =
             GpuLower::current()->lowerValue(ca_id)->as<kir::IterDomain>();
 
-        loops_it = std::find_if(
+        auto loops_it = std::find_if(
             for_loops.begin(),
             for_loops.end(),
             [&lowered_ca_id](const auto& loop) {
@@ -289,26 +312,22 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
                   loop->iter_domain()->parallelType() == ParallelType::Unroll;
             });
         TORCH_INTERNAL_ASSERT(loops_it != for_loops.end());
-      }
 
-      kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-      if (loops_it == for_loops.end()) {
-        // insert sync before expr which should be in loop_nests_ somewhere (not
-        // in a for loop)
-        auto expr_it = std::find(loop_nests_.begin(), loop_nests_.end(), expr);
-        TORCH_INTERNAL_ASSERT(
-            expr_it != loop_nests_.end(),
-            "Could not figure out where to insert sync in loop_nests_.");
-        loop_nests_.insert(expr_it, ir_builder.create<kir::Sync>());
-      } else if (loops_it + 1 == for_loops.end()) {
-        for_loops.back()->body().insert_before(
-            expr, ir_builder.create<kir::Sync>());
-      } else {
-        // in loop pointing to loops_it, before the next loop
-        (*loops_it)->body().insert_before(
-            (*(loops_it + 1)), ir_builder.create<kir::Sync>());
+        auto place_in = *loops_it;
+        kir::Expr* place_after = nullptr;
+
+        if (loops_it + 1 == for_loops.end()) {
+          // Inline allocation, place after expr
+          place_after = expr;
+        } else {
+          // Place allocation after the last computeAt axis
+          // TODO: may be more efficient to place after the first non-computeAt
+          // axis
+          place_after = *(loops_it + 1);
+        }
+
+        place_in->body().insert_after(place_after, sync_expr);
       }
-      sync_between.pop_front();
     }
   }
 
@@ -370,7 +389,7 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
         TORCH_INTERNAL_ASSERT(
             prev_tv_expr != nullptr,
             "Can't require sync on inputs, however, detected it's needed.");
-        sync_between.push_back(std::make_pair(prev_tv_expr, expr));
+        sync_after.push_back(prev_tv_expr);
         cleanSharedMemory(smem);
       }
 
@@ -392,11 +411,11 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
     }
 
     TORCH_INTERNAL_ASSERT(
-        sync_between.empty(), "Didn't place all required syncs.");
+        sync_after.empty(), "Didn't place all required syncs.");
   }
 
  private:
-  std::deque<std::pair<kir::Expr*, kir::Expr*>> sync_between;
+  std::deque<kir::Expr*> sync_after;
 
   std::vector<kir::ForLoop*> for_loops;
 

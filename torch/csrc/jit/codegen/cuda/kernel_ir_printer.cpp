@@ -345,6 +345,17 @@ std::string toString(const kir::Node* stmt, bool implicit_definitions) {
   return ss.str();
 }
 
+std::string toString(
+    const std::vector<kir::Expr*>& exprs,
+    bool implicit_definitions) {
+  std::stringstream ss;
+  IrPrinter ir_printer(ss, implicit_definitions);
+  for (auto expr : exprs) {
+    ir_printer.printNode(expr);
+  }
+  return ss.str();
+}
+
 } // namespace kir
 } // namespace cuda
 } // namespace fuser
