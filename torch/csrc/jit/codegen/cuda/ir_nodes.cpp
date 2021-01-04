@@ -359,7 +359,8 @@ WelfordOp::WelfordOp(
   }
 
   // check input
-  TORCH_INTERNAL_ASSERT(in_N->getValType().value() == ValType::Scalar);
+  TORCH_INTERNAL_ASSERT(in_N->getValType().value() == ValType::Scalar ||
+                        in_N->getValType().value() == ValType::TensorView);
   TORCH_INTERNAL_ASSERT(
       in_avg && in_avg->getValType().value() == ValType::TensorView);
   if (!in_N->isOneInt()) {
@@ -1103,6 +1104,8 @@ bool TensorDomain::hasNontrivialReduction(const std::vector<IterDomain*>& td) {
   }
   return false;
 }
+
+// TODO: Rfactor a Welford
 
 // pair is in order where second is the consumer of first
 std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(

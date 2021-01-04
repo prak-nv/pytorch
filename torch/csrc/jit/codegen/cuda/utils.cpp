@@ -20,6 +20,7 @@ auto parseDebugDumpOptions() {
       {DebugDumpOption::KernelIr, false},
       {DebugDumpOption::CudaKernel, false},
       {DebugDumpOption::CudaFull, false},
+      {DebugDumpOption::LaunchParam, false}
   };
 
   if (const char* dump_options = std::getenv("PYTORCH_NVFUSER_DUMP")) {
@@ -37,6 +38,8 @@ auto parseDebugDumpOptions() {
         options_map[DebugDumpOption::CudaKernel] = true;
       } else if (token == "cuda_full") {
         options_map[DebugDumpOption::CudaFull] = true;
+      } else if (token == "launch_param") {
+        options_map[DebugDumpOption::LaunchParam] = true;
       } else {
         TORCH_CHECK(
             false,

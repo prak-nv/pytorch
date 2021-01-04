@@ -88,6 +88,13 @@ class KernelIrScanner : private kir::IrVisitor {
         summary_.largest_smem_data_type = data_type;
       }
     }
+
+    // Update Welford
+    if (tensor_index->definition()->isA<kir::WelfordOp>()){
+      summary_.has_welford=true;
+      summary_.has_block_welford=summary_.has_block_welford || domain->hasBlockReduction();
+      summary_.has_grid_welford=summary_.has_grid_welford || domain->hasGridReduction();
+    }
   }
 
  private:

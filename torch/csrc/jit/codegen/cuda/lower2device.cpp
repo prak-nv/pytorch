@@ -135,7 +135,7 @@ void GpuLower::lower() {
 
   const auto indexed_loops =
       IndexLowering::getIndexedExprs(sync_exprs, preds, ca_root_map);
-
+  
   // We now have the lowered expressions, finalize the kernel IR
   kernel_->finalize(indexed_loops, preds);
 }

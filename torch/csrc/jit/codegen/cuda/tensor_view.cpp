@@ -497,6 +497,73 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
   return producer;
 }
 
+std::vector<TensorView*> TensorView::rFactorWelford(const std::vector<int>& axes) {
+  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
+  FusionGuard fg(fusion());
+  TORCH_CHECK(
+      definition() != nullptr &&
+          definition()->getExprType() == ExprType::WelfordOp,
+      "Error rfactoring welford ",
+      this,
+      " its definition is either a nullptr or not a welford.");
+  TORCH_CHECK(
+      !domain()->hasRFactor(), "Cannot call rfactor on the same view twice.");
+
+  WelfordOp* wop = definition()->as<WelfordOp>();
+
+  TensorView* this_var = wop->outVar()->as<TensorView>();
+  TensorView* this_avg = wop->outAvg()->as<TensorView>();
+  TensorView* this_n = wop->outN()->as<TensorView>();
+
+  auto rfactorTVHelper = [&](TensorView* tv) -> TensorView* {
+      // Split tensor view into 2 parts
+      auto domain_pair = tv->domain()->rFactor(axes);
+      // Producer in the pair
+      auto producer_domain = domain_pair.first;
+      // Consumer in the pair
+      auto consumer_domain = domain_pair.second;
+
+      // This domain will be the consumer, so create the producer
+      TensorView* producer = new TensorView(producer_domain, tv->getDataType().value());
+
+      // Set domain of consumer
+      tv->setDomain(consumer_domain);
+
+      return producer;
+  };
+
+  auto producer_var = rfactorTVHelper(this_var);
+  auto producer_avg = rfactorTVHelper(this_avg);
+  auto producer_n = rfactorTVHelper(this_n);
+
+  // Setup dependency chain, inserting producer before this op.
+  // Expr* producer_definition =
+  new WelfordOp(
+      producer_var,
+      producer_avg,
+      producer_n, /*out var/avg/count */
+      wop->initVar(),
+      wop->initAvg(),
+      wop->initN(), /*init var/avg/count */
+      wop->inVar(),
+      wop->inAvg(),
+      wop->inN());
+
+  // Expr* consumer_definition =    
+  new WelfordOp(
+      this_var,
+      this_avg,
+      this_n, 
+      wop->initVar(),
+      wop->initAvg(),
+      wop->initN(),
+      producer_var,
+      producer_avg,
+      producer_n);
+
+  return {producer_var,producer_avg,producer_n};
+}
+
 std::vector<TensorView*> TensorView::duplicate() {
   FusionGuard fg(fusion());
 

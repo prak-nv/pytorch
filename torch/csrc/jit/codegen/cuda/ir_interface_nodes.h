@@ -291,6 +291,11 @@ class TORCH_CUDA_API TensorView : public Val {
   //
   TensorView* rFactor(const std::vector<int>& axes);
 
+  //! Welford Version of rFactor, semantically similar with
+  //!  the reduction version except that the rfactor is done
+  //!  in a multi-output scan pattern
+  std::vector<TensorView*> rFactorWelford(const std::vector<int>& axes);
+
   // For all usages of this TensorView, create a new TensorView and
   // duplicate the origin expression.
   // A common use case is to handle the recompute ComputeAt exception that

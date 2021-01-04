@@ -532,6 +532,35 @@ class TestCudaFuser(JitTestCase):
             self._unary_type_test_helper(op, dtype)  # test random data
         os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = prev_fallback
 
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_add_backward(self):
+        x = torch.randn(4, 2, dtype=torch.float, device='cuda', requires_grad=True)
+        y = torch.randn(4, 2, dtype=torch.half, device='cuda', requires_grad=True)
+        grad = torch.randn(4, 2, dtype=torch.float32, device='cuda')
+
+        def test1(x : torch.Tensor, y : torch.Tensor):
+            o = torch.add(x, y)
+            o = torch.add(o, y)
+            o = o + 1.0
+            return o
+
+        test1_jit = torch.jit.script(test1)
+        for i in range(3):
+            jit_o = test1_jit(x, y)
+            jit_o.backward(grad)
+
+        bwd1_graph = list(
+            list(test1_jit.get_debug_state().execution_plans.values())[0].code.grad_executor_states()[0].execution_plans.values()
+        )[0].graph
+        print(bwd1_graph)
+        print(x.grad.dtype)
+        print(y.grad.dtype)
+        
+        #FileCheck().check_not("aten::mul_").run(bwd1_graph)
+
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")

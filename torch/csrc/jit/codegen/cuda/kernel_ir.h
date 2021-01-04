@@ -55,6 +55,7 @@ class Sync;
 class ForLoop;
 class IfThenElse;
 class GridReduction;
+class GridWelford;
 
 using ValueId = int32_t;
 
@@ -143,6 +144,9 @@ class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
     unhandled(node);
   }
   virtual void visit(const GridReduction* node) {
+    unhandled(node);
+  }
+  virtual void visit(const GridWelford* node) {
     unhandled(node);
   }
 };
@@ -1163,6 +1167,70 @@ class TORCH_CUDA_API GridReduction final : public Expr {
  private:
   ReductionOp* reduction_op_ = nullptr;
   Allocate* reduction_buffer_ = nullptr;
+  Allocate* sync_buffer_ = nullptr;
+  // gridReduce has template flags for thread predicates. In order to
+  // use them, the thread predicate is held here separately from
+  // Expr::predicate_.
+  ParallelTypeBitmap thread_predicate_;
+};
+
+//! Grid welford operation
+//!
+//! This node is used only after lowering a fusion to explicitly mark a grid
+//! reduction and the buffer allocation needed to do it.
+//!
+//! This node provides FusionExecutor the information it needs to allocate the
+//! reduction and sync buffers.
+class TORCH_CUDA_API GridWelford final : public Expr {
+ public:
+  void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  GridWelford(
+      Passkey passkey,
+      WelfordOp* welford_op,
+      Allocate* var_buffer,
+      Allocate* avg_buffer,
+      Allocate* n_buffer,
+      Allocate* sync_buffer);
+
+  WelfordOp* welford_op() const {
+    return welford_op_;
+  }
+
+  Allocate* var_buffer() const {
+    return var_buffer_;
+  }
+
+  Allocate* avg_buffer() const {
+    return avg_buffer_;
+  }
+
+  Allocate* N_buffer() const {
+    return n_buffer_;
+  }
+
+  Allocate* sync_buffer() const {
+    return sync_buffer_;
+  }
+
+  const ParallelTypeBitmap& threadPredicate() const {
+    return thread_predicate_;
+  }
+
+  void setThreadPredicate(const ParallelTypeBitmap& thread_predicate) {
+    thread_predicate_ = thread_predicate;
+  }
+
+  static std::string getPredicateFlagName(const TensorView* val);
+  static std::string getPredicateFlagName(const fuser::cuda::TensorView* val);
+
+ private:
+  WelfordOp* welford_op_ = nullptr;
+  Allocate* var_buffer_ = nullptr;
+  Allocate* avg_buffer_ = nullptr;
+  Allocate* n_buffer_ = nullptr;
   Allocate* sync_buffer_ = nullptr;
   // gridReduce has template flags for thread predicates. In order to
   // use them, the thread predicate is held here separately from

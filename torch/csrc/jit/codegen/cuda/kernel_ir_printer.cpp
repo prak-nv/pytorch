@@ -316,6 +316,31 @@ void IrPrinter::visit(const kir::GridReduction* node) {
   indent() << kTab << kTab << ".grid_pred=" << use(node->predicate()) << "\n";
 }
 
+void IrPrinter::visit(const kir::GridWelford* node) {
+  const auto* welford_op = node->welford_op();
+  indent() << gen(welford_op->outVar()) << "," << gen(welford_op->outAvg())
+           << "," << gen(welford_op->outN()) << " = "
+           << "GRID_WELFORD("
+           << "inAvg=" << use(welford_op->inAvg());
+  if (!welford_op->inN()->isOneInt()) {
+    indent() << ", inVar=" << use(welford_op->inVar());
+  }
+  indent() << ", inN=" << use(welford_op->inN());
+  if (!welford_op->initN()->isZeroInt()) {
+    indent() << ", initVar=" << use(welford_op->initVar())
+             << " initAvg=" << use(welford_op->initAvg())
+             << " initN=" << use(welford_op->initN());
+  }
+  indent() << ", pred=" << use(welford_op->predicate()) << ")\n";
+  indent() << kTab << kTab
+           << ".var_buffer=" << use(node->var_buffer()->buffer())
+           << ".avg_buffer=" << use(node->avg_buffer()->buffer())
+           << ".n_buffer=" << use(node->N_buffer()->buffer()) << "\n";
+  indent() << kTab << kTab
+           << ".sync_buffer=" << use(node->sync_buffer()->buffer()) << "\n";
+  indent() << kTab << kTab << ".grid_pred=" << use(node->predicate()) << "\n";
+}
+
 void IrPrinter::visit(const kir::BroadcastOp* node) {
   indent() << gen(node->out()) << " = BROADCAST(" << use(node->in()) << ")\n";
 }

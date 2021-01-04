@@ -479,6 +479,34 @@ std::string GridReduction::getPredicateFlagName(
   return ss.str();
 }
 
+GridWelford::GridWelford(
+    Passkey passkey,
+    WelfordOp* welford_op,
+    Allocate* var_buffer,
+    Allocate* avg_buffer,
+    Allocate* n_buffer,
+    Allocate* sync_buffer)
+    : Expr(passkey),
+      welford_op_(welford_op),
+      var_buffer_(var_buffer),
+      avg_buffer_(avg_buffer),
+      n_buffer_(n_buffer),
+      sync_buffer_(sync_buffer) {}
+
+std::string GridWelford::getPredicateFlagName(const TensorView* val) {
+  std::stringstream ss;
+  ss << "T" << val->name() << "_pred";
+  return ss.str();
+}
+
+// TODO(kir): remove this
+std::string GridWelford::getPredicateFlagName(
+    const fuser::cuda::TensorView* val) {
+  std::stringstream ss;
+  ss << "T" << val->name() << "_pred";
+  return ss.str();
+}
+
 } // namespace kir
 } // namespace cuda
 } // namespace fuser
