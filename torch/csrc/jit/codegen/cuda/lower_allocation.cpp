@@ -36,21 +36,16 @@ class AllocationInserter : public kir::IrVisitor {
     kir::Expr* init_expr = nullptr;
   };
 
-  // Generate allocation and initialization expressions and place it in info. If
-  // used for a reduction init_val should be initial value, if not a reduction
-  // init_val should be nullptr.
-  void fillAllocInfo(
-      AllocationInformation& info,
-      bool is_output,
-      kir::Val* init_val) {
-    // Find allocation point relative to buffer
+  size_t findAllocationPosition(AllocationInformation& info) {
     auto fuser_tv = info.buffer->fuserTv();
 
-    size_t tv_axis_i = 0;
-    size_t for_loop_i = 0;
+    // Find allocation point relative to buffer
+    size_t alloc_pos = 0;
+    for (size_t for_loop_i = 0; for_loop_i < for_loops.size(); ++for_loop_i) {
+      if (alloc_pos == fuser_tv->getThisComputeAtAxis()) {
+        break;
+      }
 
-    while (tv_axis_i < fuser_tv->getThisComputeAtAxis() &&
-           for_loop_i < for_loops.size()) {
       auto fl_id = for_loops[for_loop_i]->iter_domain();
 
       if (fl_id->parallelType() == ParallelType::Unroll) {
@@ -58,31 +53,79 @@ class AllocationInserter : public kir::IrVisitor {
       }
 
       auto ca_id =
-          gpu_lower->lowerValue(fuser_tv->getComputeAtAxis(tv_axis_i).first)
+          gpu_lower->lowerValue(fuser_tv->getComputeAtAxis(alloc_pos).first)
               ->as<kir::IterDomain>();
 
       if (ca_id == fl_id) {
-        tv_axis_i++;
+        alloc_pos++;
       }
-
-      for_loop_i++;
     }
 
-    size_t alloc_pos = tv_axis_i;
+    return alloc_pos;
+  }
 
-    std::vector<kir::Val*> alloc_dims;
+  // Create initialization expression if init_val is non-null.
+  kir::Expr* createInitExpr(
+      const AllocationInformation& info,
+      size_t alloc_pos,
+      kir::Val* init_val) {
+    if (init_val == nullptr) {
+      return nullptr;
+    }
 
-    for (size_t axis_i = 0; axis_i < fuser_tv->nDims(); axis_i++) {
-      MemoryType memory_type = info.buffer->memoryType();
+    auto fuser_tv = info.buffer->fuserTv();
 
-      auto local_id =
-          gpu_lower->lowerValue(fuser_tv->axis(axis_i))->as<kir::IterDomain>();
+    std::vector<kir::IterDomain*> init_dims;
+    for (size_t axis_i = alloc_pos; axis_i < fuser_tv->nDims(); axis_i++) {
+      if (info.buffer->fuserTv()->axis(axis_i)->isReduction()) {
+        continue;
+      }
       auto ca_id =
           gpu_lower->lowerValue(fuser_tv->getComputeAtAxis(axis_i).first)
               ->as<kir::IterDomain>();
-      bool is_block_dim = isParallelTypeBlockDim(ca_id->parallelType());
-      bool is_thread_dim = isParallelTypeThreadDim(ca_id->parallelType());
-      bool is_thread = isParallelTypeThread(ca_id->parallelType());
+      init_dims.push_back(ca_id);
+    }
+    kir::Expr* init_expr = ir_builder.create<kir::UnaryOp>(
+        UnaryOpType::Set, info.buffer, init_val);
+    for (auto init_loop_it = init_dims.rbegin();
+         init_loop_it != init_dims.rend();
+         ++init_loop_it) {
+      auto id = *init_loop_it;
+      kir::ForLoop* new_loop = nullptr;
+      if (isParallelTypeThread((*init_loop_it)->parallelType())) {
+        std::stringstream ss;
+        ss << id->parallelType();
+        new_loop = ir_builder.create<kir::ForLoop>(
+            ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
+            id,
+            nullptr);
+      } else {
+        new_loop = ir_builder.create<kir::ForLoop>(
+            ir_builder.create<kir::Int>(c10::nullopt), id, nullptr);
+      }
+      init_expr->setParentScope(new_loop);
+      new_loop->body().push_back(init_expr);
+      init_expr = new_loop;
+    }
+    return init_expr;
+  }
+
+  kir::Allocate* createAllocExpr(
+      const AllocationInformation& info,
+      size_t alloc_pos,
+      bool is_output) {
+    if (is_output) {
+      return nullptr;
+    }
+
+    auto fuser_tv = info.buffer->fuserTv();
+
+    std::vector<kir::Val*> alloc_dims;
+    const MemoryType memory_type = info.buffer->memoryType();
+    for (size_t axis_i = 0; axis_i < fuser_tv->nDims(); axis_i++) {
+      const auto local_id =
+          gpu_lower->lowerValue(fuser_tv->axis(axis_i))->as<kir::IterDomain>();
+
       if (
           // If we're reducing this dimension, don't use it in the allocation
           // computation
@@ -92,6 +135,13 @@ class AllocationInserter : public kir::IrVisitor {
           local_id->isBroadcast()) {
         continue;
       }
+
+      const auto ca_id =
+          gpu_lower->lowerValue(fuser_tv->getComputeAtAxis(axis_i).first)
+              ->as<kir::IterDomain>();
+      const bool is_block_dim = isParallelTypeBlockDim(ca_id->parallelType());
+      const bool is_thread_dim = isParallelTypeThreadDim(ca_id->parallelType());
+      const bool is_thread = isParallelTypeThread(ca_id->parallelType());
 
       if (axis_i < alloc_pos) {
         // Even when the axis is outside the allocation position, if the
@@ -117,46 +167,6 @@ class AllocationInserter : public kir::IrVisitor {
       alloc_dims.push_back(ca_id->rawExtent());
     }
 
-    // Setup initialization if necessary
-    if (init_val != nullptr) {
-      std::vector<kir::IterDomain*> init_dims;
-      for (size_t axis_i = alloc_pos; axis_i < fuser_tv->nDims(); axis_i++) {
-        if (info.buffer->fuserTv()->axis(axis_i)->isReduction()) {
-          continue;
-        }
-        auto ca_id =
-            gpu_lower->lowerValue(fuser_tv->getComputeAtAxis(axis_i).first)
-                ->as<kir::IterDomain>();
-        init_dims.push_back(ca_id);
-      }
-      kir::Expr* init_expr = ir_builder.create<kir::UnaryOp>(
-          UnaryOpType::Set, info.buffer, init_val);
-      for (auto init_loop_it = init_dims.rbegin();
-           init_loop_it != init_dims.rend();
-           ++init_loop_it) {
-        auto id = *init_loop_it;
-        kir::ForLoop* new_loop = nullptr;
-        if (isParallelTypeThread((*init_loop_it)->parallelType())) {
-          std::stringstream ss;
-          ss << id->parallelType();
-          new_loop = ir_builder.create<kir::ForLoop>(
-              ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
-              id,
-              nullptr);
-        } else {
-          new_loop = ir_builder.create<kir::ForLoop>(
-              ir_builder.create<kir::Int>(c10::nullopt), id, nullptr);
-        }
-        init_expr->setParentScope(new_loop);
-        new_loop->body().push_back(init_expr);
-        init_expr = new_loop;
-      }
-      info.init_expr = init_expr;
-    }
-
-    if (is_output)
-      return;
-
     // Multiply all the dimensions we're going to use for the allocation
     // together to get the total size
     kir::Val* size = nullptr;
@@ -170,7 +180,7 @@ class AllocationInserter : public kir::IrVisitor {
     }
 
     // Create the allocation node
-    info.alloc_expr = ir_builder.create<kir::Allocate>(
+    return ir_builder.create<kir::Allocate>(
         info.buffer, info.buffer->memoryType(), size);
   }
 
@@ -202,7 +212,8 @@ class AllocationInserter : public kir::IrVisitor {
       // Don't need to alloc outputs, and if we don't need to initialize we're
       // done.
       if (is_output && init == nullptr) {
-        return;
+        continue;
+        ;
       }
 
       AllocationInformation allocation;
@@ -251,7 +262,9 @@ class AllocationInserter : public kir::IrVisitor {
         }
       }
 
-      fillAllocInfo(allocation, is_output, init);
+      auto alloc_pos = findAllocationPosition(allocation);
+      allocation.alloc_expr = createAllocExpr(allocation, alloc_pos, is_output);
+      allocation.init_expr = createInitExpr(allocation, alloc_pos, init);
 
       allocs.push_back(allocation);
     }
@@ -275,7 +288,7 @@ class AllocationInserter : public kir::IrVisitor {
   }
 
   AllocationInserter(std::vector<kir::Expr*> _loop_nests)
-      : loop_nests_(_loop_nests),
+      : loop_nests_(std::move(_loop_nests)),
         gpu_lower(GpuLower::current()),
         ir_builder(gpu_lower->kernel()) {
     // Compute all allocations
@@ -346,7 +359,8 @@ class AllocationInserter : public kir::IrVisitor {
   kir::IrBuilder ir_builder;
 
  public:
-  static std::vector<kir::Expr*> insert(std::vector<kir::Expr*> loop_nests) {
+  static std::vector<kir::Expr*> insert(
+      const std::vector<kir::Expr*>& loop_nests) {
     AllocationInserter inserter(loop_nests);
     return inserter.loop_nests_;
   }
@@ -354,7 +368,8 @@ class AllocationInserter : public kir::IrVisitor {
 
 } // namespace
 
-std::vector<kir::Expr*> insertAllocations(std::vector<kir::Expr*> exprs) {
+std::vector<kir::Expr*> insertAllocations(
+    const std::vector<kir::Expr*>& exprs) {
   FUSER_PERF_SCOPE("insertAllocations");
   return AllocationInserter::insert(exprs);
 }

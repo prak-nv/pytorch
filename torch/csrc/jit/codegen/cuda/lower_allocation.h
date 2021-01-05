@@ -14,7 +14,7 @@ namespace fuser {
 namespace cuda {
 
 //! Insert buffer allocations
-std::vector<kir::Expr*> insertAllocations(std::vector<kir::Expr*> exprs);
+std::vector<kir::Expr*> insertAllocations(const std::vector<kir::Expr*>& exprs);
 
 } // namespace cuda
 } // namespace fuser
