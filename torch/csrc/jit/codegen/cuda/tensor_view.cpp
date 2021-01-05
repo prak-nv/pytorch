@@ -497,7 +497,8 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
   return producer;
 }
 
-std::vector<TensorView*> TensorView::rFactorWelford(const std::vector<int>& axes) {
+std::vector<TensorView*> TensorView::rFactorWelford(
+    const std::vector<int>& axes) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   FusionGuard fg(fusion());
   TORCH_CHECK(
@@ -516,20 +517,55 @@ std::vector<TensorView*> TensorView::rFactorWelford(const std::vector<int>& axes
   TensorView* this_n = wop->outN()->as<TensorView>();
 
   auto rfactorTVHelper = [&](TensorView* tv) -> TensorView* {
-      // Split tensor view into 2 parts
-      auto domain_pair = tv->domain()->rFactor(axes);
-      // Producer in the pair
-      auto producer_domain = domain_pair.first;
-      // Consumer in the pair
-      auto consumer_domain = domain_pair.second;
+    // Hack:
+    // Semantically we should always keep the outputs of welfordOp scheduled
+    // the same but the user end cannot guarantee that.
+    // In order to guarantee that the rFactor is defined meaningfully the
+    // scheduling of the output TV that got the rfactor call is force replayed
+    // towards the other two
 
-      // This domain will be the consumer, so create the producer
-      TensorView* producer = new TensorView(producer_domain, tv->getDataType().value());
+    if (!tv->sameAs(this)) {
+      auto root = tv->getRootDomain();
+      auto this_root = getRootDomain();
 
-      // Set domain of consumer
-      tv->setDomain(consumer_domain);
+      // construct a trivial root domain map
+      std::unordered_map<IterDomain*, IterDomain*> id_map;
+      for (size_t i = 0; i < root.size(); i++) {
+        id_map[this_root[i]] = root[i];
+      }
 
-      return producer;
+      // replay on the target tv
+      ReplayTransformations replay(domain()->domain(), id_map);
+
+      // construct the new tensor domain
+      std::vector<IterDomain*> new_id;
+      for (auto id : domain()->domain()) {
+        TORCH_INTERNAL_ASSERT(
+            replay.getReplay().count(id), "Welford Replay Failed");
+        new_id.push_back(replay.getReplay().at(id));
+      }
+
+      std::vector<bool> new_contig(
+          tv->domain()->contiguity().begin(), tv->domain()->contiguity().end());
+      // replace tensor domain of target tv
+      tv->setDomain(new TensorDomain(tv->getRootDomain(), new_id, new_contig));
+    }
+
+    // Split tensor view into 2 parts
+    auto domain_pair = tv->domain()->rFactor(axes);
+    // Producer in the pair
+    auto producer_domain = domain_pair.first;
+    // Consumer in the pair
+    auto consumer_domain = domain_pair.second;
+
+    // This domain will be the consumer, so create the producer
+    TensorView* producer =
+        new TensorView(producer_domain, tv->getDataType().value());
+
+    // Set domain of consumer
+    tv->setDomain(consumer_domain);
+
+    return producer;
   };
 
   auto producer_var = rfactorTVHelper(this_var);
@@ -549,11 +585,11 @@ std::vector<TensorView*> TensorView::rFactorWelford(const std::vector<int>& axes
       wop->inAvg(),
       wop->inN());
 
-  // Expr* consumer_definition =    
+  // Expr* consumer_definition =
   new WelfordOp(
       this_var,
       this_avg,
-      this_n, 
+      this_n,
       wop->initVar(),
       wop->initAvg(),
       wop->initN(),
@@ -561,7 +597,7 @@ std::vector<TensorView*> TensorView::rFactorWelford(const std::vector<int>& axes
       producer_avg,
       producer_n);
 
-  return {producer_var,producer_avg,producer_n};
+  return {producer_var, producer_avg, producer_n};
 }
 
 std::vector<TensorView*> TensorView::duplicate() {

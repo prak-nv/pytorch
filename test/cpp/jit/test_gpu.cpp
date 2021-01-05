@@ -10673,7 +10673,6 @@ TEST(NVFuserTest, FusionWelfordOp_CUDA) {
       __FILE__);
 }
 
-
 TEST(NVFuserTest, FusionBlockWelfordOp_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -10694,7 +10693,7 @@ TEST(NVFuserTest, FusionBlockWelfordOp_CUDA) {
   tv_avg->axis(-1)->parallelize(ParallelType::TIDx);
 
   tv1->computeAt(tv_avg, -1);
-  
+
   //
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -10703,7 +10702,6 @@ TEST(NVFuserTest, FusionBlockWelfordOp_CUDA) {
   at::Tensor t_var = at::empty({M}, options);
   at::Tensor t_avg = at::empty({M}, options);
   at::Tensor t_N = at::empty({M}, options_int);
-
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -10751,7 +10749,6 @@ TEST(NVFuserTest, FusionGridWelfordOp_CUDA) {
   at::Tensor t_avg = at::empty({M}, options);
   at::Tensor t_N = at::empty({M}, options_int);
 
-
   FusionExecutor fe;
   fe.compileFusion(&fusion);
   auto outputs = fe.runFusion({t0});
@@ -10785,15 +10782,10 @@ TEST(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
   fusion.addOutput(tv_avg);
   fusion.addOutput(tv_N);
 
-  tv_avg->split(1,4);
-  tv_M2->split(1,4);
-  tv_N->split(1,4);
-  std::vector<TensorView*> rtvs = tv_N->rFactorWelford({1});
+  tv_N->split(1, 4);
+  std::vector<TensorView*> rtvs = tv_N->rFactorWelford({2});
   tv1->computeAt(tv_N, -1);
 
-  fusion.printMath();
-  fusion.printKernel();
-  return;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::manual_seed(0);
@@ -10801,7 +10793,6 @@ TEST(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
   at::Tensor t_var = at::empty({M}, options);
   at::Tensor t_avg = at::empty({M}, options);
   at::Tensor t_N = at::empty({M}, options_int);
-
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -10819,7 +10810,6 @@ TEST(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
       __FILE__);
 }
 
-
 // TODO:  REMOVE THIS ONE
 TEST(NVFuserTest, FusionRefSumOp_CUDA) {
   Fusion fusion;
@@ -10832,9 +10822,9 @@ TEST(NVFuserTest, FusionRefSumOp_CUDA) {
   auto tv1 = mul(tv0, new Double(1));
   auto tv2 = sum(tv1, {1});
   fusion.addOutput(tv2);
-  
-  tv2->split(1,4);
-  
+
+  tv2->split(1, 4);
+
   auto tvr = tv2->rFactor({1});
   tv1->computeAt(tv2, -1);
 

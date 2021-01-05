@@ -721,6 +721,57 @@ std::deque<const TensorView*> getComputeAtTVStackFrom(
   return tv_stack;
 }
 
+namespace {
+// This util function is to support index compute on multi-output exprs, which
+// currently
+//  means WelfordOp only. When we have an expr inside of a loop structure, e.g
+//    for id0[0..X]:
+//      TV_VAR,TV_AVG,TV_N = welford(In)
+//  if the welford op is responsible for opening this loop, id0 will be
+//  associated with only one of the output tensors, i.e. welford_op->out(),
+//  while the other two tensors fail to recognize id0 when lowering their
+//  indices. This util function fills the gap by running auxiliary check with
+//  welford_op->out() and forward mapp to the corresponding IterDomains.
+//
+//  A better fix could be just use root domain mapping to establish all the
+//  index maps, but currently this is the beyond the scope.
+template <typename OP>
+inline void mapMultiOutputOp(
+    std::deque<kir::ForLoop*>& loops,
+    std::unordered_map<kir::IterDomain*, kir::Val*>& index_map,
+    const std::unordered_map<kir::ForLoop*, kir::Val*>& loop_to_ind_map,
+    const std::vector<kir::IterDomain*>& kir_td,
+    OP* op) {
+  std::vector<kir::IterDomain*> o_kir_td;
+  auto o_tv = op->out()->template as<TensorView>();
+  auto o_td = o_tv->domain()->domain();
+  std::transform(
+      o_td.begin(),
+      o_td.end(),
+      std::back_inserter(o_kir_td),
+      [](IterDomain* id) {
+        return GpuLower::current()->lowerValue(id)->as<kir::IterDomain>();
+      });
+  TORCH_INTERNAL_ASSERT(
+      o_td.size() == kir_td.size(),
+      "MultiOutputs aren't scheduled identically");
+
+  bool found_axis = true;
+  while (!loops.empty() && found_axis) {
+    found_axis = false;
+    for (int i = o_kir_td.size() - 1; i >= 0; i--) {
+      if (o_kir_td[i] == loops.back()->iter_domain()) {
+        found_axis = true;
+        TORCH_INTERNAL_ASSERT(
+            loop_to_ind_map.find(loops.back()) != loop_to_ind_map.end());
+        index_map[kir_td[i]] = loop_to_ind_map.at(loops.back());
+        loops.pop_back();
+      }
+    }
+  }
+}
+} // namespace
+
 //! Generates index and extent expressions of tensors.
 //!
 //! A chain of tensors, ordered by traversing computeAt relationships,
@@ -918,6 +969,15 @@ generateIndexAndExtentMap(
     loops.pop_back();
   }
 
+  if (tv->definition()->isA<WelfordOp>()) {
+    mapMultiOutputOp(
+        loops,
+        initial_index_map,
+        loop_to_ind_map,
+        kir_td,
+        tv->definition()->as<WelfordOp>());
+  }
+
   IndexCompute index_compute(
       tv->domain(),
       initial_index_map,
@@ -956,6 +1016,15 @@ generateIndexAndExtentMap(
       new_indices[loops.back()->iter_domain()] =
           loop_to_ind_map.at(loops.back());
       loops.pop_back();
+    }
+
+    if (tv->definition()->isA<WelfordOp>()) {
+      mapMultiOutputOp(
+          loops,
+          new_indices,
+          loop_to_ind_map,
+          kir_td,
+          tv->definition()->as<WelfordOp>());
     }
 
     if (!p2c_ID_maps.empty()) {

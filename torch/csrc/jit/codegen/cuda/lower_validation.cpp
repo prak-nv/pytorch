@@ -11,9 +11,8 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-namespace{
-  class ValidateParallelType : public IterVisitor {
-
+namespace {
+class ValidateParallelType : public IterVisitor {
  public:
   static void validate(Fusion* fusion) {
     ValidateParallelType VPT;
@@ -21,16 +20,18 @@ namespace{
   }
 
  private:
-  void convertIterDomain(IterDomain* id0, IterDomain* id1){
+  void convertIterDomain(IterDomain* id0, IterDomain* id1) {
     const auto ptype0 = id0->getParallelType();
     const auto ptype1 = id1->getParallelType();
 
-    if( ptype0 != ptype1){
-      TORCH_CHECK(ptype0 == ParallelType::Serial || ptype1==ParallelType::Serial,"Error promoting parallel types");
-      if (ptype0 == ParallelType::Serial){
+    if (ptype0 != ptype1) {
+      TORCH_CHECK(
+          ptype0 == ParallelType::Serial || ptype1 == ParallelType::Serial,
+          "Error promoting parallel types");
+      if (ptype0 == ParallelType::Serial) {
         id0->parallelize(ptype1);
       }
-      if (ptype1 == ParallelType::Serial){
+      if (ptype1 == ParallelType::Serial) {
         id1->parallelize(ptype0);
       }
     }
@@ -40,18 +41,18 @@ namespace{
     auto out_var = wop->outVar()->as<TensorView>();
     auto out_avg = wop->outAvg()->as<TensorView>();
     auto out_n = wop->outN()->as<TensorView>();
-    TORCH_INTERNAL_ASSERT(out_var->nDims()==out_avg->nDims());
-    TORCH_INTERNAL_ASSERT(out_var->nDims()==out_n->nDims());
-    for(size_t i =0;i<out_var->nDims();i++){
+    TORCH_INTERNAL_ASSERT(out_var->nDims() == out_avg->nDims());
+    TORCH_INTERNAL_ASSERT(out_var->nDims() == out_n->nDims());
+    for (size_t i = 0; i < out_var->nDims(); i++) {
       // TODO: can be cleaner.
-      convertIterDomain(out_var->axis(i),out_avg->axis(i));
-      convertIterDomain(out_avg->axis(i),out_n->axis(i));
-      convertIterDomain(out_n->axis(i),out_var->axis(i));
+      convertIterDomain(out_var->axis(i), out_avg->axis(i));
+      convertIterDomain(out_avg->axis(i), out_n->axis(i));
+      convertIterDomain(out_n->axis(i), out_var->axis(i));
     }
   }
 };
 
-}//namespace
+} // namespace
 
 void validateIr(Fusion* fusion) {
   FUSER_PERF_SCOPE("validateIr");
@@ -121,9 +122,8 @@ void validateIr(Fusion* fusion) {
     }
   }
 
-  //Validate Parallelization
+  // Validate Parallelization
   ValidateParallelType::validate(fusion);
-
 }
 
 } // namespace cuda

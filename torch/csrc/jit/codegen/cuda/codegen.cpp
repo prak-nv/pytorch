@@ -117,8 +117,9 @@ class CudaKernelGenerator : private kir::IrVisitor {
     // Do we have any reductions?
     const bool has_reductions = kernel_summary.has_block_reductions ||
         kernel_summary.has_grid_reductions;
-    
-    const bool has_parallel_welford = kernel_summary.has_block_welford || kernel_summary.has_grid_welford;
+
+    const bool has_parallel_welford =
+        kernel_summary.has_block_welford || kernel_summary.has_grid_welford;
 
     // Shared memory
     if (has_dynamic_smem || has_reductions) {
@@ -137,24 +138,28 @@ class CudaKernelGenerator : private kir::IrVisitor {
       if (has_reductions) {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
-          if(has_parallel_welford){
+          if (has_parallel_welford) {
             indent() << "offset += "
-                   << "((blockDim.x * blockDim.y * blockDim.z) * 3 * sizeof("
-                   << kernel_summary.largest_smem_data_type << "));\n";
-          }else{
+                     << "((blockDim.x * blockDim.y * blockDim.z) * 3 * sizeof("
+                     << kernel_summary.largest_smem_data_type << "));\n";
+          } else {
             indent() << "offset += "
-                   << "((blockDim.x * blockDim.y * blockDim.z) * sizeof("
-                   << kernel_summary.largest_smem_data_type << "));\n";
+                     << "((blockDim.x * blockDim.y * blockDim.z) * sizeof("
+                     << kernel_summary.largest_smem_data_type << "));\n";
           }
         }
 
-        if(has_parallel_welford){
-          //Unpack shared mem pointer
+        if (has_parallel_welford) {
+          // Unpack shared mem pointer
           auto space_type = kernel_summary.largest_smem_data_type;
           indent() << "size_t block_size = blockDim.x*blockDim.y*blockDim.z;\n";
-          indent() << space_type <<" *shared_mem_var = "<<"static_cast<"<< space_type<<"*>("<<"shared_mem);\n";
-          indent() << space_type <<" *shared_mem_avg = shared_mem_var + block_size;\n";
-          indent() << space_type <<" *shared_mem_n = shared_mem_avg + block_size;\n";
+          indent() << space_type << " *shared_mem_var = "
+                   << "static_cast<" << space_type << "*>("
+                   << "shared_mem);\n";
+          indent() << space_type
+                   << " *shared_mem_avg = shared_mem_var + block_size;\n";
+          indent() << space_type
+                   << " *shared_mem_n = shared_mem_avg + block_size;\n";
         }
       }
     }
@@ -557,7 +562,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
       indent() << " (" << out_N->dtype() << ")" << gen(in_N) << ");\n";
       return;
     }
-    
+
     const auto par_domains = node->getParallelReductionDomains();
     const bool tidx = par_domains.find(ParallelType::TIDx) != par_domains.end();
     const bool tidy = par_domains.find(ParallelType::TIDy) != par_domains.end();
@@ -582,9 +587,12 @@ class CudaKernelGenerator : private kir::IrVisitor {
                << (tidy ? "true" : "false") << ", " << (tidz ? "true" : "false")
                << ">(\n";
       if (has_grid_reduce) {
-        indent()  << kTab << "block_result_var" << ",\n"
-                  << kTab << "block_result_avg" << ",\n"
-                  << kTab << "block_result_n" << ",\n";
+        indent() << kTab << "block_result_var"
+                 << ",\n"
+                 << kTab << "block_result_avg"
+                 << ",\n"
+                 << kTab << "block_result_n"
+                 << ",\n";
       } else {
         indent() << kTab << gen(node->outVar()) << ",\n";
         indent() << kTab << gen(node->outAvg()) << ",\n";
@@ -593,15 +601,19 @@ class CudaKernelGenerator : private kir::IrVisitor {
       if (in_var) {
         indent() << " " << gen(in_var) << ",\n";
       } else {
-        indent() << " (" << in_avg->dtype() << ") 0"<<",\n";
+        indent() << " (" << in_avg->dtype() << ") 0"
+                 << ",\n";
       }
       indent() << " " << gen(in_avg) << ",\n";
       indent() << out_N->dtype() << "(" << gen(in_N) << "),\n";
       indent() << kTab << "threadIdx,\n";
       indent() << kTab << "blockDim,\n";
-      indent() << kTab << "reinterpret_cast<" << data_type << "*>(shared_mem_var),\n";
-      indent() << kTab << "reinterpret_cast<" << data_type << "*>(shared_mem_avg),\n";
-      indent() << kTab << "reinterpret_cast<" << DataType::Int << "*>(shared_mem_n),\n";
+      indent() << kTab << "reinterpret_cast<" << data_type
+               << "*>(shared_mem_var),\n";
+      indent() << kTab << "reinterpret_cast<" << data_type
+               << "*>(shared_mem_avg),\n";
+      indent() << kTab << "reinterpret_cast<" << DataType::Int
+               << "*>(shared_mem_n),\n";
       if (node->predicate() == nullptr) {
         indent() << kTab << "true,\n";
       } else {
@@ -735,15 +747,19 @@ class CudaKernelGenerator : private kir::IrVisitor {
         indent() << kTab << gen(wop->inVar()) << ",\n";
       }
       indent() << kTab << gen(wop->inAvg()) << ",\n";
-      indent() << kTab << "(" << wop->outN()->dtype() <<")"<< gen(wop->inN()) << ",\n";
+      indent() << kTab << "(" << wop->outN()->dtype() << ")" << gen(wop->inN())
+               << ",\n";
     }
     indent() << kTab << "&" << varName(var_buffer) << "[0],\n";
     indent() << kTab << "&" << varName(avg_buffer) << "[0],\n";
     indent() << kTab << "&" << varName(n_buffer) << "[0],\n";
-    indent() << kTab <<  varName(sync_buffer) << ",\n";
-    indent() << kTab << "reinterpret_cast<" << data_type << "*>(shared_mem_var),\n";
-    indent() << kTab << "reinterpret_cast<" << data_type << "*>(shared_mem_avg),\n";
-    indent() << kTab << "reinterpret_cast<" << wop->outN()->dtype() << "*>(shared_mem_n),\n";
+    indent() << kTab << varName(sync_buffer) << ",\n";
+    indent() << kTab << "reinterpret_cast<" << data_type
+             << "*>(shared_mem_var),\n";
+    indent() << kTab << "reinterpret_cast<" << data_type
+             << "*>(shared_mem_avg),\n";
+    indent() << kTab << "reinterpret_cast<" << wop->outN()->dtype()
+             << "*>(shared_mem_n),\n";
     if (node->predicate() == nullptr) {
       indent() << kTab << "true,\n";
     } else {

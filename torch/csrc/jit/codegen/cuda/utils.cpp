@@ -20,8 +20,7 @@ auto parseDebugDumpOptions() {
       {DebugDumpOption::KernelIr, false},
       {DebugDumpOption::CudaKernel, false},
       {DebugDumpOption::CudaFull, false},
-      {DebugDumpOption::LaunchParam, false}
-  };
+      {DebugDumpOption::LaunchParam, false}};
 
   if (const char* dump_options = std::getenv("PYTORCH_NVFUSER_DUMP")) {
     c10::string_view options_view(dump_options);

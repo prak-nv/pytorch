@@ -359,8 +359,9 @@ WelfordOp::WelfordOp(
   }
 
   // check input
-  TORCH_INTERNAL_ASSERT(in_N->getValType().value() == ValType::Scalar ||
-                        in_N->getValType().value() == ValType::TensorView);
+  TORCH_INTERNAL_ASSERT(
+      in_N->getValType().value() == ValType::Scalar ||
+      in_N->getValType().value() == ValType::TensorView);
   TORCH_INTERNAL_ASSERT(
       in_avg && in_avg->getValType().value() == ValType::TensorView);
   if (!in_N->isOneInt()) {

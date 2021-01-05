@@ -453,13 +453,20 @@ void LoopNestGenerator::handle(const Expr* expr) {
 
       if (!fusion_->hasOutput(out_var)) {
         alloc_var = pushAlloc(out_var);
-        alloc_avg = pushAlloc(out_avg);
-        alloc_avg = pushAlloc(out_N);
+        alloc_avg = alloc_expr; // already allocated once as op->out()
+        alloc_N = pushAlloc(out_N);
       }
       const auto init_var =
           welford->initVar() ? welford->initVar() : new Double(0);
       const auto init_avg =
           welford->initAvg() ? welford->initAvg() : new Double(0);
+
+      // This is a temporary hack to get the initialization working,
+      //   One unsatisfactory point about it is that when the outputs are
+      //   in global mem it takes 3 separate loops to initialize.
+      //   combining the three loops is quite messy unless we can add a basic
+      //   block type of scope in kernel_ir (potential TODO), so we can simply
+      //   represent 3 stmts as one.
       initReduction(out_var, init_var, alloc_var);
       initReduction(out_avg, init_avg, alloc_avg);
       initReduction(out_N, welford->initN(), alloc_N);

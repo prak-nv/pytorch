@@ -344,8 +344,8 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
   auto in_N = wop->inN();
 
   // in Rfactor-ed case, the input N is actually a TV
-  if(!in_N->isScalar()){
-    in_N = lowerSrcIndex(in_N,wop->outN());
+  if (!in_N->isScalar()) {
+    in_N = lowerSrcIndex(in_N, wop->outN());
   }
 
   auto out_avg = lowerDstIndex(wop->outAvg());
@@ -361,7 +361,7 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
       wop->initN(),
       in_var,
       in_avg,
-      wop->inN());
+      in_N);
 
   kir::WelfordOp* block_welford_op = nullptr;
 
