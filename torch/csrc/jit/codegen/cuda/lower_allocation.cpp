@@ -204,16 +204,15 @@ class AllocationInserter : public kir::IrVisitor {
         init = expr->as<kir::ReductionOp>()->init();
       }
 
-      bool is_output = std::find(
-                           gpu_lower->kernel()->outputs().begin(),
-                           gpu_lower->kernel()->outputs().end(),
-                           out) != gpu_lower->kernel()->outputs().end();
+      const bool is_output = std::find(
+                                 gpu_lower->kernel()->outputs().begin(),
+                                 gpu_lower->kernel()->outputs().end(),
+                                 out) != gpu_lower->kernel()->outputs().end();
 
       // Don't need to alloc outputs, and if we don't need to initialize we're
       // done.
       if (is_output && init == nullptr) {
         continue;
-        ;
       }
 
       AllocationInformation allocation;
