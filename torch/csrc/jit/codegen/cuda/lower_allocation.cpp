@@ -36,17 +36,18 @@ class AllocationInserter : public kir::IrVisitor {
     kir::Expr* init_expr = nullptr;
   };
 
+  // Find allocation point relative to buffer
   size_t findAllocationPosition(AllocationInformation& info) {
     auto fuser_tv = info.buffer->fuserTv();
 
-    // Find allocation point relative to buffer
     size_t alloc_pos = 0;
-    for (size_t for_loop_i = 0; for_loop_i < for_loops.size(); ++for_loop_i) {
+
+    for (const auto for_loop: for_loops) {
       if (alloc_pos == fuser_tv->getThisComputeAtAxis()) {
         break;
       }
 
-      auto fl_id = for_loops[for_loop_i]->iter_domain();
+      auto fl_id = for_loop->iter_domain();
 
       if (fl_id->parallelType() == ParallelType::Unroll) {
         break;
