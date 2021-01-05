@@ -42,7 +42,7 @@ class AllocationInserter : public kir::IrVisitor {
 
     size_t alloc_pos = 0;
 
-    for (const auto for_loop: for_loops) {
+    for (const auto for_loop : for_loops) {
       if (alloc_pos == fuser_tv->getThisComputeAtAxis()) {
         break;
       }
