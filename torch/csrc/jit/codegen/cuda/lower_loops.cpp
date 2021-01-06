@@ -190,8 +190,6 @@ void LoopNestGenerator::handle(const Expr* expr) {
     loops_to_open.pop_front();
   }
 
-  kir::Expr* alloc_expr = nullptr;
-
   //  Place the expression
   pushBack(gpu_lower->lowerExpr(expr));
 
