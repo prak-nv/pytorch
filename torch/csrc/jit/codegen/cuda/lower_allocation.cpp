@@ -275,9 +275,11 @@ class AllocationInserter : public kir::IrVisitor {
       handle(expr);
     }
 
-    // Place allocations in topological order
-    auto dynamic_smem_insertion_point = loop_nests_.begin();
-    for (const auto& alloc : allocs) {
+    // First, place allocations of dynamic smem tensors at the very
+    // beginning of the expr list. Traverse backward as they should be
+    // placed in topological order.
+    for (auto it = allocs.rbegin(); it != allocs.rend(); ++it) {
+      const auto& alloc = *it;
       if (alloc.alloc_expr == nullptr) {
         continue;
       }
@@ -285,10 +287,20 @@ class AllocationInserter : public kir::IrVisitor {
       // loops
       if (alloc.buffer->memoryType() == MemoryType::Shared &&
           !kir::ExpressionEvaluator::isConst(alloc.alloc_expr->size())) {
-        dynamic_smem_insertion_point =
-            loop_nests_.insert(dynamic_smem_insertion_point, alloc.alloc_expr) +
-            1;
-      } else if (alloc.for_loop == nullptr) {
+        loop_nests_.insert(loop_nests_.begin(), alloc.alloc_expr);
+      }
+    }
+
+    // Place the remaining allocations.
+    for (const auto& alloc : allocs) {
+      if (alloc.alloc_expr == nullptr) {
+        continue;
+      }
+      if (alloc.buffer->memoryType() == MemoryType::Shared &&
+          !kir::ExpressionEvaluator::isConst(alloc.alloc_expr->size())) {
+        continue;
+      }
+      if (alloc.for_loop == nullptr) {
         auto place_before_it = std::find(
             loop_nests_.begin(), loop_nests_.end(), alloc.place_before);
         TORCH_INTERNAL_ASSERT(
