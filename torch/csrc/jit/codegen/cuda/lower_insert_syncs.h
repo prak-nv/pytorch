@@ -50,7 +50,7 @@ std::vector<kir::Expr*> insertWARThreadSynchronization(
 
 //! Insert syncs between writing to shared memory and then reading it.
 std::vector<kir::Expr*> insertRAWThreadSynchronization(
-    std::vector<kir::Expr*> exprs);
+    const std::vector<kir::Expr*>& exprs);
 
 } // namespace cuda
 } // namespace fuser
