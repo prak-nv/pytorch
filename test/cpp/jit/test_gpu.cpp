@@ -1146,9 +1146,9 @@ TEST(NVFuserTest, FusionParser_CUDA) {
   // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Tensor<float, 1> T3) {
+  float T2[1];
   if ((((((blockIdx.x * 1) + (1 - 1)) * 128) + threadIdx.x) < T0.size[0])) {
     for(size_t ki25 = 0; ki25 < 1; ++ki25) {
-      float T2[1];
       T2[ki25]
         = T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
         * T1[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
@@ -1158,7 +1158,6 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Te
     }
   } else {
     for(size_t ki25 = 0; ki25 < 1; ++ki25) {
-      float T2[1];
       if ((((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x) < T0.size[0])) {
         T2[ki25]
           = T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]

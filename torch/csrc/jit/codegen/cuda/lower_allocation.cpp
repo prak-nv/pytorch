@@ -26,6 +26,9 @@ class AllocationInserter : public kir::IrVisitor {
     // The expression that this allocation must be placed before
     kir::Expr* place_before = nullptr;
 
+    // The allocation position relative to buffer
+    size_t alloc_pos = 0;
+
     // The buffer this allocation is for
     kir::TensorView* buffer = nullptr;
 
@@ -36,20 +39,25 @@ class AllocationInserter : public kir::IrVisitor {
     kir::Expr* init_expr = nullptr;
   };
 
-  // Find allocation point relative to buffer
-  size_t findAllocationPosition(AllocationInformation& info) {
-    auto fuser_tv = info.buffer->fuserTv();
-
+  // Find allocation point
+  void findAllocationPosition(AllocationInformation& info, kir::Expr* expr) {
     size_t alloc_pos = 0;
+    kir::ForLoop* for_loop = nullptr;
+    auto fuser_tv = info.buffer->fuserTv();
+    size_t fl_idx_next = 0;
 
-    for (const auto for_loop : for_loops) {
+    for (auto fl : for_loops) {
       if (alloc_pos == fuser_tv->getThisComputeAtAxis()) {
         break;
       }
 
-      auto fl_id = for_loop->iter_domain();
+      auto fl_id = fl->iter_domain();
 
       if (fl_id->parallelType() == ParallelType::Unroll) {
+        break;
+      }
+
+      if (fuser_tv->axis(alloc_pos)->isReduction()) {
         break;
       }
 
@@ -60,24 +68,40 @@ class AllocationInserter : public kir::IrVisitor {
       if (ca_id == fl_id) {
         alloc_pos++;
       }
+
+      for_loop = fl;
+      ++fl_idx_next;
     }
 
-    return alloc_pos;
+    info.alloc_pos = alloc_pos;
+    info.for_loop = for_loop;
+
+    if (info.for_loop == nullptr) {
+      info.place_before = for_loops.size() > 0 ? for_loops[0] : expr;
+    } else {
+      if (info.for_loop == for_loops.back()) {
+        // Inline allocation, place before expr
+        info.place_before = expr;
+      } else {
+        // Place allocation after the last computeAt axis
+        // TODO: may be more efficient to place before the first non-computeAt
+        // axis
+        info.place_before = for_loops.at(fl_idx_next);
+      }
+    }
   }
 
   // Create initialization expression if init_val is non-null.
-  kir::Expr* createInitExpr(
-      const AllocationInformation& info,
-      size_t alloc_pos,
-      kir::Val* init_val) {
+  void createInitExpr(AllocationInformation& info, kir::Val* init_val) {
     if (init_val == nullptr) {
-      return nullptr;
+      info.init_expr = nullptr;
+      return;
     }
 
     auto fuser_tv = info.buffer->fuserTv();
 
     std::vector<kir::IterDomain*> init_dims;
-    for (size_t axis_i = alloc_pos; axis_i < fuser_tv->nDims(); axis_i++) {
+    for (size_t axis_i = info.alloc_pos; axis_i < fuser_tv->nDims(); axis_i++) {
       if (info.buffer->fuserTv()->axis(axis_i)->isReduction()) {
         continue;
       }
@@ -108,15 +132,13 @@ class AllocationInserter : public kir::IrVisitor {
       new_loop->body().push_back(init_expr);
       init_expr = new_loop;
     }
-    return init_expr;
+    info.init_expr = init_expr;
   }
 
-  kir::Allocate* createAllocExpr(
-      const AllocationInformation& info,
-      size_t alloc_pos,
-      bool is_output) {
+  void createAllocExpr(AllocationInformation& info, bool is_output) {
     if (is_output) {
-      return nullptr;
+      info.alloc_expr = nullptr;
+      return;
     }
 
     auto fuser_tv = info.buffer->fuserTv();
@@ -144,7 +166,7 @@ class AllocationInserter : public kir::IrVisitor {
       const bool is_thread_dim = isParallelTypeThreadDim(ca_id->parallelType());
       const bool is_thread = isParallelTypeThread(ca_id->parallelType());
 
-      if (axis_i < alloc_pos) {
+      if (axis_i < info.alloc_pos) {
         // Even when the axis is outside the allocation position, if the
         // tensor is shared with respect to the axis, the buffer size
         // needs to be expanded for the axis. Sharing occurs in two
@@ -181,7 +203,7 @@ class AllocationInserter : public kir::IrVisitor {
     }
 
     // Create the allocation node
-    return ir_builder.create<kir::Allocate>(
+    info.alloc_expr = ir_builder.create<kir::Allocate>(
         info.buffer, info.buffer->memoryType(), size);
   }
 
@@ -218,53 +240,9 @@ class AllocationInserter : public kir::IrVisitor {
 
       AllocationInformation allocation;
       allocation.buffer = out_tv;
-
-      // Figure out which loop nest the allocation needs to go into
-      // This is very similar to how insert read after write syncs are placed
-      // TODO: This may be a common operation, could be worth making a utility
-      // out of or saving state for tensor view ID -> for loop
-      // TODO: Explicitly test the 3 cases below
-
-      if (out_tv->fuserTv()->getThisComputeAtAxis() == 0) {
-        // Allocate at "global" scope
-        allocation.for_loop = nullptr;
-        // Allocate before all loops if they exist.
-        allocation.place_before = for_loops.size() > 0 ? for_loops[0] : expr;
-      } else {
-        // Find the last loop in computeAt of out_tv, this is the loop where we
-        // would place an allocation for out_tv
-        auto fuser_tv = out_tv->fuserTv();
-        auto ca_id =
-            fuser_tv->getComputeAtAxis(fuser_tv->getThisComputeAtAxis() - 1)
-                .first;
-        auto lowered_ca_id =
-            gpu_lower->lowerValue(ca_id)->as<kir::IterDomain>();
-
-        auto loops_it = std::find_if(
-            for_loops.begin(),
-            for_loops.end(),
-            [&lowered_ca_id](const auto& loop) {
-              return lowered_ca_id == loop->iter_domain() ||
-                  loop->iter_domain()->parallelType() == ParallelType::Unroll;
-            });
-        TORCH_INTERNAL_ASSERT(loops_it != for_loops.end());
-
-        allocation.for_loop = *loops_it;
-
-        if (loops_it + 1 == for_loops.end()) {
-          // Inline allocation, place before expr
-          allocation.place_before = expr;
-        } else {
-          // Place allocation after the last computeAt axis
-          // TODO: may be more efficient to place before the first non-computeAt
-          // axis
-          allocation.place_before = *(loops_it + 1);
-        }
-      }
-
-      auto alloc_pos = findAllocationPosition(allocation);
-      allocation.alloc_expr = createAllocExpr(allocation, alloc_pos, is_output);
-      allocation.init_expr = createInitExpr(allocation, alloc_pos, init);
+      findAllocationPosition(allocation, expr);
+      createAllocExpr(allocation, is_output);
+      createInitExpr(allocation, init);
 
       allocs.push_back(allocation);
     }
@@ -297,19 +275,19 @@ class AllocationInserter : public kir::IrVisitor {
       handle(expr);
     }
 
-    // We want allocations to follow topological order, so go through
-    // allocations in reverse order as we insert them right before they're
-    // needed.
-
-    for (auto it = allocs.rbegin(); it != allocs.rend(); ++it) {
-      auto& alloc = *it;
+    // Place allocations in topological order
+    auto dynamic_smem_insertion_point = loop_nests_.begin();
+    for (const auto& alloc : allocs) {
       if (alloc.alloc_expr == nullptr) {
         continue;
       }
       // Dynamic smem exprs need to be at the begining of the kernel outside for
       // loops
-      if (!kir::ExpressionEvaluator::isConst(alloc.alloc_expr->size())) {
-        loop_nests_.insert(loop_nests_.begin(), alloc.alloc_expr);
+      if (alloc.buffer->memoryType() == MemoryType::Shared &&
+          !kir::ExpressionEvaluator::isConst(alloc.alloc_expr->size())) {
+        dynamic_smem_insertion_point =
+            loop_nests_.insert(dynamic_smem_insertion_point, alloc.alloc_expr) +
+            1;
       } else if (alloc.for_loop == nullptr) {
         auto place_before_it = std::find(
             loop_nests_.begin(), loop_nests_.end(), alloc.place_before);
@@ -328,8 +306,7 @@ class AllocationInserter : public kir::IrVisitor {
     }
 
     // Now that allocations are in place, place the initializations
-    for (auto it = allocs.rbegin(); it != allocs.rend(); ++it) {
-      auto& alloc = *it;
+    for (const auto& alloc : allocs) {
       if (alloc.init_expr == nullptr) {
         continue;
       }
