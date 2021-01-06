@@ -417,6 +417,7 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
   }
 
  private:
+  //! Keep track of expressions that must be followed by syncthreads
   std::deque<kir::Expr*> sync_after_;
 
   std::vector<kir::ForLoop*> for_loops_;
