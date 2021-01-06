@@ -51,13 +51,13 @@ class AllocationInserter : public kir::IrVisitor {
         break;
       }
 
-      auto fl_id = fl->iter_domain();
-
-      if (fl_id->parallelType() == ParallelType::Unroll) {
+      if (fuser_tv->axis(alloc_pos)->isReduction()) {
         break;
       }
 
-      if (fuser_tv->axis(alloc_pos)->isReduction()) {
+      auto fl_id = fl->iter_domain();
+
+      if (fl_id->parallelType() == ParallelType::Unroll) {
         break;
       }
 
