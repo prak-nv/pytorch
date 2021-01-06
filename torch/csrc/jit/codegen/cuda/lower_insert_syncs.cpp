@@ -216,7 +216,7 @@ class LocalSyncInserter {
   bool has_war_hazard_sync_ = false;
 };
 
-class ExprFlattener : private kir::ConstIrVisitor {
+class ExprFlattener : private kir::IrVisitor {
  private:
   void handle(kir::Expr* expr) {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
@@ -256,7 +256,7 @@ class ExprFlattener : private kir::ConstIrVisitor {
   }
 };
 
-class ReadAfterWriteSyncs : public kir::IrVisitor {
+class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
  private:
   void handle(kir::Expr* expr) {
     if (!ir_utils::isTVOp(expr) || expr->isA<kir::Allocate>()) {
