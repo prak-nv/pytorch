@@ -423,8 +423,10 @@ class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
   //! Keep track of expressions that must be followed by syncthreads
   std::deque<kir::Expr*> sync_after_;
 
+  //! Keep track of for loops while inserting syncthreads
   std::vector<kir::ForLoop*> for_loops_;
 
+  //! Loop-nests where syncthreads are inserted
   std::vector<kir::Expr*> loop_nests_;
 
  public:
