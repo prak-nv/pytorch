@@ -52,6 +52,14 @@ class AllocationInserter : public kir::IrVisitor {
       }
 
       if (fuser_tv->axis(alloc_pos)->isReduction()) {
+        const auto outputs =
+            FusionGuard::getCurFusion()->getTerminatingOutputs();
+        TORCH_INTERNAL_ASSERT(
+            std::find(outputs.begin(), outputs.end(), fuser_tv) !=
+                outputs.end(),
+            "Invalid computeAt of T",
+            fuser_tv->name(),
+            ". A reducation axis is detected within computeAt axes even though it is not an output tensor.");
         break;
       }
 
