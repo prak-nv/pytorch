@@ -121,14 +121,20 @@ void GpuLower::lower() {
     kernel_->addOutput(GpuLower::lowerValue(output));
   }
 
-  // Run our passes keeping the lowered expressions and forwarding them
-  const auto lowered_exprs = LoopNestGenerator::loweredExprs(
-      fusion_, reorderExprsForComputeAt(fusion_->exprs()));
+  // Run our passes keeping the lowered expressions and forwarding
+  // them
+
+  // Reorder expressions for loop-nest generation respecting computeAt
+  // relationships
+  const auto reordered_exprs = reorderExprsForComputeAt(fusion_->exprs());
+
+  // Generate loop-nests and place each expression at its
+  // corresponding loop
+  const auto lowered_exprs =
+      LoopNestGenerator::loweredExprs(fusion_, reordered_exprs);
 
   // Insert allocations
-  const auto alloced_exprs =
-      // lowered_exprs;
-      insertAllocations(lowered_exprs);
+  const auto alloced_exprs = insertAllocations(lowered_exprs);
 
   // Insert read after write smem syncs
   const auto raw_sync_exprs = insertRawThreadSynchronization(alloced_exprs);
