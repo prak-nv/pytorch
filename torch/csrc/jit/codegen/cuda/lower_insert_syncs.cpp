@@ -273,7 +273,7 @@ class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
       // Find where a sync needs to be inserted
       // This is very similar to how allocations are placed, simply place sync
       // after the expression instead of placing like allocation where it goes
-      // before before.
+      // before.
       // TODO: This may be a common operation, could be worth making a utility
       // out of or saving state for tensor view ID -> for loop
       // TODO: Explicitly test the 3 cases below
@@ -306,6 +306,9 @@ class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
         auto lowered_ca_id =
             GpuLower::current()->lowerValue(ca_id)->as<kir::IterDomain>();
 
+        // Note that tensors are allocated outside a reduction axis if
+        // exists. However, that only happens with output tensors,
+        // which by definition does not need syncthreads.
         auto loops_it = std::find_if(
             for_loops_.begin(),
             for_loops_.end(),
