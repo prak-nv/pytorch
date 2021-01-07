@@ -1,9 +1,12 @@
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
+
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
+#include <torch/csrc/jit/codegen/cuda/lower_allocation.h>
+#include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/lower_index.h>
 #include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
 #include <torch/csrc/jit/codegen/cuda/lower_loops.h>
@@ -119,11 +122,16 @@ void GpuLower::lower() {
   }
 
   // Run our passes keeping the lowered expressions and forwarding them
-  const auto lowered_exprs =
-      LoopNestGenerator::loweredExprs(fusion_, fusion_->exprs());
+  const auto lowered_exprs = LoopNestGenerator::loweredExprs(
+      fusion_, reorderExprsForComputeAt(fusion_->exprs()));
+
+  // Insert allocations
+  const auto alloced_exprs =
+      // lowered_exprs;
+      insertAllocations(lowered_exprs);
 
   // Insert read after write smem syncs
-  const auto raw_sync_exprs = insertRawThreadSynchronization(lowered_exprs);
+  const auto raw_sync_exprs = insertRawThreadSynchronization(alloced_exprs);
 
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, raw_sync_exprs, preds, ca_root_map);
