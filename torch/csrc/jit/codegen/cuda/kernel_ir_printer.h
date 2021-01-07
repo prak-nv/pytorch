@@ -20,14 +20,15 @@ namespace kir {
 //!
 //! This class is intended for debug printing, so it attempts
 //! to handle invalid IR states as much as possible.
-//!
-//! implicit_definition_ = true will recurisvely print the definition of all
-//! inputs to an expression if they haven't been printed.
-class TORCH_CUDA_API IrPrinter : private kir::ConstIrVisitor {
+class TORCH_CUDA_API IrPrinter : private kir::IrVisitor {
   static constexpr char* kTab = "  ";
 
  public:
   //! Constructs a new IrPrinter which outputs to the specified stream
+  //!
+  //! When implicit_definition is true, recurisvely print the
+  //! definition of all inputs to an expression if they haven't been
+  //! printed.
   explicit IrPrinter(std::ostream& os, bool implicit_definition = true)
       : os_(os), implicit_definition_(implicit_definition) {}
 

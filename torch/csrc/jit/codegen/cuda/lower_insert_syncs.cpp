@@ -216,13 +216,13 @@ class LocalSyncInserter {
   bool has_war_hazard_sync_ = false;
 };
 
-class ExprFlattener : private kir::ConstIrVisitor {
+class ExprFlattener : private kir::IrVisitor {
  private:
   void handle(kir::Expr* expr) {
     if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       expr->accept(this);
     } else {
-      exprs.push_back(expr);
+      exprs_.push_back(expr);
     }
   }
 
@@ -242,20 +242,21 @@ class ExprFlattener : private kir::ConstIrVisitor {
   }
 
  private:
-  std::vector<kir::Expr*> exprs;
+  std::vector<kir::Expr*> exprs_;
 
  public:
   //! Flattens scopes extracting out a single ordered list of exprs.
-  static std::vector<kir::Expr*> flatten(std::vector<kir::Expr*> loop_nests) {
+  static std::vector<kir::Expr*> flatten(
+      const std::vector<kir::Expr*>& loop_nests) {
     ExprFlattener flattener;
     for (auto expr : loop_nests) {
       flattener.handle(expr);
     }
-    return flattener.exprs;
+    return flattener.exprs_;
   }
 };
 
-class ReadAfterWriteSyncs : public kir::IrVisitor {
+class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
  private:
   void handle(kir::Expr* expr) {
     if (!ir_utils::isTVOp(expr) || expr->isA<kir::Allocate>()) {
@@ -263,8 +264,8 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
       return;
     }
 
-    if (sync_after.front() == expr) {
-      sync_after.pop_front();
+    if (sync_after_.front() == expr) {
+      sync_after_.pop_front();
       // Found that a sync is needed
       TORCH_INTERNAL_ASSERT(expr->outputs()[0]->isA<kir::TensorView>());
       auto out_tv = expr->outputs()[0]->as<kir::TensorView>();
@@ -272,7 +273,7 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
       // Find where a sync needs to be inserted
       // This is very similar to how allocations are placed, simply place sync
       // after the expression instead of placing like allocation where it goes
-      // before before.
+      // before.
       // TODO: This may be a common operation, could be worth making a utility
       // out of or saving state for tensor view ID -> for loop
       // TODO: Explicitly test the 3 cases below
@@ -283,7 +284,7 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
       if (out_tv->fuserTv()->getThisComputeAtAxis() == 0) {
         // Sync should be placed at global scope, after its outer most loop if
         // it has one.
-        kir::Expr* place_after = for_loops.size() > 0 ? for_loops[0] : expr;
+        kir::Expr* place_after = for_loops_.size() > 0 ? for_loops_[0] : expr;
         // Find location in loop_nests_
         auto place_after_it =
             std::find(loop_nests_.begin(), loop_nests_.end(), place_after);
@@ -299,24 +300,28 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
         // would place an allocation for out_tv
         auto fuser_tv = out_tv->fuserTv();
         auto ca_id =
-            fuser_tv->getComputeAtAxis(fuser_tv->getThisComputeAtAxis() - 1)
+            fuser_tv
+                ->getComputeAtAxis(int(fuser_tv->getThisComputeAtAxis()) - 1)
                 .first;
         auto lowered_ca_id =
             GpuLower::current()->lowerValue(ca_id)->as<kir::IterDomain>();
 
+        // Note that tensors are allocated outside a reduction axis if
+        // exists. However, that only happens with output tensors,
+        // which by definition does not need syncthreads.
         auto loops_it = std::find_if(
-            for_loops.begin(),
-            for_loops.end(),
+            for_loops_.begin(),
+            for_loops_.end(),
             [&lowered_ca_id](const auto& loop) {
               return lowered_ca_id == loop->iter_domain() ||
                   loop->iter_domain()->parallelType() == ParallelType::Unroll;
             });
-        TORCH_INTERNAL_ASSERT(loops_it != for_loops.end());
+        TORCH_INTERNAL_ASSERT(loops_it != for_loops_.end());
 
         auto place_in = *loops_it;
         kir::Expr* place_after = nullptr;
 
-        if (loops_it + 1 == for_loops.end()) {
+        if (loops_it + 1 == for_loops_.end()) {
           // Inline allocation, place after expr
           place_after = expr;
         } else {
@@ -332,13 +337,13 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
   }
 
   void visit(kir::ForLoop* fl) final {
-    for_loops.push_back(fl);
+    for_loops_.push_back(fl);
     // Modifying in place, make a copy of the vector
     const std::vector<kir::Expr*> exprs = fl->body().exprs();
     for (auto expr : exprs) {
       handle(expr);
     }
-    for_loops.pop_back();
+    for_loops_.pop_back();
   }
 
   void visit(kir::IfThenElse*) final {
@@ -358,8 +363,8 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
   // Return the status of the shared memory buffer
   // False if TensorView is not shared memory buffer
   bool isModifiedSharedMemory(
-      std::unordered_map<kir::Val*, bool>& smem,
-      std::vector<kir::Val*> keys) const {
+      const std::unordered_map<kir::Val*, bool>& smem,
+      const std::vector<kir::Val*>& keys) const {
     return std::any_of(keys.begin(), keys.end(), [&smem](kir::Val* key) {
       auto it = smem.find(key);
       if (it != smem.end()) {
@@ -370,7 +375,7 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
   }
 
   ReadAfterWriteSyncs(std::vector<kir::Expr*> _loop_nests)
-      : loop_nests_(_loop_nests) {
+      : loop_nests_(std::move(_loop_nests)) {
     // Fusion shared_memory values
     // Tracks if shared memory is modified
     std::unordered_map<kir::Val*, bool> smem;
@@ -389,7 +394,7 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
         TORCH_INTERNAL_ASSERT(
             prev_tv_expr != nullptr,
             "Can't require sync on inputs, however, detected it's needed.");
-        sync_after.push_back(prev_tv_expr);
+        sync_after_.push_back(prev_tv_expr);
         cleanSharedMemory(smem);
       }
 
@@ -411,18 +416,22 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
     }
 
     TORCH_INTERNAL_ASSERT(
-        sync_after.empty(), "Didn't place all required syncs.");
+        sync_after_.empty(), "Didn't place all required syncs.");
   }
 
  private:
-  std::deque<kir::Expr*> sync_after;
+  //! Keep track of expressions that must be followed by syncthreads
+  std::deque<kir::Expr*> sync_after_;
 
-  std::vector<kir::ForLoop*> for_loops;
+  //! Keep track of for loops while inserting syncthreads
+  std::vector<kir::ForLoop*> for_loops_;
 
+  //! Loop-nests where syncthreads are inserted
   std::vector<kir::Expr*> loop_nests_;
 
  public:
-  static std::vector<kir::Expr*> insert(std::vector<kir::Expr*> loop_nests) {
+  static std::vector<kir::Expr*> insert(
+      const std::vector<kir::Expr*>& loop_nests) {
     ReadAfterWriteSyncs inserter(loop_nests);
     return inserter.loop_nests_;
   }
@@ -430,15 +439,15 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
 
 } // namespace
 
-std::vector<kir::Expr*> insertRAWThreadSynchronization(
-    std::vector<kir::Expr*> exprs) {
-  FUSER_PERF_SCOPE("insertRAWThreadSynchronization");
+std::vector<kir::Expr*> insertRawThreadSynchronization(
+    const std::vector<kir::Expr*>& exprs) {
+  FUSER_PERF_SCOPE("insertRawThreadSynchronization");
   return ReadAfterWriteSyncs::insert(exprs);
 }
 
-std::vector<kir::Expr*> insertWARThreadSynchronization(
+std::vector<kir::Expr*> insertWarThreadSynchronization(
     const std::vector<kir::Expr*>& exprs) {
-  FUSER_PERF_SCOPE("insertWARThreadSynchronization");
+  FUSER_PERF_SCOPE("insertWarThreadSynchronization");
   LocalSyncInserter::insertSyncs(exprs);
   return exprs;
 }

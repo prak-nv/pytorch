@@ -16,7 +16,7 @@ namespace cuda {
 
 namespace {
 
-class AllocationInserter : public kir::IrVisitor {
+class AllocationInserter : public kir::MutableIrVisitor {
  private:
   struct AllocationInformation {
     // The for loop that the allocation must be placed in, nullptr if not within
