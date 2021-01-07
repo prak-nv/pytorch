@@ -1,5 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
-
+#include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 
@@ -307,6 +307,7 @@ void mergeGroupsIntoSortedList(
 // sorted, but that is not sufficient as tensors computed at
 // outer loops need to be located earlier.
 std::vector<Expr*> reorderExprsForComputeAt(const std::vector<Expr*>& exprs) {
+  FUSER_PERF_SCOPE("reorderExprsForComputeAt");
   ExprList reordered_exprs;
 
   // expr -> target
