@@ -9,6 +9,7 @@ namespace fuser {
 namespace cuda {
 namespace {
 
+//! Returns an output tensor of an expression if found.
 TensorView* findOutputTensor(Expr* expr) {
   TORCH_INTERNAL_ASSERT(
       expr->outputs().size() <= 1, "Unexpected number of outputs");
@@ -22,6 +23,9 @@ TensorView* findOutputTensor(Expr* expr) {
   return out->as<TensorView>();
 }
 
+//! Finds the tensor that governs the loop-nest where an Expr should
+//! be placed. Also, gives a score to the expression for the ordering
+//! among the expressions in the same loop-nest.
 void findTargetTensor(Expr* expr, TensorView*& target, unsigned& score) {
   TORCH_INTERNAL_ASSERT(expr->outputs().size() <= 1);
 
@@ -55,18 +59,18 @@ void findTargetTensor(Expr* expr, TensorView*& target, unsigned& score) {
 }
 
 // Type definitions for brevity
-using ExprListT = std::vector<Expr*>;
-using TargetGroupMapT = std::unordered_map<TensorView*, ExprListT>;
-using ExprTargetMapT = std::unordered_map<Expr*, TensorView*>;
-using ScoreT = unsigned;
-using ExprScoreMapT = std::unordered_map<const Expr*, ScoreT>;
+using ExprList = std::vector<Expr*>;
+using TargetGroupMap = std::unordered_map<TensorView*, ExprList>;
+using ExprTargetMap = std::unordered_map<Expr*, TensorView*>;
+using Score = unsigned;
+using ExprScoreMap = std::unordered_map<const Expr*, Score>;
 
 void sanityCheck(
-    const ExprListT& exprs,
-    const ExprListT& reordered_exprs,
-    const ExprScoreMapT& scores,
-    const ExprTargetMapT& target_map,
-    const TargetGroupMapT& computed_at_exprs) {
+    const ExprList& exprs,
+    const ExprList& reordered_exprs,
+    const ExprScoreMap& scores,
+    const ExprTargetMap& target_map,
+    const TargetGroupMap& computed_at_exprs) {
   const auto num_exprs = exprs.size();
   TORCH_INTERNAL_ASSERT(scores.size() == num_exprs);
   TORCH_INTERNAL_ASSERT(
@@ -75,7 +79,7 @@ void sanityCheck(
       computed_at_exprs.begin(),
       computed_at_exprs.end(),
       0,
-      [](int acc, const std::pair<TensorView*, ExprListT>& p) {
+      [](int acc, const std::pair<TensorView*, ExprList>& p) {
         return acc + p.second.size();
       });
   TORCH_INTERNAL_ASSERT(num_computed_exprs == (int)target_map.size());
@@ -86,12 +90,12 @@ void sanityCheck(
 // where each expression is computed at.
 void groupExpressions(
     Expr* expr,
-    ExprListT& reordered_exprs,
-    ExprTargetMapT& target_map,
-    TargetGroupMapT& computed_at_exprs,
-    ExprScoreMapT& scores) {
+    ExprList& reordered_exprs,
+    ExprTargetMap& target_map,
+    TargetGroupMap& computed_at_exprs,
+    ExprScoreMap& scores) {
   TensorView* target_tensor = nullptr;
-  ScoreT score = 0;
+  Score score = 0;
   findTargetTensor(expr, target_tensor, score);
   scores.emplace(expr, score);
   if (target_tensor == nullptr) {
@@ -99,7 +103,7 @@ void groupExpressions(
   } else {
     target_map.emplace(expr, target_tensor);
     if (computed_at_exprs.find(target_tensor) == computed_at_exprs.end()) {
-      computed_at_exprs.emplace(target_tensor, TargetGroupMapT::mapped_type());
+      computed_at_exprs.emplace(target_tensor, TargetGroupMap::mapped_type());
     }
     auto& exprs = computed_at_exprs[target_tensor];
     exprs.push_back(expr);
@@ -107,7 +111,7 @@ void groupExpressions(
 }
 
 // Sort each loop-nest group based on axis (i.e., score)
-void sortGroup(ExprListT& exprs, ExprScoreMapT& scores) {
+void sortGroup(ExprList& exprs, ExprScoreMap& scores) {
   std::stable_sort(
       exprs.begin(),
       exprs.end(),
@@ -174,8 +178,8 @@ std::unordered_map<const Expr*, std::vector<const TensorView*>> findExprTvInputs
 // Reorder expressions that are computed at the same position in a
 // breadth-first order.
 void reorderSegmentBreadthFirst(
-    ExprListT::iterator seg_begin,
-    ExprListT::const_iterator seg_end) {
+    ExprList::iterator seg_begin,
+    ExprList::const_iterator seg_end) {
   // mapping of each expression to a bool flag indicating if it's
   // already been visited
   std::unordered_map<const Expr*, bool> expr_status;
@@ -220,10 +224,10 @@ void reorderSegmentBreadthFirst(
 // is done within a subset of expressions that have the same score
 // (i.e., computeAt position). For each subset,
 // reorderSegmentBreadthFirst is called.
-void reorderGroupBreadthFirst(ExprListT& exprs, const ExprScoreMapT& scores) {
+void reorderGroupBreadthFirst(ExprList& exprs, const ExprScoreMap& scores) {
   auto seg_begin = exprs.begin();
   auto seg_end = exprs.begin();
-  ScoreT seg_score = scores.at(*seg_begin);
+  Score seg_score = scores.at(*seg_begin);
   while (seg_end != exprs.end()) {
     const auto expr = *seg_end;
     const auto cur_score = scores.at(expr);
@@ -247,8 +251,8 @@ void reorderGroupBreadthFirst(ExprListT& exprs, const ExprScoreMapT& scores) {
 }
 
 void mergeNonRootGroupsIntoRootGroups(
-    TargetGroupMapT& computed_at_exprs,
-    ExprTargetMapT& target_map) {
+    TargetGroupMap& computed_at_exprs,
+    ExprTargetMap& target_map) {
   for (auto it = computed_at_exprs.begin(); it != computed_at_exprs.end();) {
     TensorView* target = it->first;
     if (target->hasComputeAt()) {
@@ -273,8 +277,8 @@ void mergeNonRootGroupsIntoRootGroups(
 
 // Merge root loop-nests into reordered_exprs
 void mergeGroupsIntoSortedList(
-    TargetGroupMapT& computed_at_exprs,
-    ExprListT& reordered_exprs) {
+    TargetGroupMap& computed_at_exprs,
+    ExprList& reordered_exprs) {
   while (computed_at_exprs.size() > 0) {
     // Find the root loop-nest that has no dependency with the other
     // loop-nests
@@ -303,19 +307,19 @@ void mergeGroupsIntoSortedList(
 // sorted, but that is not sufficient as tensors computed at
 // outer loops need to be located earlier.
 std::vector<Expr*> reorderExprsForComputeAt(const std::vector<Expr*>& exprs) {
-  ExprListT reordered_exprs;
+  ExprList reordered_exprs;
 
   // expr -> target
-  ExprTargetMapT target_map;
+  ExprTargetMap target_map;
 
   // target -> [computed at expressions]
-  TargetGroupMapT computed_at_exprs;
+  TargetGroupMap computed_at_exprs;
 
   // score of each expression that is calculated based on the
   // computeAt axis. A lower score of an expression means it should be
   // placed earlier in the expression list. This is a requirement for
   // the loop-nest generation of this class to work.
-  ExprScoreMapT scores;
+  ExprScoreMap scores;
 
   // 1. Group expressions by target tensors. Non-grouped expressions
   // are copied into reordered_exprs.

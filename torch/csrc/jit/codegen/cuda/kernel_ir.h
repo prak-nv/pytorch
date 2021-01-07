@@ -147,7 +147,7 @@ class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
 class TORCH_CUDA_API MutableIrVisitor : public PolymorphicBase {
  public:
   // TODO(kir): use Node* instead of void*
-  virtual void unhandled(const void* node) {}
+  virtual void unhandled(const void*) {}
 
   // Values
   virtual void visit(NamedScalar* named_scalar) {
