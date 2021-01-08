@@ -424,13 +424,9 @@ void LoopNestGenerator::handle(const Expr* expr) {
 
   kir::Expr* alloc_expr = nullptr;
 
-  auto o = expr->outputs()[0];
-  if (o->isA<TensorView>()) {
-    auto o_tv = o->as<TensorView>();
-    // Place the allocation for out
-    if (!fusion_->hasInput(o_tv) && !fusion_->hasOutput(o_tv)) {
-      alloc_expr = pushAlloc(o_tv);
-    }
+  // Place the allocation for out
+  if (!fusion_->hasInput(out) && !fusion_->hasOutput(out)) {
+    alloc_expr = pushAlloc(out);
   }
 
   //  If this is a reduction, initialize the output (open for loops to inner
@@ -446,16 +442,22 @@ void LoopNestGenerator::handle(const Expr* expr) {
       const auto out_avg = welford->outAvg()->as<TensorView>();
       const auto out_N = welford->outN()->as<TensorView>();
 
-      // Welford Params
-      kir::Expr* alloc_var = nullptr;
-      kir::Expr* alloc_avg = nullptr;
-      kir::Expr* alloc_N = nullptr;
+      auto alloc_welford_output =
+          [out, alloc_expr, this](TensorView* tv) -> kir::Expr* {
+        if (tv->sameAs(out)) {
+          return alloc_expr;
+        }
+        if (!fusion_->hasOutput(tv)) {
+          return pushAlloc(tv);
+        }
+        return nullptr;
+      };
 
-      if (!fusion_->hasOutput(out_var)) {
-        alloc_var = pushAlloc(out_var);
-        alloc_avg = alloc_expr; // already allocated once as op->out()
-        alloc_N = pushAlloc(out_N);
-      }
+      // Welford Outputs
+      kir::Expr* alloc_var = alloc_welford_output(out_var);
+      kir::Expr* alloc_avg = alloc_welford_output(out_avg);
+      kir::Expr* alloc_N = alloc_welford_output(out_N);
+
       const auto init_var =
           welford->initVar() ? welford->initVar() : new Double(0);
       const auto init_avg =
