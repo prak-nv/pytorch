@@ -447,16 +447,16 @@ void LoopNestGenerator::handle(const Expr* expr) {
         if (tv->sameAs(out)) {
           return alloc_expr;
         }
-        if (!fusion_->hasOutput(tv)) {
+        if (!fusion_->hasOutput(tv) && !fusion_->hasInput(tv)) {
           return pushAlloc(tv);
         }
         return nullptr;
       };
 
       // Welford Outputs
-      kir::Expr* alloc_var = alloc_welford_output(out_var);
-      kir::Expr* alloc_avg = alloc_welford_output(out_avg);
-      kir::Expr* alloc_N = alloc_welford_output(out_N);
+      const auto alloc_var = alloc_welford_output(out_var);
+      const auto alloc_avg = alloc_welford_output(out_avg);
+      const auto alloc_N = alloc_welford_output(out_N);
 
       const auto init_var =
           welford->initVar() ? welford->initVar() : new Double(0);
