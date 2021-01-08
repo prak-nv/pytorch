@@ -120,9 +120,12 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
 
     // Update parallel type map
     if (id0->isParallelized() && id1->isParallelized()) {
+      // Both are parallelized, make sure they're the same, set entry for
+      // parallel map
       TORCH_INTERNAL_ASSERT(id0->getParallelType() == id1->getParallelType());
       parallel_type_map_[new_set] = id0->getParallelType();
     } else if (id0->isParallelized() || id1->isParallelized()) {
+      // Only one is parallelized, set entry for parallel map
       parallel_type_map_[new_set] = id0->isParallelized()
           ? id0->getParallelType()
           : id1->getParallelType();
@@ -146,15 +149,19 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
       disjoint_iter_set_maps_[id] = set0_ptr;
     }
 
-    // If both sets had a parallel type associated with them, make sure they
-    // are the same
     auto parallel_type_0_it = parallel_type_map_.find(set0_ptr);
     auto parallel_type_1_it = parallel_type_map_.find(set1_ptr);
     if (parallel_type_0_it != parallel_type_map_.end() &&
         parallel_type_1_it != parallel_type_map_.end()) {
+      // If both sets had a parallel type associated with them, make sure they
+      // are the same
       TORCH_INTERNAL_ASSERT(
           parallel_type_0_it->second == parallel_type_1_it->second);
-    }
+    } else if (parallel_type_1_it != parallel_type_map_.end()) {
+      // Set 1 has a parallel type, set 0 does not, set parallel entry
+      parallel_type_map_[set0_ptr] = parallel_type_1_it->second;
+    } // Else set 0 already has the right parallel type set in the map, if at
+      // all
 
     // Remove set1 from the parallel type map as it shouldn't exist anymore
     parallel_type_map_.erase(set1_ptr);
@@ -168,14 +175,14 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
     auto parallel_type_0_it = parallel_type_map_.find(set0);
     if (parallel_type_0_it != parallel_type_map_.end() &&
         id1->isParallelized()) {
-      // If set0 had a parallel type and id1 has a parallel type make surue they
-      // match
+      // set0 has a parallel type already and id1 has a parallel type, make sure
+      // they match. No need to update map
       TORCH_INTERNAL_ASSERT(
           parallel_type_0_it->second == id1->getParallelType());
     } else if (
         parallel_type_0_it == parallel_type_map_.end() &&
         id1->isParallelized()) {
-      // Set parallel type of set0 as the newly added id1 if id1 is parallel
+      // Set parallel type of set0 as the newly added id1 is parallel
       parallel_type_map_[set0] = id1->getParallelType();
     }
 
@@ -188,14 +195,15 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
     auto parallel_type_1_it = parallel_type_map_.find(set1);
     if (parallel_type_1_it != parallel_type_map_.end() &&
         id0->isParallelized()) {
-      // If set1 had a parallel type and id0 has a parallel type make surue they
-      // match
+      // Set1 already has a parallel type and id0 has a parallel type make sure
+      // they match
       TORCH_INTERNAL_ASSERT(
           parallel_type_1_it->second == id0->getParallelType());
     } else if (
         parallel_type_1_it == parallel_type_map_.end() &&
         id0->isParallelized()) {
-      // Set parallel type of set1 as the newly added id1 if id1 is parallel
+      // Set1 doesn't have a parallel type but the newly added id0 has a
+      // parallel type
       parallel_type_map_[set1] = id0->getParallelType();
     }
   }

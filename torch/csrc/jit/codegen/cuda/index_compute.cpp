@@ -1419,6 +1419,7 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
 
   // Map reference tensor to consumer
   std::unordered_map<IterDomain*, IterDomain*> root_ref_to_index_tv;
+
   // Root of reference tensor is already all concrete ids, so for replay which
   // generates map we can simply map to concrete ids
   for (auto index_root : consumer_tv->getRootDomain()) {
@@ -1620,8 +1621,9 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
           root_dom[i]);
 
       auto root_ind_j = index_map.at(kir_root_dom_j);
-      auto root_ext_j = extent_map.find(kir_root_dom_j) == extent_map.end() ?
-      kir_root_dom_j->extent() : extent_map.at(kir_root_dom_j);
+      auto root_ext_j = extent_map.find(kir_root_dom_j) == extent_map.end()
+          ? kir_root_dom_j->extent()
+          : extent_map.at(kir_root_dom_j);
       if (!root_ind_j->isZeroInt()) {
         if (stride == nullptr) {
           stride = root_ext_j;
@@ -1703,8 +1705,9 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
-  // grab all tensor views from producer_tv <- computeAtRoot
-  auto tv_stack = getComputeAtTVStackFrom(consumer_tv->fuserTv());
+  // Get a reference tensor replayed as existing loop structure
+  auto reference_domain =
+      TestReplay::getReference(loops, GpuLower::current()->caMaps());
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map;
 
@@ -1730,13 +1733,44 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     }
   }
 
-  auto index_map = generateIndexAndExtentMap(
-                       tv_stack,
-                       std::deque<kir::ForLoop*>(loops.begin(), loops.end()),
-                       loop_to_ind_map,
-                       root_contiguity,
-                       ca_root_map)
-                       .first;
+  std::unordered_map<kir::IterDomain*, kir::Val*> ref_id_to_ind_map;
+  TORCH_INTERNAL_ASSERT(loops.size() == reference_domain->nDims());
+  for (size_t loop_i; loop_i < loops.size(); loop_i++) {
+    auto ref_axis = gpu_lower->lowerValue(reference_domain->axis(loop_i))
+                        ->as<kir::IterDomain>();
+    ref_id_to_ind_map[ref_axis] = loop_to_ind_map[loops[loop_i]];
+  }
+
+  // Index into the reference tensor
+  auto ref_compute = getReferenceIndexing(
+      loops,
+      GpuLower::current()->caMaps(),
+      reference_domain,
+      ref_id_to_ind_map,
+      {});
+
+  // Map reference tensor to consumer
+  std::unordered_map<IterDomain*, IterDomain*> root_ref_to_index_tv;
+
+  // Root of reference tensor is already all concrete ids, so for replay which
+  // generates map we can simply map to concrete ids
+  for (auto index_root : consumer_tv->fuserTv()->getRootDomain()) {
+    auto concrete_root =
+        GpuLower::current()->caMaps().getConcreteMappedID(index_root);
+    root_ref_to_index_tv.emplace(std::make_pair(concrete_root, index_root));
+  }
+
+  BestEffortReplay replay_out_as_ref(
+      consumer_tv->fuserTv()->domain()->domain(),
+      reference_domain->domain(),
+      root_ref_to_index_tv,
+      true);
+
+  auto ref_2_out = replay_out_as_ref.getReplay();
+
+  // Index into consumer using reference indexing
+  auto consumer_indexing = ref_compute.updateIndexCompute(
+      consumer_tv->fuserTv()->domain(), ref_2_out, {}, root_contiguity);
 
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
@@ -1748,8 +1782,9 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     auto rfactor_dom = consumer_tv->domain()->rfactorDomain();
     for (auto rfactor_id : rfactor_dom) {
       if (rfactor_id->isReduction()) {
-        if (index_map.find(rfactor_id) != index_map.end()) {
-          if (!index_map.at(rfactor_id)->isZeroInt()) {
+        if (consumer_indexing.indexMap().find(rfactor_id) !=
+            consumer_indexing.indexMap().end()) {
+          if (!consumer_indexing.indexMap().at(rfactor_id)->isZeroInt()) {
             use_rfactor = false;
             break;
           }
@@ -1770,8 +1805,8 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     if (root_domain[i]->isBroadcast()) {
       continue;
     }
-    const auto it = index_map.find(root_domain[i]);
-    if (it != index_map.end()) {
+    const auto it = consumer_indexing.indexMap().find(root_domain[i]);
+    if (it != consumer_indexing.indexMap().end()) {
       root_inds[i] = it->second;
     }
   }

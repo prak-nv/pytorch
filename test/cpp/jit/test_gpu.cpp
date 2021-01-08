@@ -3985,9 +3985,6 @@ TEST(NVFuserTest, FusionSimpleBCast1_CUDA) {
 
   std::vector<IValue> aten_inputs = {t0, t2, t3};
 
-  fusion.printMath();
-  fusion.printKernel();
-
   FusionExecutor fe;
   fe.compileFusion(&fusion);
   auto cg_outputs = fe.runFusion(aten_inputs);
