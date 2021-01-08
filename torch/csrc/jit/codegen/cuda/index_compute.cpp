@@ -1045,6 +1045,8 @@ generateIndexAndExtentMap(
 
   // PROPAGATE CONSUMER -> PRODUCER START
 
+  const auto originating_tv = c2p_tv_stack.back();
+
   // Setup initial IndexCompute:
   tv = c2p_tv_stack.front();
   c2p_tv_stack.pop_front();
@@ -1099,7 +1101,7 @@ generateIndexAndExtentMap(
   std::unordered_map<kir::IterDomain*, kir::Val*> index_map;
   if (swizzle_indices) {
     IndexSwizzle index_swizzle(
-        c2p_tv_stack.back(),
+        originating_tv,
         index_compute.indexMap(),
         index_compute.extentMap(),
         index_compute.zeroMergedIn());
