@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
@@ -134,6 +135,14 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
   // merged after we've done this, we may need to stop as we could have multiple
   // disjoint groups that won't be merged.
   bool interIterUpdate() override {
+    // for(auto& group : groups){
+    //   std::cout<<"==============="<<std::endl;
+    //   for(auto expr : group->exprs_){
+    //     std::cout<<expr<<std::endl;
+    //   }
+    // }
+    // std::cout<<"==============="<<std::endl;
+
     // Go through groups and lower compute at domain
     bool lowered_ca_domain = false;
     for (auto& unique_group : groups) {
@@ -148,19 +157,22 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
 
       bool matching_neighbor = false;
       for (auto neighbor : group->getNeighbors()) {
-        IterDomain* p_last_id = nullptr;
-        if (payload(neighbor)->ca_domains.size() > 0) {
-          p_last_id = payload(neighbor)->ca_domains.back();
+        if (matching_neighbor) {
+          break;
         }
-        if (p_last_id == nullptr) {
-          continue;
-        }
-        if (ca_maps_.areMapped(p_last_id, g_last_id)) {
-          matching_neighbor = true;
+        for (auto p_id : payload(neighbor)->ca_domains) {
+          if (ca_maps_.areMapped(p_id, g_last_id)) {
+            matching_neighbor = true;
+            break;
+          }
         }
       }
 
       if (!matching_neighbor) {
+        // std::cout<<"Lowering group: ";
+        // for(auto expr : unique_group->exprs_){
+        //   std::cout<<"T"<<expr->outputs()[0]->name()<<", ";
+        // }std::cout<<std::endl;
         payload(group)->ca_domains.pop_back();
         lowered_ca_domain = true;
       }
@@ -204,8 +216,8 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
   const ComputeAtMap& ca_maps_;
 };
 
-std::vector<Expr*> reorderExprsTest(const ComputeAtMap& ca_map) {
-  ExprSortingWithCA sorter(ca_map);
+std::vector<Expr*> reorderExprsTest() {
+  ExprSortingWithCA sorter(GpuLower::current()->caMaps());
   sorter.segment();
   auto groups = sorter.getGroups();
   TORCH_INTERNAL_ASSERT(

@@ -98,6 +98,10 @@ class IndexCompute : public BackwardVisitor {
   // IDs that are a result of contiguous merges
   std::unordered_set<kir::IterDomain*> contig_ids;
 
+  // Mentions if we should propagate an index down a particular IterDomain path
+  // if there's an option
+  std::unordered_set<kir::IterDomain*> preferred_paths_;
+
  public:
   const std::unordered_map<kir::IterDomain*, kir::Val*>& indexMap() const {
     return index_map_;
@@ -117,7 +121,8 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map,
       std::unordered_map<kir::IterDomain*, kir::Val*> _extent_map,
       std::unordered_set<kir::IterDomain*> _zero_merged_in,
-      const std::vector<bool>& _root_contiguity);
+      const std::vector<bool>& _root_contiguity,
+      std::unordered_set<kir::IterDomain*> preferred_paths = {});
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and
   // returns a new IndexCompute ready to be used. new_index_entries are not

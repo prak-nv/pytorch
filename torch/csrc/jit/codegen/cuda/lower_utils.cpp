@@ -168,6 +168,7 @@ ParallelTypeBitmap getParallelBroadcastDomains(
 
 namespace loop_utils {
 
+// TODO: Clean this up, Naoya added a mechanism we should be able to reuse.
 std::pair<kir::ForLoop*, int64_t> getAllocPoint(
     const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops) {
@@ -188,12 +189,13 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
   for (int64_t tv_i = 0; tv_i < (int64_t)tv->getThisComputeAtAxis(); tv_i++) {
     // Grab the axis ID
 
-    const auto ca_id = tv->getComputeAtAxis(tv_i).first;
-    const auto kir_ca_id = gpu_lower->lowerValue(ca_id)->as<kir::IterDomain>();
+    auto local_id =
+        gpu_lower->lowerValue(tv->axis(tv_i))->as<kir::IterDomain>();
 
     loops_it =
-        std::find_if(loops_it, loops.end(), [&kir_ca_id](const auto& loop) {
-          return kir_ca_id == loop->iter_domain() ||
+        std::find_if(loops_it, loops.end(), [&local_id](const auto& loop) {
+          return GpuLower::current()->caMaps().areMapped(
+                     local_id, loop->iter_domain()) ||
               loop->iter_domain()->parallelType() == ParallelType::Unroll;
         });
 
@@ -202,7 +204,7 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
         "Could not find all required axes for indexing when trying to index into ",
         tv);
 
-    if (kir_ca_id->parallelType() == ParallelType::Unroll) {
+    if ((*loops_it)->iter_domain()->parallelType() == ParallelType::Unroll) {
       return {alloc_loop, tv_i};
     }
 

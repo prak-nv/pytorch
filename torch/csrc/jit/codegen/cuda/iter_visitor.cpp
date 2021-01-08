@@ -577,7 +577,15 @@ void InputsOf::handle(Val* v) {
 
 std::unordered_set<Val*> InputsOf::output(Fusion* fusion, Val* output_) {
   InputsOf io;
-  io.traverseFrom(FusionGuard::getCurFusion(), {output_}, false);
+  io.traverseFrom(fusion, {output_}, false);
+  return io.inputs;
+}
+
+std::unordered_set<Val*> InputsOf::outputs(
+    Fusion* fusion,
+    std::vector<Val*> outputs_) {
+  InputsOf io;
+  io.traverseFrom(fusion, outputs_, false);
   return io.inputs;
 }
 

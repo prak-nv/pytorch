@@ -3,8 +3,8 @@
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 
+#include <deque>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace torch {
 namespace jit {
@@ -41,15 +41,11 @@ class ComputeAtMap {
     return produce_at_it->second;
   }
 
-  // Disjoint sets of iter domains, only defined if iter domain is within
-  // compute at of a tensor view. Maps these iter domains to a set containing
-  // all other iter domains in the fusion that map to the same loop nest.
-  // const std::unordered_map<
-  //     IterDomain*,
-  //     std::shared_ptr<std::unordered_set<IterDomain*>>>&
-  // disjoint_iter_sets() const {
-  //   return disjoint_iter_sets_;
-  // }
+  // Returns the position in tv->domain() that the buffer should be computed at
+  // / stored at
+  int producedAt(kir::TensorView* tv) const {
+    return producedAt(tv->fuserTv());
+  }
 
   //! Returns if id0 and id1 are mapped to eachother, meaning they represent the
   //! same loop nest in the lowered code
@@ -60,9 +56,17 @@ class ComputeAtMap {
   //! Returns an iter domain that is parallelized that the provided iter domain
   //! is mapped to. If no parallelized iter domain exists, returns provided iter
   //! domain.
-  IterDomain* getParallelizedMappedID(IterDomain* id) const;
+  ParallelType getMappedParallelType(IterDomain* id) const;
 
-  kir::IterDomain* getParallelizedMappedID(kir::IterDomain* id) const;
+  ParallelType getMappedParallelType(kir::IterDomain* id) const;
+
+  // TODO: This is terrible, but we have nice functionality in iter_visitor that
+  // isn't moved over. Use of this is limited to indexing and this should
+  // definitely be removed by building out kernel ir to have better parity with
+  // fusion ir.
+  IterDomain* toFusion(kir::IterDomain* kir) const {
+    return kir_2_fusion.at(kir);
+  }
 
   //! Returns an iter domain that is the maximum expanded size of all iter
   //! domains the one provided maps to. Useful for opening loops to the correct
@@ -72,37 +76,48 @@ class ComputeAtMap {
 
   kir::IterDomain* getConcreteMappedID(kir::IterDomain* id) const;
 
+  // Prints mapping information via Fusion IR
+  std::string toString();
+
+ private:
+  void map_ids(IterDomain* id0, IterDomain* id1);
+
  private:
   std::unordered_map<TensorView*, int> produce_at_map_;
 
-  std::unordered_map<
-      IterDomain*,
-      std::shared_ptr<std::unordered_set<IterDomain*>>>
-      disjoint_iter_sets_;
+  // Disjoint sets of iter domains, only defined if iter domain is within
+  // compute at of a tensor view. Maps these iter domains to a set containing
+  // all other iter domains in the fusion that map to the same loop nest.
+  std::unordered_map<IterDomain*, std::shared_ptr<std::deque<IterDomain*>>>
+      disjoint_iter_set_maps_;
 
   std::unordered_map<
       kir::IterDomain*,
-      std::shared_ptr<std::unordered_set<kir::IterDomain*>>>
-      kir_disjoint_iter_sets_;
+      std::shared_ptr<std::deque<kir::IterDomain*>>>
+      kir_disjoint_iter_set_maps_;
+
+  // Keep a list of disjoint_iter_sets that's deterministic to iterate over
+  std::deque<std::shared_ptr<std::deque<IterDomain*>>> disjoint_iter_sets_;
 
   // Tracks if there's a parallel iter domain associated a disjoint iter domain
   // set
   // TODO: Use shared_pointer instead of pointer to the unordered maps
-  std::unordered_map<
-      std::shared_ptr<std::unordered_set<IterDomain*>>,
-      IterDomain*>
+  std::unordered_map<std::shared_ptr<std::deque<IterDomain*>>, ParallelType>
       parallel_type_map_;
 
-  std::unordered_map<
-      std::shared_ptr<std::unordered_set<kir::IterDomain*>>,
-      kir::IterDomain*>
-      kir_parallel_type_map_;
+  std::
+      unordered_map<std::shared_ptr<std::deque<kir::IterDomain*>>, ParallelType>
+          kir_parallel_type_map_;
 
   // For each IterDomain set we will track how many concrete root domains were
   // used to generate the IterDomain
-  std::unordered_map<IterDomain*, int> n_concrete_ids_;
+  std::unordered_map<IterDomain*, IterDomain*> concrete_id_map_;
 
-  std::unordered_map<kir::IterDomain*, int> kir_n_concrete_ids_;
+  std::unordered_map<kir::IterDomain*, kir::IterDomain*> kir_concrete_id_map_;
+
+  // Map kir::IterDomain* back to the fusion IR IterDomain*.
+  // TODO: This should be removed!
+  std::unordered_map<kir::IterDomain*, IterDomain*> kir_2_fusion;
 };
 
 } // namespace cuda

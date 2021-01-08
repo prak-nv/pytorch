@@ -49,7 +49,7 @@ class AllocationInserter : public kir::IrVisitor {
     size_t tv_axis_i = 0;
     size_t for_loop_i = 0;
 
-    while (tv_axis_i < fuser_tv->getThisComputeAtAxis() &&
+    while (tv_axis_i < ca_maps_.producedAt(fuser_tv) &&
            for_loop_i < for_loops.size()) {
       auto fl_id = for_loops[for_loop_i]->iter_domain();
 
@@ -57,11 +57,10 @@ class AllocationInserter : public kir::IrVisitor {
         break;
       }
 
-      auto ca_id =
-          gpu_lower->lowerValue(fuser_tv->getComputeAtAxis(tv_axis_i).first)
-              ->as<kir::IterDomain>();
+      auto local_id = gpu_lower->lowerValue(fuser_tv->axis(tv_axis_i))
+                          ->as<kir::IterDomain>();
 
-      if (ca_id == fl_id) {
+      if (ca_maps_.areMapped(local_id, fl_id)) {
         tv_axis_i++;
       }
 
@@ -77,12 +76,10 @@ class AllocationInserter : public kir::IrVisitor {
 
       auto local_id =
           gpu_lower->lowerValue(fuser_tv->axis(axis_i))->as<kir::IterDomain>();
-      auto ca_id =
-          gpu_lower->lowerValue(fuser_tv->getComputeAtAxis(axis_i).first)
-              ->as<kir::IterDomain>();
-      bool is_block_dim = isParallelTypeBlockDim(ca_id->parallelType());
-      bool is_thread_dim = isParallelTypeThreadDim(ca_id->parallelType());
-      bool is_thread = isParallelTypeThread(ca_id->parallelType());
+      auto parallel_type = ca_maps_.getMappedParallelType(local_id);
+      bool is_block_dim = isParallelTypeBlockDim(parallel_type);
+      bool is_thread_dim = isParallelTypeThreadDim(parallel_type);
+      bool is_thread = isParallelTypeThread(parallel_type);
       if (
           // If we're reducing this dimension, don't use it in the allocation
           // computation
@@ -114,7 +111,7 @@ class AllocationInserter : public kir::IrVisitor {
           continue;
         }
       }
-      alloc_dims.push_back(ca_id->rawExtent());
+      alloc_dims.push_back(ca_maps_.getConcreteMappedID(local_id)->rawExtent());
     }
 
     // Setup initialization if necessary
@@ -124,10 +121,11 @@ class AllocationInserter : public kir::IrVisitor {
         if (info.buffer->fuserTv()->axis(axis_i)->isReduction()) {
           continue;
         }
-        auto ca_id =
-            gpu_lower->lowerValue(fuser_tv->getComputeAtAxis(axis_i).first)
-                ->as<kir::IterDomain>();
-        init_dims.push_back(ca_id);
+        auto concrete_id = gpu_lower
+                               ->lowerValue(ca_maps_.getConcreteMappedID(
+                                   fuser_tv->axis(axis_i)))
+                               ->as<kir::IterDomain>();
+        init_dims.push_back(concrete_id);
       }
       kir::Expr* init_expr = ir_builder.create<kir::UnaryOp>(
           UnaryOpType::Set, info.buffer, init_val);
@@ -213,8 +211,8 @@ class AllocationInserter : public kir::IrVisitor {
       // TODO: This may be a common operation, could be worth making a utility
       // out of or saving state for tensor view ID -> for loop
       // TODO: Explicitly test the 3 cases below
-
-      if (out_tv->fuserTv()->getThisComputeAtAxis() == 0) {
+      int produced_at = ca_maps_.producedAt(out_tv->fuserTv());
+      if (produced_at == 0) {
         // Allocate at "global" scope
         allocation.for_loop = nullptr;
         // Allocate before all loops if they exist.
@@ -223,17 +221,14 @@ class AllocationInserter : public kir::IrVisitor {
         // Find the last loop in computeAt of out_tv, this is the loop where we
         // would place an allocation for out_tv
         auto fuser_tv = out_tv->fuserTv();
-        auto ca_id =
-            fuser_tv->getComputeAtAxis(fuser_tv->getThisComputeAtAxis() - 1)
-                .first;
-        auto lowered_ca_id =
-            gpu_lower->lowerValue(ca_id)->as<kir::IterDomain>();
+        auto lowered_local_id =
+            gpu_lower->lowerValue(fuser_tv->axis(produced_at - 1))
+                ->as<kir::IterDomain>();
 
         auto loops_it = std::find_if(
-            for_loops.begin(),
-            for_loops.end(),
-            [&lowered_ca_id](const auto& loop) {
-              return lowered_ca_id == loop->iter_domain() ||
+            for_loops.begin(), for_loops.end(), [&](const auto& loop) {
+              return this->ca_maps_.areMapped(
+                         loop->iter_domain(), lowered_local_id) ||
                   loop->iter_domain()->parallelType() == ParallelType::Unroll;
             });
         TORCH_INTERNAL_ASSERT(loops_it != for_loops.end());
@@ -277,7 +272,8 @@ class AllocationInserter : public kir::IrVisitor {
   AllocationInserter(std::vector<kir::Expr*> _loop_nests)
       : loop_nests_(_loop_nests),
         gpu_lower(GpuLower::current()),
-        ir_builder(gpu_lower->kernel()) {
+        ir_builder(gpu_lower->kernel()),
+        ca_maps_(GpuLower::current()->caMaps()) {
     // Compute all allocations
     const std::vector<kir::Expr*> exprs = loop_nests_;
     for (auto expr : exprs) {
@@ -344,6 +340,8 @@ class AllocationInserter : public kir::IrVisitor {
   GpuLower* gpu_lower;
 
   kir::IrBuilder ir_builder;
+
+  const ComputeAtMap& ca_maps_;
 
  public:
   static std::vector<kir::Expr*> insert(std::vector<kir::Expr*> loop_nests) {

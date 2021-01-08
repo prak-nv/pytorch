@@ -3958,6 +3958,11 @@ TEST(NVFuserTest, FusionSimpleBCast1_CUDA) {
   tv0->computeAt(tv7, -1);
   tv2->computeAt(tv7, -1);
 
+  std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3, tv4, tv5, tv6, tv7};
+  for (auto tv : tvs) {
+    // tv->setMemoryType(MemoryType::Global);
+  }
+
   tv7->axis(0)->parallelize(ParallelType::BIDx);
   tv7->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -3979,6 +3984,9 @@ TEST(NVFuserTest, FusionSimpleBCast1_CUDA) {
   at::Tensor aten_output = t5.add(t6);
 
   std::vector<IValue> aten_inputs = {t0, t2, t3};
+
+  fusion.printMath();
+  fusion.printKernel();
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -4129,9 +4137,11 @@ TEST(NVFuserTest, FusionSimpleBCast4_CUDA) {
   tv0->computeAt(tv3, -1);
   tv1->computeAt(tv3, -1);
 
-  tv3->axis(0)->parallelize(ParallelType::BIDx);
-  tv3->axis(-1)->parallelize(ParallelType::TIDx);
-  tv3->axis(-2)->parallelize(ParallelType::Unroll);
+  fusion.printKernel();
+
+  // tv3->axis(0)->parallelize(ParallelType::BIDx);
+  // tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  // tv3->axis(-2)->parallelize(ParallelType::Unroll);
 
   constexpr int x = 63, y = 33, z = 15;
 
@@ -4146,12 +4156,12 @@ TEST(NVFuserTest, FusionSimpleBCast4_CUDA) {
 
   std::vector<IValue> aten_inputs = {t0, t1};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  fe.runFusion(aten_inputs, {cg_output});
+  // FusionExecutor fe;
+  // fe.compileFusion(&fusion);
+  // fe.runFusion(aten_inputs, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  // testValidate(
+  //     &fusion, {cg_output}, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
 TEST(NVFuserTest, FusionSimpleBCast5_CUDA) {
@@ -4651,7 +4661,7 @@ TEST(NVFuserTest, FusionAdvancedIndexing8_CUDA) {
   fusion.printKernel();
 
   TORCH_INTERNAL_ASSERT(false, "Enable test");
-  
+
   // FusionExecutor fe;
   // fe.compileFusion(&fusion);
 

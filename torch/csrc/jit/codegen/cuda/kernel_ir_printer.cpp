@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
+#include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/type.h>
 
 #include <utility>
@@ -209,7 +210,8 @@ void IrPrinter::visit(const kir::TensorDomain*) {
 
 void IrPrinter::visit(const kir::TensorView* node) {
   // TODO(kir): print memory type too?
-  ir_str_ << varName(node, "T");
+  // ir_str_ << varName(node, "T");
+  ir_str_ << node->fuserTv();
 }
 
 void IrPrinter::visit(const kir::UnaryOp* node) {

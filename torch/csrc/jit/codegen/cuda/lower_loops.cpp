@@ -4,6 +4,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
@@ -226,6 +227,16 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   }
 }
 // ======================================================
+
+std::vector<kir::Expr*> LoopNestGenerator2::loweredExprs(
+    const std::vector<Expr*>& exprs) {
+  FUSER_PERF_SCOPE("LoopNestGenerator2::loweredExprs");
+  TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
+  LoopNestGenerator2 generator(
+      FusionGuard::getCurFusion(), exprs, GpuLower::current()->caMaps());
+  return generator.lowered_exprs_;
+}
+
 LoopNestGenerator2::LoopNestGenerator2(
     Fusion* fusion,
     const std::vector<Expr*>& exprs,
@@ -314,25 +325,28 @@ void LoopNestGenerator2::handle(const Expr* expr) {
 
   // Figure out what the entire loop structure should look like.
   std::deque<IterDomain*> loop_structure;
-  // Look at each axis individually in out's domain
+  // Look at each axis individually in out's domain, first only setup loop
+  // structure within computeAt
   for (int64_t out_i = 0; out_i < (int64_t)ca_maps_.producedAt(out_tv);
        out_i++) {
     auto concrete_id = ca_maps_.getConcreteMappedID(out_tv->axis(out_i));
-    auto parallel_id = ca_maps_.getParallelizedMappedID(out_tv->axis(out_i));
-    concrete_id->parallelize(parallel_id->getParallelType());
     loop_structure.push_back(concrete_id);
   }
 
-  for (int64_t out_i = (int64_t)ca_maps_.producedAt(out_tv);
-       out_i < out_tv->nDims();
-       out_i++) {
-    loop_structure.push_back(out_tv->axis(out_i));
-  }
+  // std::cout<<"For: "<<out_tv<<" loop structure should be:\n  ";
+  // for(auto id : loop_structure){
+  //   std::cout<<id<<", ";
+  // }
+  // std::cout<<"it is:\n  "<<std::endl;
+  // for(auto fl : for_loops_){
+  //   std::cout<<toString(fl->iter_domain(), false)<<", ";
+  // }std::cout<<std::endl;
 
   auto out_id_it = loop_structure.begin();
   auto for_loop_it = for_loops_.begin();
   auto last_for_loop_matched = for_loops_.begin();
 
+  // Tee up the loop structure
   while (out_id_it != loop_structure.end() && for_loop_it != for_loops_.end()) {
     auto lowered_out_id =
         gpu_lower->lowerValue(*out_id_it)->as<kir::IterDomain>();
@@ -344,8 +358,23 @@ void LoopNestGenerator2::handle(const Expr* expr) {
     }
   }
 
+  // Save position of out_id_it as we willi append to loop structure
+  // invalidating it
+  size_t out_id_i = std::distance(loop_structure.begin(), out_id_it);
+
+  // Append axes outside the computeAt to the loop structure
+  for (int64_t out_i = (int64_t)ca_maps_.producedAt(out_tv);
+       out_i < out_tv->nDims();
+       out_i++) {
+    loop_structure.push_back(out_tv->axis(out_i));
+  }
+
+  // Reset out_id_it
+  out_id_it = loop_structure.begin() + out_id_i;
+
   auto n_loops_to_close =
       std::distance(last_for_loop_matched, for_loops_.end());
+
   for (size_t i = 0; i < n_loops_to_close; i++) {
     closeFor();
   }

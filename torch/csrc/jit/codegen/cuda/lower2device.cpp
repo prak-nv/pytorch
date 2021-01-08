@@ -6,7 +6,6 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
 #include <torch/csrc/jit/codegen/cuda/lower_allocation.h>
-#include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
 #include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/lower_index.h>
 #include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
@@ -15,6 +14,8 @@
 #include <torch/csrc/jit/codegen/cuda/lower_unroll.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/lower_validation.h>
+
+#include <torch/csrc/jit/codegen/cuda/test_index_compute.h>
 
 namespace torch {
 namespace jit {
@@ -111,10 +112,11 @@ void GpuLower::lower() {
   ThreadPredicateMap preds(fusion_);
 
   // Compute root-domain mappings
-  ComputeAtRootDomainMap ca_root_map;
+  ca_root_map = ComputeAtRootDomainMap();
   ca_root_map.build();
 
-  ComputeAtMap ca_maps;
+  // Compute at domain mappings
+  ca_maps = ComputeAtMap();
   ca_maps.build();
 
   // Set the kernel inputs & outputs
@@ -126,19 +128,15 @@ void GpuLower::lower() {
   }
 
   // Run our passes keeping the lowered expressions and forwarding them
-  auto sorted_exprs = reorderExprsTest(ca_maps);
-  // std::cout<<"==========="<<std::endl;
+  auto sorted_exprs = reorderExprsTest();
+  // std::cout<<"====== SORTED EXPRS ====="<<std::endl;
   // for(auto expr : sorted_exprs)
   //   std::cout<<expr<<std::endl;
+  // std::cout<<"==========="<<std::endl;
 
-  const auto lowered_exprs =
-      LoopNestGenerator2::loweredExprs(fusion_, sorted_exprs, ca_maps);
+  const auto lowered_exprs = LoopNestGenerator2::loweredExprs(sorted_exprs);
 
-  kernel_->finalize(lowered_exprs, preds);
-  kir::IrPrinter printer(std::cout);
-  printer.printKernel(kernel_.get());
-
-  TORCH_INTERNAL_ASSERT(false);
+  std::cout << toString(lowered_exprs) << std::endl;
 
   // Insert allocations
   const auto alloced_exprs =
@@ -159,6 +157,10 @@ void GpuLower::lower() {
 
   // Insert SyncThreads at end of for-loop to avoid WAR race condition
   const auto war_sync_exprs = insertWARThreadSynchronization(reuse_mem_exprs);
+
+  // TestIndexing::getIndexedExprs(war_sync_exprs);
+
+  // TORCH_INTERNAL_ASSERT(false);
 
   const auto indexed_loops =
       IndexLowering::getIndexedExprs(war_sync_exprs, preds, ca_root_map);

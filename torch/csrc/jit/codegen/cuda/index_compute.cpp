@@ -10,6 +10,7 @@
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
+#include <torch/csrc/jit/codegen/cuda/test_index_compute.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 
@@ -301,6 +302,7 @@ void IndexCompute::handle(Merge* merge) {
   }
 
   if (!hasZeroMerged(out_id) && contig_ids.find(out_id) != contig_ids.end()) {
+    // Contiguous indexing path
     auto input_ids = ir_utils::iterDomainInputsOfOrderedAs(
         {merge->out()}, td_->getRootDomain());
 
@@ -320,11 +322,13 @@ void IndexCompute::handle(Merge* merge) {
   const auto outer_extent = getExtent(outer_id);
 
   if (inner_id->isBroadcast() && inner_extent->isOneInt()) {
+    // Propagate away from broadcast dims
     index_map_[outer_id] = out_ind;
     index_map_[inner_id] = zero;
 
     extent_map_[outer_id] = getExtent(out_id);
   } else if (outer_id->isBroadcast() && outer_extent->isOneInt()) {
+    // Propagate away from broadcast dims
     index_map_[outer_id] = zero;
     index_map_[inner_id] = out_ind;
 
@@ -334,12 +338,31 @@ void IndexCompute::handle(Merge* merge) {
     // domains, unless outer is also all broadcast domains. Index shouldn't be
     // anything but zero if both inner and outer are all broadcast domains, but
     // didn't add a hard check for this. See FusionAdvancedIndexing5_CUDA
-    if (inner_id->isBroadcast() && !outer_id->isBroadcast()) {
+    if (!inner_id->isBroadcast() && !outer_id->isBroadcast()) {
+      // If neither dimension is a broadcast (should be true for reference
+      // indexing) pick the preferred path or the inner path.
+      if (preferred_paths_.find(outer_id) != preferred_paths_.end() &&
+          preferred_paths_.find(inner_id) == preferred_paths_.end()) {
+        // Marked that we should prop through outer, not inner.
+        index_map_[outer_id] = out_ind;
+        extent_map_[outer_id] = getExtent(out_id);
+        index_map_[inner_id] = zero;
+        extent_map_[inner_id] = zero;
+      } else {
+        // Prop through inner
+        index_map_[inner_id] = out_ind;
+        extent_map_[inner_id] = getExtent(out_id);
+        index_map_[outer_id] = zero;
+        extent_map_[outer_id] = zero;
+      }
+    } else if (inner_id->isBroadcast() && !outer_id->isBroadcast()) {
+      // Inner is broadcast and outer isn't, prop through outer
       index_map_[outer_id] = out_ind;
       extent_map_[outer_id] = getExtent(out_id);
       index_map_[inner_id] = zero;
       extent_map_[inner_id] = zero;
     } else {
+      // Default to propagating through inner
       index_map_[inner_id] = out_ind;
       extent_map_[inner_id] = getExtent(out_id);
       index_map_[outer_id] = zero;
@@ -373,11 +396,13 @@ IndexCompute::IndexCompute(
     std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map,
     std::unordered_map<kir::IterDomain*, kir::Val*> extent_map,
     std::unordered_set<kir::IterDomain*> zero_merged_in,
-    const std::vector<bool>& root_contiguity)
+    const std::vector<bool>& root_contiguity,
+    std::unordered_set<kir::IterDomain*> preferred_paths)
     : td_(_td),
       index_map_(std::move(initial_index_map)),
       extent_map_(std::move(extent_map)),
-      zero_merged_in_(std::move(zero_merged_in)) {
+      zero_merged_in_(std::move(zero_merged_in)),
+      preferred_paths_(std::move(preferred_paths)) {
   FUSER_PERF_SCOPE("IndexCompute::IndexCompute");
 
   // Make sure we recompute any indices we can that map to a contiguous access
@@ -864,11 +889,13 @@ generateIndexAndExtentMap(
     //     c_tv->domain()->domain(), p_tv->domain()->domain(), p2c_root_map,
     //     true);
 
+    // Replay producer as consumer
     BestEffortReplay replay_p2c(
         p_tv->domain()->domain(), c_tv->domain()->domain(), c2p_root_map, true);
 
     std::unordered_map<IterDomain*, IterDomain*> p2c_id_map;
 
+    // Get replay is c2p map, reverse it
     for (auto ent : replay_p2c.getReplay()) {
       p2c_id_map[ent.second] = ent.first;
     }
@@ -1065,6 +1092,37 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
 
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
+  // Get a reference tensor replayed as existing loop structure
+  auto reference_domain =
+      TestReplay::getReference(loops, GpuLower::current()->caMaps());
+
+  // Index into the reference tensor
+  auto ref_compute = getReferenceIndexing(
+      loops, GpuLower::current()->caMaps(), reference_domain);
+
+  // Map reference tensor to consumer
+  std::unordered_map<IterDomain*, IterDomain*> root_ref_to_index_tv;
+  // Root of reference tensor is already all concrete ids, so for replay which
+  // generates map we can simply map to concrete ids
+  for (auto index_root : consumer_tv->getRootDomain()) {
+    auto concrete_root =
+        GpuLower::current()->caMaps().getConcreteMappedID(index_root);
+    root_ref_to_index_tv.emplace(std::make_pair(concrete_root, index_root));
+  }
+
+  BestEffortReplay replay_out_as_ref(
+      consumer_tv->domain()->domain(),
+      reference_domain->domain(),
+      root_ref_to_index_tv,
+      true);
+
+  // Index into consumer using reference indexing
+  auto consumer_indexing = ref_compute.updateIndexCompute(
+      consumer_tv->domain(),
+      replay_out_as_ref.getReplay(),
+      {},
+      std::vector<bool>(false, consumer_tv->getRootDomain().size()));
+
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
   auto producerAsC = TransformReplay::replayPasC(
@@ -1078,25 +1136,24 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
   // math in this function
   ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
 
-  // grab all tensor views from producer_tv <- computeAtRoot
-  auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
-  tv_stack.push_back(producer_tv);
+  // Get consumer to producer root map
+  auto c2p_root_map =
+      PairwiseRootDomainMap(producer_tv, consumer_tv)
+          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
 
-  std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map;
-  std::transform(
-      loops.begin(),
-      loops.end(),
-      std::inserter(loop_to_ind_map, loop_to_ind_map.begin()),
-      [](kir::ForLoop* fl) { return std::make_pair(fl, fl->index()); });
+  // Get full consumer to producer map
+  BestEffortReplay replay_pAsC(
+      producer_tv->domain()->domain(),
+      consumer_tv->domain()->domain(),
+      c2p_root_map,
+      true);
 
-  auto index_map = generateIndexAndExtentMap(
-                       tv_stack,
-                       std::deque<kir::ForLoop*>(loops.begin(), loops.end()),
-                       loop_to_ind_map,
-                       producer_tv->domain()->contiguity(),
-                       ca_root_map,
-                       true)
-                       .first;
+  // Index into producer using consumer indexing
+  auto producer_indexing = consumer_indexing.updateIndexCompute(
+      producer_tv->domain(),
+      replay_pAsC.getReplay(),
+      {},
+      producer_tv->domain()->contiguity());
 
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
@@ -1122,7 +1179,8 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
         GpuLower::current()->lowerValue(root_dom[i])->as<kir::IterDomain>();
 
     TORCH_INTERNAL_ASSERT(
-        index_map.find(kir_root_dom_i) != index_map.end(),
+        producer_indexing.indexMap().find(kir_root_dom_i) !=
+            producer_indexing.indexMap().end(),
         "Couldn't find root mapping for TV",
         producer_tv->name(),
         " dim: ",
@@ -1130,7 +1188,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
         " id: ",
         kir::toString(kir_root_dom_i));
 
-    auto root_ind = index_map.at(kir_root_dom_i);
+    auto root_ind = producer_indexing.indexMap().at(kir_root_dom_i);
 
     if (i == root_dom.size() - 1 && inner_most_dim_contig) {
       strided_inds.push_back(root_ind);
@@ -1153,6 +1211,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
 
 namespace {
 
+// TODO: Remove
 std::unordered_map<kir::ForLoop*, kir::Val*> indexMapFromTV(
     const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops) {
@@ -1212,23 +1271,80 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
-  // grab all tensor views from producer_tv <- computeAtRoot
-  auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
-  tv_stack.push_back(producer_tv);
+  // Replay producer to look like consumer so we can index on producer since our
+  // loop nests look like consumer
+  auto producerAsC = TransformReplay::replayPasC(
+                         producer_tv->domain(),
+                         consumer_tv->domain(),
+                         -1,
+                         PairwiseRootDomainMap(producer_tv, consumer_tv))
+                         .first;
+
+  // Make the actual producer_tv look like consumer while we do the indexing
+  // math in this function
+  ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
+
+  // Get a reference tensor replayed as existing loop structure
+  auto reference_domain = TestReplay::getReference(loops, gpu_lower->caMaps());
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map =
       indexMapFromTV(producer_tv, loops);
 
-  auto index_and_extent_map = generateIndexAndExtentMap(
-      tv_stack,
-      std::deque<kir::ForLoop*>(loops.begin(), loops.end()),
-      loop_to_ind_map,
-      std::vector<bool>(producer_tv->getRootDomain().size(), false),
-      ca_root_map,
-      true,
+  std::unordered_map<kir::IterDomain*, kir::Val*> ref_id_to_ind_map;
+  TORCH_INTERNAL_ASSERT(loops.size() == reference_domain->nDims());
+  for (size_t loop_i; loop_i < loops.size(); loop_i++) {
+    auto ref_axis = gpu_lower->lowerValue(reference_domain->axis(loop_i))
+                        ->as<kir::IterDomain>();
+    ref_id_to_ind_map[ref_axis] = loop_to_ind_map[loops[loop_i]];
+  }
+
+  std::unordered_set<IterDomain*> preferred_roots;
+  std::transform(
+      producer_tv->getRootDomain().begin(),
+      producer_tv->getRootDomain().end(),
+      std::inserter(preferred_roots, preferred_roots.begin()),
+      [&gpu_lower](IterDomain* id) {
+        return gpu_lower->caMaps().getConcreteMappedID(id);
+      });
+
+  // Make sure propagation of indexing while mixing with 0 indicies we propagate
+  // in a way that consumer will be able to see what's going on.
+  auto preferred_paths = buildPreferredPaths(reference_domain, preferred_roots);
+
+  // Index into the reference tensor
+  auto ref_compute = getReferenceIndexing(
+      loops,
+      gpu_lower->caMaps(),
+      reference_domain,
+      ref_id_to_ind_map,
+      preferred_paths);
+
+  // Map reference tensor to consumer
+  std::unordered_map<IterDomain*, IterDomain*> root_ref_to_index_tv;
+  // Root of reference tensor is already all concrete ids, so for replay which
+  // generates map we can simply map to concrete ids
+  for (auto index_root : producer_tv->getRootDomain()) {
+    auto concrete_root = gpu_lower->caMaps().getConcreteMappedID(index_root);
+    root_ref_to_index_tv.emplace(std::make_pair(concrete_root, index_root));
+  }
+
+  BestEffortReplay replay_producer_as_ref(
+      producer_tv->domain()->domain(),
+      reference_domain->domain(),
+      root_ref_to_index_tv,
       true);
-  auto index_map = index_and_extent_map.first;
-  auto extent_map = index_and_extent_map.second;
+
+  auto ref_2_out = replay_producer_as_ref.getReplay();
+
+  // Index into producer using reference indexing
+  auto producer_indexing = ref_compute.updateIndexCompute(
+      producer_tv->domain(),
+      ref_2_out,
+      {},
+      producer_tv->domain()->contiguity());
+
+  auto index_map = producer_indexing.indexMap();
+  auto extent_map = producer_indexing.extentMap();
 
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
@@ -1311,23 +1427,38 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
 
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
-  // grab all tensor views from producer_tv <- computeAtRoot
-  auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
+  // Get a reference tensor replayed as existing loop structure
+  auto reference_domain =
+      TestReplay::getReference(loops, GpuLower::current()->caMaps());
 
-  std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map;
-  std::transform(
-      loops.begin(),
-      loops.end(),
-      std::inserter(loop_to_ind_map, loop_to_ind_map.begin()),
-      [](kir::ForLoop* fl) { return std::make_pair(fl, fl->index()); });
+  // Index into the reference tensor
+  auto ref_compute = getReferenceIndexing(
+      loops, GpuLower::current()->caMaps(), reference_domain);
 
-  auto index_map = generateIndexAndExtentMap(
-                       tv_stack,
-                       std::deque<kir::ForLoop*>(loops.begin(), loops.end()),
-                       loop_to_ind_map,
-                       consumer_tv->domain()->contiguity(),
-                       ca_root_map)
-                       .first;
+  // Map reference tensor to consumer
+  std::unordered_map<IterDomain*, IterDomain*> root_ref_to_index_tv;
+  // Root of reference tensor is already all concrete ids, so for replay which
+  // generates map we can simply map to concrete ids
+  for (auto index_root : consumer_tv->getRootDomain()) {
+    auto concrete_root =
+        GpuLower::current()->caMaps().getConcreteMappedID(index_root);
+    root_ref_to_index_tv.emplace(std::make_pair(concrete_root, index_root));
+  }
+
+  BestEffortReplay replay_out_as_ref(
+      consumer_tv->domain()->domain(),
+      reference_domain->domain(),
+      root_ref_to_index_tv,
+      true);
+
+  auto ref_2_out = replay_out_as_ref.getReplay();
+
+  // Index into consumer using reference indexing
+  auto consumer_indexing = ref_compute.updateIndexCompute(
+      consumer_tv->domain(),
+      ref_2_out,
+      {},
+      consumer_tv->domain()->contiguity());
 
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
@@ -1352,14 +1483,15 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
         GpuLower::current()->lowerValue(root_dom[i])->as<kir::IterDomain>();
 
     TORCH_INTERNAL_ASSERT(
-        index_map.find(kir_root_dom_i) != index_map.end(),
+        consumer_indexing.indexMap().find(kir_root_dom_i) !=
+            consumer_indexing.indexMap().end(),
         "Couldn't find root mapping for TV",
         consumer_tv->name(),
         " dim: ",
         i,
         " id: ",
         kir::toString(kir_root_dom_i));
-    auto ind = index_map.at(kir_root_dom_i);
+    auto ind = consumer_indexing.indexMap().at(kir_root_dom_i);
 
     if (i == root_dom.size() - 1 && inner_most_dim_contig) {
       strided_inds.push_back(ind);
@@ -1387,23 +1519,77 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
-  // grab all tensor views from consumer_tv <- computeAtRoot
-  auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
+  // Get a reference tensor replayed as existing loop structure
+  auto reference_domain = TestReplay::getReference(loops, gpu_lower->caMaps());
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map =
       indexMapFromTV(consumer_tv, loops);
 
-  auto index_and_extent_map = generateIndexAndExtentMap(
-      tv_stack,
-      std::deque<kir::ForLoop*>(loops.begin(), loops.end()),
-      loop_to_ind_map,
-      std::vector<bool>(consumer_tv->getRootDomain().size(), false),
-      ca_root_map,
-      false,
+  std::unordered_map<kir::IterDomain*, kir::Val*> ref_id_to_ind_map;
+  TORCH_INTERNAL_ASSERT(loops.size() == reference_domain->nDims());
+  for (size_t loop_i; loop_i < loops.size(); loop_i++) {
+    auto ref_axis = gpu_lower->lowerValue(reference_domain->axis(loop_i))
+                        ->as<kir::IterDomain>();
+    ref_id_to_ind_map[ref_axis] = loop_to_ind_map[loops[loop_i]];
+  }
+
+  std::unordered_set<IterDomain*> preferred_roots;
+  std::transform(
+      consumer_tv->getRootDomain().begin(),
+      consumer_tv->getRootDomain().end(),
+      std::inserter(preferred_roots, preferred_roots.begin()),
+      [&gpu_lower](IterDomain* id) {
+        return gpu_lower->caMaps().getConcreteMappedID(id);
+      });
+
+  // Make sure propagation of indexing while mixing with 0 indicies we propagate
+  // in a way that consumer will be able to see what's going on.
+  auto preferred_paths = buildPreferredPaths(reference_domain, preferred_roots);
+
+  // Index into the reference tensor
+  auto ref_compute = getReferenceIndexing(
+      loops,
+      gpu_lower->caMaps(),
+      reference_domain,
+      ref_id_to_ind_map,
+      preferred_paths);
+
+  // Map reference tensor to consumer
+  std::unordered_map<IterDomain*, IterDomain*> root_ref_to_index_tv;
+  // Root of reference tensor is already all concrete ids, so for replay which
+  // generates map we can simply map to concrete ids
+  for (auto index_root : consumer_tv->getRootDomain()) {
+    auto concrete_root = gpu_lower->caMaps().getConcreteMappedID(index_root);
+    root_ref_to_index_tv.emplace(std::make_pair(concrete_root, index_root));
+  }
+
+  BestEffortReplay replay_out_as_ref(
+      consumer_tv->domain()->domain(),
+      reference_domain->domain(),
+      root_ref_to_index_tv,
       true);
 
-  auto index_map = index_and_extent_map.first;
-  auto extent_map = index_and_extent_map.second;
+  auto ref_2_out = replay_out_as_ref.getReplay();
+
+  // Index into consumer using reference indexing
+  auto consumer_indexing = ref_compute.updateIndexCompute(
+      consumer_tv->domain(),
+      ref_2_out,
+      {},
+      consumer_tv->domain()->contiguity());
+
+  // TODO: Re-enable swizzle
+  // auto index_and_extent_map = generateIndexAndExtentMap(
+  //     tv_stack,
+  //     std::deque<kir::ForLoop*>(loops.begin(), loops.end()),
+  //     loop_to_ind_map,
+  //     std::vector<bool>(consumer_tv->getRootDomain().size(), false),
+  //     ca_root_map,
+  //     false,
+  //     true);
+
+  auto index_map = consumer_indexing.indexMap();
+  auto extent_map = consumer_indexing.extentMap();
 
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
@@ -1443,8 +1629,8 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
           gpu_lower->lowerValue(root_dom[j])->as<kir::IterDomain>();
 
       TORCH_INTERNAL_ASSERT(
-          index_map.find(kir_root_dom_j) != index_map.end() &&
-              extent_map.find(kir_root_dom_j) != extent_map.end(),
+          index_map.find(kir_root_dom_j) != index_map.end(),
+          // && extent_map.find(kir_root_dom_j) != extent_map.end(),
           "Couldn't find root mapping for TV",
           consumer_tv->name(),
           " dim: ",
@@ -1453,6 +1639,8 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
           root_dom[i]);
 
       auto root_ind_j = index_map.at(kir_root_dom_j);
+      // auto root_ext_j = extent_map.find(kir_root_dom_j) == extent_map.end() ?
+      // kir_root_dom_j->extent() : extent_map.at(kir_root_dom_j);
       auto root_ext_j = extent_map.at(kir_root_dom_j);
       if (!root_ind_j->isZeroInt()) {
         if (stride == nullptr) {

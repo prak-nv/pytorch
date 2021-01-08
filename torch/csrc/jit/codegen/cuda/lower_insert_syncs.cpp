@@ -279,8 +279,8 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
 
       kir::IrBuilder ir_builder(GpuLower::current()->kernel());
       auto sync_expr = ir_builder.create<kir::Sync>();
-
-      if (out_tv->fuserTv()->getThisComputeAtAxis() == 0) {
+      int produced_at = ca_maps_.producedAt(out_tv);
+      if (produced_at == 0) {
         // Sync should be placed at global scope, after its outer most loop if
         // it has one.
         kir::Expr* place_after = for_loops.size() > 0 ? for_loops[0] : expr;
@@ -298,19 +298,17 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
         // Find the last loop in computeAt of out_tv, this is the loop where we
         // would place an allocation for out_tv
         auto fuser_tv = out_tv->fuserTv();
-        auto ca_id =
-            fuser_tv->getComputeAtAxis(fuser_tv->getThisComputeAtAxis() - 1)
-                .first;
-        auto lowered_ca_id =
-            GpuLower::current()->lowerValue(ca_id)->as<kir::IterDomain>();
+        auto lowered_local_id =
+            gpu_lower->lowerValue(fuser_tv->axis(produced_at - 1))
+                ->as<kir::IterDomain>();
 
         auto loops_it = std::find_if(
-            for_loops.begin(),
-            for_loops.end(),
-            [&lowered_ca_id](const auto& loop) {
-              return lowered_ca_id == loop->iter_domain() ||
+            for_loops.begin(), for_loops.end(), [&](const auto& loop) {
+              return this->ca_maps_.areMapped(
+                         loop->iter_domain(), lowered_local_id) ||
                   loop->iter_domain()->parallelType() == ParallelType::Unroll;
             });
+
         TORCH_INTERNAL_ASSERT(loops_it != for_loops.end());
 
         auto place_in = *loops_it;
@@ -370,7 +368,10 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
   }
 
   ReadAfterWriteSyncs(std::vector<kir::Expr*> _loop_nests)
-      : loop_nests_(_loop_nests) {
+      : loop_nests_(_loop_nests),
+        gpu_lower(GpuLower::current()),
+        ir_builder(gpu_lower->kernel()),
+        ca_maps_(GpuLower::current()->caMaps()) {
     // Fusion shared_memory values
     // Tracks if shared memory is modified
     std::unordered_map<kir::Val*, bool> smem;
@@ -420,6 +421,12 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
   std::vector<kir::ForLoop*> for_loops;
 
   std::vector<kir::Expr*> loop_nests_;
+
+  GpuLower* gpu_lower;
+
+  kir::IrBuilder ir_builder;
+
+  const ComputeAtMap& ca_maps_;
 
  public:
   static std::vector<kir::Expr*> insert(std::vector<kir::Expr*> loop_nests) {

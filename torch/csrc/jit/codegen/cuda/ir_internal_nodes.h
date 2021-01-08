@@ -224,6 +224,7 @@ class TORCH_CUDA_API TernaryOp : public Expr {
 // Friends for direct access to split
 class TensorDomain;
 class ReplayTransformations;
+class TestReplay;
 //! Simply a representation of an annotated 1D iterable from start to extent.
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
@@ -343,6 +344,8 @@ class TORCH_CUDA_API IterDomain : public Val {
  protected:
   friend TensorDomain;
   friend ReplayTransformations;
+  friend TestReplay;
+
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
