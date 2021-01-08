@@ -263,10 +263,10 @@ TEST(NVFuserTest, FusionExprEvalBasic_CUDA) {
   //  (ex. `tv0->getRootDomain()[0]->extent()`
   //   instead of `tv0->axis(0)->extent()`)
   //
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128);
+  evaluator.bind(tv0->getRootDomain()[0]->rawExtent(), 6);
+  evaluator.bind(tv0->getRootDomain()[1]->rawExtent(), 128);
+  evaluator.bind(tv1->getRootDomain()[0]->rawExtent(), 6);
+  evaluator.bind(tv1->getRootDomain()[1]->rawExtent(), 128);
 
   // 3. Evaluate and check result values
   TORCH_CHECK(tv2->domain()->nDims() == 3);
@@ -307,8 +307,8 @@ TEST(NVFuserTest, FusionExprEvalComplex_CUDA) {
   ExpressionEvaluator evaluator(&fusion);
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 129);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 127);
+  evaluator.bind(tv0->getRootDomain()[0]->rawExtent(), 129);
+  evaluator.bind(tv0->getRootDomain()[1]->rawExtent(), 127);
 
   // Evaluate and check extent values
   TORCH_CHECK(tv0->domain()->nDims() == 2);
@@ -354,9 +354,9 @@ TEST(NVFuserTest, FusionExprEvalPostLower_CUDA) {
   tv0->computeAt(tv3, 1);
   tv1->computeAt(tv3, 1);
 
-  tv3->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(1)->parallelize(ParallelType::Unroll);
-  tv3->axis(1)->parallelize(ParallelType::Unroll);
+  // tv3->axis(0)->parallelize(ParallelType::BIDx);
+  // tv2->axis(1)->parallelize(ParallelType::Unroll);
+  // tv3->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -370,10 +370,10 @@ TEST(NVFuserTest, FusionExprEvalPostLower_CUDA) {
   ExpressionEvaluator evaluator(&fusion);
 
   // 2. Bind values
-  evaluator.bind(tv0->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv0->getRootDomain()[1]->extent(), 128);
-  evaluator.bind(tv1->getRootDomain()[0]->extent(), 6);
-  evaluator.bind(tv1->getRootDomain()[1]->extent(), 128);
+  evaluator.bind(tv0->getRootDomain()[0]->rawExtent(), 6);
+  evaluator.bind(tv0->getRootDomain()[1]->rawExtent(), 128);
+  evaluator.bind(tv1->getRootDomain()[0]->rawExtent(), 6);
+  evaluator.bind(tv1->getRootDomain()[1]->rawExtent(), 128);
 
   // 3. Evaluate and check result values
   TORCH_CHECK(tv2->domain()->nDims() == 3);
@@ -4137,11 +4137,9 @@ TEST(NVFuserTest, FusionSimpleBCast4_CUDA) {
   tv0->computeAt(tv3, -1);
   tv1->computeAt(tv3, -1);
 
-  fusion.printKernel();
-
-  // tv3->axis(0)->parallelize(ParallelType::BIDx);
-  // tv3->axis(-1)->parallelize(ParallelType::TIDx);
-  // tv3->axis(-2)->parallelize(ParallelType::Unroll);
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  tv3->axis(-2)->parallelize(ParallelType::Unroll);
 
   constexpr int x = 63, y = 33, z = 15;
 
@@ -4156,12 +4154,12 @@ TEST(NVFuserTest, FusionSimpleBCast4_CUDA) {
 
   std::vector<IValue> aten_inputs = {t0, t1};
 
-  // FusionExecutor fe;
-  // fe.compileFusion(&fusion);
-  // fe.runFusion(aten_inputs, {cg_output});
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  fe.runFusion(aten_inputs, {cg_output});
 
-  // testValidate(
-  //     &fusion, {cg_output}, aten_inputs, {aten_output}, __LINE__, __FILE__);
+  testValidate(
+      &fusion, {cg_output}, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
 TEST(NVFuserTest, FusionSimpleBCast5_CUDA) {

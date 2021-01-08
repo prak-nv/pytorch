@@ -129,14 +129,8 @@ void GpuLower::lower() {
 
   // Run our passes keeping the lowered expressions and forwarding them
   auto sorted_exprs = reorderExprsTest();
-  // std::cout<<"====== SORTED EXPRS ====="<<std::endl;
-  // for(auto expr : sorted_exprs)
-  //   std::cout<<expr<<std::endl;
-  // std::cout<<"==========="<<std::endl;
 
   const auto lowered_exprs = LoopNestGenerator2::loweredExprs(sorted_exprs);
-
-  std::cout << toString(lowered_exprs) << std::endl;
 
   // Insert allocations
   const auto alloced_exprs =
@@ -157,10 +151,6 @@ void GpuLower::lower() {
 
   // Insert SyncThreads at end of for-loop to avoid WAR race condition
   const auto war_sync_exprs = insertWARThreadSynchronization(reuse_mem_exprs);
-
-  // TestIndexing::getIndexedExprs(war_sync_exprs);
-
-  // TORCH_INTERNAL_ASSERT(false);
 
   const auto indexed_loops =
       IndexLowering::getIndexedExprs(war_sync_exprs, preds, ca_root_map);
