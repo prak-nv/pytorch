@@ -23,39 +23,45 @@ TensorView* findOutputTensor(Expr* expr) {
   return out->as<TensorView>();
 }
 
+struct TargetInfo {
+  TensorView* target = nullptr;
+  unsigned score = 0;
+};
+
 //! Finds the tensor that governs the loop-nest where an Expr should
 //! be placed. Also, gives a score to the expression for the ordering
 //! among the expressions in the same loop-nest.
-void findTargetTensor(Expr* expr, TensorView*& target, unsigned& score) {
+TargetInfo findTargetTensor(Expr* expr) {
   TORCH_INTERNAL_ASSERT(expr->outputs().size() <= 1);
+
+  TargetInfo info;
 
   TensorView* out_tv = findOutputTensor(expr);
   if (out_tv == nullptr) {
-    target = nullptr;
-    score = 0;
-    return;
+    return info;
   }
 
   if (!out_tv->hasComputeAt()) {
-    target = out_tv;
+    info.target = out_tv;
     // No computeAt, so this should come last.
-    score = std::numeric_limits<unsigned>::max();
-    return;
+    info.score = std::numeric_limits<unsigned>::max();
+    return info;
   }
 
   // Note this returns the computeAt position
   int pos = (int)out_tv->getRelativeComputeAtAxis();
-  target = out_tv->getComputeAtView();
-  while (target->hasComputeAt()) {
-    if ((int)target->getThisComputeAtAxis() < pos) {
+  info.target = out_tv->getComputeAtView();
+  while (info.target->hasComputeAt()) {
+    if ((int)info.target->getThisComputeAtAxis() < pos) {
       break;
     }
     // getComputeAtRelPos accepts an axis index.
-    pos = pos == 0 ? 0 : target->getComputeAtRelPos(pos - 1) + 1;
-    target = target->getComputeAtView();
+    pos = pos == 0 ? 0 : info.target->getComputeAtRelPos(pos - 1) + 1;
+    info.target = info.target->getComputeAtView();
   }
 
-  score = pos;
+  info.score = pos;
+  return info;
 }
 
 // Type definitions for brevity
@@ -94,18 +100,16 @@ void groupExpressions(
     ExprTargetMap& target_map,
     TargetGroupMap& computed_at_exprs,
     ExprScoreMap& scores) {
-  TensorView* target_tensor = nullptr;
-  Score score = 0;
-  findTargetTensor(expr, target_tensor, score);
-  scores.emplace(expr, score);
-  if (target_tensor == nullptr) {
+  const auto info = findTargetTensor(expr);
+  scores.emplace(expr, info.score);
+  if (info.target == nullptr) {
     reordered_exprs.push_back(expr);
   } else {
-    target_map.emplace(expr, target_tensor);
-    if (computed_at_exprs.find(target_tensor) == computed_at_exprs.end()) {
-      computed_at_exprs.emplace(target_tensor, TargetGroupMap::mapped_type());
+    target_map.emplace(expr, info.target);
+    if (computed_at_exprs.find(info.target) == computed_at_exprs.end()) {
+      computed_at_exprs.emplace(info.target, TargetGroupMap::mapped_type());
     }
-    auto& exprs = computed_at_exprs[target_tensor];
+    auto& exprs = computed_at_exprs[info.target];
     exprs.push_back(expr);
   }
 }
