@@ -287,7 +287,8 @@ kir::Allocate* allocGlobalBuffer(
     kir::IrBuilder& ir_builder,
     const kir::TensorDomain* td,
     T id_filter,
-    DataType dtype) {
+    DataType dtype,
+    bool zero_init=false) {
   auto buffer_ids = td->domain();
   buffer_ids.erase(
       std::remove_if(buffer_ids.begin(), buffer_ids.end(), id_filter),
@@ -305,7 +306,7 @@ kir::Allocate* allocGlobalBuffer(
       ir_builder.create<kir::TensorDomain>(new_buffer_ids);
   const auto buffer_tv = ir_builder.create<kir::TensorView>(
       dtype, buffer_domain, MemoryType::Global);
-  return ir_builder.create<kir::Allocate>(buffer_tv, buffer_tv->memoryType());
+  return ir_builder.create<kir::Allocate>(buffer_tv, buffer_tv->memoryType(),nullptr,zero_init);
 }
 
 } // namespace
@@ -390,7 +391,7 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
     const auto out_N_buffer = allocGlobalBuffer(
         ir_builder_, out_domain, buffer_filter, out_N->dtype());
     const auto sync_buffer = allocGlobalBuffer(
-        ir_builder_, out_domain, buffer_filter, DataType::Int);
+        ir_builder_, out_domain, buffer_filter, DataType::Int,true);
 
     // Grid Welford instantiation
     const auto grid_welford_op =
