@@ -20,6 +20,7 @@ class ValidateParallelType : public IterVisitor {
   }
 
  private:
+  using IterVisitor::handle;
   void convertIterDomain(IterDomain* id0, IterDomain* id1) {
     const auto ptype0 = id0->getParallelType();
     const auto ptype1 = id1->getParallelType();

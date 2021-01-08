@@ -759,7 +759,8 @@ inline void mapMultiOutputOp(
   bool found_axis = true;
   while (!loops.empty() && found_axis) {
     found_axis = false;
-    for (int i = o_kir_td.size() - 1; i >= 0; i--) {
+    for (size_t i_rev = 0; i_rev < o_kir_td.size(); i_rev++) {
+      const auto i = o_kir_td.size() - i_rev;
       if (o_kir_td[i] == loops.back()->iter_domain()) {
         found_axis = true;
         TORCH_INTERNAL_ASSERT(

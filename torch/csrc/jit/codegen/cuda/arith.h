@@ -51,7 +51,7 @@ TORCH_CUDA_API TensorView* reductionOp(
 //! ops are added.
 TORCH_CUDA_API std::vector<TensorView*> Welford(
     TensorView* tv,
-    std::vector<int> axes,
+    const std::vector<int>& axes,
     TensorView* init_var = nullptr,
     TensorView* init_avg = nullptr,
     Int* init_N = new Int(0));

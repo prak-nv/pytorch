@@ -313,8 +313,6 @@ kir::Allocate* allocGlobalBuffer(
 void IndexLowering::visit(const kir::WelfordOp* wop) {
   TORCH_INTERNAL_ASSERT(ir_utils::isTVOp(wop));
 
-  const auto gpu_lower = GpuLower::current();
-
   const auto out_tv = wop->outAvg()->as<kir::TensorView>();
   const auto out_domain = out_tv->domain();
 

@@ -10810,28 +10810,6 @@ TEST(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
       __FILE__);
 }
 
-// TODO:  REMOVE THIS ONE
-TEST(NVFuserTest, FusionRefSumOp_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  int M = 64, N = 128;
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = mul(tv0, new Double(1));
-  auto tv2 = sum(tv1, {1});
-  fusion.addOutput(tv2);
-
-  tv2->split(1, 4);
-
-  auto tvr = tv2->rFactor({1});
-  tv1->computeAt(tv2, -1);
-
-  fusion.printMath();
-  fusion.printKernel();
-}
-
 TEST(NVFuserTest, FusionTranspose1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);

@@ -712,7 +712,7 @@ TensorView* broadcast(
 
 std::vector<TensorView*> Welford(
     TensorView* tv,
-    std::vector<int> axes,
+    const std::vector<int>& axes,
     TensorView* init_var,
     TensorView* init_avg,
     Int* init_N) {

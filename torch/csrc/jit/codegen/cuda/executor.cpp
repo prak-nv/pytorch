@@ -316,8 +316,6 @@ LaunchParams FusionExecutor::computeLaunchParams(
   const auto kernel = lowered_.kernel();
   const auto& kernel_summary = kernel->summary();
 
-  //  TODO:: Welford Work Space here
-
   // Calculate Dynamic Shared Memory Size
   // Add workspace for reduction and broadcast
   uint64_t reduction_broadcast_workspace = 0;

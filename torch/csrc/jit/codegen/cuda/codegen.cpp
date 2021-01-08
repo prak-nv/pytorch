@@ -534,10 +534,6 @@ class CudaKernelGenerator : private kir::IrVisitor {
     const auto out_avg = node->outAvg();
     const auto out_N = node->outN();
 
-    const auto init_var = node->initVar();
-    const auto init_avg = node->initAvg();
-    const auto init_N = node->initN();
-
     const auto in_var = node->inVar();
     const auto in_avg = node->inAvg();
     const auto in_N = node->inN();
