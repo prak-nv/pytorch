@@ -6,11 +6,14 @@ import torch
 
 from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH_EXECUTOR
 from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithSeed
+from torch.testing import FileCheck
 
 from test_jit import JitTestCase, RUN_CUDA
 import itertools
 import numpy as np
 import math
+
+from typing import List
 
 os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
@@ -1341,6 +1344,159 @@ class TestCudaFuser(JitTestCase):
         # have been optimized away
         self.assertGraphContainsExactly(t_jit.graph_for(x, y), FUSION_GUARD, 0)
 
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_profile_ivalue(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([7, 4, 7], dtype=dtype, device=device)
+        y = torch.randn([7, 4, 7], dtype=dtype, device=device)
+
+        def t(x: torch.Tensor, y: torch.Tensor, dim: List[int], keepdim : bool):
+            o = torch.add(x, y)
+            o = o.sum(dim, keepdim=keepdim)
+            return o
+
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, y, (0, 1), False)
+        jit_o = t_jit(x, y, (0, 1), False)
+        o = t(x, y, (0, 1), False)
+        self.assertEqual(o.dtype, jit_o.dtype)
+        self.assertEqual(o, jit_o)
+        self.assertGraphContains(t_jit.graph_for(x, y, (0, 1), False), FUSION_GUARD)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_sum_to_size(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([2, 4, 4], dtype=dtype, device=device)
+        y = torch.randn([2, 4, 4], dtype=dtype, device=device)
+
+        def t(x: torch.Tensor, y: torch.Tensor, new_size: List[int]):
+            o = torch.add(x, y)
+            o = o.sum_to_size(new_size)
+            return o
+
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, y, (4, 1))
+        jit_o = t_jit(x, y, (4, 1))
+        o = t(x, y, (4, 1))
+        self.assertEqual(o.dtype, jit_o.dtype)
+        self.assertEqual(o, jit_o)
+        self.assertGraphContains(t_jit.graph_for(x, y, (4, 1)), FUSION_GUARD)
+
+        # update shape: old kernel should handle dynamic shape well without
+        # recompilation
+        x = torch.randn([2, 5, 8], dtype=dtype, device=device)
+        y = torch.randn([2, 5, 8], dtype=dtype, device=device)
+        # (TODO) check executed kernel, should extend autograd.profiler to fused
+        # kernels
+        jit_o = t_jit(x, y, (5, 1))
+        o = t(x, y, (5, 1))
+        self.assertEqual(o.dtype, jit_o.dtype)
+        self.assertEqual(o, jit_o)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_grad_sum_to_size(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([2, 4, 4], dtype=dtype, device=device).requires_grad_()
+        y = torch.randn([4], dtype=dtype, device=device).requires_grad_()
+        grad = torch.randn([2, 4, 4], dtype=dtype, device=device)
+
+        ref_x = x.detach().clone().requires_grad_()
+        ref_y = y.detach().clone().requires_grad_()
+
+        def t(x: torch.Tensor, y: torch.Tensor):
+            o = torch.add(x, y)
+            o = torch.relu(o)
+            return o
+
+        # profiling runs for forward & backward
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, y)
+        jit_o.backward(grad)
+        jit_o = t_jit(x, y)
+        jit_o.backward(grad)
+
+        x.grad = None
+        y.grad = None
+        jit_o = t_jit(x, y)
+        jit_o.backward(grad)
+        o = t(ref_x, ref_y)
+        o.backward(grad)
+        self.assertEqual(o.dtype, jit_o.dtype)
+        self.assertEqual(o, jit_o)
+        self.assertEqual(x.grad, ref_x.grad)
+        self.assertEqual(y.grad, ref_y.grad)
+        bwd_graph = list(
+            list(t_jit.get_debug_state().execution_plans.values())[0].code.grad_executor_states()[0].execution_plans.values()
+        )[0].graph
+        FileCheck().check(FUSION_GUARD).run(bwd_graph)
+
+        # update shape: old kernel should handle dynamic shape well without
+        # recompilation
+        x = torch.randn([2, 5, 8], dtype=dtype, device=device).requires_grad_()
+        y = torch.randn([8], dtype=dtype, device=device).requires_grad_()
+        ref_x = x.detach().clone().requires_grad_()
+        ref_y = y.detach().clone().requires_grad_()
+        grad = torch.randn([2, 5, 8], dtype=dtype, device=device)
+        jit_o = t_jit(x, y)
+        # (TODO) check executed kernel, should extend autograd.profiler to fused
+        # kernels
+        jit_o.backward(grad)
+        o = t(ref_x, ref_y)
+        o.backward(grad)
+        self.assertEqual(o.dtype, jit_o.dtype)
+        self.assertEqual(o, jit_o)
+        self.assertEqual(x.grad, ref_x.grad)
+        self.assertEqual(y.grad, ref_y.grad)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_add_backward_with_alpha(self):
+        x = torch.randn(4, 2, dtype=torch.float32, device='cuda', requires_grad=True)
+        y = torch.randn(4, 2, dtype=torch.float32, device='cuda', requires_grad=True)
+        grad = torch.randn(4, 2, dtype=torch.float32, device='cuda')
+
+        # Test that a mul is not generated when not needed
+        # Alpha=1.0 or is not used
+        def test1(x : torch.Tensor, y : torch.Tensor):
+            o = torch.add(x, y, alpha=1.0)
+            o = o + 1.0
+            return o
+
+        test1_jit = torch.jit.script(test1)
+        for i in range(3):
+            jit_o = test1_jit(x, y)
+            jit_o.backward(grad)
+
+        bwd1_graph = list(
+            list(test1_jit.get_debug_state().execution_plans.values())[0].code.grad_executor_states()[0].execution_plans.values()
+        )[0].graph
+        FileCheck().check_not("aten::mul_").run(bwd1_graph)
+
+        # Alpha is set to something other than 1.0
+        def test2(x : torch.Tensor, y : torch.Tensor):
+            o = torch.add(x, y, alpha=2.0)
+            o = o + 1.0
+            return o
+
+        test2_jit = torch.jit.script(test2)
+        for i in range(3):
+            jit_o = test2_jit(x, y)
+            jit_o.backward(grad)
+
+        bwd2_graph = list(
+            list(test2_jit.get_debug_state().execution_plans.values())[0].code.grad_executor_states()[0].execution_plans.values()
+        )[0].graph
+        FileCheck().check("aten::mul_").run(bwd2_graph)
 
 class TestPassManagerCudaFuser(JitTestCase):
 
