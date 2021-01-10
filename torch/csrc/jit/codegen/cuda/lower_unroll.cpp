@@ -24,7 +24,7 @@ kir::ForLoop* cloneLoopNest(
     kir::Expr* parent_scope) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   const auto new_loop = ir_builder.create<kir::ForLoop>(
-      for_loop->index(), for_loop->iter_domain(), parent_scope);
+      for_loop->index(), for_loop->iter_domain(), for_loop->isVectorized(), parent_scope);
   for (auto expr : for_loop->body().exprs()) {
     if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       expr = cloneLoopNest(nested_for_loop, new_loop);
@@ -54,6 +54,48 @@ bool isReductionInitExpr(const kir::Expr* expr) {
     return false;
   }
   return true;
+}
+
+void unrollForLoopBody(kir::ForLoop* fl, kir::IfThenElse* ite) {
+  // Get the loop nest for the unrolled path
+  kir::ForLoop* loop_nest = cloneLoopNest(fl, ite);
+  ite->thenBody().push_back(loop_nest);
+}
+
+void vectorizeForLoopBody(kir::ForLoop* fl, kir::IfThenElse* ite) {
+  // Get the loop nest for the vectorized path
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+  const auto vectorize_loop_nest = ir_builder.create<kir::ForLoop>(
+      fl->index(), fl->iter_domain(), true, ite);
+
+  TORCH_INTERNAL_ASSERT(fl->body().exprs().size() == 1);
+  for (auto expr : fl->body().exprs()) {
+    if (expr->isA<kir::UnaryOp>()) {
+      auto unaryOp = expr->as<kir::UnaryOp>();
+      if(unaryOp->operation() == UnaryOpType::Set) {
+        auto input = unaryOp->inputs()[0]->as<kir::TensorView>();
+        auto output = unaryOp->outputs()[0]->as<kir::TensorView>();
+
+        bool isVectorizedRead = output->memoryType() == MemoryType::Local &&
+            input->memoryType() == MemoryType::Global;
+
+        if (isVectorizedRead) {
+          auto vectorize_read = ir_builder.create<kir::UnaryOp>(
+            UnaryOpType::Set,
+            output,
+            input);
+          vectorize_loop_nest->body().push_back(vectorize_read);
+        } else {
+          auto vectorize_write = ir_builder.create<kir::UnaryOp>(
+            UnaryOpType::Set,
+            output,
+            input);
+          vectorize_loop_nest->body().push_back(vectorize_write);
+        }
+      }
+    }
+  }
+  ite->thenBody().push_back(vectorize_loop_nest);
 }
 
 } // namespace
@@ -119,9 +161,12 @@ void UnrollPass::handle(kir::ForLoop* fl) {
       fl->iter_domain()->parallelType() == ParallelType::Unroll ||
       fl->iter_domain()->parallelType() == ParallelType::Unswitch;
 
+  const bool is_vectorize =
+      fl->iter_domain()->parallelType() == ParallelType::Vectorize;
+
   // If we're not looking for an unroll loop, or didn't find one, process as
   // normal.
-  if (!is_unroll || !look_for_unroll_) {
+  if (!(is_unroll || is_vectorize) || !look_for_unroll_) {
     for_loops_.push_back(fl);
 
     // Make copy of exprs because we replace them inplace in fl
@@ -140,16 +185,20 @@ void UnrollPass::handle(kir::ForLoop* fl) {
   kir::ForLoop* parent_scope = for_loops_.empty() ? nullptr : for_loops_.back();
 
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-  kir::IfThenElse* unroll_ite =
+
+  kir::IfThenElse* ite =
       ir_builder.create<kir::IfThenElse>(unroll_pred, parent_scope);
 
-  // Get the loop nest for the unrolled path
-  kir::ForLoop* unrolled_loop_nest = cloneLoopNest(fl, unroll_ite);
-
-  unroll_ite->thenBody().push_back(unrolled_loop_nest);
+  if (is_unroll) {
+    // Get the loop nest for the unrolled path
+    unrollForLoopBody(fl, ite);
+  } else {
+    // Get the loop nest for the vectorized path
+    vectorizeForLoopBody(fl, ite);
+  }
 
   // Loop nest for inlined path
-  kir::ForLoop* inlined_loop = cloneLoopNest(fl, unroll_ite);
+  kir::ForLoop* inlined_loop = cloneLoopNest(fl, ite);
 
   // Add inline predicates for inlined loop nest
   look_for_unroll_ = false;
@@ -160,8 +209,8 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     inlined_loop->setParentScope(parent_scope);
     loop_replacement_map_.insert({fl, inlined_loop});
   } else {
-    unroll_ite->elseBody().push_back(inlined_loop);
-    loop_replacement_map_.insert({fl, unroll_ite});
+    ite->elseBody().push_back(inlined_loop);
+    loop_replacement_map_.insert({fl, ite});
   }
 }
 

@@ -904,7 +904,7 @@ generateIndexAndExtentMap(
   // the stack
   std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map;
 
-  // Match loops to this TV if the loop matchis this TV's ID (could reduce
+  // Match loops to this TV if the loop match is this TV's ID (could reduce
   // complexity here)
 
   while (
@@ -1553,7 +1553,8 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     const auto one = ir_builder.create<kir::Int>(1);
     for (auto loop : loops) {
       if (loop->iter_domain()->parallelType() == ParallelType::Unroll ||
-          loop->iter_domain()->parallelType() == ParallelType::Unswitch) {
+          loop->iter_domain()->parallelType() == ParallelType::Unswitch ||
+          loop->iter_domain()->parallelType() == ParallelType::Vectorize) {
         within_unswitch = true;
       }
 

@@ -132,10 +132,11 @@ class AllocationInserter : public kir::MutableIrVisitor {
         new_loop = ir_builder.create<kir::ForLoop>(
             ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
             id,
+	    false,
             nullptr);
       } else {
         new_loop = ir_builder.create<kir::ForLoop>(
-            ir_builder.create<kir::Int>(c10::nullopt), id, nullptr);
+            ir_builder.create<kir::Int>(c10::nullopt), id, false, nullptr);
       }
       init_expr->setParentScope(new_loop);
       new_loop->body().push_back(init_expr);
@@ -152,6 +153,7 @@ class AllocationInserter : public kir::MutableIrVisitor {
 
     auto fuser_tv = info.buffer->fuserTv();
 
+    kir::Val* vector_size = nullptr;
     std::vector<kir::Val*> alloc_dims;
     const MemoryType memory_type = info.buffer->memoryType();
     for (size_t axis_i = 0; axis_i < fuser_tv->nDims(); axis_i++) {
@@ -196,6 +198,12 @@ class AllocationInserter : public kir::MutableIrVisitor {
           continue;
         }
       }
+
+      // Get size of vectorized dimension
+      if (ca_id->parallelType() == ParallelType::Vectorize) {
+        vector_size = ca_id->rawExtent();
+      }
+
       alloc_dims.push_back(ca_id->rawExtent());
     }
 
@@ -214,6 +222,11 @@ class AllocationInserter : public kir::MutableIrVisitor {
     // Create the allocation node
     info.alloc_expr = ir_builder.create<kir::Allocate>(
         info.buffer, info.buffer->memoryType(), size);
+
+    if (vector_size != nullptr) {
+      info.alloc_expr->setVectorSize(vector_size);
+    }
+
   }
 
   void handle(kir::Expr* expr) {

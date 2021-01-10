@@ -351,8 +351,9 @@ ForLoop::ForLoop(
     Passkey passkey,
     Val* index,
     IterDomain* iter_domain,
+    bool vectorize,
     Expr* parent_scope)
-    : Expr(passkey), index_{index}, iter_domain_{iter_domain} {
+    : Expr(passkey), index_{index}, iter_domain_{iter_domain}, is_vectorized(vectorize) {
   TORCH_INTERNAL_ASSERT(index->dtype() == DataType::Int);
   setParentScope(parent_scope);
   addInput(index);
@@ -398,6 +399,9 @@ Allocate::Allocate(
     for (size_t i = 1; i < domain->nDims(); i++) {
       size_ = ir_builder.mulExpr(size_, domain->axis(i)->extent());
     }
+  }
+  if (buffer_->isA<TensorView>()) {
+    buffer_->as<TensorView>()->setAllocation(this);
   }
   addInput(size_);
 }

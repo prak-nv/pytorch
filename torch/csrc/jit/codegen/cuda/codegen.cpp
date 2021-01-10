@@ -595,7 +595,9 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
   void visit(const kir::ForLoop* node) final {
     // TODO(kir): handle this during lowering
-    if (node->iter_domain()->isThread() || node->iter_domain()->isBroadcast()) {
+    if (node->iter_domain()->isThread() ||
+        node->iter_domain()->isBroadcast() ||
+        node->isVectorized()) {
       handleScope(node->body());
       return;
     }
@@ -651,7 +653,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
                << varName(alias_tv) << ";\n";
     } else {
       // Standard Memory Allocation
-      switch (tv->memoryType()) {
+      switch (node->memoryType()) {
         case MemoryType::Global:
           indent() << "// Allocate global tensor " << varName(tv) << "\n";
           break;
@@ -680,6 +682,13 @@ class CudaKernelGenerator : private kir::IrVisitor {
         default:
           TORCH_INTERNAL_ASSERT(false, "Unexpected memory type");
       }
+    }
+
+    if (node->vectorSize() != nullptr) {
+      indent() << "Array<" << buffer_dtype << ", " << genInline(node->vectorSize()) << ">* "
+               << "vec_" << varName(tv) << " = reinterpret_cast<"
+               << "Array<" << buffer_dtype << ", " << genInline(node->vectorSize()) << ">*>"
+               << "(&" << varName(tv) << ");\n";
     }
   }
 

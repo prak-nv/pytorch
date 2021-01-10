@@ -706,9 +706,19 @@ class TORCH_CUDA_API TensorView final : public Val {
     return const_cast<fuser::cuda::TensorView*>(fuser_tv_); // NOLINT
   }
 
+  void setAllocation(Allocate* allocation) {
+    TORCH_INTERNAL_ASSERT(allocation != nullptr);
+    allocation_ = allocation;
+  }
+
+  Allocate* allocation() const {
+    return allocation_;
+  }
+
  private:
   TensorDomain* domain_ = nullptr;
   MemoryType memory_type_ = MemoryType::Local;
+  Allocate* allocation_ = nullptr;
 
   // TODO(kir): remove temporary hack
   const fuser::cuda::TensorView* fuser_tv_ = nullptr;
@@ -976,6 +986,14 @@ class TORCH_CUDA_API Allocate final : public Expr {
     return zero_init_;
   }
 
+  void setVectorSize(const Val* vector_size) {
+    vector_size_ = vector_size;
+  }
+
+  const Val* vectorSize() const {
+    return vector_size_;
+  }
+
   const Allocate* alias() const {
     return alias_;
   }
@@ -991,6 +1009,7 @@ class TORCH_CUDA_API Allocate final : public Expr {
   MemoryType memory_type_ = MemoryType::Local;
   Val* size_ = nullptr;
   bool zero_init_ = false;
+  const Val* vector_size_ = nullptr;
 
   // This alias tracks the next Allocate node in a linked chain of aliases
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
@@ -1088,6 +1107,7 @@ class TORCH_CUDA_API ForLoop final : public Expr {
       Passkey passkey,
       Val* index,
       IterDomain* iter_domain,
+      bool vectorize,
       Expr* parent_scope);
 
   void accept(IrVisitor* visitor) const override {
@@ -1114,10 +1134,15 @@ class TORCH_CUDA_API ForLoop final : public Expr {
     return body_;
   }
 
+  bool isVectorized() const {
+    return is_vectorized;
+  }
+
  private:
   Val* const index_ = nullptr;
   IterDomain* const iter_domain_;
   Scope body_;
+  bool is_vectorized = false;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its
