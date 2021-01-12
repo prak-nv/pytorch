@@ -10968,7 +10968,8 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
   TensorView* tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  TensorView* tv1 = transpose(tv0, {{0, 1}}); // level 0
+  // TensorView* tv1 = transpose(tv0, {{0, 1}}); // level 0
+  TensorView* tv1 = add(tv0, new Double(0));
 
   TensorView* tv2 = add(tv1, new Double(1)); // level 1
   TensorView* tv3 = add(tv2, new Double(2)); // level 2
@@ -10983,17 +10984,31 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
 
   fusion.addOutput(tv9);
   fusion.addOutput(tv10);
-  // fusion.printMath();
-  // for (auto expr : fusion.exprs()) {
-  //   std::cout << expr->name() << "  " << expr << std::endl;
-  // }
 
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({63, 65}, options);
+
+  // auto t1 = t0.permute({0, 1});
+  auto t1 = t0.add(0.0);
+  auto t2 = t1.add(1.0);
+  auto t3 = t2.add(2.0);
+  auto t4 = t2.add(3.0);
+  auto t5 = t2.add(4.0);
+  auto t6 = t4.add(t3);
+  auto t7 = t6.add(t5);
+  auto t8 = t2.add(t5);
+
+  auto t9 = t7.sum(0);
+  auto t10 = t8.sum(1);
+
+  std::cout << "Original fusion:" << std::endl;
   fusion.printMath();
 
   SingleReductionSegmenter kernels(&fusion);
   kernels.segment();
-  std::cout << &kernels << std::endl;
+  // std::cout << &kernels << std::endl;
   kernels.generateFusions();
+  auto cg_outputs = kernels.runFusionWithInputs({t0});
 }
 
 } // namespace jit

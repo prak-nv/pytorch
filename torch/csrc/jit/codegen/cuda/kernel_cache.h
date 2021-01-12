@@ -141,6 +141,10 @@ class FusionExecutorCache {
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<IValue>& inputs);
 
+  void printFusion() {
+    fusion_->printMath();
+  }
+
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
   //! entry in `FusionExecutor`

@@ -360,6 +360,11 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         // computational graph intact for future compilation.
         Fusion fusion_clone = *fusion_;
         FusionGuard fg(&fusion_clone);
+        std::cout << "Processing:" << std::endl;
+        fusion_clone.printMath();
+        for (auto out : fusion_clone.outputs()) {
+          std::cout << out << std::endl;
+        }
 
         // Separate the reduction TensorViews from the other TensorViews
         // Ignore input TensorViews
@@ -379,12 +384,14 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         }
 
         if (isNormalizationFusion) {
+          std::cout << "Normalization" << std::endl;
           scheduleNormalization(
               &fusion_clone,
               reduction_params.value(),
               clone_reduction_tv,
               clone_other_tv);
         } else {
+          std::cout << "Single Reduction" << std::endl;
           auto single_reduction_tv = clone_reduction_tv.front();
 
           // Heavy weight call
@@ -402,6 +409,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
               reduction_params.value(),
               single_reduction_tv,
               tv_outputs_of_reduction);
+          fusion_clone.printMath();
         }
 
         // This means we have not found a previously generated kernel that is

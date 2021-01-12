@@ -644,29 +644,19 @@ void SingleReductionSegmenter::generateFusions() {
   }
 }
 
-bool readyToExecute(
-    const SegmentedGroup* group,
-    const std::unordered_map<Val*, IValue>& tensor_map) {
-  return std::all_of(
-      group->producer_edges.begin(),
-      group->producer_edges.end(),
-      [&tensor_map](const SegmentedEdge* edge) {
-        return tensor_map.find(edge->val_) != tensor_map.end();
-      });
-}
-
 std::vector<at::Tensor> SingleReductionSegmenter::runFusionWithInputs(
-    const at::ArrayRef<IValue>& inputs) {
+    const at::ArrayRef<IValue>& fusion_runtime_inputs) {
   TORCH_INTERNAL_ASSERT(
-      inputs.size() == complete_fusion.inputs().size(),
+      fusion_runtime_inputs.size() == complete_fusion.inputs().size(),
       "Inputs were not set up correctly, recieved ",
-      inputs.size(),
+      fusion_runtime_inputs.size(),
       " inputs but expecting ",
       complete_fusion.inputs().size());
 
   std::unordered_map<Val*, IValue> tensor_map;
-  for (size_t i = 0; i < inputs.size(); i++) {
-    tensor_map.emplace(std::make_pair(complete_fusion.inputs()[i], inputs[i]));
+  for (size_t i = 0; i < fusion_runtime_inputs.size(); i++) {
+    tensor_map.emplace(
+        std::make_pair(complete_fusion.inputs()[i], fusion_runtime_inputs[i]));
   }
 
   std::vector<bool> group_ran(groups.size(), false);
@@ -675,12 +665,36 @@ std::vector<at::Tensor> SingleReductionSegmenter::runFusionWithInputs(
       group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
     bool one_ran = false;
     auto group_it = groups.begin();
-    for (size_t i = 0; i < groups.size(); i++, group_it++) {
-      if (group_ran[i]) {
+    for (size_t group_i = 0; group_i < groups.size(); group_i++, group_it++) {
+      auto& group = *group_it;
+      if (group_ran[group_i]) {
         continue;
       }
-      if (readyToExecute(&(*group_it), tensor_map)) {
-        // run group
+      auto group_inputs = getAllInputs(&group);
+      bool ready_to_run = std::all_of(
+          group_inputs.begin(), group_inputs.end(), [&tensor_map](Val* val) {
+            return tensor_map.find(val) != tensor_map.end();
+          });
+
+      if (ready_to_run) {
+        std::vector<IValue> group_runtime_inputs;
+        for (auto input : group_inputs) {
+          group_runtime_inputs.push_back(tensor_map.at(input));
+        }
+        std::cout << "Running:" << std::endl;
+        fusion_executors[group_i]->printFusion();
+        auto group_runtime_outputs =
+            fusion_executors[group_i]->runFusionWithInputs(
+                group_runtime_inputs);
+
+        auto group_outputs = getAllOutputs(&group);
+
+        for (size_t group_out_i = 0; group_out_i < group_outputs.size();
+             group_out_i++) {
+          tensor_map.emplace(std::make_pair(
+              group_outputs[group_out_i], group_runtime_outputs[group_out_i]));
+        }
+        group_ran[group_i] = true;
         one_ran = true;
       }
     }
@@ -689,9 +703,23 @@ std::vector<at::Tensor> SingleReductionSegmenter::runFusionWithInputs(
         "Couldn't run all groups, something must have gone wrong in segmentation.");
   }
 
-  // std::vector<IValue> inputs;
+  std::vector<IValue> fusion_outputs;
+  for (auto output : complete_fusion.outputs()) {
+    fusion_outputs.push_back(tensor_map.at(output));
+  }
 
-  return std::vector<at::Tensor>();
+  std::vector<at::Tensor> fusion_output_tensors;
+  std::transform(
+      fusion_outputs.begin(),
+      fusion_outputs.end(),
+      std::back_inserter(fusion_output_tensors),
+      [](IValue ival) {
+        TORCH_INTERNAL_ASSERT(
+            ival.isTensor(), "Cannot output non-tensor objects from a fusion.");
+        return ival.toTensor();
+      });
+
+  return fusion_output_tensors;
 }
 
 } // namespace cuda

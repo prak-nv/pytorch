@@ -12,7 +12,6 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-// TODO: Clean up deque, use vector when possible
 // TODO: Review const model, and objects
 // TODO: Rename,
 //  segment -> fusion_segmenter.cpp/.h
