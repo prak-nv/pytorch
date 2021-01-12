@@ -113,7 +113,6 @@ kir::Bool* PredicateCompute::getInlinePredicate(
     const ComputeAtRootDomainMap& ca_root_map,
     bool ignore_block_grid_reductions) {
   FUSER_PERF_SCOPE("getInlinePredicate");
-
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
   if (loops.empty()) {
@@ -170,7 +169,6 @@ kir::Bool* PredicateCompute::getInlinePredicate(
 
   auto all_preds = PredicateCompute::computePredicates(
       out_tv, root_indices, use_maybe_rfactor);
-
   // If we have thread predicates, add those
   if (thread_pred != nullptr) {
     all_preds.push_back(thread_pred);

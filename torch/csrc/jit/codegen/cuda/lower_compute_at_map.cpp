@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
 
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
@@ -326,12 +327,30 @@ void ComputeAtMap::build() {
     int max_pos = -1;
     IterDomain* concrete_id = nullptr;
     for (auto id : *set) {
+      // Uncertain if the following is needed, Maybe it makes sense to not
+      // create loop nests based on rfactor axes if we can avoid it
+      // // Don't use rfactor iter domains if not required.
+      // if(id->isRFactorProduct() && id->definition() == nullptr){
+      //   continue;
+      // }
       int pos = n_concrete_ids_.at(id);
       if (pos > max_pos) {
         max_pos = pos;
         concrete_id = id;
       }
     }
+    // Uncertain if the following is needed, Maybe it makes sense to not
+    // create loop nests based on rfactor axes if we can avoid it
+    // if(concrete_id == nullptr){
+    //   // Same thing as above, but consider non-input rfactor iter domains
+    //   for (auto id : *set) {
+    //     int pos = n_concrete_ids_.at(id);
+    //     if (pos > max_pos) {
+    //       max_pos = pos;
+    //       concrete_id = id;
+    //     }
+    //   }
+    // }
     TORCH_INTERNAL_ASSERT(
         concrete_id != nullptr, "Could not concretize an IterDomain set.");
 
@@ -391,6 +410,22 @@ void ComputeAtMap::build() {
   for (auto entry : disjoint_iter_set_maps_) {
     kir_2_fusion[gpu_lower->lowerValue(entry.first)->as<kir::IterDomain>()] =
         entry.first;
+  }
+
+  // Make sure we have all IterDomains that could be used to generate a ForLoop
+  for (auto expr : fusion->exprs()) {
+    if (!expr->outputs()[0]->isA<TensorView>()) {
+      continue;
+    }
+
+    auto tv_outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+
+    for (auto out : tv_outputs) {
+      for (auto entry : out->domain()->domain()) {
+        kir_2_fusion[gpu_lower->lowerValue(entry)->as<kir::IterDomain>()] =
+            entry;
+      }
+    }
   }
 }
 
@@ -452,6 +487,63 @@ ParallelType ComputeAtMap::getMappedParallelType(kir::IterDomain* id) const {
     return id->parallelType();
   }
   return parallel_type_it->second;
+}
+
+// std::unordered_map<IterDomain*, IterDomain*> ComputeAtMap::mapFromTo(
+//     const std::vector<IterDomain*>& from,
+//     const std::vector<IterDomain*>& to) const {
+//   std::unordered_map<IterDomain*, IterDomain*> concrete_to_from;
+//   for (auto from_id : from) {
+//     auto concrete_id = getConcreteMappedID(from_id);
+//     concrete_to_from[concrete_id] = from_id;
+//   }
+
+//   std::unordered_map<IterDomain*, IterDomain*> from_to_to;
+//   for(auto to_id : to){
+//     auto concrete_id = getConcreteMappedID(to_id);
+
+//     auto from_it = concrete_to_from.find(concrete_id);
+//     if(from_it == concrete_to_from.end()){
+//       continue;
+//     }
+
+//     from_to_to[from_it->second] = to_id;
+//   }
+
+//   return from_to_to;
+// }
+
+// std::unordered_map<kir::IterDomain*, kir::IterDomain*>
+// ComputeAtMap::mapFromTo(
+//     const std::vector<kir::IterDomain*>& from,
+//     const std::vector<kir::IterDomain*>& to) const {
+//   std::unordered_map<kir::IterDomain*, kir::IterDomain*> concrete_to_from;
+//   for (auto from_id : from) {
+//     auto concrete_id = getConcreteMappedID(from_id);
+//     concrete_to_from[concrete_id] = from_id;
+//   }
+
+//   std::unordered_map<kir::IterDomain*, kir::IterDomain*> from_to_to;
+//   for (auto to_id : to) {
+//     auto concrete_id = getConcreteMappedID(to_id);
+
+//     auto from_it = concrete_to_from.find(concrete_id);
+//     if (from_it == concrete_to_from.end()) {
+//       continue;
+//     }
+
+//     from_to_to[from_it->second] = to_id;
+//   }
+
+//   return from_to_to;
+// }
+
+IterDomain* ComputeAtMap::toFusion(kir::IterDomain* kir) const {
+  auto kir_2_fusion_it = kir_2_fusion.find(kir);
+  TORCH_INTERNAL_ASSERT(
+      kir_2_fusion_it != kir_2_fusion.end(),
+      "Kernel ir is not guarneteed to be reversible into fusion ir, could not find fusion entry.");
+  return kir_2_fusion_it->second;
 }
 
 std::string ComputeAtMap::toString() {

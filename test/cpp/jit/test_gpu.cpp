@@ -1148,27 +1148,27 @@ TEST(NVFuserTest, FusionParser_CUDA) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Tensor<float, 1> T3) {
   if ((((((blockIdx.x * 1) + (1 - 1)) * 128) + threadIdx.x) < T0.size[0])) {
-    for(size_t ki25 = 0; ki25 < 1; ++ki25) {
+    for(size_t ki38 = 0; ki38 < 1; ++ki38) {
       float T2[1];
-      T2[ki25]
-        = T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
-        * T1[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
-      T3[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
-        = T2[ki25]
-        * T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
+      T2[ki38]
+        = T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
+        * T1[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
+      T3[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
+        = T2[ki38]
+        * T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
     }
   } else {
-    for(size_t ki25 = 0; ki25 < 1; ++ki25) {
+    for(size_t ki38 = 0; ki38 < 1; ++ki38) {
       float T2[1];
-      if ((((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x) < T0.size[0])) {
-        T2[ki25]
-          = T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
-          * T1[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
+      if ((((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x) < T0.size[0])) {
+        T2[ki38]
+          = T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
+          * T1[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
       }
-      if ((((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x) < T0.size[0])) {
-        T3[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)]
-          = T2[ki25]
-          * T0[((((blockIdx.x * 1) + ki25) * 128) + threadIdx.x)];
+      if ((((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x) < T0.size[0])) {
+        T3[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
+          = T2[ki38]
+          * T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
       }
     }
   }

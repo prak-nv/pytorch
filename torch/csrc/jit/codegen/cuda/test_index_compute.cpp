@@ -14,6 +14,7 @@ namespace cuda {
 // We're going to replay this split operation on the corresponding ID
 void TestReplay::handle(Split* s) {
   auto in = s->in();
+
   auto concrete_in = ca_maps_.getConcreteMappedID(in);
   auto mapped_in_it = concrete_to_id.find(concrete_in);
   if (mapped_in_it == concrete_to_id.end()) {
@@ -21,12 +22,23 @@ void TestReplay::handle(Split* s) {
   }
 
   auto mapped_in = mapped_in_it->second;
+
+  if (leaf_ids.find(mapped_in) == leaf_ids.end()) {
+    return;
+  }
+
   auto replayed_outs =
       IterDomain::split(mapped_in, s->factor(), s->innerSplit());
+
   auto concrete_outer = ca_maps_.getConcreteMappedID(s->outer());
   auto concrete_inner = ca_maps_.getConcreteMappedID(s->inner());
+
   concrete_to_id[concrete_outer] = replayed_outs.first;
   concrete_to_id[concrete_inner] = replayed_outs.second;
+
+  leaf_ids.erase(mapped_in);
+  leaf_ids.emplace(replayed_outs.first);
+  leaf_ids.emplace(replayed_outs.second);
 }
 
 // We're going to replay this merge operation on the corresponding IDs
@@ -44,17 +56,31 @@ void TestReplay::handle(Merge* m) {
       mapped_in_inner_it == concrete_to_id.end()) {
     return;
   }
-  auto mapped_in_outer = mapped_in_outer_it->first;
+
+  auto mapped_in_outer = mapped_in_outer_it->second;
   auto mapped_in_inner = mapped_in_inner_it->second;
 
+  if (leaf_ids.find(mapped_in_outer) == leaf_ids.end() &&
+      leaf_ids.find(mapped_in_inner) == leaf_ids.end()) {
+    return;
+  }
+
   auto replayed = IterDomain::merge(mapped_in_outer, mapped_in_inner);
+
   auto concrete_replayed = ca_maps_.getConcreteMappedID(m->out());
+
+  leaf_ids.erase(mapped_in_outer);
+  leaf_ids.erase(mapped_in_inner);
+
+  leaf_ids.emplace(replayed);
+
   concrete_to_id[concrete_replayed] = replayed;
 }
 
 TensorDomain* TestReplay::computeReplay() {
   // Extract iter domain's from the loop structure
   std::vector<IterDomain*> fusion_loop_structure;
+
   std::transform(
       loop_structure_.begin(),
       loop_structure_.end(),
@@ -70,35 +96,32 @@ TensorDomain* TestReplay::computeReplay() {
 
   auto all_iter_inputs = ir_utils::filterByType<IterDomain>(all_inputs);
 
-  // Reduce those inputs to a single set of concrete axes to remove the iter
-  // domains that map to eachother
-  std::unordered_set<IterDomain*> concrete_root_axes;
-  std::transform(
-      all_iter_inputs.begin(),
-      all_iter_inputs.end(),
-      std::inserter(concrete_root_axes, concrete_root_axes.begin()),
-      [&](IterDomain* id) { return ca_maps_.getConcreteMappedID(id); });
-
-  // Create a map from the concrete_id's to actual id's. This is really just the
-  // replay map to track inputs being used to produce outputs
-  for (auto id : concrete_root_axes) {
-    concrete_to_id[id] = id;
+  // Reduce those inputs to a single set of axes to remove the iter domains that
+  // map to eachother
+  std::unordered_set<IterDomain*> root_axes;
+  for (auto root_id : all_iter_inputs) {
+    auto concrete_id = ca_maps_.getConcreteMappedID(root_id);
+    if (concrete_to_id.find(concrete_id) != concrete_to_id.end()) {
+      continue;
+    }
+    root_axes.emplace(root_id);
+    concrete_to_id[concrete_id] = root_id;
+    leaf_ids.emplace(root_id);
   }
 
-  // Vector of val's to traverse on with IterVisitor
-  std::vector<Val*> val_loop_structure;
+  auto replay_exprs = ExprSort::getExprs(
+      FusionGuard::getCurFusion(),
+      {fusion_loop_structure.begin(), fusion_loop_structure.end()});
 
-  std::transform(
-      fusion_loop_structure.begin(),
-      fusion_loop_structure.end(),
-      std::back_inserter(val_loop_structure),
-      [](IterDomain* id) { return id; });
+  // Run the replay
+  for (auto expr : replay_exprs) {
+    OptInDispatch::handle(expr);
+  }
 
-  // Replay the transformations
-  traverseFrom(fusion_loop_structure[0]->fusion(), val_loop_structure);
-
-  // representation of a tensor replayed as the loop structure.
+  // Representation of a tensor replayed as the loop structure.
   std::vector<IterDomain*> loops_replayed_domain;
+
+  // std::cout<<"Mapping:"<<std::endl;
   // Lookup is based on concrete mapped ID because that's what we used to mark
   // them during replay. Loop_id's though should already be concrete so lookup
   // may be redundant.
@@ -107,16 +130,32 @@ TensorDomain* TestReplay::computeReplay() {
       fusion_loop_structure.end(),
       std::back_inserter(loops_replayed_domain),
       [&](IterDomain* loop_id) {
-        return concrete_to_id.at(ca_maps_.getConcreteMappedID(loop_id));
+        auto concrete_to_id_it =
+            concrete_to_id.find(ca_maps_.getConcreteMappedID(loop_id));
+        TORCH_INTERNAL_ASSERT(
+            concrete_to_id_it != concrete_to_id.end(),
+            "Could not find required iter domain in reference replay.");
+        auto replayed_id = concrete_to_id_it->second;
+        leaf_ids.erase(replayed_id);
+        return replayed_id;
       });
 
-  // Create tensor domain with concrete root domains as the root, and the
-  // replayed loop structure as the domain
-  return new TensorDomain(
-      // Order doesn't matter for root axis
-      std::vector<IterDomain*>(
-          concrete_root_axes.begin(), concrete_root_axes.end()),
-      loops_replayed_domain);
+  // Add any remaining leaf iter domains
+  for (auto entry : leaf_ids) {
+    loops_replayed_domain.push_back(entry);
+  }
+  if (replay_exprs.empty()) {
+    auto domain = new TensorDomain(
+        // Order for root axis does matter in this case
+        loops_replayed_domain);
+    return domain;
+  } else {
+    auto domain = new TensorDomain(
+        // Order doesn't matter for root axis
+        std::vector<IterDomain*>(root_axes.begin(), root_axes.end()),
+        loops_replayed_domain);
+    return domain;
+  }
 }
 
 IndexCompute getReferenceIndexing(
@@ -213,15 +252,22 @@ class PreferredPathCompute : public IterVisitor {
         reference_domain->getRootDomain().begin(),
         reference_domain->getRootDomain().end());
 
-    TORCH_INTERNAL_ASSERT(
-        std::all_of(
-            preferred_roots.begin(),
-            preferred_roots.end(),
-            [&reference_root](IterDomain* preferred_root) {
-              return reference_root.find(preferred_root) !=
-                  reference_root.end();
-            }),
-        "Preferred path compute recieved root tensors to prefer that are not in reference.");
+    // This assert doesn't work because preferred_roots may be on index tensors
+    // rfactor domain, which could differ from references root domain. Would be
+    // nice to make sure that preferred_roots are somewhere in the history of
+    // reference, but chose not to do that due to complexity. May make sense to
+    // do in a debug mode.
+    //
+    // TORCH_INTERNAL_ASSERT(
+    //     std::all_of(
+    //         preferred_roots.begin(),
+    //         preferred_roots.end(),
+    //         [&reference_root](IterDomain* preferred_root) {
+    //           return reference_root.find(preferred_root) !=
+    //               reference_root.end();
+    //         }),
+    //     "Preferred path compute recieved root tensors to prefer that are not
+    //     in reference.");
 
     std::vector<Val*> val_domain(
         reference_domain->domain().begin(), reference_domain->domain().end());
@@ -238,78 +284,6 @@ std::unordered_set<IterDomain*> buildPreferredPaths(
     TensorDomain* reference_tensor,
     std::unordered_set<IterDomain*> preferred_roots) {
   return PreferredPathCompute::compute(reference_tensor, preferred_roots);
-}
-
-TestIndexing::TestIndexing()
-    : gpu_lower(GpuLower::current()),
-      ir_builder(gpu_lower->kernel()),
-      ca_maps_(GpuLower::current()->caMaps()) {}
-
-void TestIndexing::visit(kir::ForLoop* fl) {
-  for_loops.push_back(fl);
-  // Modifying in place, make a copy of the vector
-  const std::vector<kir::Expr*> exprs = fl->body().exprs();
-  for (auto expr : exprs) {
-    handle(expr);
-  }
-  for_loops.pop_back();
-}
-
-void TestIndexing::visit(kir::IfThenElse* ite) {
-  for (auto expr : ite->thenBody().exprs()) {
-    handle(expr);
-  }
-}
-
-void TestIndexing::handle(kir::Expr* expr) {
-  if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
-    expr->accept(this);
-    return;
-  }
-  if (!ir_utils::isTVOp(expr)) {
-    expr->accept(this);
-    return;
-  }
-
-  // TODO: This should all be done in kir, not fusion ir.
-  TORCH_INTERNAL_ASSERT(expr->outputs()[0]->isA<kir::TensorView>());
-
-  auto reference_tensor = TestReplay::getReference(for_loops, ca_maps_);
-
-  auto ref_compute =
-      getReferenceIndexing(for_loops, ca_maps_, reference_tensor);
-
-  auto out_fuser_tv = expr->outputs()[0]->as<kir::TensorView>()->fuserTv();
-
-  std::unordered_map<IterDomain*, IterDomain*> root_ref_to_index_tv;
-  // Root of reference tensor is already all concrete ids, so for replay which
-  // generates map we can simply map to concrete ids
-  for (auto index_root : out_fuser_tv->getRootDomain()) {
-    auto concrete_root = ca_maps_.getConcreteMappedID(index_root);
-    root_ref_to_index_tv.emplace(std::make_pair(concrete_root, index_root));
-  }
-
-  BestEffortReplay replay_out_as_ref(
-      out_fuser_tv->domain()->domain(),
-      reference_tensor->domain(),
-      root_ref_to_index_tv,
-      true);
-
-  auto ref_2_out = replay_out_as_ref.getReplay();
-
-  auto output = ref_compute.updateIndexCompute(
-      out_fuser_tv->domain(),
-      ref_2_out,
-      {},
-      out_fuser_tv->domain()->contiguity());
-
-  TORCH_INTERNAL_ASSERT(false);
-}
-
-void TestIndexing::generate(std::vector<kir::Expr*>& exprs) {
-  for (auto expr : exprs) {
-    handle(expr);
-  }
 }
 
 } // namespace cuda

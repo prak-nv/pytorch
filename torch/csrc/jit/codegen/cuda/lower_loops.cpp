@@ -304,6 +304,13 @@ void LoopNestGenerator2::handle(const Expr* expr) {
   // Check if it's a tensor view expression we need to place in the loop nest
   // structure
   if (!ir_utils::isTVOp(expr)) {
+    // Close all the loops, scalar operations cannot be inside for loops based
+    // on expr sorting.
+    for (size_t i = 0; i < for_loops_.size(); i++) {
+      closeFor();
+    }
+    pushFront(gpu_lower->lowerExpr(expr));
+
     for (auto out : expr->outputs()) {
       TORCH_INTERNAL_ASSERT(
           out->getValType().value() == ValType::Scalar,
@@ -317,7 +324,6 @@ void LoopNestGenerator2::handle(const Expr* expr) {
           MemoryType::Local,
           ir_builder_.create<kir::Int>(1)));
     }
-    pushFront(gpu_lower->lowerExpr(expr));
     return;
   }
 
@@ -358,7 +364,7 @@ void LoopNestGenerator2::handle(const Expr* expr) {
     }
   }
 
-  // Save position of out_id_it as we willi append to loop structure
+  // Save position of out_id_it as we will append to loop structure
   // invalidating it
   size_t out_id_i = std::distance(loop_structure.begin(), out_id_it);
 

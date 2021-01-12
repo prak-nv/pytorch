@@ -60,13 +60,20 @@ class ComputeAtMap {
 
   ParallelType getMappedParallelType(kir::IterDomain* id) const;
 
+  // // Using concrete mapped IDs map the IterDomains in the provided vectors
+  // std::unordered_map<IterDomain*, IterDomain*> mapFromTo(
+  //     const std::vector<IterDomain*>& from,
+  //     const std::vector<IterDomain*>& to) const;
+
+  // std::unordered_map<kir::IterDomain*, kir::IterDomain*> mapFromTo(
+  //     const std::vector<kir::IterDomain*>& from,
+  //     const std::vector<kir::IterDomain*>& to) const;
+
   // TODO: This is terrible, but we have nice functionality in iter_visitor that
   // isn't moved over. Use of this is limited to indexing and this should
   // definitely be removed by building out kernel ir to have better parity with
   // fusion ir.
-  IterDomain* toFusion(kir::IterDomain* kir) const {
-    return kir_2_fusion.at(kir);
-  }
+  IterDomain* toFusion(kir::IterDomain* kir) const;
 
   //! Returns an iter domain that is the maximum expanded size of all iter
   //! domains the one provided maps to. Useful for opening loops to the correct

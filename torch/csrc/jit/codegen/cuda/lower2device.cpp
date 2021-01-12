@@ -150,7 +150,7 @@ void GpuLower::lower() {
   const auto reuse_mem_exprs = reuseMemoryAllocations(unrolled_loops);
 
   // Insert SyncThreads at end of for-loop to avoid WAR race condition
-  const auto war_sync_exprs = insertWARThreadSynchronization(reuse_mem_exprs);
+  auto war_sync_exprs = insertWARThreadSynchronization(reuse_mem_exprs);
 
   const auto indexed_loops =
       IndexLowering::getIndexedExprs(war_sync_exprs, preds, ca_root_map);

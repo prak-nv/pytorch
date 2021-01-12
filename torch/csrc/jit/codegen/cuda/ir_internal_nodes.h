@@ -376,7 +376,7 @@ class TORCH_CUDA_API IterDomain : public Val {
 class TORCH_CUDA_API TensorDomain : public Val {
  public:
   explicit TensorDomain(
-      std::vector<IterDomain*> domain,
+      std::vector<IterDomain*> root_domain,
       std::vector<bool> contiguity = std::vector<bool>());
 
   TensorDomain(

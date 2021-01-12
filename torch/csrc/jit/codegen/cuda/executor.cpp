@@ -138,6 +138,7 @@ void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
   }
 
   const auto kernel_code = codegen::generateCudaKernel(kernel, kernelName());
+  // std::cout<<kernel_code<<std::endl;
   const auto structured_code = getStructuredCode(kernel_code);
 
   const auto& kernel_summary = kernel->summary();

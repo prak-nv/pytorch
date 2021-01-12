@@ -307,7 +307,8 @@ void BackwardVisitor::traverseFrom(
     for (auto out : traversal_pair.first->outputs()) {
       TORCH_INTERNAL_ASSERT(
           vals.find(out) != vals.end(),
-          "Invalid backward traversal found. Some output paths were not provided.");
+          "Invalid backward traversal found. Some output paths were not provided:",
+          out);
     }
   }
 
