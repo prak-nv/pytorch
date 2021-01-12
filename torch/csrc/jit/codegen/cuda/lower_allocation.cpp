@@ -315,9 +315,9 @@ class AllocationInserter : public kir::MutableIrVisitor {
             place_before_it != loop_nests_.end(),
             "Could not figure out where to place allocation. ",
             "Use of the buffer, ",
-            toString(alloc.buffer, false),
+            toString(alloc.buffer),
             ", could not be found.",
-            toString(alloc.place_before, false));
+            toString(alloc.place_before));
         loop_nests_.insert(place_before_it, alloc.alloc_expr);
       } else {
         alloc.for_loop->body().insert_before(

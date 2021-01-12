@@ -292,7 +292,7 @@ class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
             place_after_it != loop_nests_.end(),
             "Could not figure out where to place synchronization. ",
             "Tried to place after, ",
-            toString(place_after, false),
+            toString(place_after),
             ", but could not find this expression at the global scope.");
         loop_nests_.insert(place_after_it + 1, sync_expr);
       } else {
