@@ -106,6 +106,113 @@ std::vector<kir::Bool*> PredicateCompute::computePredicates(
   return preds;
 }
 
+namespace {
+
+//! Analyze whether IterDomain can be statically determined to be safe
+//! without bounds-checking predicates.
+class IterationDomainAnalysis : private IterVisitor {
+ public:
+  //! Return true if the expression defining tv can be safely run
+  //! without a predicate
+  static bool canOmitPredicate(const kir::TensorView* tv) {
+    auto fuser_tv = tv->fuserTv();
+    for (size_t i = 0; i < fuser_tv->nDims(); ++i) {
+      IterDomain* id = fuser_tv->getComputeAtAxis(i).first;
+      auto extent = id->rawExtent();
+      IterationDomainAnalysis id_analysis;
+      id_analysis.traverseFrom(id->fusion(), {extent});
+      if (!id_analysis.isExact(extent)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+ private:
+  using IterVisitor::handle;
+
+  //! Check if the value of val is statically known
+  bool isConst(const Val* val) const {
+    return const_vals_.find(val) != const_vals_.end();
+  }
+
+  //! Return the actual value of val, which must be known to be
+  //! constant
+  int getConst(const Val* val) const {
+    TORCH_INTERNAL_ASSERT(isConst(val));
+    return const_vals_.at(val);
+  }
+
+  //! Record val has a static value of const_val
+  void setConst(const Val* val, int const_val) {
+    TORCH_INTERNAL_ASSERT(const_val > 0);
+    const_vals_[val] = const_val;
+    setExact(val);
+  }
+
+  //! Check if val has nothing that prevents a loop using val as its
+  //! extent to omit a bounds-checking predicate
+  bool isExact(const Val* val) const {
+    return exact_vals_.find(val) != exact_vals_.end();
+  }
+
+  //! Record val does not need a predicate.
+  void setExact(const Val* val) {
+    exact_vals_.insert(val);
+  }
+
+  void handle(Int* val) override {
+    if (val->isConst()) {
+      setConst(val, *(val->value()));
+    } else if (val->definition() == nullptr) {
+      // Undefined symbolic values
+      setExact(val);
+    }
+  }
+
+  void handle(BinaryOp* bop) override {
+    const auto lhs = bop->lhs();
+    const auto rhs = bop->rhs();
+
+    if (!(isExact(lhs) && isExact(rhs))) {
+      return;
+    }
+
+    if (bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
+      // CeilDiv is the only expression that can make an extent val
+      // larger than the actual. Need to know the exact values.
+      if (!(isConst(lhs) && isConst(rhs))) {
+        return;
+      }
+      const auto lhs_const = getConst(lhs);
+      const auto rhs_const = getConst(rhs);
+      if (lhs_const % rhs_const == 0) {
+        setConst(bop->out(), lhs_const / rhs_const);
+      }
+    } else if (bop->getBinaryOpType() == BinaryOpType::Mul) {
+      if (isConst(lhs) && isConst(rhs)) {
+        // Both operand values are statically known. Remember its
+        // actual value.
+        const auto lhs_const = getConst(lhs);
+        const auto rhs_const = getConst(rhs);
+        setConst(bop->out(), lhs_const * rhs_const);
+      } else {
+        // The actual value is unknown at the compile time, but it
+        // does not yet require a predicate.
+        setExact(bop->out());
+      }
+    } else {
+      TORCH_INTERNAL_ASSERT("Unexpected BinaryOpType: ", bop);
+    }
+  }
+
+ private:
+  std::unordered_set<const Val*> exact_vals_;
+  std::unordered_map<const Val*, int> const_vals_;
+};
+
+} // namespace
+
 kir::Bool* PredicateCompute::getInlinePredicate(
     const kir::Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
@@ -166,6 +273,10 @@ kir::Bool* PredicateCompute::getInlinePredicate(
     if (!has_tv_inputs) {
       return ir_builder.create<kir::Bool>(true);
     }
+  }
+
+  if (IterationDomainAnalysis::canOmitPredicate(out_tv)) {
+    return thread_pred;
   }
 
   auto all_preds = PredicateCompute::computePredicates(
