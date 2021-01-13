@@ -76,8 +76,9 @@ class KernelIrScanner : private kir::IrVisitor {
     summary_.has_block_broadcasts =
         summary_.has_block_broadcasts || domain->hasBlockBroadcast();
 
-    // TODO: Why definition() does not return kir::GridReduction?
     if (domain->hasGridReduction()) {
+      // tensor_index may be for initialization of a reduction
+      // buffer. Avoid counting twice.
       if (tensor_index->definition()->isA<kir::ReductionOp>()) {
         ++summary_.number_of_grid_reductions;
       }
