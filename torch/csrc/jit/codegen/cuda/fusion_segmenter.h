@@ -56,7 +56,8 @@ class SegmentedEdge {
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
 
 // Groups together expressions which create a segmented group
-class SegmentedGroup {
+// Can be used to produce fusions
+class TORCH_CUDA_API SegmentedGroup {
  public:
   SegmentedGroup() = default;
 
