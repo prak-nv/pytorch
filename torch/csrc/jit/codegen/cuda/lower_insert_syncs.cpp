@@ -300,11 +300,14 @@ class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
         // would place an allocation for out_tv
         auto fuser_tv = out_tv->fuserTv();
         auto lowered_local_id =
-            GpuLower::current()->lowerValue(fuser_tv->axis(produced_at - 1))
+            GpuLower::current()
+                ->lowerValue(fuser_tv->axis(produced_at - 1))
                 ->as<kir::IterDomain>();
 
         auto loops_it = std::find_if(
-            for_loops_.begin(), for_loops_.end(), [&lowered_local_id](const auto& loop) {
+            for_loops_.begin(),
+            for_loops_.end(),
+            [&lowered_local_id](const auto& loop) {
               return GpuLower::current()->caLoopMap().areMapped(
                          loop->iter_domain(), lowered_local_id) ||
                   loop->iter_domain()->parallelType() == ParallelType::Unroll;

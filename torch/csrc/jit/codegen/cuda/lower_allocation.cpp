@@ -114,7 +114,8 @@ class AllocationInserter : public kir::MutableIrVisitor {
       }
       auto concrete_id =
           gpu_lower
-              ->lowerValue(gpu_lower->caLoopMap().getConcreteMappedID(fuser_tv->axis(axis_i)))
+              ->lowerValue(gpu_lower->caLoopMap().getConcreteMappedID(
+                  fuser_tv->axis(axis_i)))
               ->as<kir::IterDomain>();
       init_dims.push_back(concrete_id);
     }
@@ -167,12 +168,15 @@ class AllocationInserter : public kir::MutableIrVisitor {
         continue;
       }
 
-        auto concrete_id = gpu_lower
-                               ->lowerValue(gpu_lower->caLoopMap().getConcreteMappedID(
-                                   fuser_tv->axis(axis_i)))
-                               ->as<kir::IterDomain>();
-      const bool is_block_dim = isParallelTypeBlockDim(concrete_id->parallelType());
-      const bool is_thread_dim = isParallelTypeThreadDim(concrete_id->parallelType());
+      auto concrete_id =
+          gpu_lower
+              ->lowerValue(gpu_lower->caLoopMap().getConcreteMappedID(
+                  fuser_tv->axis(axis_i)))
+              ->as<kir::IterDomain>();
+      const bool is_block_dim =
+          isParallelTypeBlockDim(concrete_id->parallelType());
+      const bool is_thread_dim =
+          isParallelTypeThreadDim(concrete_id->parallelType());
       const bool is_thread = isParallelTypeThread(concrete_id->parallelType());
 
       if (axis_i < info.alloc_pos) {
@@ -196,8 +200,10 @@ class AllocationInserter : public kir::MutableIrVisitor {
           continue;
         }
       }
-      // TODO: Is this correct? Should allocations be based off of concrete sizes?
-      alloc_dims.push_back(gpu_lower->caLoopMap().getConcreteMappedID(local_id)->rawExtent());
+      // TODO: Is this correct? Should allocations be based off of concrete
+      // sizes?
+      alloc_dims.push_back(
+          gpu_lower->caLoopMap().getConcreteMappedID(local_id)->rawExtent());
     }
 
     // Multiply all the dimensions we're going to use for the allocation
