@@ -98,7 +98,7 @@ class KernelIrScanner : private kir::IrVisitor {
     if (domain->hasGridReduction()) {
       auto fuser_tv = tv->fuserTv();
       for (size_t i = 0; i < fuser_tv->nDims(); ++i) {
-        auto id = fuser_tv->getComputeAtAxis(i).first;
+        const auto id = fuser_tv->getComputeAtAxis(i).first;
         summary_.has_grid_reduction_in_loop =
             summary_.has_grid_reduction_in_loop || !id->isThread();
       }
