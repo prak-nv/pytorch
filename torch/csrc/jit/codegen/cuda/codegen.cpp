@@ -275,8 +275,18 @@ class CudaKernelGenerator : private kir::IrVisitor {
   }
 
   void visit(const kir::UnaryOp* node) final {
+    const auto op_type = node->operation();
     if (!print_inline_) {
-      indent() << gen(node->out());
+      if (op_type == UnaryOpType::VectorizeRead) {
+        indent() << "vec_" << gen(node->out());
+      } else if (op_type == UnaryOpType::VectorizeWrite) {
+        indent() << "*reinterpret_cast<"
+                 << "Array<" << node->out()->dtype() << ", "
+                 << genInline(node->in()->as<kir::TensorView>()->vectorSize()) << ">*>"
+                 << "(&" << gen(node->out()) << ")";
+      } else {
+        indent() << gen(node->out());
+      }
       if (!node->out()->isScalar() && !node->in()->isScalar()) {
         code_ << "\n";
         indent() << kTab;
@@ -284,7 +294,6 @@ class CudaKernelGenerator : private kir::IrVisitor {
       code_ << " = ";
     }
 
-    const auto op_type = node->operation();
     if (auto op = inline_op_str(op_type)) {
       if (alsoBooleanOperator(op_type) &&
           node->out()->dtype() == DataType::Bool) {
@@ -292,6 +301,13 @@ class CudaKernelGenerator : private kir::IrVisitor {
       } else {
         code_ << *op << gen(node->in());
       }
+    } else if(op_type == UnaryOpType::VectorizeRead) {
+        code_ << "*reinterpret_cast<"
+              << "Array<" << node->in()->dtype() << ", "
+              << genInline(node->out()->as<kir::TensorView>()->vectorSize()) << ">*>"
+              << "(&" << gen(node->in()) << ")";
+    } else if (op_type == UnaryOpType::VectorizeWrite) {
+        code_ << "vec_" << gen(node->in());
     } else {
       if (op_type == UnaryOpType::Cast) {
         const auto cast_str =
@@ -684,10 +700,11 @@ class CudaKernelGenerator : private kir::IrVisitor {
       }
     }
 
-    if (node->vectorSize() != nullptr) {
-      indent() << "Array<" << buffer_dtype << ", " << genInline(node->vectorSize()) << ">* "
+    auto vector_size = tv->vectorSize();
+    if (vector_size != nullptr) {
+      indent() << "Array<" << buffer_dtype << ", " << genInline(vector_size) << ">* "
                << "vec_" << varName(tv) << " = reinterpret_cast<"
-               << "Array<" << buffer_dtype << ", " << genInline(node->vectorSize()) << ">*>"
+               << "Array<" << buffer_dtype << ", " << genInline(vector_size) << ">*>"
                << "(&" << varName(tv) << ");\n";
     }
   }

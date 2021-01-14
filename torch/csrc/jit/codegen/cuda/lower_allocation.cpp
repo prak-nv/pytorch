@@ -153,7 +153,6 @@ class AllocationInserter : public kir::MutableIrVisitor {
 
     auto fuser_tv = info.buffer->fuserTv();
 
-    kir::Val* vector_size = nullptr;
     std::vector<kir::Val*> alloc_dims;
     const MemoryType memory_type = info.buffer->memoryType();
     for (size_t axis_i = 0; axis_i < fuser_tv->nDims(); axis_i++) {
@@ -199,11 +198,6 @@ class AllocationInserter : public kir::MutableIrVisitor {
         }
       }
 
-      // Get size of vectorized dimension
-      if (ca_id->parallelType() == ParallelType::Vectorize) {
-        vector_size = ca_id->rawExtent();
-      }
-
       alloc_dims.push_back(ca_id->rawExtent());
     }
 
@@ -222,11 +216,6 @@ class AllocationInserter : public kir::MutableIrVisitor {
     // Create the allocation node
     info.alloc_expr = ir_builder.create<kir::Allocate>(
         info.buffer, info.buffer->memoryType(), size);
-
-    if (vector_size != nullptr) {
-      info.alloc_expr->setVectorSize(vector_size);
-    }
-
   }
 
   void handle(kir::Expr* expr) {

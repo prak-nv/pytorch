@@ -238,6 +238,15 @@ void IndexCompute::handle(Split* split) {
   const bool outer_bcast = outer_id->isBroadcast();
   const bool inner_bcast = inner_id->isBroadcast();
 
+  bool is_vectorized = false;
+  // in_id inherits vectorize flag from inner_id
+  if (vectorized_domain_.find(inner_id) != vectorized_domain_.end()) {
+    vectorized_domain_.insert(in_id);
+  }
+  if (vectorized_domain_.find(in_id) != vectorized_domain_.end()) {
+    is_vectorized = true;
+  }
+
   // Zero inds because a dim is bcast is part of normal traversal, if it's not
   // bcast but is zero ind then it's from local or smem. In the latter case we
   // want to propagate this property.
@@ -266,8 +275,13 @@ void IndexCompute::handle(Split* split) {
     zero_merged_in_.emplace(in_id);
     extent_map_[in_id] = getExtent(outer_id);
   } else {
-    index_map_[in_id] = ir_builder.addExpr(
+    if (is_vectorized) {
+      index_map_[in_id] = ir_builder.mulExpr(outer_ind, getExtent(inner_id));
+    } else {
+      index_map_[in_id] = ir_builder.addExpr(
         ir_builder.mulExpr(outer_ind, getExtent(inner_id)), inner_ind);
+    }
+
     if (extent_map_.find(outer_id) != extent_map_.end() ||
         extent_map_.find(inner_id) != extent_map_.end()) {
       extent_map_[in_id] =
@@ -373,11 +387,13 @@ IndexCompute::IndexCompute(
     std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map,
     std::unordered_map<kir::IterDomain*, kir::Val*> extent_map,
     std::unordered_set<kir::IterDomain*> zero_merged_in,
+    std::unordered_set<kir::IterDomain*> vectorized_domain,
     const std::vector<bool>& root_contiguity)
     : td_(_td),
       index_map_(std::move(initial_index_map)),
       extent_map_(std::move(extent_map)),
-      zero_merged_in_(std::move(zero_merged_in)) {
+      zero_merged_in_(std::move(zero_merged_in)),
+      vectorized_domain_(std::move(vectorized_domain)) {
   FUSER_PERF_SCOPE("IndexCompute::IndexCompute");
 
   // Make sure we recompute any indices we can that map to a contiguous access
@@ -424,6 +440,7 @@ IndexCompute IndexCompute::updateIndexCompute(
     const TensorDomain* new_td,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     std::unordered_map<kir::IterDomain*, kir::Val*> new_index_entries,
+    std::unordered_set<kir::IterDomain*> vectorized_domain,
     const std::vector<bool>& root_contiguity) {
   FUSER_PERF_SCOPE("updateIndexCompute");
 
@@ -433,6 +450,8 @@ IndexCompute IndexCompute::updateIndexCompute(
       std::move(new_index_entries);
   std::unordered_map<kir::IterDomain*, kir::Val*> updated_extent_map;
   std::unordered_set<kir::IterDomain*> updated_zero_merged_in;
+  std::unordered_set<kir::IterDomain*> updated_vectorized_domain =
+      std::move(vectorized_domain);
 
   for (auto id_entry : id_map) {
     kir::IterDomain* prev_id =
@@ -455,6 +474,10 @@ IndexCompute IndexCompute::updateIndexCompute(
     if (zero_merged_in_.find(prev_id) != zero_merged_in_.end()) {
       updated_zero_merged_in.emplace(new_id);
     }
+
+    if (vectorized_domain_.find(prev_id) != vectorized_domain_.end()) {
+      updated_vectorized_domain.insert(new_id);
+    }
   }
 
   IndexCompute updated_index_compute(
@@ -462,6 +485,7 @@ IndexCompute IndexCompute::updateIndexCompute(
       updated_index_map,
       updated_extent_map,
       updated_zero_merged_in,
+      updated_vectorized_domain,
       root_contiguity);
   updated_index_compute.run();
   return updated_index_compute;
@@ -626,12 +650,14 @@ IndexSwizzle::IndexSwizzle(
     const TensorView* tv,
     std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map,
     std::unordered_map<kir::IterDomain*, kir::Val*> extent_map,
-    std::unordered_set<kir::IterDomain*> zero_merged_in)
+    std::unordered_set<kir::IterDomain*> zero_merged_in,
+    std::unordered_set<kir::IterDomain*> vectorized_domain)
     : IndexCompute(
           tv->domain(),
           std::move(initial_index_map),
           std::move(extent_map),
           std::move(zero_merged_in),
+          std::move(vectorized_domain),
           std::vector<bool>(tv->getRootDomain().size(), false)),
       tv_(tv),
       swizzle_type_(tv->swizzleType()),
@@ -904,9 +930,9 @@ generateIndexAndExtentMap(
   // the stack
   std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map;
 
-  // Match loops to this TV if the loop match is this TV's ID (could reduce
-  // complexity here)
-
+  // Match loops to this TV
+  // if the loop matches, then it is this TV's ID
+  std::unordered_set<kir::IterDomain*> vectorized_domain;
   while (
       !loops.empty() &&
       std::find(kir_td.rbegin(), kir_td.rend(), loops.back()->iter_domain()) !=
@@ -915,6 +941,9 @@ generateIndexAndExtentMap(
         loop_to_ind_map.find(loops.back()) != loop_to_ind_map.end());
     initial_index_map[loops.back()->iter_domain()] =
         loop_to_ind_map.at(loops.back());
+    if (loops.back()->isVectorized()) {
+      vectorized_domain.insert(loops.back()->iter_domain());
+    }
     loops.pop_back();
   }
 
@@ -923,6 +952,7 @@ generateIndexAndExtentMap(
       initial_index_map,
       std::unordered_map<kir::IterDomain*, kir::Val*>(),
       std::unordered_set<kir::IterDomain*>(),
+      vectorized_domain,
       std::vector<bool>(tv->getRootDomain().size(), false));
   index_compute.run();
 
@@ -955,6 +985,9 @@ generateIndexAndExtentMap(
           loop_to_ind_map.find(loops.back()) != loop_to_ind_map.end());
       new_indices[loops.back()->iter_domain()] =
           loop_to_ind_map.at(loops.back());
+      if (loops.back()->isVectorized()) {
+        vectorized_domain.insert(loops.back()->iter_domain());
+      }
       loops.pop_back();
     }
 
@@ -963,6 +996,7 @@ generateIndexAndExtentMap(
           tv->domain(),
           p2c_ID_maps.front(),
           new_indices,
+          vectorized_domain,
           std::vector<bool>(tv->getRootDomain().size(), false));
 
       p2c_index_maps[tv] = index_compute.indexMap();
@@ -1003,6 +1037,7 @@ generateIndexAndExtentMap(
       initial_index_map,
       initial_extent_map,
       std::unordered_set<kir::IterDomain*>(),
+      vectorized_domain,
       c2p_tv_stack.empty()
           ? last_tv_root_contiguity
           : std::vector<bool>(tv->getRootDomain().size(), false));
@@ -1019,6 +1054,7 @@ generateIndexAndExtentMap(
           tv->domain(),
           c2p_ID_maps.front(),
           p2c_index_maps.at(tv),
+          vectorized_domain,
           c2p_tv_stack.empty()
               ? last_tv_root_contiguity
               : std::vector<bool>(tv->getRootDomain().size(), false));
@@ -1034,7 +1070,8 @@ generateIndexAndExtentMap(
         originating_tv,
         index_compute.indexMap(),
         index_compute.extentMap(),
-        index_compute.zeroMergedIn());
+        index_compute.zeroMergedIn(),
+        index_compute.vectorizedDomain());
     index_swizzle.run();
     index_map = index_swizzle.indexMap();
   } else {
@@ -1214,6 +1251,14 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
+  for (auto fl : loops) {
+    if (fl->isVectorized()) {
+      std::vector<kir::Val*> strided_inds;
+      strided_inds.push_back(ir_builder.create<kir::Int>(0));
+      return ir_builder.create<kir::TensorIndex>(producer_tv, strided_inds);
+    }
+  }
+
   // grab all tensor views from producer_tv <- computeAtRoot
   auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
   tv_stack.push_back(producer_tv);
@@ -1388,6 +1433,15 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
     const ComputeAtRootDomainMap& ca_root_map) {
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
+
+  for (auto fl : loops) {
+    if (fl->isVectorized()) {
+      std::vector<kir::Val*> strided_inds;
+      strided_inds.push_back(ir_builder.create<kir::Int>(0));
+      return ir_builder.create<kir::TensorIndex>(consumer_tv, strided_inds);
+
+    }
+  }
 
   // grab all tensor views from consumer_tv <- computeAtRoot
   auto tv_stack = getComputeAtTVStackFrom(consumer_tv);

@@ -400,9 +400,6 @@ Allocate::Allocate(
       size_ = ir_builder.mulExpr(size_, domain->axis(i)->extent());
     }
   }
-  if (buffer_->isA<TensorView>()) {
-    buffer_->as<TensorView>()->setAllocation(this);
-  }
   addInput(size_);
 }
 

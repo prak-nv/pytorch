@@ -95,6 +95,8 @@ class IndexCompute : public BackwardVisitor {
   // specially.
   std::unordered_set<kir::IterDomain*> zero_merged_in_;
 
+  std::unordered_set<kir::IterDomain*> vectorized_domain_;
+
   // IDs that are a result of contiguous merges
   std::unordered_set<kir::IterDomain*> contig_ids;
 
@@ -111,12 +113,17 @@ class IndexCompute : public BackwardVisitor {
     return zero_merged_in_;
   }
 
+  const std::unordered_set<kir::IterDomain*>& vectorizedDomain() const {
+    return vectorized_domain_;
+  }
+
   // Propagate back from _td using initial_index_map
   IndexCompute(
       const TensorDomain* _td,
       std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map,
       std::unordered_map<kir::IterDomain*, kir::Val*> _extent_map,
       std::unordered_set<kir::IterDomain*> _zero_merged_in,
+      std::unordered_set<kir::IterDomain*> _vectorized_domain,
       const std::vector<bool>& _root_contiguity);
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and
@@ -126,6 +133,7 @@ class IndexCompute : public BackwardVisitor {
       const TensorDomain* new_td,
       const std::unordered_map<IterDomain*, IterDomain*>& id_map,
       std::unordered_map<kir::IterDomain*, kir::Val*> new_index_entries,
+      std::unordered_set<kir::IterDomain*> _vectorized_domain,
       const std::vector<bool>& _root_contiguity);
 
   virtual void run();
@@ -148,7 +156,8 @@ class IndexSwizzle : public IndexCompute {
       const TensorView* tv,
       std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map,
       std::unordered_map<kir::IterDomain*, kir::Val*> extent_map,
-      std::unordered_set<kir::IterDomain*> zero_merged_in);
+      std::unordered_set<kir::IterDomain*> zero_merged_in,
+      std::unordered_set<kir::IterDomain*> vectorized_domain);
 
   void run() override;
 

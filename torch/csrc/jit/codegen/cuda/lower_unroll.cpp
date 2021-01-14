@@ -68,6 +68,9 @@ void vectorizeForLoopBody(kir::ForLoop* fl, kir::IfThenElse* ite) {
   const auto vectorize_loop_nest = ir_builder.create<kir::ForLoop>(
       fl->index(), fl->iter_domain(), true, ite);
 
+  // Get size of vectorized dimension
+  auto vector_size = fl->iter_domain()->rawExtent();
+
   TORCH_INTERNAL_ASSERT(fl->body().exprs().size() == 1);
   for (auto expr : fl->body().exprs()) {
     if (expr->isA<kir::UnaryOp>()) {
@@ -78,18 +81,19 @@ void vectorizeForLoopBody(kir::ForLoop* fl, kir::IfThenElse* ite) {
 
         bool isVectorizedRead = output->memoryType() == MemoryType::Local &&
             input->memoryType() == MemoryType::Global;
-
         if (isVectorizedRead) {
           auto vectorize_read = ir_builder.create<kir::UnaryOp>(
-            UnaryOpType::Set,
+            UnaryOpType::VectorizeRead,
             output,
             input);
+          output->setVectorSize(vector_size);
           vectorize_loop_nest->body().push_back(vectorize_read);
         } else {
           auto vectorize_write = ir_builder.create<kir::UnaryOp>(
-            UnaryOpType::Set,
+            UnaryOpType::VectorizeWrite,
             output,
             input);
+          input->setVectorSize(vector_size);
           vectorize_loop_nest->body().push_back(vectorize_write);
         }
       }
