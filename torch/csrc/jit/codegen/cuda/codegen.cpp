@@ -17,7 +17,7 @@ namespace codegen {
 
 namespace {
 
-class CudaKernelGenerator : private kir::ConstIrVisitor {
+class CudaKernelGenerator : private kir::IrVisitor {
   static constexpr const char* kTab = "  ";
 
  public:

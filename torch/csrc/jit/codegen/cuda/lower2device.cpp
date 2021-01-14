@@ -133,20 +133,22 @@ void GpuLower::lower() {
     kernel_->addOutput(GpuLower::lowerValue(output));
   }
 
-  // Run our passes keeping the lowered expressions and forwarding them
+  // Run our passes keeping the lowered expressions and forwarding
+  // them
+
+  // Reorder expressions for loop-nest generation respecting computeAt
+  // relationships
   auto sorted_exprs = reorderExprsTest();
 
+  // Generate loop-nests and place each expression at its
+  // corresponding loop
   const auto lowered_exprs = LoopNestGenerator2::loweredExprs(sorted_exprs);
 
-  // std::cout<<toString(lowered_exprs)<<std::endl;
-
   // Insert allocations
-  const auto alloced_exprs =
-      // lowered_exprs;
-      insertAllocations(lowered_exprs);
+  const auto alloced_exprs = insertAllocations(lowered_exprs);
 
   // Insert read after write smem syncs
-  const auto raw_sync_exprs = insertRAWThreadSynchronization(alloced_exprs);
+  const auto raw_sync_exprs = insertRawThreadSynchronization(alloced_exprs);
 
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, raw_sync_exprs, preds, ca_root_map);
@@ -158,7 +160,7 @@ void GpuLower::lower() {
   const auto reuse_mem_exprs = reuseMemoryAllocations(unrolled_loops);
 
   // Insert SyncThreads at end of for-loop to avoid WAR race condition
-  auto war_sync_exprs = insertWARThreadSynchronization(reuse_mem_exprs);
+  const auto war_sync_exprs = insertWarThreadSynchronization(reuse_mem_exprs);
 
   const auto indexed_loops =
       IndexLowering::getIndexedExprs(war_sync_exprs, preds, ca_root_map);
