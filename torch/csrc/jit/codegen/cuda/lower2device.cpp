@@ -115,9 +115,15 @@ void GpuLower::lower() {
   ca_root_map = ComputeAtRootDomainMap();
   ca_root_map.build();
 
-  // Compute at domain mappings
-  ca_maps = ComputeAtMap();
-  ca_maps.build();
+  // Generate mappings to generate indices
+  ca_index_map = ComputeAtMap(true);
+  ca_index_map.build();
+  // std::cout<<"Index map: "<<ca_index_map.toString()<<std::endl;
+
+  // Generate mappings to generate and map to loop nests
+  ca_loop_map = ComputeAtMap(false);
+  ca_loop_map.build();
+  // std::cout<<"Loop map: "<<ca_loop_map.toString()<<std::endl;
 
   // Set the kernel inputs & outputs
   for (auto input : fusion_->inputs()) {
@@ -131,6 +137,8 @@ void GpuLower::lower() {
   auto sorted_exprs = reorderExprsTest();
 
   const auto lowered_exprs = LoopNestGenerator2::loweredExprs(sorted_exprs);
+
+  // std::cout<<toString(lowered_exprs)<<std::endl;
 
   // Insert allocations
   const auto alloced_exprs =

@@ -273,7 +273,7 @@ class AllocationInserter : public kir::IrVisitor {
       : loop_nests_(_loop_nests),
         gpu_lower(GpuLower::current()),
         ir_builder(gpu_lower->kernel()),
-        ca_maps_(GpuLower::current()->caMaps()) {
+        ca_maps_(GpuLower::current()->caLoopMap()) {
     // Compute all allocations
     const std::vector<kir::Expr*> exprs = loop_nests_;
     for (auto expr : exprs) {

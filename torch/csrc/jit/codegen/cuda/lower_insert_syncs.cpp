@@ -371,7 +371,7 @@ class ReadAfterWriteSyncs : public kir::IrVisitor {
       : loop_nests_(_loop_nests),
         gpu_lower(GpuLower::current()),
         ir_builder(gpu_lower->kernel()),
-        ca_maps_(GpuLower::current()->caMaps()) {
+        ca_maps_(GpuLower::current()->caLoopMap()) {
     // Fusion shared_memory values
     // Tracks if shared memory is modified
     std::unordered_map<kir::Val*, bool> smem;

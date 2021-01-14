@@ -13,9 +13,10 @@ namespace cuda {
 
 // We're going to replay this split operation on the corresponding ID
 void TestReplay::handle(Split* s) {
+  // std::cout<<"Replay: "<<s<<std::endl;
   auto in = s->in();
 
-  auto concrete_in = ca_maps_.getConcreteMappedID(in);
+  auto concrete_in = GpuLower::current()->caIndexMap().getConcreteMappedID(in);
   auto mapped_in_it = concrete_to_id.find(concrete_in);
   if (mapped_in_it == concrete_to_id.end()) {
     return;
@@ -26,14 +27,20 @@ void TestReplay::handle(Split* s) {
   if (leaf_ids.find(mapped_in) == leaf_ids.end()) {
     return;
   }
-
+  // std::cout<<"Replayed."<<std::endl;
   auto replayed_outs =
       IterDomain::split(mapped_in, s->factor(), s->innerSplit());
 
-  auto concrete_outer = ca_maps_.getConcreteMappedID(s->outer());
-  auto concrete_inner = ca_maps_.getConcreteMappedID(s->inner());
+  auto concrete_outer =
+      GpuLower::current()->caIndexMap().getConcreteMappedID(s->outer());
+  auto concrete_inner =
+      GpuLower::current()->caIndexMap().getConcreteMappedID(s->inner());
 
   concrete_to_id[concrete_outer] = replayed_outs.first;
+  // std::cout << "Setting concrete: " << concrete_outer << " <- " << s->outer()
+  //           << std::endl;
+  // std::cout << "Setting concrete: " << concrete_inner << " <- " << s->inner()
+  //           << std::endl;
   concrete_to_id[concrete_inner] = replayed_outs.second;
 
   leaf_ids.erase(mapped_in);
@@ -43,11 +50,14 @@ void TestReplay::handle(Split* s) {
 
 // We're going to replay this merge operation on the corresponding IDs
 void TestReplay::handle(Merge* m) {
+  // std::cout<<"Replay: "<<m<<std::endl;
   auto in_outer = m->outer();
   auto in_inner = m->inner();
 
-  auto concrete_in_outer = ca_maps_.getConcreteMappedID(in_outer);
-  auto concrete_in_inner = ca_maps_.getConcreteMappedID(in_inner);
+  auto concrete_in_outer =
+      GpuLower::current()->caIndexMap().getConcreteMappedID(in_outer);
+  auto concrete_in_inner =
+      GpuLower::current()->caIndexMap().getConcreteMappedID(in_inner);
 
   auto mapped_in_outer_it = concrete_to_id.find(concrete_in_outer);
   auto mapped_in_inner_it = concrete_to_id.find(concrete_in_inner);
@@ -64,11 +74,14 @@ void TestReplay::handle(Merge* m) {
       leaf_ids.find(mapped_in_inner) == leaf_ids.end()) {
     return;
   }
-
+  // std::cout<<"Replayed."<<std::endl;
   auto replayed = IterDomain::merge(mapped_in_outer, mapped_in_inner);
 
-  auto concrete_replayed = ca_maps_.getConcreteMappedID(m->out());
-
+  auto concrete_replayed =
+      GpuLower::current()->caIndexMap().getConcreteMappedID(m->out());
+  // std::cout << "Setting concrete: " << concrete_replayed << " <- " <<
+  // m->out()
+  //           << std::endl;
   leaf_ids.erase(mapped_in_outer);
   leaf_ids.erase(mapped_in_inner);
 
@@ -85,7 +98,12 @@ TensorDomain* TestReplay::computeReplay() {
       loop_structure_.begin(),
       loop_structure_.end(),
       std::back_inserter(fusion_loop_structure),
-      [&](kir::ForLoop* fl) { return ca_maps_.toFusion(fl->iter_domain()); });
+      [&](kir::ForLoop* fl) {
+        auto fid =
+            GpuLower::current()->caIndexMap().toFusion(fl->iter_domain());
+        // std::cout<<fid<<std::endl;
+        return fid;
+      });
 
   // Get all inputs that generated that loop structure, some root inputs can be
   // mapped to eachother
@@ -94,16 +112,47 @@ TensorDomain* TestReplay::computeReplay() {
       std::vector<Val*>(
           fusion_loop_structure.begin(), fusion_loop_structure.end()));
 
+  // for(auto inp : all_inputs){
+  //   std::cout<<inp<<", ";
+  // }std::cout<<std::endl;
+
   auto all_iter_inputs = ir_utils::filterByType<IterDomain>(all_inputs);
+
+  // Sort out the inputs as there could be entires that map to eachother, and
+  // they can be a combiantion of iteration, reduction, and broadcast. Order as
+  // iter, reduction, then broadcast for iterating and removing duplicate mapped
+  // entries.
+  std::vector<IterDomain*> sorted_inputs;
+  std::copy_if(
+      all_iter_inputs.begin(),
+      all_iter_inputs.end(),
+      std::back_inserter(sorted_inputs),
+      [](IterDomain* id) { return !id->isBroadcast() && !id->isReduction(); });
+  std::copy_if(
+      all_iter_inputs.begin(),
+      all_iter_inputs.end(),
+      std::back_inserter(sorted_inputs),
+      [](IterDomain* id) { return id->isReduction(); });
+  std::copy_if(
+      all_iter_inputs.begin(),
+      all_iter_inputs.end(),
+      std::back_inserter(sorted_inputs),
+      [](IterDomain* id) { return id->isBroadcast(); });
 
   // Reduce those inputs to a single set of axes to remove the iter domains that
   // map to eachother
   std::unordered_set<IterDomain*> root_axes;
-  for (auto root_id : all_iter_inputs) {
-    auto concrete_id = ca_maps_.getConcreteMappedID(root_id);
+  for (auto root_id : sorted_inputs) {
+    // std::cout<<"Looking for: "<<root_id<<std::endl;
+    auto concrete_id =
+        GpuLower::current()->caIndexMap().getConcreteMappedID(root_id);
     if (concrete_to_id.find(concrete_id) != concrete_to_id.end()) {
+      // std::cout << "Already set: " << concrete_id << " -> "
+      //           << concrete_to_id[concrete_id] << " not to: " << root_id
+      //           << std::endl;
       continue;
     }
+    // std::cout << "  -> " << concrete_id << std::endl;
     root_axes.emplace(root_id);
     concrete_to_id[concrete_id] = root_id;
     leaf_ids.emplace(root_id);
@@ -115,6 +164,7 @@ TensorDomain* TestReplay::computeReplay() {
 
   // Run the replay
   for (auto expr : replay_exprs) {
+    // std::cout<<"Replay: "<<expr<<std::endl;
     OptInDispatch::handle(expr);
   }
 
@@ -130,11 +180,17 @@ TensorDomain* TestReplay::computeReplay() {
       fusion_loop_structure.end(),
       std::back_inserter(loops_replayed_domain),
       [&](IterDomain* loop_id) {
-        auto concrete_to_id_it =
-            concrete_to_id.find(ca_maps_.getConcreteMappedID(loop_id));
+        // std::cout<<loop_id<<std::endl;
+        // std::cout << " -?> "
+        //           << GpuLower::current()->caLoopMap().getConcreteMappedID(
+        //                  loop_id)
+        //           << std::endl;
+        auto concrete_to_id_it = concrete_to_id.find(
+            GpuLower::current()->caLoopMap().getConcreteMappedID(loop_id));
         TORCH_INTERNAL_ASSERT(
             concrete_to_id_it != concrete_to_id.end(),
-            "Could not find required iter domain in reference replay.");
+            "Could not find required iter domain in reference replay: ",
+            loop_id);
         auto replayed_id = concrete_to_id_it->second;
         leaf_ids.erase(replayed_id);
         return replayed_id;
@@ -160,7 +216,6 @@ TensorDomain* TestReplay::computeReplay() {
 
 IndexCompute getReferenceIndexing(
     const std::vector<kir::ForLoop*>& loop_structure,
-    const ComputeAtMap& ca_maps,
     TensorDomain* reference_tensor) {
   auto gpu_lower = GpuLower::current();
 
@@ -172,12 +227,11 @@ IndexCompute getReferenceIndexing(
     initial_index_map[lowered_id] = loop_structure[loop_i]->index();
   }
   return getReferenceIndexing(
-      loop_structure, ca_maps, reference_tensor, initial_index_map, {});
+      loop_structure, reference_tensor, initial_index_map, {});
 }
 
 IndexCompute getReferenceIndexing(
     const std::vector<kir::ForLoop*>& loop_structure,
-    const ComputeAtMap& ca_maps,
     TensorDomain* reference_tensor,
     std::unordered_map<kir::IterDomain*, kir::Val*> index_map,
     std::unordered_set<IterDomain*> preferred_paths) {
@@ -188,7 +242,9 @@ IndexCompute getReferenceIndexing(
     // If there's a broadcast merged in the for loop ID we want to track its
     // extent
     auto inputs = InputsOf::outputs(
-        FusionGuard::getCurFusion(), {ca_maps.toFusion(loop->iter_domain())});
+        FusionGuard::getCurFusion(),
+        {gpu_lower->caIndexMap().toFusion(loop->iter_domain())});
+
     auto iter_inputs = ir_utils::filterByType<IterDomain>(inputs);
 
     // If any of the inputs are a broadcast, explicitly mark the loop id's

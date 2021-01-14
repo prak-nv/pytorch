@@ -13,7 +13,24 @@ namespace cuda {
 
 class ComputeAtMap {
  public:
-  ComputeAtMap() = default;
+  // There's basically two modes of these iter domain mappings. for_indexing or
+  // not for_indexing. In short this option determines what we do with merged
+  // broadcast indices.
+  //
+  // Consider:
+  //
+  // consumer[i0, b1] = producer[i0]
+  // consumer->merge(0) (consumer will now be [i0 * b1])
+  // When producer is replayed as consumer (the direction we use for mapping)
+  // with BestEffortReplay forward_bcast_mismatch = True the producer to
+  // consumer map will have both a mapping of consumer(i0) to producer(i0) as
+  // well as consumer(i0*b1) to producer(i0). This latter mapping is important
+  // for loop nest mappings as the consumer will generate a loop based on i0*b1
+  // and the producer may be computeAt inside this loop nest. However, for
+  // indexing we do not want these two maps as producer may be indexed as i0*i1
+  // depending on the loop nest structure and how it was built. Therefore we
+  // really need to carry two sets of maps around for lowering.
+  ComputeAtMap(bool for_indexing = false) : for_indexing_(for_indexing) {}
 
   void build();
 
@@ -88,6 +105,8 @@ class ComputeAtMap {
 
  private:
   void map_ids(IterDomain* id0, IterDomain* id1);
+
+  bool for_indexing_ = true;
 
  private:
   std::unordered_map<TensorView*, int> produce_at_map_;

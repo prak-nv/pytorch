@@ -42,8 +42,12 @@ class TORCH_CUDA_API GpuLower {
     return ca_root_map;
   }
 
-  const ComputeAtMap& caMaps() const {
-    return ca_maps;
+  const ComputeAtMap& caLoopMap() const {
+    return ca_loop_map;
+  }
+
+  const ComputeAtMap& caIndexMap() const {
+    return ca_index_map;
   }
 
  private:
@@ -68,7 +72,8 @@ class TORCH_CUDA_API GpuLower {
   // Some stateful information during lowering
 
   ComputeAtRootDomainMap ca_root_map;
-  ComputeAtMap ca_maps;
+  ComputeAtMap ca_loop_map;
+  ComputeAtMap ca_index_map;
 
   Fusion* fusion_ = nullptr;
 };

@@ -186,9 +186,6 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
   kir::ForLoop* alloc_loop = nullptr;
 
   auto loops_it = loops.begin();
-  for (auto loop : loops) {
-    std::cout << toString(loop->iter_domain(), false) << std::endl;
-  }
   // Look at each axis individually in out's domain
   for (int64_t tv_i = 0; tv_i < (int64_t)tv->getThisComputeAtAxis(); tv_i++) {
     // Grab the axis ID
@@ -200,11 +197,12 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
         local_id = id_it->second;
       }
     }
+
     auto lowered_local_id =
         gpu_lower->lowerValue(local_id)->as<kir::IterDomain>();
     loops_it = std::find_if(
         loops_it, loops.end(), [&lowered_local_id](const auto& loop) {
-          return GpuLower::current()->caMaps().areMapped(
+          return GpuLower::current()->caLoopMap().areMapped(
                      lowered_local_id, loop->iter_domain()) ||
               loop->iter_domain()->parallelType() == ParallelType::Unroll;
         });

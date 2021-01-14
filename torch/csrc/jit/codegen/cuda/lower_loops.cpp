@@ -233,7 +233,7 @@ std::vector<kir::Expr*> LoopNestGenerator2::loweredExprs(
   FUSER_PERF_SCOPE("LoopNestGenerator2::loweredExprs");
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   LoopNestGenerator2 generator(
-      FusionGuard::getCurFusion(), exprs, GpuLower::current()->caMaps());
+      FusionGuard::getCurFusion(), exprs, GpuLower::current()->caLoopMap());
   return generator.lowered_exprs_;
 }
 

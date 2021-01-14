@@ -237,23 +237,34 @@ void ComputeAtMap::build() {
       // produce at is the same as this compute at position
       produce_at_map_[p_tv] = p_tv->getThisComputeAtAxis();
 
-      auto p2c_root_map =
+      auto c2p_root_map =
           PairwiseRootDomainMap(p_tv, c_tv)
-              .mapProducerToConsumer(p_tv->domain(), c_tv->domain());
+              .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
 
-      // Look for matching ID transformations in producer and consumer...
-      // TODO: Map all of BestEffortReplay, will be needed for indexing
+      // Look for matching ID transformations in producer and consumer, replay
+      // producer as consumer. There's a comment about this in index_compute.cpp
+      // in function Index::getProducerIndex_impl. If we're using this map for
+      // indexing, we do not want to propagate broadcast mismatches. If we're
+      // using it to identify loop nests, we do want to propagate mismatches.
       BestEffortReplay replay(
-          c_tv->domain()->domain(), p_tv->domain()->domain(), p2c_root_map);
+          p_tv->domain()->domain(),
+          c_tv->domain()->domain(),
+          c2p_root_map,
+          !for_indexing_);
 
-      auto p2c_map = replay.getReplay();
+      auto c2p_map = replay.getReplay();
 
-      // Map the entire replay map:
-      for (auto entry : p2c_map) {
-        auto p_id = entry.first;
-        auto c_id = entry.second;
+      // Map the entire replay map
+      // Also reverse the map, as we use p2c_map to find this computeAt position
+      // in consumer. This could be removed if we changed computeAt of
+      // TensorViews
+      std::unordered_map<IterDomain*, IterDomain*> p2c_map;
+      for (auto entry : c2p_map) {
+        auto c_id = entry.first;
+        auto p_id = entry.second;
         // Map the id's together
         map_ids(p_id, c_id);
+        p2c_map[p_id] = c_id;
       }
 
       for (size_t p_id_i = 0; p_id_i < p_tv->getThisComputeAtAxis(); p_id_i++) {
@@ -356,6 +367,7 @@ void ComputeAtMap::build() {
 
     for (auto id : *set) {
       concrete_id_map_[id] = concrete_id;
+      // std::cout<<"Concrete: "<<id<<" -> "<<concrete_id<<std::endl;
     }
     concrete_id->parallelize(getMappedParallelType(concrete_id));
   }

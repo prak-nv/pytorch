@@ -217,7 +217,7 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
 };
 
 std::vector<Expr*> reorderExprsTest() {
-  ExprSortingWithCA sorter(GpuLower::current()->caMaps());
+  ExprSortingWithCA sorter(GpuLower::current()->caLoopMap());
   sorter.segment();
   auto groups = sorter.getGroups();
   TORCH_INTERNAL_ASSERT(
