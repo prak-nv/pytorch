@@ -11004,11 +11004,14 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
   std::cout << "Original fusion:" << std::endl;
   fusion.printMath();
 
-  SingleReductionSegmenter kernels(&fusion);
-  kernels.segment();
-  // std::cout << &kernels << std::endl;
-  kernels.generateFusions();
-  auto cg_outputs = kernels.runFusionWithInputs({t0});
+  auto fusion_seg = fusion.segment();
+  fusion_seg->print();
+
+  // SingleReductionSegmenter kernels(&fusion);
+  // kernels.segment();
+  //// std::cout << &kernels << std::endl;
+  // kernels.generateFusions();
+  // auto cg_outputs = kernels.runFusionWithInputs({t0});
 }
 
 } // namespace jit

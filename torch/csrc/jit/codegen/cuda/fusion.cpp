@@ -1,5 +1,6 @@
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/codegen.h>
+#include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
@@ -66,6 +67,10 @@ void swap(Fusion& a, Fusion& b) noexcept {
 Fusion::Fusion(const Fusion& other) {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
+}
+
+std::unique_ptr<SegmentedFusion> Fusion::segment() {
+  return SegmentCandidateFinder::segment(this);
 }
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {

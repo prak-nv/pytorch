@@ -268,9 +268,17 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   return ret;
 }
 
-FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
+FusionExecutorCache::FusionExecutorCache(
+    std::unique_ptr<Fusion>&& fusion,
+    bool segmented)
     : fusion_(std::move(fusion)) {
   FUSER_PERF_SCOPE("FusionExecutorCache::FusionExecutorCache");
+
+  // case of segmented fusion
+  if (segmented) {
+    fusion_segments_ = fusion_->segment();
+    return;
+  }
   // avoid putting `has_nontrivial_reduction_` in the initializer list
   has_nontrivial_reduction_ = fusion_->hasReduction();
 
@@ -330,6 +338,18 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   const int device_index = getCommonDeviceCUDA(inputs);
   TORCH_CHECK(device_index >= 0, "device is not coherent for fusion inputs");
 
+  // Hack: Handling
+  //       need a executor dispatch mechanism to share the code_to_fe_lookup_
+  //       infra
+  if (isSegmented()) {
+    if (segment_executor_cache_.count(unique_id) == 0) {
+      segment_executor_cache_[unique_id] =
+          std::make_unique<FusionSegmentRuntime>(
+              fusion_segments_.get(), unique_id);
+    }
+    return segment_executor_cache_[unique_id]->runWithInput(inputs);
+  }
+
   if (code_to_fe_lookup_.count(unique_id) == 0) {
     // enter when we get a new input set. We need to search for compatible
     // entries in cached `FusionExecutor` or compile new one as needed.
@@ -360,8 +380,6 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         // computational graph intact for future compilation.
         Fusion fusion_clone = *fusion_;
         FusionGuard fg(&fusion_clone);
-        std::cout << "Processing:" << std::endl;
-        fusion_clone.printMath();
         for (auto out : fusion_clone.outputs()) {
           std::cout << out << std::endl;
         }
@@ -384,14 +402,12 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         }
 
         if (isNormalizationFusion) {
-          std::cout << "Normalization" << std::endl;
           scheduleNormalization(
               &fusion_clone,
               reduction_params.value(),
               clone_reduction_tv,
               clone_other_tv);
         } else {
-          std::cout << "Single Reduction" << std::endl;
           auto single_reduction_tv = clone_reduction_tv.front();
 
           // Heavy weight call
@@ -442,6 +458,161 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   return code_to_fe_lookup_[unique_id]->runFusion(
       inputs, launch_params, unique_id);
+}
+
+FusionSegmentRuntime::FusionSegmentRuntime(
+    SegmentedFusion* segmented_fusion,
+    size_t cache_id)
+    : executors_(segmented_fusion->groups().size()),
+      launch_params_(segmented_fusion->groups().size()),
+      segmented_fusion_(segmented_fusion),
+      cache_id_(cache_id) {}
+
+// Largely duplicated from FusionExecutorCache
+std::vector<at::Tensor> FusionSegmentRuntime::runSegmentWithInput(
+    SegmentedGroup* sg,
+    const at::ArrayRef<IValue>& inputs) {
+  auto group_id = sg->groupId();
+  const int device_index = getCommonDeviceCUDA(inputs);
+  LaunchParams launch_params;
+
+  if (!executors_[group_id].compiled()) {
+    // schedule reduction and normalization
+    std::unique_ptr<Fusion> fusion_seg = segmented_fusion_->makeFusion(sg);
+    CompileOptions options;
+    options.device = c10::Device(DeviceType::CUDA, device_index);
+
+    bool is_reduction = sg->heuristic() == ScheduleHeuristic::Reduction;
+    bool is_normalization = sg->heuristic() == ScheduleHeuristic::Normalization;
+
+    if (is_reduction || is_normalization) {
+      // locate useful tvs for scheduling
+      std::vector<TensorView*> clone_reduction_tv;
+      std::vector<TensorView*> clone_other_tv;
+      auto all_values = DependencyCheck::getAllValsBetween(
+          {fusion_seg->inputs().begin(), fusion_seg->inputs().end()},
+          fusion_seg->outputs());
+
+      for (auto tv : ir_utils::filterByType<TensorView>(all_values)) {
+        if (tv->hasReduction()) {
+          clone_reduction_tv.push_back(tv);
+        } else if (!fusion_seg->hasInput(tv)) {
+          clone_other_tv.push_back(tv);
+        }
+      }
+      if (is_reduction) {
+        schedule_heuristics_[group_id] = getReductionHeuristics(
+            fusion_seg.get(), inputs, clone_reduction_tv.front());
+        TORCH_INTERNAL_ASSERT(schedule_heuristics_[group_id].has_value());
+        auto single_reduction_tv = clone_reduction_tv.front();
+        auto outputs_of_reduction =
+            DependencyCheck::getAllOutputsOf({single_reduction_tv});
+        auto tv_entries =
+            ir_utils::filterByType<TensorView>(outputs_of_reduction);
+        std::vector<TensorView*> tv_outputs_of_reduction(
+            tv_entries.begin(), tv_entries.end());
+        scheduleReduction(
+            fusion_seg.get(),
+            schedule_heuristics_[group_id].value(),
+            single_reduction_tv,
+            tv_outputs_of_reduction);
+      } else if (is_normalization) {
+        schedule_heuristics_[group_id] = getNormalizationHeuristics(
+            fusion_seg.get(), inputs, clone_reduction_tv);
+        TORCH_INTERNAL_ASSERT(schedule_heuristics_[group_id].has_value());
+        scheduleNormalization(
+            fusion_seg.get(),
+            schedule_heuristics_[group_id].value(),
+            clone_reduction_tv,
+            clone_other_tv);
+      }
+      launch_params = schedule_heuristics_[group_id]->lparams;
+    } else {
+      // schedule pointwise fusion
+      scheduleFusion(fusion_seg.get(), inputs);
+    }
+
+    executors_[group_id].compileFusion(fusion_seg.get(), options);
+  }
+
+  return executors_[group_id].runFusion(inputs, launch_params, cache_id_);
+}
+
+std::vector<at::Tensor> FusionSegmentRuntime::runWithInput(
+    const at::ArrayRef<IValue>& inputs) {
+  TORCH_INTERNAL_ASSERT(
+      inputs.size() == segmented_fusion_->inputs().size(),
+      "Inputs were not set up correctly, recieved ",
+      inputs.size(),
+      " inputs but expecting ",
+      segmented_fusion_->inputs().size());
+
+  std::unordered_map<Val*, IValue> tensor_map;
+  for (size_t i = 0; i < inputs.size(); i++) {
+    tensor_map.emplace(
+        std::make_pair(segmented_fusion_->inputs()[i], inputs[i]));
+  }
+
+  std::vector<bool> group_ran(segmented_fusion_->groups().size(), false);
+
+  while (!std::all_of(
+      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
+    bool one_ran = false;
+    auto group_it = segmented_fusion_->groups().begin();
+    for (size_t group_i = 0; group_i < segmented_fusion_->groups().size();
+         group_i++, group_it++) {
+      auto group = *group_it;
+      if (group_ran[group_i]) {
+        continue;
+      }
+      const auto& group_inputs = group->inputs();
+      bool ready_to_run = std::all_of(
+          group_inputs.begin(), group_inputs.end(), [&tensor_map](Val* val) {
+            return tensor_map.find(val) != tensor_map.end();
+          });
+
+      if (ready_to_run) {
+        std::vector<IValue> group_runtime_inputs;
+        for (auto input : group_inputs) {
+          group_runtime_inputs.push_back(tensor_map.at(input));
+        }
+        auto group_runtime_outputs =
+            runSegmentWithInput(group, group_runtime_inputs);
+
+        const auto& group_outputs = group->outputs();
+
+        for (size_t group_out_i = 0; group_out_i < group_outputs.size();
+             group_out_i++) {
+          tensor_map.emplace(std::make_pair(
+              group_outputs[group_out_i], group_runtime_outputs[group_out_i]));
+        }
+        group_ran[group_i] = true;
+        one_ran = true;
+      }
+    }
+    TORCH_INTERNAL_ASSERT(
+        one_ran,
+        "Couldn't run all groups, something must have gone wrong in segmentation.");
+  }
+
+  // Produce final output
+  std::vector<IValue> fusion_outputs;
+  for (auto output : segmented_fusion_->outputs()) {
+    fusion_outputs.push_back(tensor_map.at(output));
+  }
+
+  std::vector<at::Tensor> fusion_output_tensors;
+  std::transform(
+      fusion_outputs.begin(),
+      fusion_outputs.end(),
+      std::back_inserter(fusion_output_tensors),
+      [](IValue ival) {
+        TORCH_INTERNAL_ASSERT(
+            ival.isTensor(), "Cannot output non-tensor objects from a fusion.");
+        return ival.toTensor();
+      });
+
+  return fusion_output_tensors;
 }
 
 bool GraphCache::requiresPermutation() {

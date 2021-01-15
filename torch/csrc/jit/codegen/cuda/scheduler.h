@@ -10,6 +10,8 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+enum class ScheduleHeuristic { PointWise, Reduction, Normalization };
+
 class ExpressionEvaluator;
 
 // return true or false on whether given fusion could be scheduled;

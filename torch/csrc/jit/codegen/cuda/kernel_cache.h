@@ -2,6 +2,7 @@
 
 #include <torch/csrc/jit/codegen/cuda/executor.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+#include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
 
 #include <c10/util/ArrayRef.h>
@@ -15,6 +16,42 @@ namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
+
+class SegmentedGroup;
+
+//! Simple implementation of a graph runtime to support multi-kernel fusion
+//! TODO: one FusionExecutor per segment could be expensive, optimize
+class FusionSegmentRuntime {
+ public:
+  explicit FusionSegmentRuntime(
+      SegmentedFusion* segmented_fusion,
+      size_t cache_id);
+
+  void evictCache(size_t cache_id) {
+    TORCH_INTERNAL_ASSERT(cache_id == cache_id_);
+    for (auto& fe : executors_) {
+      fe.evictCache(cache_id);
+    }
+  }
+
+  std::vector<at::Tensor> runWithInput(const at::ArrayRef<IValue>& inputs);
+
+ private:
+  std::vector<at::Tensor> runSegmentWithInput(
+      SegmentedGroup* sg,
+      const at::ArrayRef<IValue>& inputs);
+
+ private:
+  // Entries indexed by groupID
+  std::vector<FusionExecutor> executors_;
+  std::vector<LaunchParams> launch_params_;
+  std::vector<c10::optional<ReductionParams>> schedule_heuristics_;
+
+  // States
+  SegmentedFusion* segmented_fusion_;
+  bool compiled_ = false;
+  size_t cache_id_ = -1;
+};
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
 //! selection in our nested cache implementation to cut off overhead.
@@ -129,13 +166,23 @@ class TORCH_CUDA_API InputsIdLookup : public NonCopyable {
 //!     c) broadcasting semantics (size-1 or not);
 //!     d) rank;
 //!     e) scalar type;
-
+//!
+//!
+//! [ Note -- Segmented Fusion Tentative Design ]
+//! Segmentation adds an extra dimension in caching. Initial implementation,
+//! assumed graph partition strategy is independent of input pattern, which we
+//! can revisit once we have more advanced graph segmentation logic Each
+//! FusionExecutorCache corresponds to one graph and one graph segmentation.
+//!
+//!
 class FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes;
   //! fusion executor is taking the ownership of `fusion`;
-  explicit FusionExecutorCache(std::unique_ptr<Fusion>&& fusion);
+  explicit FusionExecutorCache(
+      std::unique_ptr<Fusion>&& fusion,
+      bool segmented = false);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed;
   std::vector<at::Tensor> runFusionWithInputs(
@@ -145,10 +192,25 @@ class FusionExecutorCache {
     fusion_->printMath();
   }
 
+  bool isSegmented() {
+    return fusion_segments_ != nullptr;
+  }
+
  private:
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
   //! entry in `FusionExecutor`
   void evictCache(size_t cache_id) {
+    // Handling segmented fusion differently
+    if (isSegmented()) {
+      auto iter = segment_executor_cache_.find(cache_id);
+      TORCH_INTERNAL_ASSERT(
+          iter != segment_executor_cache_.end(),
+          "evict cache failed to find an entry");
+
+      (iter->second)->evictCache(cache_id);
+      segment_executor_cache_.erase(iter);
+    }
+
     auto iter = code_to_fe_lookup_.find(cache_id);
     TORCH_INTERNAL_ASSERT(
         iter != code_to_fe_lookup_.end(),
@@ -200,6 +262,15 @@ class FusionExecutorCache {
 
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
+
+  //! Multi-Kernel fusion segment caching
+  std::unique_ptr<SegmentedFusion> fusion_segments_ = nullptr;
+
+  // TODO: hashing based on combined heuristics hash
+
+  //!
+  std::unordered_map<size_t, std::unique_ptr<FusionSegmentRuntime>>
+      segment_executor_cache_;
 };
 
 class GraphCache {
