@@ -32,6 +32,7 @@ namespace {
 const auto& sizeAttr = Symbol::attr("profiled_size");
 const auto& intListAttr = Symbol::attr("profiled_int_list");
 const auto& boolAttr = Symbol::attr("profiled_bool");
+// const auto& optionalAttr = Symbol::attr("profiled_optional");
 
 typedef Val* CgValue;
 typedef Expr* CgOp;
@@ -1151,6 +1152,24 @@ class IrParser {
             value_map.emplace(node->output()->unique(), out);
           });
     }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
+          "aten::linear(Tensor input, Tensor weight, Tensor? bias=None) -> Tensor");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            // this entry is created so we do profile input tensors;
+            TORCH_INTERNAL_ASSERT(false, "not implemented yet");
+          },
+          [](const Node* node) -> bool {
+            if (node->input(2)->type()->isSubtypeOf(static_cast<c10::TypePtr>(NoneType::get()))) {
+              return false;
+            }
+            return true;
+          });
+    }
   }
 
   void processJitNode(const JitOp* node) {
@@ -1378,6 +1397,28 @@ void profileBool(ProfilingRecord* pr, Node* node, size_t offset) {
   pn->setCallback(ivalue_profiler);
 }
 
+// void profileOptional(ProfilingRecord* pr, Node* node, size_t offset) {
+//   auto pn = insertProfileIValueOp(node, offset, pr);
+// 
+//   const auto ivalue_profiler = [pr, pn](Stack& stack) {
+//     std::lock_guard<std::mutex> lock(pr->mutex_);
+// 
+//     // TODO: we don't care about merging multiple profiling runs as we don't
+//     // support it at all;
+//     int64_t frame_id = 0;
+//     pop(stack, frame_id);
+//     IValue value;
+//     pop(stack, value);
+//     if (!pn->hasAttribute(optionalAttr)) {
+//       pn->i_(optionalAttr, value.isNone());
+//     } else {
+//     }
+//     push(stack, value);
+//   };
+// 
+//   pn->setCallback(ivalue_profiler);
+// }
+
 bool anyInBlock(
     const Block* block,
     const std::function<bool(const Node*)>& fn) {
@@ -1467,6 +1508,19 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
     }
     return true;
   }
+
+  // static auto linear_operator_schema =
+  //     getOperatorForLiteral(
+  //         "aten::linear(Tensor input, Tensor weight, Tensor? bias=None) -> Tensor")
+  //         ->schema();
+  // if (node->matches(linear_operator_schema)) {
+  //   if (offset == 2) {
+  //     // argument 2: bias;
+  //     profileOptional(pr, node, offset);
+  //   } else {
+  //     return false;
+  //   }
+  // }
 
   return false;
 }
