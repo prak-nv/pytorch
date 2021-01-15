@@ -282,7 +282,12 @@ class CudaKernelGenerator : private kir::IrVisitor {
       } else if (op_type == UnaryOpType::VectorizeWrite) {
         indent() << "*reinterpret_cast<"
                  << "Array<" << node->out()->dtype() << ", "
-                 << genInline(node->in()->as<kir::TensorView>()->vectorSize()) << ">*>"
+                 << genInline(node->in()
+                                  ->as<kir::TensorIndex>()
+                                  ->view()
+                                  ->allocation()
+                                  ->vectorSize())
+                 << ">*>"
                  << "(&" << gen(node->out()) << ")";
       } else {
         indent() << gen(node->out());
@@ -301,13 +306,18 @@ class CudaKernelGenerator : private kir::IrVisitor {
       } else {
         code_ << *op << gen(node->in());
       }
-    } else if(op_type == UnaryOpType::VectorizeRead) {
-        code_ << "*reinterpret_cast<"
-              << "Array<" << node->in()->dtype() << ", "
-              << genInline(node->out()->as<kir::TensorView>()->vectorSize()) << ">*>"
-              << "(&" << gen(node->in()) << ")";
+    } else if (op_type == UnaryOpType::VectorizeRead) {
+      code_ << "*reinterpret_cast<"
+            << "Array<" << node->in()->dtype() << ", "
+            << genInline(node->out()
+                             ->as<kir::TensorIndex>()
+                             ->view()
+                             ->allocation()
+                             ->vectorSize())
+            << ">*>"
+            << "(&" << gen(node->in()) << ")";
     } else if (op_type == UnaryOpType::VectorizeWrite) {
-        code_ << "vec_" << gen(node->in());
+      code_ << "vec_" << gen(node->in());
     } else {
       if (op_type == UnaryOpType::Cast) {
         const auto cast_str =
@@ -611,8 +621,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
   void visit(const kir::ForLoop* node) final {
     // TODO(kir): handle this during lowering
-    if (node->iter_domain()->isThread() ||
-        node->iter_domain()->isBroadcast() ||
+    if (node->iter_domain()->isThread() || node->iter_domain()->isBroadcast() ||
         node->isVectorized()) {
       handleScope(node->body());
       return;
@@ -700,11 +709,12 @@ class CudaKernelGenerator : private kir::IrVisitor {
       }
     }
 
-    auto vector_size = tv->vectorSize();
-    if (vector_size != nullptr) {
-      indent() << "Array<" << buffer_dtype << ", " << genInline(vector_size) << ">* "
+    if (node->vectorSize() != nullptr) {
+      indent() << "Array<" << buffer_dtype << ", "
+               << genInline(node->vectorSize()) << ">* "
                << "vec_" << varName(tv) << " = reinterpret_cast<"
-               << "Array<" << buffer_dtype << ", " << genInline(vector_size) << ">*>"
+               << "Array<" << buffer_dtype << ", "
+               << genInline(node->vectorSize()) << ">*>"
                << "(&" << varName(tv) << ");\n";
     }
   }

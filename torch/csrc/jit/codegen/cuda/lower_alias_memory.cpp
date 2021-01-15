@@ -86,7 +86,7 @@ class AllocateReuseModifier {
       const auto input_alloc = findCompatibleInputAllocate(
           tv->dtype(), SymbolicSizePrinter::printSize(output_alloc), def);
 
-      if (input_alloc != nullptr) {
+      if (input_alloc != nullptr && output_alloc->vectorSize() == nullptr) {
         output_alloc->setAlias(input_alloc);
       }
     }

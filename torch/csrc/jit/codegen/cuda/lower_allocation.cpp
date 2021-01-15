@@ -132,7 +132,7 @@ class AllocationInserter : public kir::MutableIrVisitor {
         new_loop = ir_builder.create<kir::ForLoop>(
             ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
             id,
-	    false,
+            false,
             nullptr);
       } else {
         new_loop = ir_builder.create<kir::ForLoop>(

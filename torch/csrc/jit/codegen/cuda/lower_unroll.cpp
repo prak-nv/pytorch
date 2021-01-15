@@ -24,7 +24,10 @@ kir::ForLoop* cloneLoopNest(
     kir::Expr* parent_scope) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   const auto new_loop = ir_builder.create<kir::ForLoop>(
-      for_loop->index(), for_loop->iter_domain(), for_loop->isVectorized(), parent_scope);
+      for_loop->index(),
+      for_loop->iter_domain(),
+      for_loop->isVectorized(),
+      parent_scope);
   for (auto expr : for_loop->body().exprs()) {
     if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       expr = cloneLoopNest(nested_for_loop, new_loop);
@@ -75,25 +78,21 @@ void vectorizeForLoopBody(kir::ForLoop* fl, kir::IfThenElse* ite) {
   for (auto expr : fl->body().exprs()) {
     if (expr->isA<kir::UnaryOp>()) {
       auto unaryOp = expr->as<kir::UnaryOp>();
-      if(unaryOp->operation() == UnaryOpType::Set) {
-        auto input = unaryOp->inputs()[0]->as<kir::TensorView>();
-        auto output = unaryOp->outputs()[0]->as<kir::TensorView>();
+      if (unaryOp->operation() == UnaryOpType::Set) {
+        auto input = unaryOp->in()->as<kir::TensorView>();
+        auto output = unaryOp->out()->as<kir::TensorView>();
 
         bool isVectorizedRead = output->memoryType() == MemoryType::Local &&
             input->memoryType() == MemoryType::Global;
         if (isVectorizedRead) {
+          output->allocation()->setVectorSize(vector_size);
           auto vectorize_read = ir_builder.create<kir::UnaryOp>(
-            UnaryOpType::VectorizeRead,
-            output,
-            input);
-          output->setVectorSize(vector_size);
+              UnaryOpType::VectorizeRead, output, input);
           vectorize_loop_nest->body().push_back(vectorize_read);
         } else {
+          input->allocation()->setVectorSize(vector_size);
           auto vectorize_write = ir_builder.create<kir::UnaryOp>(
-            UnaryOpType::VectorizeWrite,
-            output,
-            input);
-          input->setVectorSize(vector_size);
+              UnaryOpType::VectorizeWrite, output, input);
           vectorize_loop_nest->body().push_back(vectorize_write);
         }
       }

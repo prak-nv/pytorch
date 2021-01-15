@@ -6900,17 +6900,19 @@ TEST(NVFuserTest, FusionVectorization_CUDA) {
   tv2->axis(2)->parallelize(ParallelType::TIDx);
 
   auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
   auto c2 = tv2->cache_before();
-  c0->computeAt(tv2, -2);
-  c0->axis(-1)->parallelize(ParallelType::Vectorize);
-  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  fusion.printKernel();
-  fusion.printMath();
+  c0->computeAt(tv2, -2);
+  c1->computeAt(tv2, -2);
+
+  c0->axis(-1)->parallelize(ParallelType::Vectorize);
+  c1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 100;
-  const int by = 400;
+  const int by = 1000;
   at::Tensor t0 = at::randn({bx, by}, options);
   at::Tensor t1 = at::randn({bx, by}, options);
   std::vector<IValue> aten_inputs = {t0, t1};

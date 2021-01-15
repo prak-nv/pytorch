@@ -22,7 +22,7 @@ __device__ float __half2float(const __half h) {
 }
 
 // aligned vector generates vectorized load/store on CUDA
-template<typename scalar_t, int vec_size>
+template <typename scalar_t, int vec_size>
 struct alignas(sizeof(scalar_t) * vec_size) Array {
   scalar_t val[vec_size];
 };

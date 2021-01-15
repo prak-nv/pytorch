@@ -38,7 +38,7 @@ kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
     new_scope = ir_builder.create<kir::ForLoop>(
         ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
         kir_id,
-	false,
+        false,
         scope);
   } else {
     new_scope = ir_builder.create<kir::ForLoop>(

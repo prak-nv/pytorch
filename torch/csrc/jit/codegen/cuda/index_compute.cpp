@@ -279,7 +279,7 @@ void IndexCompute::handle(Split* split) {
       index_map_[in_id] = ir_builder.mulExpr(outer_ind, getExtent(inner_id));
     } else {
       index_map_[in_id] = ir_builder.addExpr(
-        ir_builder.mulExpr(outer_ind, getExtent(inner_id)), inner_ind);
+          ir_builder.mulExpr(outer_ind, getExtent(inner_id)), inner_ind);
     }
 
     if (extent_map_.find(outer_id) != extent_map_.end() ||
@@ -930,9 +930,11 @@ generateIndexAndExtentMap(
   // the stack
   std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map;
 
+  // Track which ID are vectorized
+  std::unordered_set<kir::IterDomain*> vectorized_domain;
+
   // Match loops to this TV
   // if the loop matches, then it is this TV's ID
-  std::unordered_set<kir::IterDomain*> vectorized_domain;
   while (
       !loops.empty() &&
       std::find(kir_td.rbegin(), kir_td.rend(), loops.back()->iter_domain()) !=
@@ -1439,7 +1441,6 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
       std::vector<kir::Val*> strided_inds;
       strided_inds.push_back(ir_builder.create<kir::Int>(0));
       return ir_builder.create<kir::TensorIndex>(consumer_tv, strided_inds);
-
     }
   }
 
