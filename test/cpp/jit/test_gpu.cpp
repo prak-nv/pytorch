@@ -11461,6 +11461,29 @@ TEST(NVFuserTest, FusionMultipleGridReductions_CUDA) {
   ASSERT_ANY_THROW(fe.compileFusion(&fusion));
 }
 
+TEST(NVFuserTest, FusionDoubleBuffering_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = add(tv1, new Double(1));
+  fusion.addOutput(tv2);
+
+
+  tv2->split(0, 32);
+  tv0->computeAt(tv2, 1);
+
+  tv1->doubleBuffer();
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+}
+
 } // namespace jit
 } // namespace torch
 

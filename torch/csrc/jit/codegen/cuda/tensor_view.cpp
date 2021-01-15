@@ -780,6 +780,10 @@ void TensorView::setMemoryType(MemoryType mt) {
   }
 }
 
+void TensorView::doubleBuffer() {
+  TORCH_INTERNAL_ASSERT(false, "Not supported yet");
+}
+
 namespace {
 
 // Create New Expr given consumer - [output of the expression]

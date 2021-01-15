@@ -320,6 +320,8 @@ class TORCH_CUDA_API TensorView : public Val {
     return axes_to_swizzle_;
   }
 
+  void doubleBuffer();
+
   friend TORCH_CUDA_API TransformReplay;
   friend TORCH_CUDA_API OptOutMutator;
   friend ComputeAt;
