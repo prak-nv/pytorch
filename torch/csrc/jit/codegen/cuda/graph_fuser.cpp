@@ -1322,6 +1322,7 @@ void decomposeLinearOps(Block* block) {
       }
     }
   }
+
   auto graph = block->owningGraph();
   for (Node* n : linear_nodes) {
     WithInsertPoint guard(n);
@@ -1330,19 +1331,20 @@ void decomposeLinearOps(Block* block) {
     auto input_tensor_type = n->input(0)->type()->cast<c10::TensorType>();
     auto mat0_size = input_tensor_type->sizes().concrete_sizes();
     auto mat1_size = n->input(1)->type()->cast<c10::TensorType>()->sizes().concrete_sizes();
-    // TODO: The assert is not necessary when we can handle matmul
+    // TODO: The assert is not necessary when we can handle matmul, right now we
+    // are splitting the linear between matmul & bias_add. Our fuser can only
+    // take the second half and we would need the size information.
     TORCH_INTERNAL_ASSERT(mat0_size.has_value() && mat1_size.has_value(), "concrete shape for linear input & weight are required");
     auto out_size = mat0_size.value();
     out_size[out_size.size()-1] = mat1_size.value()[0];
     matmul->output()->setType(input_tensor_type->withSizes(out_size));
 
+    // TODO: memory stride should be considered here, our inference above is not
+    // safe.
     auto bias = graph->insertNode(graph->create(aten::add, {matmul->output(0), n->input(2), graph->insertConstant(1)}, 1));
-    // TODO: memory stride should be considered here!
 
     n->output()->replaceAllUsesWith(bias->output());
-    // TODO: we should map `aten::linear` to decomposed nodes so restoration
-    // would be easier. Also we can skip the deconstruction here as well and
-    // DCE might take care of that for us.
+    n->destroy();
   }
 }
 
@@ -1350,7 +1352,6 @@ void decomposeLinearOps(Block* block) {
 
 void CudaFuseGraph(std::shared_ptr<Graph>& graph) {
   FUSER_PERF_SCOPE("CudaFuseGraph");
-  std::cout << "before fusion" << *graph << std::endl;
   GRAPH_DUMP("Before Fusion: ", graph);
 
   // TODO: extract & guard profile_ivalue; but how do we restore it???
@@ -1368,13 +1369,10 @@ void CudaFuseGraph(std::shared_ptr<Graph>& graph) {
   // TODO: separate passes into different file;
   // TODO: restore decomposition after fusion, in case we are decomposing
   //       operation that can't be fused;
-  std::cout << "before decompose" << *graph << std::endl;
   decomposeLinearOps(graph->block());
-  std::cout << "after decompose" << *graph << std::endl;
   GRAPH_DUMP("decompose operations by nvfuser: ", graph);
 
   CudaGraphFuser(graph->block(), graph).run();
-
   GRAPH_DUMP("After Fusion: ", graph);
 
   // guard input types as well as conditional constants from
@@ -1399,7 +1397,6 @@ void CudaFuseGraph(std::shared_ptr<Graph>& graph) {
   GRAPH_DUMP("Before Compilation: ", graph);
   // Compile CudaFusionGroup
   compileFusionRecursive(graph->block());
-  std::cout << "after fusion" << *graph << std::endl;
 }
 
 } // namespace cuda

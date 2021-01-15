@@ -416,7 +416,6 @@ const std::vector<std::string> functions = {
 
                 weight_size = weight.size()
                 grad_input = torch.matmul(grad_output, weight)
-                #grad_weight = torch.matmul(input.reshape(-1, weight_size[1]).t(), grad_output.reshape(-1, weight_size[0]))
                 grad_weight = torch.matmul(grad_output.reshape(-1, weight_size[0]).t(), input.reshape(-1, weight_size[1]))
                 return grad_input, grad_weight, grad_bias
             return result, backward

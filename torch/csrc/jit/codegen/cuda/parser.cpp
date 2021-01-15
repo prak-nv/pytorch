@@ -32,7 +32,6 @@ namespace {
 const auto& sizeAttr = Symbol::attr("profiled_size");
 const auto& intListAttr = Symbol::attr("profiled_int_list");
 const auto& boolAttr = Symbol::attr("profiled_bool");
-// const auto& optionalAttr = Symbol::attr("profiled_optional");
 
 typedef Val* CgValue;
 typedef Expr* CgOp;
@@ -1397,28 +1396,6 @@ void profileBool(ProfilingRecord* pr, Node* node, size_t offset) {
   pn->setCallback(ivalue_profiler);
 }
 
-// void profileOptional(ProfilingRecord* pr, Node* node, size_t offset) {
-//   auto pn = insertProfileIValueOp(node, offset, pr);
-// 
-//   const auto ivalue_profiler = [pr, pn](Stack& stack) {
-//     std::lock_guard<std::mutex> lock(pr->mutex_);
-// 
-//     // TODO: we don't care about merging multiple profiling runs as we don't
-//     // support it at all;
-//     int64_t frame_id = 0;
-//     pop(stack, frame_id);
-//     IValue value;
-//     pop(stack, value);
-//     if (!pn->hasAttribute(optionalAttr)) {
-//       pn->i_(optionalAttr, value.isNone());
-//     } else {
-//     }
-//     push(stack, value);
-//   };
-// 
-//   pn->setCallback(ivalue_profiler);
-// }
-
 bool anyInBlock(
     const Block* block,
     const std::function<bool(const Node*)>& fn) {
@@ -1508,19 +1485,6 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
     }
     return true;
   }
-
-  // static auto linear_operator_schema =
-  //     getOperatorForLiteral(
-  //         "aten::linear(Tensor input, Tensor weight, Tensor? bias=None) -> Tensor")
-  //         ->schema();
-  // if (node->matches(linear_operator_schema)) {
-  //   if (offset == 2) {
-  //     // argument 2: bias;
-  //     profileOptional(pr, node, offset);
-  //   } else {
-  //     return false;
-  //   }
-  // }
 
   return false;
 }
