@@ -11468,14 +11468,17 @@ TEST(NVFuserTest, FusionDoubleBuffering_CUDA) {
   auto tv0 = makeSymbolicTensor(1);
   fusion.addInput(tv0);
   auto tv1 = add(tv0, new Double(1));
-  auto tv2 = add(tv1, new Double(1));
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv1);
 
+  auto tv0_cache = tv0->cache_after();
 
-  tv2->split(0, 32);
-  tv0->computeAt(tv2, 1);
+  tv1->split(0, 32);
+  tv0->computeAt(tv1, 1);
 
-  tv1->doubleBuffer();
+  fusion.printMath();
+  fusion.printKernel();
+
+  tv0_cache->doubleBuffer();
 
   fusion.printMath();
   fusion.printKernel();
