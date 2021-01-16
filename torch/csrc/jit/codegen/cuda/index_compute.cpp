@@ -769,8 +769,7 @@ std::unordered_map<IterDomain*, IterDomain*> mapFromReference(
 kir::TensorIndex* Index::getGlobalProducerIndex(
     TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("getGlobalProducerIndex");
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
@@ -968,24 +967,24 @@ std::unordered_map<kir::ForLoop*, kir::Val*> indexMapFromTV(
 kir::TensorIndex* Index::getProducerIndex_impl(
     TensorView* producer_tv,
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    const std::vector<kir::ForLoop*>& loops) {
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
 
+  auto pairwiseMap = PairwiseRootDomainMap(producer_tv, consumer_tv);
   auto producerAsC = TransformReplay::replayPasC(
                          producer_tv->domain(),
                          consumer_tv->domain(),
                          -1,
-                         PairwiseRootDomainMap(producer_tv, consumer_tv))
+                         pairwiseMap)
                          .first;
 
   // For some reason this is problematic to do after the domain_guard
-  auto root_c2p = gpu_lower->caRootMap().mapConsumerToProducer(
-      consumer_tv->domain(), producer_tv->domain());
+
+  auto root_c2p = pairwiseMap.mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
 
   ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
 
@@ -1146,8 +1145,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
 
 kir::TensorIndex* Index::getGlobalConsumerIndex(
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("getGlobalConsumerIndex");
 
   const auto gpu_lower = GpuLower::current();
@@ -1240,8 +1238,7 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
 // Consumer index for either shared or local memory
 kir::TensorIndex* Index::getConsumerIndex_impl(
     const TensorView* consumer_tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    const std::vector<kir::ForLoop*>& loops) {
   // std::cout << "\n\nIndexing: " << consumer_tv << std::endl;
 
   const auto gpu_lower = GpuLower::current();
@@ -1447,8 +1444,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
 kir::TensorIndex* Index::getProducerIndex(
     TensorView* producer,
     const TensorView* consumer,
-    const std::vector<kir::ForLoop*>& loops,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("Index::getProducerIndex");
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
@@ -1459,16 +1455,15 @@ kir::TensorIndex* Index::getProducerIndex(
   }
 
   if (producer->getMemoryType() == MemoryType::Global) {
-    return getGlobalProducerIndex(producer, consumer, loops, ca_root_map);
+    return getGlobalProducerIndex(producer, consumer, loops);
   }
-  return getProducerIndex_impl(producer, consumer, loops, ca_root_map);
+  return getProducerIndex_impl(producer, consumer, loops);
 }
 
 // Consumer is the output of an expression
 kir::TensorIndex* Index::getConsumerIndex(
     const TensorView* consumer,
-    const std::vector<kir::ForLoop*>& loops,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    const std::vector<kir::ForLoop*>& loops) {
   FUSER_PERF_SCOPE("Index::getConsumerIndex");
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
@@ -1479,9 +1474,9 @@ kir::TensorIndex* Index::getConsumerIndex(
   }
 
   if (consumer->getMemoryType() == MemoryType::Global) {
-    return getGlobalConsumerIndex(consumer, loops, ca_root_map);
+    return getGlobalConsumerIndex(consumer, loops);
   }
-  return getConsumerIndex_impl(consumer, loops, ca_root_map);
+  return getConsumerIndex_impl(consumer, loops);
 }
 
 // Basically just copy getGlobalConsumerIndex, just don't do the striding and
@@ -1493,7 +1488,6 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     const kir::TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops,
     const std::vector<bool>& root_contiguity,
-    const ComputeAtRootDomainMap& ca_root_map,
     bool unswitch) {
   // std::cout << "\n\nPredicate for: " << consumer_tv->fuserTv() << std::endl;
   FUSER_PERF_SCOPE("Index::getConsumerRootPredIndices");

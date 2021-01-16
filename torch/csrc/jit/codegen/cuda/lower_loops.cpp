@@ -230,18 +230,11 @@ std::vector<kir::Expr*> LoopNestGenerator2::loweredExprs(
     const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("LoopNestGenerator2::loweredExprs");
   TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
-  LoopNestGenerator2 generator(
-      FusionGuard::getCurFusion(), exprs, GpuLower::current()->caLoopMap());
+  LoopNestGenerator2 generator(exprs);
   return generator.lowered_exprs_;
 }
 
-LoopNestGenerator2::LoopNestGenerator2(
-    Fusion* fusion,
-    const std::vector<Expr*>& exprs,
-    const ComputeAtMap& ca_maps)
-    : fusion_(fusion),
-      ir_builder_(GpuLower::current()->kernel()),
-      ca_maps_(ca_maps) {
+LoopNestGenerator2::LoopNestGenerator2(const std::vector<Expr*>& exprs){
   generate(exprs);
 }
 
@@ -298,6 +291,7 @@ void LoopNestGenerator2::pushFront(kir::Expr* expr) {
 
 void LoopNestGenerator2::handle(const Expr* expr) {
   const auto gpu_lower = GpuLower::current();
+  kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // Check if it's a tensor view expression we need to place in the loop nest
   // structure
@@ -317,23 +311,27 @@ void LoopNestGenerator2::handle(const Expr* expr) {
           " cannot lower ",
           out->getValType().value());
 
-      pushFront(ir_builder_.create<kir::Allocate>(
+      pushFront(ir_builder.create<kir::Allocate>(
           gpu_lower->lowerValue(out),
           MemoryType::Local,
-          ir_builder_.create<kir::Int>(1)));
+          ir_builder.create<kir::Int>(1)));
     }
     return;
   }
 
   TensorView* out_tv = expr->output(0)->as<TensorView>();
 
+  // std::cout<<"Processing: "<<out_tv<<std::endl;
+
   // Figure out what the entire loop structure should look like.
   std::deque<IterDomain*> loop_structure;
+
   // Look at each axis individually in out's domain, first only setup loop
   // structure within computeAt
-  for (int64_t out_i = 0; out_i < (int64_t)ca_maps_.producedAt(out_tv);
+  for (int64_t out_i = 0; out_i < (int64_t)gpu_lower->caLoopMap().producedAt(out_tv);
        out_i++) {
-    auto concrete_id = ca_maps_.getConcreteMappedID(out_tv->axis(out_i));
+    // Safe to use loop map since this is outside the compute at point
+    auto concrete_id = gpu_lower->caParallelMap().getConcreteMappedID(out_tv->axis(out_i));
     loop_structure.push_back(concrete_id);
   }
 
@@ -350,11 +348,14 @@ void LoopNestGenerator2::handle(const Expr* expr) {
   auto for_loop_it = for_loops_.begin();
   auto last_for_loop_matched = for_loops_.begin();
 
+  // If the loop is not within the compute at point,
   // Tee up the loop structure
+
+
   while (out_id_it != loop_structure.end() && for_loop_it != for_loops_.end()) {
     auto lowered_out_id =
         gpu_lower->lowerValue(*out_id_it)->as<kir::IterDomain>();
-    if (ca_maps_.areMapped(lowered_out_id, (*for_loop_it)->iter_domain())) {
+    if (gpu_lower->caLoopMap().areMapped(lowered_out_id, (*for_loop_it)->iter_domain())) {
       out_id_it++;
       last_for_loop_matched = ++for_loop_it;
     } else {
@@ -365,9 +366,8 @@ void LoopNestGenerator2::handle(const Expr* expr) {
   // Save position of out_id_it as we will append to loop structure
   // invalidating it
   size_t out_id_i = std::distance(loop_structure.begin(), out_id_it);
-
   // Append axes outside the computeAt to the loop structure
-  for (int64_t out_i = (int64_t)ca_maps_.producedAt(out_tv);
+  for (int64_t out_i = (int64_t)gpu_lower->caIndexMap().producedAt(out_tv);
        out_i < out_tv->nDims();
        out_i++) {
     loop_structure.push_back(out_tv->axis(out_i));
@@ -380,10 +380,13 @@ void LoopNestGenerator2::handle(const Expr* expr) {
       std::distance(last_for_loop_matched, for_loops_.end());
 
   for (size_t i = 0; i < n_loops_to_close; i++) {
+    // std::cout<<"Close"<<std::endl;
     closeFor();
   }
-
+  
+  // std::cout << out_tv << std::endl;
   for (; out_id_it != loop_structure.end(); ++out_id_it) {
+    // std::cout << "Open: " << (*out_id_it) << std::endl;
     openFor(*out_id_it);
   }
 
@@ -392,8 +395,6 @@ void LoopNestGenerator2::handle(const Expr* expr) {
 
 // Generate the loop nest structure and place it in lowered_exprs_
 void LoopNestGenerator2::generate(const std::vector<Expr*>& exprs) {
-  FusionGuard fg(fusion_);
-
   TORCH_INTERNAL_ASSERT(lowered_exprs_.empty());
 
   // Process the carefully ordered expressions

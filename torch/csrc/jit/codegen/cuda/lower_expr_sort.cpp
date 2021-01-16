@@ -36,13 +36,9 @@ class ExprSortPayload : public TraversalPayload {
 
 class ExprSortingWithCA : public SegmentCandidateFinder {
  public:
-  ExprSortingWithCA(const ComputeAtMap& _ca_maps_)
-      : SegmentCandidateFinder(FusionGuard::getCurFusion()),
-        ca_maps_(_ca_maps_) {
+  ExprSortingWithCA() : SegmentCandidateFinder(FusionGuard::getCurFusion()) {
     TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
   }
-
-  ExprSortingWithCA() = delete;
 
   ExprSortPayload* payload(SegmentedGroup* sg) {
     return sg->payload()->as<ExprSortPayload>();
@@ -61,7 +57,7 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
       return false;
     }
 
-    return ca_maps_.areMapped(domain1.back(), domain2.back());
+    return GpuLower::current()->caIndexMap().areMapped(domain1.back(), domain2.back());
   }
 
   SegmentedGroup* makeEmptyGroup() override {
@@ -78,7 +74,7 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
     if (ir_utils::isTVOp(expr)) {
       auto out_tv = expr->outputs()[0]->as<TensorView>();
       auto* group_payload = payload(group);
-      for (size_t tv_i = 0; tv_i < ca_maps_.produce_at_map().at(out_tv);
+      for (size_t tv_i = 0; tv_i < GpuLower::current()->caIndexMap().produce_at_map().at(out_tv);
            tv_i++) {
         group_payload->ca_domains.push_back(out_tv->axis(tv_i));
       }
@@ -99,19 +95,19 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
         resulting_ca_axes.push_back(*it2++);
       } else if (it2 == domain2.end()) {
         resulting_ca_axes.push_back(*it1++);
-      } else if (ca_maps_.areMapped(*it1, *it2)) {
+      } else if (GpuLower::current()->caIndexMap().areMapped(*it1, *it2)) {
         resulting_ca_axes.push_back(*it1);
         ++it1;
         ++it2;
       } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
-                   return ca_maps_.areMapped(id1, *it2);
+                   return GpuLower::current()->caIndexMap().areMapped(id1, *it2);
                  })) {
         // Increment it1, as a later iter domain matches the current one in
         // domain2
         resulting_ca_axes.push_back(*it1++);
 
       } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
-                   return ca_maps_.areMapped(id2, *it1);
+                   return GpuLower::current()->caIndexMap().areMapped(id2, *it1);
                  })) {
         // Increment it2, as a later iter domain matches the current one in
         // domain1
@@ -162,7 +158,7 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
           break;
         }
         for (auto p_id : payload(neighbor)->ca_domains) {
-          if (ca_maps_.areMapped(p_id, g_last_id)) {
+          if (GpuLower::current()->caIndexMap().areMapped(p_id, g_last_id)) {
             matching_neighbor = true;
             break;
           }
@@ -214,11 +210,10 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
   // when we've stopped merging nodes.
   size_t n_groups = 0;
 
-  const ComputeAtMap& ca_maps_;
 };
 
 std::vector<Expr*> reorderExprsTest() {
-  ExprSortingWithCA sorter(GpuLower::current()->caLoopMap());
+  ExprSortingWithCA sorter;
   sorter.segment();
   auto groups = sorter.getGroups();
   TORCH_INTERNAL_ASSERT(

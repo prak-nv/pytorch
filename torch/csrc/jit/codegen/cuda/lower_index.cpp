@@ -14,11 +14,9 @@ namespace fuser {
 namespace cuda {
 
 IndexLowering::IndexLowering(
-    const ThreadPredicateMap& thread_predicates,
-    const ComputeAtRootDomainMap& ca_root_map)
+    const ThreadPredicateMap& thread_predicates)
     : ir_builder_(GpuLower::current()->kernel()),
-      thread_predicates_(thread_predicates),
-      ca_root_map_(ca_root_map) {}
+      thread_predicates_(thread_predicates) {}
 
 kir::Val* IndexLowering::lowerSrcIndex(kir::Val* val, kir::Val* dst) const {
   if (auto tv = dynamic_cast<kir::TensorView*>(val)) {
@@ -26,8 +24,7 @@ kir::Val* IndexLowering::lowerSrcIndex(kir::Val* val, kir::Val* dst) const {
     return Index::getProducerIndex(
         tv->fuserTv(),
         dst->as<kir::TensorView>()->fuserTv(),
-        scope_utils::getLoops(active_scope_expr_),
-        ca_root_map_);
+        scope_utils::getLoops(active_scope_expr_));
   } else {
     return val;
   }
@@ -36,7 +33,7 @@ kir::Val* IndexLowering::lowerSrcIndex(kir::Val* val, kir::Val* dst) const {
 kir::Val* IndexLowering::lowerDstIndex(kir::Val* dst) const {
   if (auto tv = dynamic_cast<kir::TensorView*>(dst)) {
     return Index::getConsumerIndex(
-        tv->fuserTv(), scope_utils::getLoops(active_scope_expr_), ca_root_map_);
+        tv->fuserTv(), scope_utils::getLoops(active_scope_expr_));
   } else {
     return dst;
   }
@@ -181,7 +178,6 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
         rop,
         scope_utils::getLoops(active_scope_expr_),
         thread_predicates_.getExpr(out_tv->fuserTv()),
-        ca_root_map_,
         false);
     block_reduction_op->setPredicate(pred);
     pushBack(block_reduction_op);
@@ -265,7 +261,6 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
         rop,
         scope_utils::getLoops(active_scope_expr_),
         nullptr,
-        ca_root_map_,
         false);
     grid_reduction->setPredicate(pred);
 

@@ -50,6 +50,10 @@ class TORCH_CUDA_API GpuLower {
     return ca_index_map;
   }
 
+  const ComputeAtMap& caParallelMap() const {
+    return ca_parallel_map;
+  }
+
  private:
   void lower();
 
@@ -74,6 +78,7 @@ class TORCH_CUDA_API GpuLower {
   ComputeAtRootDomainMap ca_root_map;
   ComputeAtMap ca_loop_map;
   ComputeAtMap ca_index_map;
+  ComputeAtMap ca_parallel_map;
 
   Fusion* fusion_ = nullptr;
 };

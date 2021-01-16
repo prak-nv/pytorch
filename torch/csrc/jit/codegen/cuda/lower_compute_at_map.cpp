@@ -120,17 +120,20 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
     disjoint_iter_sets_.push_back(new_set);
 
     // Update parallel type map
-    if (id0->isParallelized() && id1->isParallelized()) {
-      // Both are parallelized, make sure they're the same, set entry for
-      // parallel map
-      TORCH_INTERNAL_ASSERT(id0->getParallelType() == id1->getParallelType());
-      parallel_type_map_[new_set] = id0->getParallelType();
-    } else if (id0->isParallelized() || id1->isParallelized()) {
-      // Only one is parallelized, set entry for parallel map
-      parallel_type_map_[new_set] = id0->isParallelized()
-          ? id0->getParallelType()
-          : id1->getParallelType();
+    if (mapping_mode_ == MappingMode::PARALLEL) {
+      if (id0->isParallelized() && id1->isParallelized()) {
+        // Both are parallelized, make sure they're the same, set entry for
+        // parallel map
+        TORCH_INTERNAL_ASSERT(id0->getParallelType() == id1->getParallelType());
+        parallel_type_map_[new_set] = id0->getParallelType();
+      } else if (id0->isParallelized() || id1->isParallelized()) {
+        // Only one is parallelized, set entry for parallel map
+        parallel_type_map_[new_set] = id0->isParallelized()
+            ? id0->getParallelType()
+            : id1->getParallelType();
+      }
     }
+
   } else if (
       set_it_0 != disjoint_iter_set_maps_.end() &&
       set_it_1 != disjoint_iter_set_maps_.end()) {
@@ -150,22 +153,25 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
       disjoint_iter_set_maps_[id] = set0_ptr;
     }
 
-    auto parallel_type_0_it = parallel_type_map_.find(set0_ptr);
-    auto parallel_type_1_it = parallel_type_map_.find(set1_ptr);
-    if (parallel_type_0_it != parallel_type_map_.end() &&
-        parallel_type_1_it != parallel_type_map_.end()) {
-      // If both sets had a parallel type associated with them, make sure they
-      // are the same
-      TORCH_INTERNAL_ASSERT(
-          parallel_type_0_it->second == parallel_type_1_it->second);
-    } else if (parallel_type_1_it != parallel_type_map_.end()) {
-      // Set 1 has a parallel type, set 0 does not, set parallel entry
-      parallel_type_map_[set0_ptr] = parallel_type_1_it->second;
-    } // Else set 0 already has the right parallel type set in the map, if at
-      // all
+    // Update parallel type map
+    if (mapping_mode_ == MappingMode::PARALLEL) {
+      auto parallel_type_0_it = parallel_type_map_.find(set0_ptr);
+      auto parallel_type_1_it = parallel_type_map_.find(set1_ptr);
+      if (parallel_type_0_it != parallel_type_map_.end() &&
+          parallel_type_1_it != parallel_type_map_.end()) {
+        // If both sets had a parallel type associated with them, make sure they
+        // are the same
+        TORCH_INTERNAL_ASSERT(
+            parallel_type_0_it->second == parallel_type_1_it->second);
+      } else if (parallel_type_1_it != parallel_type_map_.end()) {
+        // Set 1 has a parallel type, set 0 does not, set parallel entry
+        parallel_type_map_[set0_ptr] = parallel_type_1_it->second;
+      } // Else set 0 already has the right parallel type set in the map, if at
+        // all
 
-    // Remove set1 from the parallel type map as it shouldn't exist anymore
-    parallel_type_map_.erase(set1_ptr);
+      // Remove set1 from the parallel type map as it shouldn't exist anymore
+      parallel_type_map_.erase(set1_ptr);
+    }
 
   } else if (set_it_0 != disjoint_iter_set_maps_.end()) {
     // set0 already exists but set1 does not, use set0
@@ -173,18 +179,21 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
     set0->push_back(id1);
     disjoint_iter_set_maps_[id1] = set0;
 
-    auto parallel_type_0_it = parallel_type_map_.find(set0);
-    if (parallel_type_0_it != parallel_type_map_.end() &&
-        id1->isParallelized()) {
-      // set0 has a parallel type already and id1 has a parallel type, make sure
-      // they match. No need to update map
-      TORCH_INTERNAL_ASSERT(
-          parallel_type_0_it->second == id1->getParallelType());
-    } else if (
-        parallel_type_0_it == parallel_type_map_.end() &&
-        id1->isParallelized()) {
-      // Set parallel type of set0 as the newly added id1 is parallel
-      parallel_type_map_[set0] = id1->getParallelType();
+    // Update parallel type map
+    if (mapping_mode_ == MappingMode::PARALLEL) {
+      auto parallel_type_0_it = parallel_type_map_.find(set0);
+      if (parallel_type_0_it != parallel_type_map_.end() &&
+          id1->isParallelized()) {
+        // set0 has a parallel type already and id1 has a parallel type, make
+        // sure they match. No need to update map
+        TORCH_INTERNAL_ASSERT(
+            parallel_type_0_it->second == id1->getParallelType());
+      } else if (
+          parallel_type_0_it == parallel_type_map_.end() &&
+          id1->isParallelized()) {
+        // Set parallel type of set0 as the newly added id1 is parallel
+        parallel_type_map_[set0] = id1->getParallelType();
+      }
     }
 
   } else {
@@ -193,19 +202,22 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
     set1->push_back(id0);
     disjoint_iter_set_maps_[id0] = set1;
 
-    auto parallel_type_1_it = parallel_type_map_.find(set1);
-    if (parallel_type_1_it != parallel_type_map_.end() &&
-        id0->isParallelized()) {
-      // Set1 already has a parallel type and id0 has a parallel type make sure
-      // they match
-      TORCH_INTERNAL_ASSERT(
-          parallel_type_1_it->second == id0->getParallelType());
-    } else if (
-        parallel_type_1_it == parallel_type_map_.end() &&
-        id0->isParallelized()) {
-      // Set1 doesn't have a parallel type but the newly added id0 has a
-      // parallel type
-      parallel_type_map_[set1] = id0->getParallelType();
+    // Update parallel type map
+    if (mapping_mode_ == MappingMode::PARALLEL) {
+      auto parallel_type_1_it = parallel_type_map_.find(set1);
+      if (parallel_type_1_it != parallel_type_map_.end() &&
+          id0->isParallelized()) {
+        // Set1 already has a parallel type and id0 has a parallel type make
+        // sure they match
+        TORCH_INTERNAL_ASSERT(
+            parallel_type_1_it->second == id0->getParallelType());
+      } else if (
+          parallel_type_1_it == parallel_type_map_.end() &&
+          id0->isParallelized()) {
+        // Set1 doesn't have a parallel type but the newly added id0 has a
+        // parallel type
+        parallel_type_map_[set1] = id0->getParallelType();
+      }
     }
   }
 }
@@ -233,6 +245,20 @@ void ComputeAtMap::build() {
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
     for (auto p_tv : tv_inputs) {
+      // If outside computeAt axis, we don't want to directly map
+      // consumer/producer as their thread mappings could change as long as it's
+      // across shared/global memory.
+      // TODO: Make better consistency checks allowing this when not acros
+      // shared/global memory and looking for consistency.
+
+      // Mark axes outside compute at point for parallel type tracking
+      std::unordered_set<IterDomain*> right_of_ca_point;
+      if (mapping_mode_ == MappingMode::PARALLEL &&
+          p_tv->getThisComputeAtAxis() < p_tv->nDims()) {
+        right_of_ca_point.insert(
+            p_tv->domain()->domain().begin() + p_tv->getThisComputeAtAxis(),
+            p_tv->domain()->domain().end());
+      }
       // if this is a producer tv, (i.e. not a terminating output tv), then
       // produce at is the same as this compute at position
       produce_at_map_[p_tv] = p_tv->getThisComputeAtAxis();
@@ -250,7 +276,7 @@ void ComputeAtMap::build() {
           p_tv->domain()->domain(),
           c_tv->domain()->domain(),
           c2p_root_map,
-          !for_indexing_);
+          mapping_mode_ == MappingMode::LOOP);
 
       auto c2p_map = replay.getReplay();
 
@@ -262,6 +288,12 @@ void ComputeAtMap::build() {
       for (auto entry : c2p_map) {
         auto c_id = entry.first;
         auto p_id = entry.second;
+        // If outside CA point and we're creating parallel map, do not map the
+        // axis
+        if (mapping_mode_ == MappingMode::PARALLEL &&
+            right_of_ca_point.find(p_id) != right_of_ca_point.end()) {
+          continue;
+        }
         // Map the id's together
         map_ids(p_id, c_id);
         p2c_map[p_id] = c_id;
@@ -365,11 +397,19 @@ void ComputeAtMap::build() {
     TORCH_INTERNAL_ASSERT(
         concrete_id != nullptr, "Could not concretize an IterDomain set.");
 
+    // If parallel mode, parallelize the the concrete id
+    // TODO: Would be good to simply keep a parallelization map and make lookups
+    // to it through lowering.
+    if (mapping_mode_ == MappingMode::PARALLEL) {
+      auto parallel_map_it = parallel_type_map_.find(set);
+      if (parallel_map_it != parallel_type_map_.end()) {
+        concrete_id->parallelize(parallel_map_it->second);
+      }
+    }
+
     for (auto id : *set) {
       concrete_id_map_[id] = concrete_id;
-      // std::cout<<"Concrete: "<<id<<" -> "<<concrete_id<<std::endl;
     }
-    concrete_id->parallelize(getMappedParallelType(concrete_id));
   }
 
   // ===== CONVERSION TO KERNEL IR =========
@@ -478,6 +518,9 @@ kir::IterDomain* ComputeAtMap::getConcreteMappedID(kir::IterDomain* id) const {
 }
 
 ParallelType ComputeAtMap::getMappedParallelType(IterDomain* id) const {
+  TORCH_INTERNAL_ASSERT(
+      mapping_mode_ == MappingMode::PARALLEL,
+      "Need to restrict mode to parallel mode to use this function.");
   auto disjoint_set_it = disjoint_iter_set_maps_.find(id);
   if (disjoint_set_it == disjoint_iter_set_maps_.end()) {
     return id->getParallelType();
@@ -490,6 +533,9 @@ ParallelType ComputeAtMap::getMappedParallelType(IterDomain* id) const {
 }
 
 ParallelType ComputeAtMap::getMappedParallelType(kir::IterDomain* id) const {
+  TORCH_INTERNAL_ASSERT(
+      mapping_mode_ == MappingMode::PARALLEL,
+      "Need to restrict mode to parallel mode to use this function.");
   auto disjoint_set_it = kir_disjoint_iter_set_maps_.find(id);
   if (disjoint_set_it == kir_disjoint_iter_set_maps_.end()) {
     return id->parallelType();
@@ -583,11 +629,14 @@ std::string ComputeAtMap::toString() {
       ss << (*it);
     }
     ss << " }";
-    if (parallel_type_map_.find(disjoint_set) != parallel_type_map_.end()) {
-      ss << "  -> " << parallel_type_map_.at(disjoint_set) << "\n";
-    } else {
-      ss << "  -> " << ParallelType::Serial << "\n";
+    if (mapping_mode_ == MappingMode::PARALLEL) {
+      if (parallel_type_map_.find(disjoint_set) != parallel_type_map_.end()) {
+        ss << "  -> " << parallel_type_map_.at(disjoint_set);
+      } else {
+        ss << "  -> " << ParallelType::Serial;
+      }
     }
+    ss<< "\n";
   }
   return ss.str();
 }

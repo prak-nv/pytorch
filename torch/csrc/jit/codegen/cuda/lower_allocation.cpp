@@ -114,7 +114,7 @@ class AllocationInserter : public kir::MutableIrVisitor {
       }
       auto concrete_id =
           gpu_lower
-              ->lowerValue(gpu_lower->caLoopMap().getConcreteMappedID(
+              ->lowerValue(gpu_lower->caParallelMap().getConcreteMappedID(
                   fuser_tv->axis(axis_i)))
               ->as<kir::IterDomain>();
       init_dims.push_back(concrete_id);
@@ -170,7 +170,7 @@ class AllocationInserter : public kir::MutableIrVisitor {
 
       auto concrete_id =
           gpu_lower
-              ->lowerValue(gpu_lower->caLoopMap().getConcreteMappedID(
+              ->lowerValue(gpu_lower->caParallelMap().getConcreteMappedID(
                   fuser_tv->axis(axis_i)))
               ->as<kir::IterDomain>();
       const bool is_block_dim =

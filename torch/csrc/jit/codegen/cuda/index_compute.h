@@ -178,27 +178,23 @@ class Index {
   static kir::TensorIndex* getProducerIndex_impl(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const std::vector<kir::ForLoop*>& loops);
 
   // Consumer indexing if it's in shared or local memory
   static kir::TensorIndex* getConsumerIndex_impl(
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const std::vector<kir::ForLoop*>& loops);
 
   // Producer if it's in global memory
   static kir::TensorIndex* getGlobalProducerIndex(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const std::vector<kir::ForLoop*>& loops);
 
   // Consumer indexing if it's in global memory
   static kir::TensorIndex* getGlobalConsumerIndex(
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const std::vector<kir::ForLoop*>& loops);
 
  public:
   // Indexing functions
@@ -208,14 +204,12 @@ class Index {
   static kir::TensorIndex* getProducerIndex(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const std::vector<kir::ForLoop*>& loops);
 
   // Consumer index dispatch
   static kir::TensorIndex* getConsumerIndex(
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const std::vector<kir::ForLoop*>& loops);
 
   // Consumer indices for predicates, keep all indices matching in root domain.
   // Even those not used for physical addressing. Returns pair <root indices, if
@@ -224,7 +218,6 @@ class Index {
       const kir::TensorView* consumer,
       const std::vector<kir::ForLoop*>& loops,
       const std::vector<bool>& root_contiguity,
-      const ComputeAtRootDomainMap& ca_root_map,
       bool unswitch = false);
 };
 

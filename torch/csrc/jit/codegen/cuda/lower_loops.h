@@ -83,10 +83,7 @@ class TORCH_CUDA_API LoopNestGenerator2 {
   static std::vector<kir::Expr*> loweredExprs(const std::vector<Expr*>& exprs);
 
  private:
-  LoopNestGenerator2(
-      Fusion* fusion,
-      const std::vector<Expr*>& exprs,
-      const ComputeAtMap& ca_maps);
+  LoopNestGenerator2(const std::vector<Expr*>& exprs);
 
   // Open a new inner most for loop, track which TV it was constructed from
   // according to the computeAt chain.
@@ -113,11 +110,6 @@ class TORCH_CUDA_API LoopNestGenerator2 {
   // Keep all for loops conveniently to make unrolling easier, basically just a
   // stack of the active for_loops
   std::vector<kir::ForLoop*> for_loops_;
-
-  // Kernel IR builder
-  kir::IrBuilder ir_builder_;
-
-  const ComputeAtMap& ca_maps_;
 };
 
 } // namespace cuda

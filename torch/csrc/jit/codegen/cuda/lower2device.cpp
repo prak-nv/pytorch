@@ -103,10 +103,11 @@ void GpuLower::lower() {
 
   // Start with a fresh kernel
   kernel_ = std::make_unique<kir::Kernel>();
-
+  
   // prepare for lowering
   validateIr(fusion_);
   replaceSymbolicSizes();
+
 
   // Compute thread predicates
   ThreadPredicateMap preds(fusion_);
@@ -115,13 +116,22 @@ void GpuLower::lower() {
   ca_root_map = ComputeAtRootDomainMap();
   ca_root_map.build();
 
+  // In the future we may directly use this map, but for now it will propagate
+  // and validate (to some extent) the parallelization strategy.
+  // TODO: Does this have to go before the next mapping?
+  // :: first time nodes will be lowered so kir nodes are generated here.
+  // :: Meaning we have to hit the right parallel strategy before lowing
+  ComputeAtMap ca_parallel_map(ComputeAtMap::MappingMode::PARALLEL);
+  ca_parallel_map.build();
+  // std::cout << "Parallel map: " << ca_parallel_map.toString() << std::endl;
+
   // Generate mappings to generate indices
-  ca_index_map = ComputeAtMap(true);
+  ca_index_map = ComputeAtMap(ComputeAtMap::MappingMode::INDEX);
   ca_index_map.build();
   // std::cout<<"Index map: "<<ca_index_map.toString()<<std::endl;
 
   // Generate mappings to generate and map to loop nests
-  ca_loop_map = ComputeAtMap(false);
+  ca_loop_map = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
   ca_loop_map.build();
   // std::cout<<"Loop map: "<<ca_loop_map.toString()<<std::endl;
 
@@ -129,6 +139,7 @@ void GpuLower::lower() {
   for (auto input : fusion_->inputs()) {
     kernel_->addInput(GpuLower::lowerValue(input));
   }
+
   for (auto output : fusion_->outputs()) {
     kernel_->addOutput(GpuLower::lowerValue(output));
   }
@@ -142,8 +153,8 @@ void GpuLower::lower() {
 
   // Generate loop-nests and place each expression at its
   // corresponding loop
-  const auto lowered_exprs = LoopNestGenerator2::loweredExprs(sorted_exprs);
-
+  auto lowered_exprs = LoopNestGenerator2::loweredExprs(sorted_exprs);
+  // std::cout<<toString(lowered_exprs)<<std::endl;
   // Insert allocations
   const auto alloced_exprs = insertAllocations(lowered_exprs);
 
@@ -151,7 +162,7 @@ void GpuLower::lower() {
   const auto raw_sync_exprs = insertRawThreadSynchronization(alloced_exprs);
 
   const auto unrolled_loops =
-      UnrollPass::runPass(fusion_, raw_sync_exprs, preds, ca_root_map);
+      UnrollPass::runPass(fusion_, raw_sync_exprs, preds);
 
   // Reuse memory locations if:
   // TensorView is dynamic shared memory
@@ -163,7 +174,7 @@ void GpuLower::lower() {
   const auto war_sync_exprs = insertWarThreadSynchronization(reuse_mem_exprs);
 
   const auto indexed_loops =
-      IndexLowering::getIndexedExprs(war_sync_exprs, preds, ca_root_map);
+      IndexLowering::getIndexedExprs(war_sync_exprs, preds);
 
   // We now have the lowered expressions, finalize the kernel IR
   kernel_->finalize(indexed_loops, preds);

@@ -110,7 +110,6 @@ kir::Bool* PredicateCompute::getInlinePredicate(
     const kir::Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
     kir::Bool* thread_pred,
-    const ComputeAtRootDomainMap& ca_root_map,
     bool ignore_block_grid_reductions) {
   FUSER_PERF_SCOPE("getInlinePredicate");
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
@@ -148,7 +147,7 @@ kir::Bool* PredicateCompute::getInlinePredicate(
   }
 
   auto pred_inds = Index::getConsumerRootPredIndices(
-      out_tv, loops, pred_contiguity, ca_root_map);
+      out_tv, loops, pred_contiguity);
   auto root_indices = pred_inds.first;
   bool use_maybe_rfactor = pred_inds.second;
 
@@ -197,13 +196,12 @@ kir::Bool* PredicateCompute::getInlinePredicate(
 kir::Bool* UnswitchPredicate::get(
     const std::vector<kir::ForLoop*>& outer_loops,
     kir::ForLoop* unrolled_loop,
-    const IterDomainMap& p2c_root_map,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    const IterDomainMap& p2c_root_map) {
   FUSER_PERF_SCOPE("UnswitchPredicate::get");
 
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
-  UnswitchPredicate up(outer_loops, unrolled_loop, p2c_root_map, ca_root_map);
+  UnswitchPredicate up(outer_loops, unrolled_loop, p2c_root_map);
 
   std::unordered_set<kir::Bool*> pred_set;
   for (auto entry : up.predicates_) {
@@ -254,7 +252,7 @@ void UnswitchPredicate::predicateOn(kir::Expr* tv_expr) {
   }
 
   auto pred_inds = Index::getConsumerRootPredIndices(
-      out_tv, for_loops_, pred_contiguity, ca_root_map_, true);
+      out_tv, for_loops_, pred_contiguity, true);
   auto root_indices = pred_inds.first;
   auto use_rfactor = pred_inds.second;
 
@@ -298,11 +296,9 @@ void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
 UnswitchPredicate::UnswitchPredicate(
     std::vector<kir::ForLoop*> outer_loops,
     kir::ForLoop* unrolled_loop,
-    const IterDomainMap& _p2c_root_map,
-    const ComputeAtRootDomainMap& ca_root_map)
+    const IterDomainMap& _p2c_root_map)
     : for_loops_(std::move(outer_loops)),
-      p2c_root_map_(_p2c_root_map),
-      ca_root_map_(ca_root_map) {
+      p2c_root_map_(_p2c_root_map){
   openLoop(unrolled_loop);
 }
 

@@ -13,11 +13,10 @@ namespace cuda {
 
 class ComputeAtMap {
  public:
-  // There's basically two modes of these iter domain mappings. for_indexing or
-  // not for_indexing. In short this option determines what we do with merged
-  // broadcast indices.
+  // There's three modes of these iter domain mappings. For indexing, for loop
+  // nest mapping/generation, and to figure out the parallelization strategy.
   //
-  // Consider:
+  // For index/loop mode consider:
   //
   // consumer[i0, b1] = producer[i0]
   // consumer->merge(0) (consumer will now be [i0 * b1])
@@ -30,9 +29,19 @@ class ComputeAtMap {
   // indexing we do not want these two maps as producer may be indexed as i0*i1
   // depending on the loop nest structure and how it was built. Therefore we
   // really need to carry two sets of maps around for lowering.
-  ComputeAtMap(bool for_indexing = false) : for_indexing_(for_indexing) {}
+  //
+  // TODO: Document parallel mode example.
+  enum class MappingMode {
+    PARALLEL,
+    LOOP,
+    INDEX
+  };
 
-  void build();
+  ComputeAtMap() = default;
+  ComputeAtMap(MappingMode mapping_mode) : mapping_mode_(mapping_mode) {}
+
+  void
+  build();
 
   //! The standard form of compute at defines this compute at and relative
   //! compute at, where relative is compute at position in consumer. However the
@@ -106,7 +115,7 @@ class ComputeAtMap {
  private:
   void map_ids(IterDomain* id0, IterDomain* id1);
 
-  bool for_indexing_ = true;
+  MappingMode mapping_mode_ = MappingMode::LOOP;
 
  private:
   std::unordered_map<TensorView*, int> produce_at_map_;
