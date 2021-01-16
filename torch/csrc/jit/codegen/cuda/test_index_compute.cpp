@@ -27,7 +27,7 @@ void TestReplay::handle(Split* s) {
   if (leaf_ids.find(mapped_in) == leaf_ids.end()) {
     return;
   }
-  // std::cout<<"Replayed."<<std::endl;
+
   auto replayed_outs =
       IterDomain::split(mapped_in, s->factor(), s->innerSplit());
 
@@ -37,10 +37,6 @@ void TestReplay::handle(Split* s) {
       GpuLower::current()->caIndexMap().getConcreteMappedID(s->inner());
 
   concrete_to_id[concrete_outer] = replayed_outs.first;
-  // std::cout << "Setting concrete: " << concrete_outer << " <- " << s->outer()
-  //           << std::endl;
-  // std::cout << "Setting concrete: " << concrete_inner << " <- " << s->inner()
-  //           << std::endl;
   concrete_to_id[concrete_inner] = replayed_outs.second;
 
   leaf_ids.erase(mapped_in);
@@ -50,7 +46,6 @@ void TestReplay::handle(Split* s) {
 
 // We're going to replay this merge operation on the corresponding IDs
 void TestReplay::handle(Merge* m) {
-  // std::cout<<"Replay: "<<m<<std::endl;
   auto in_outer = m->outer();
   auto in_inner = m->inner();
 
@@ -64,6 +59,7 @@ void TestReplay::handle(Merge* m) {
 
   if (mapped_in_outer_it == concrete_to_id.end() ||
       mapped_in_inner_it == concrete_to_id.end()) {
+    // std::cout << "No concrete mapping." << std::endl;
     return;
   }
 
@@ -77,9 +73,9 @@ void TestReplay::handle(Merge* m) {
   // std::cout<<"Replayed."<<std::endl;
   auto replayed = IterDomain::merge(mapped_in_outer, mapped_in_inner);
 
-  auto concrete_replayed =
+  auto concrete_out =
       GpuLower::current()->caIndexMap().getConcreteMappedID(m->out());
-  // std::cout << "Setting concrete: " << concrete_replayed << " <- " <<
+  // std::cout << "Setting concrete: " << concrete_out << " <- " <<
   // m->out()
   //           << std::endl;
   leaf_ids.erase(mapped_in_outer);
@@ -87,7 +83,7 @@ void TestReplay::handle(Merge* m) {
 
   leaf_ids.emplace(replayed);
 
-  concrete_to_id[concrete_replayed] = replayed;
+  concrete_to_id[concrete_out] = replayed;
 }
 
 TensorDomain* TestReplay::computeReplay() {
