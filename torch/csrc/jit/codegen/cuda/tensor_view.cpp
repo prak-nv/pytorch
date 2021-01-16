@@ -781,7 +781,7 @@ void TensorView::setMemoryType(MemoryType mt) {
 }
 
 void TensorView::doubleBuffer() {
-  TORCH_INTERNAL_ASSERT(false, "Not supported yet");
+  is_double_buffered_ = true;
 }
 
 namespace {

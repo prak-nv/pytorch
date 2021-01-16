@@ -11475,7 +11475,7 @@ TEST(NVFuserTest, FusionDoubleBuffering_CUDA) {
   tv1->split(0, 32);
   tv0->computeAt(tv1, 1);
 
-  fusion.printMath();
+  // fusion.printMath();
   fusion.printKernel();
 
   tv0_cache->doubleBuffer();
@@ -11485,6 +11485,18 @@ TEST(NVFuserTest, FusionDoubleBuffering_CUDA) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 100;
+  at::Tensor t0 = at::randn({bx}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0 + 1;
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
 } // namespace jit

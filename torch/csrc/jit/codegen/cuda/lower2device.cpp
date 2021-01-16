@@ -6,6 +6,7 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
 #include <torch/csrc/jit/codegen/cuda/lower_allocation.h>
+#include <torch/csrc/jit/codegen/cuda/lower_double_buffer.h>
 #include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/lower_index.h>
 #include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
@@ -154,8 +155,10 @@ void GpuLower::lower() {
   const auto indexed_loops =
       IndexLowering::getIndexedExprs(war_sync_exprs, preds, ca_root_map);
 
+  const auto double_bufferred_exprs = applyDoubleBuffering(indexed_loops);
+
   // We now have the lowered expressions, finalize the kernel IR
-  kernel_->finalize(indexed_loops, preds);
+  kernel_->finalize(double_bufferred_exprs, preds);
 }
 
 kir::Kernel* GpuLower::kernel() const {

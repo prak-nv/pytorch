@@ -210,7 +210,12 @@ class AllocationInserter : public kir::MutableIrVisitor {
         size = ir_builder.mulExpr(size, alloc_dims[i]);
       }
     }
-
+#if 0
+    // Double the size if the tensor is double-buffered
+    if (fuser_tv->isDoubleBuffered()) {
+      size = ir_builder.mulExpr(size, ir_builder.create<kir::Int>(2));
+    }
+#endif
     // Create the allocation node
     info.alloc_expr = ir_builder.create<kir::Allocate>(
         info.buffer, info.buffer->memoryType(), size);
