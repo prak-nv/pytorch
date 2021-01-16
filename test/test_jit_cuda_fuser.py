@@ -13,7 +13,7 @@ import itertools
 import numpy as np
 import math
 
-from typing import List
+from typing import List, Optional
 
 os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
@@ -68,6 +68,7 @@ class TestCudaFuser(JitTestCase):
         torch._C._jit_override_can_fuse_on_cpu(False)
         torch._C._jit_override_can_fuse_on_gpu(False)
         self.old_guard = torch._C._jit_set_nvfuser_guard_mode(False)
+        torch._C._debug_set_autodiff_subgraph_inlining(False)
 
         if(RUN_CUDA):
             self.old_nvfuser = torch._C._jit_set_nvfuser_enabled(True)
@@ -78,6 +79,7 @@ class TestCudaFuser(JitTestCase):
         torch._C._jit_override_can_fuse_on_cpu(self.old_cpu_fuse)
         torch._C._jit_override_can_fuse_on_gpu(self.old_gpu_fuse)
         torch._C._jit_set_nvfuser_guard_mode(self.old_guard)
+        torch._C._debug_set_autodiff_subgraph_inlining(True)
         super(TestCudaFuser, self).tearDown()
 
     def _run_helper(self, jit_op, op, *args):
@@ -1602,6 +1604,35 @@ class TestCudaFuser(JitTestCase):
             list(test2_jit.get_debug_state().execution_plans.values())[0].code.grad_executor_states()[0].execution_plans.values()
         )[0].graph
         FileCheck().check("aten::mul_").run(bwd2_graph)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_linear(self):
+        in_feature = 2
+        out_feature = 8
+        x = torch.randn(4, in_feature, dtype=torch.float32, device='cuda')
+        weight = torch.randn(out_feature, in_feature, dtype=torch.float32, device='cuda')
+        bias = torch.randn(out_feature, dtype=torch.float32, device='cuda')
+
+        # TODO: technically we should be able to update `bias`, but we don't
+        # support that yet.
+        #def t(x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor]):
+        def t(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor):
+          o = torch.nn.functional.linear(x, weight, bias)
+          o = torch.relu(o)
+          return o
+ 
+        # bias set to true.
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, weight, bias)
+        jit_o = t_jit(x, weight, bias)
+        o = t(x, weight, bias)
+        self.assertEqual(o, jit_o)
+        # since the output value is not used at all, the fusion operator should
+        # have been optimized away
+        self.assertGraphContainsExactly(t_jit.graph_for(x, weight, bias), FUSION_GUARD, 1)
+
 
 class TestPassManagerCudaFuser(JitTestCase):
 
