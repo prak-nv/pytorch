@@ -342,13 +342,22 @@ fused_dropout_cuda(const Tensor& self, double p, c10::optional<Generator> gen_){
   return std::tuple<Tensor,Tensor>(ret, mask);
 }
 
-Tensor masked_scale_cuda(const Tensor& self, const Tensor& mask, double scale){
-   Tensor ret = at::empty_like(self, self.suggest_memory_format());
+std::tuple<Tensor,Tensor>
+native_dropout_cuda(const Tensor& input, double p, bool train) {
+  if (train) {
+    return fused_dropout_cuda(input, p, c10::nullopt);
+  } else {
+    return std::make_tuple(input, at::empty({}, input.options().dtype(kByte)));
+  }
+}
+
+Tensor masked_scale_cuda(const Tensor& grad, const Tensor& mask, double p){
+   Tensor ret = at::empty_like(grad, grad.suggest_memory_format());
    TORCH_CHECK(mask.scalar_type() == at::ScalarType::Byte, "mask should be torch.uint8 dtype");
    AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, ret.scalar_type(), "masked_scale", [&] {
       using accscalar_t = acc_type<scalar_t, true>;
-      accscalar_t pa = (accscalar_t)(scale);
-      masked_scale_kernel<scalar_t>(ret, self, mask, pa);
+      accscalar_t pa = (accscalar_t)(1. / p);
+      masked_scale_kernel<scalar_t>(ret, grad, mask, pa);
   });
   return ret;
 }

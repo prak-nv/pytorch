@@ -1603,6 +1603,31 @@ class TestCudaFuser(JitTestCase):
         )[0].graph
         FileCheck().check("aten::mul_").run(bwd2_graph)
 
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_dropout_fusion(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([10,4,8], dtype=dtype, device=device, requires_grad=True)
+
+        def t(x: torch.Tensor, p: float):
+            o = torch.nn.functional.dropout(x, p, True)
+            o = o + 1.0
+            return o
+        
+        t_jit = torch.jit.script(t)
+
+        
+        torch.cuda.manual_seed_all(123)
+        jit_o = t_jit(x, 0.0)
+        torch.cuda.manual_seed_all(123)
+        jit_o = t_jit(x, 0.0)
+        torch.cuda.manual_seed_all(123)
+        o = t(x, 0.0)
+        self.assertEqual(o, jit_o)
+        #self.assertGraphContains(jit_op.graph_for(*args), FUSION_GUARD)
+
 class TestPassManagerCudaFuser(JitTestCase):
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")

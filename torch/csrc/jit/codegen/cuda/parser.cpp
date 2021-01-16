@@ -518,6 +518,61 @@ class IrParser {
 
     {
       auto ptr_op = getOperatorForLiteral(
+          "aten::native_dropout(Tensor input, float p, bool train) -> (Tensor, Tensor)");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            auto input = value_map[node->input(0)->unique()];
+            auto prob = value_map[node->input(1)->unique()];
+	    auto train = constant_as<bool>(node->input(2));
+
+            auto rand_vals = unaryOp(UnaryOpType::RandLike, input);
+	    auto mask = lt(rand_vals, prob);
+	    auto out = mul(input, mask);
+
+            value_map.emplace(node->output(0)->unique(), out);
+            value_map.emplace(node->output(1)->unique(), mask);
+          });
+    }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
+          "aten::dropout(Tensor input, float p, bool train) -> Tensor");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            auto input = value_map[node->input(0)->unique()];
+	    auto train = constant_as<bool>(node->input(2));
+
+            TORCH_INTERNAL_ASSERT(!train,
+              "The train parameter should not be set during inference.");
+
+	    auto out = add(input, new Int(0));
+            value_map.emplace(node->output()->unique(), out);
+          });
+    }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
+          "aten::native_dropout_backward(Tensor grad, Tensor mask, float p) -> Tensor");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            auto grad = value_map[node->input(0)->unique()];
+            auto mask = value_map[node->input(1)->unique()];
+            auto scale = value_map[node->input(2)->unique()];
+
+            auto temp = mul(grad, mask);
+	    auto out = mul(temp, scale);
+            value_map.emplace(node->output()->unique(), out);
+          });
+    }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
           "aten::batch_norm(Tensor input, Tensor? weight, Tensor? bias, Tensor? running_mean, Tensor? running_var, bool training, float momentum, float eps, bool cudnn_enabled) -> Tensor");
       registerParseRule(
           ptr_op,
@@ -720,7 +775,6 @@ class IrParser {
             return OperatorType::Normalization;
           });
     }
-
     {
       std::array<const char*, kNumLayernormFwd> LayerNormFwd = {
           "aten::native_layer_norm(Tensor input, int[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)",
