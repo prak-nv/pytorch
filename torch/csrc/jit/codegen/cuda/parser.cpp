@@ -1163,7 +1163,8 @@ class IrParser {
             TORCH_INTERNAL_ASSERT(false, "not implemented yet");
           },
           [](const Node* node) -> bool {
-            if (node->input(2)->type()->isSubtypeOf(static_cast<c10::TypePtr>(NoneType::get()))) {
+            if (node->input(2)->type()->isSubtypeOf(
+                    static_cast<c10::TypePtr>(NoneType::get()))) {
               return false;
             }
             return true;
@@ -1178,9 +1179,12 @@ class IrParser {
           [](const Node* node,
              std::unordered_map<size_t, CgValue>& value_map) -> void {
             // this entry is created so we do profile input tensors;
-            if (node->input(1)->type()->isSubtypeOf(static_cast<c10::TypePtr>(NoneType::get()))) {
+            if (node->input(1)->type()->isSubtypeOf(
+                    static_cast<c10::TypePtr>(NoneType::get()))) {
               // forwarding the value;
-              value_map.emplace(node->output()->unique(), value_map[node->inputs()[0]->unique()]);
+              value_map.emplace(
+                  node->output()->unique(),
+                  value_map[node->inputs()[0]->unique()]);
             } else {
               auto lhs = value_map[node->inputs()[0]->unique()];
               auto rhs = value_map[node->inputs()[1]->unique()];

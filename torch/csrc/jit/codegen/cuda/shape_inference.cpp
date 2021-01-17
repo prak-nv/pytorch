@@ -297,7 +297,8 @@ class NaiveTypePropagator {
       default:
         TORCH_CHECK(
             false,
-            "type inference failed, unrecognized operation encountered:", node->kind().toDisplayString());
+            "type inference failed, unrecognized operation encountered:",
+            node->kind().toDisplayString());
         // TODO: generate a proper error log, as this probably means something
         //       went unexpected.
         break;

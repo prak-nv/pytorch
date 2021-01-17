@@ -1317,7 +1317,8 @@ void decomposeLinearOps(Block* block) {
       decomposeLinearOps(b);
     }
     if (n->kind() == aten::linear) {
-      if (!n->input(2)->type()->isSubtypeOf(static_cast<c10::TypePtr>(NoneType::get()))) {
+      if (!n->input(2)->type()->isSubtypeOf(
+              static_cast<c10::TypePtr>(NoneType::get()))) {
         linear_nodes.push_back(n);
       }
     }
@@ -1327,22 +1328,28 @@ void decomposeLinearOps(Block* block) {
   for (Node* n : linear_nodes) {
     WithInsertPoint guard(n);
     auto weight_t = graph->insertNode(graph->create(aten::t, {n->input(1)}, 1));
-    auto matmul = graph->insertNode(graph->create(aten::matmul, {n->input(0), weight_t->output()}, 1));
+    auto matmul = graph->insertNode(
+        graph->create(aten::matmul, {n->input(0), weight_t->output()}, 1));
     auto input_tensor_type = n->input(0)->type()->cast<c10::TensorType>();
     auto mat0_size = input_tensor_type->sizes().concrete_sizes();
-    auto mat1_size = n->input(1)->type()->cast<c10::TensorType>()->sizes().concrete_sizes();
+    auto mat1_size =
+        n->input(1)->type()->cast<c10::TensorType>()->sizes().concrete_sizes();
     // TODO: The assert is not necessary when we can handle matmul, right now we
     // are splitting the linear between matmul & bias_add. Our fuser can only
     // take the second half and we would need the size information.
-    TORCH_INTERNAL_ASSERT(mat0_size.has_value() && mat1_size.has_value(), "concrete shape for linear input & weight are required");
+    TORCH_INTERNAL_ASSERT(
+        mat0_size.has_value() && mat1_size.has_value(),
+        "concrete shape for linear input & weight are required");
     auto out_size = mat0_size.value();
-    out_size[out_size.size()-1] = mat1_size.value()[0];
+    out_size[out_size.size() - 1] = mat1_size.value()[0];
     matmul->output()->setType(input_tensor_type->withSizes(out_size));
 
     // TODO: memory stride should be considered here, our inference above is not
     // safe.
-    //auto bias = graph->insertNode(graph->create(aten::add, {matmul->output(0), n->input(2), graph->insertConstant(1)}, 1));
-    auto bias = graph->insertNode(graph->create(prim::add_optional, {matmul->output(0), n->input(2)}, 1));
+    // auto bias = graph->insertNode(graph->create(aten::add,
+    // {matmul->output(0), n->input(2), graph->insertConstant(1)}, 1));
+    auto bias = graph->insertNode(
+        graph->create(prim::add_optional, {matmul->output(0), n->input(2)}, 1));
 
     n->output()->replaceAllUsesWith(bias->output());
     n->destroy();
