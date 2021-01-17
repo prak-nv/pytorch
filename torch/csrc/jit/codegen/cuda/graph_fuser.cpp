@@ -1342,7 +1342,7 @@ void decomposeLinearOps(Block* block) {
     // TODO: memory stride should be considered here, our inference above is not
     // safe.
     //auto bias = graph->insertNode(graph->create(aten::add, {matmul->output(0), n->input(2), graph->insertConstant(1)}, 1));
-    auto bias = graph->insertNode(graph->create(c10::Symbol::fromQualString("prim::add_optional"), {matmul->output(0), n->input(2)}, 1));
+    auto bias = graph->insertNode(graph->create(prim::add_optional, {matmul->output(0), n->input(2)}, 1));
 
     n->output()->replaceAllUsesWith(bias->output());
     n->destroy();

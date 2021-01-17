@@ -13,7 +13,7 @@ import itertools
 import numpy as np
 import math
 
-from typing import List, Optional
+from typing import List
 
 os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
@@ -1615,9 +1615,6 @@ class TestCudaFuser(JitTestCase):
         weight = torch.randn(out_feature, in_feature, dtype=torch.float32, device='cuda')
         bias = torch.randn(out_feature, dtype=torch.float32, device='cuda')
 
-        # TODO: technically we should be able to update `bias`, but we don't
-        # support that yet.
-        #def t(x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor]):
         def t(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor):
           o = torch.nn.functional.linear(x, weight, bias)
           o = torch.relu(o)
@@ -1632,7 +1629,6 @@ class TestCudaFuser(JitTestCase):
         # since the output value is not used at all, the fusion operator should
         # have been optimized away
         self.assertGraphContainsExactly(t_jit.graph_for(x, weight, bias), FUSION_GUARD, 1)
-
 
 class TestPassManagerCudaFuser(JitTestCase):
 
