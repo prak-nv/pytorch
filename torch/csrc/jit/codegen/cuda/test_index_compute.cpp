@@ -76,8 +76,7 @@ void TestReplay::handle(Merge* m) {
   auto concrete_out =
       GpuLower::current()->caIndexMap().getConcreteMappedID(m->out());
   // std::cout << "Setting concrete: " << concrete_out << " <- " <<
-  // m->out()
-  //           << std::endl;
+  // m->out() << std::endl;
   leaf_ids.erase(mapped_in_outer);
   leaf_ids.erase(mapped_in_inner);
 
@@ -90,6 +89,7 @@ TensorDomain* TestReplay::computeReplay() {
   // Extract iter domain's from the loop structure
   std::vector<IterDomain*> fusion_loop_structure;
 
+  // std::cout<<"Loops:"<<std::endl;
   std::transform(
       loop_structure_.begin(),
       loop_structure_.end(),
@@ -139,11 +139,11 @@ TensorDomain* TestReplay::computeReplay() {
   // map to eachother
   std::unordered_set<IterDomain*> root_axes;
   for (auto root_id : sorted_inputs) {
-    // std::cout<<"Looking for: "<<root_id<<std::endl;
+    // std::cout<<"Root axis: "<<root_id;
     auto concrete_id =
         GpuLower::current()->caIndexMap().getConcreteMappedID(root_id);
     if (concrete_to_id.find(concrete_id) != concrete_to_id.end()) {
-      // std::cout << "Already set: " << concrete_id << " -> "
+      // std::cout << " already set: " << concrete_id << " -> "
       //           << concrete_to_id[concrete_id] << " not to: " << root_id
       //           << std::endl;
       continue;
@@ -154,6 +154,7 @@ TensorDomain* TestReplay::computeReplay() {
     leaf_ids.emplace(root_id);
   }
 
+  // Order is important here, replay expressions from loops outside to inside
   auto replay_exprs = ExprSort::getExprs(
       FusionGuard::getCurFusion(),
       {fusion_loop_structure.begin(), fusion_loop_structure.end()});
@@ -167,29 +168,33 @@ TensorDomain* TestReplay::computeReplay() {
   // Representation of a tensor replayed as the loop structure.
   std::vector<IterDomain*> loops_replayed_domain;
 
-  // std::cout<<"Mapping:"<<std::endl;
-  // Lookup is based on concrete mapped ID because that's what we used to mark
-  // them during replay. Loop_id's though should already be concrete so lookup
-  // may be redundant.
+  std::unordered_set<IterDomain*> concrete_leaf_ids;
+  for(auto entry : concrete_to_id){
+    if(leaf_ids.find(entry.second) != leaf_ids.end()){
+      concrete_leaf_ids.emplace(entry.first);
+      // std::cout<<"Concrete leaf: "<<entry.first<<" replayed leaf: "<<entry.second<<std::endl;
+    }
+  }
+
+  // Figure out which ID's that were replayed correspond to the respective loops
+  // we're trying to replay
   std::transform(
       fusion_loop_structure.begin(),
       fusion_loop_structure.end(),
       std::back_inserter(loops_replayed_domain),
       [&](IterDomain* loop_id) {
-        // std::cout<<loop_id<<std::endl;
-        // std::cout << " -?> "
-        //           << GpuLower::current()->caLoopMap().getConcreteMappedID(
-        //                  loop_id)
-        //           << std::endl;
-        auto concrete_to_id_it = concrete_to_id.find(
-            GpuLower::current()->caLoopMap().getConcreteMappedID(loop_id));
+        // std::cout << "Looking for " << loop_id << std::endl;
+        for(auto id : concrete_leaf_ids){
+          if(GpuLower::current()->caLoopMap().areMapped(id, loop_id)){
+            concrete_leaf_ids.erase(id);
+            return concrete_to_id.at(id);
+          }
+        }
+
         TORCH_INTERNAL_ASSERT(
-            concrete_to_id_it != concrete_to_id.end(),
+            false,
             "Could not find required iter domain in reference replay: ",
             loop_id);
-        auto replayed_id = concrete_to_id_it->second;
-        leaf_ids.erase(replayed_id);
-        return replayed_id;
       });
 
   // Add any remaining leaf iter domains

@@ -74,8 +74,9 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
     if (ir_utils::isTVOp(expr)) {
       auto out_tv = expr->outputs()[0]->as<TensorView>();
       auto* group_payload = payload(group);
-      for (size_t tv_i = 0; tv_i < GpuLower::current()->caIndexMap().produce_at_map().at(out_tv);
-           tv_i++) {
+      // Loop map produces a produce_at_map used specifically for expr sorting
+      // when we generate it.
+      for (size_t tv_i = 0; tv_i < GpuLower::current()->caLoopMap().producedAt(out_tv); tv_i++) {
         group_payload->ca_domains.push_back(out_tv->axis(tv_i));
       }
     }

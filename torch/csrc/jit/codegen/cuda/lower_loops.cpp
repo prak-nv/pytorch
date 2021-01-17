@@ -328,10 +328,11 @@ void LoopNestGenerator2::handle(const Expr* expr) {
 
   // Look at each axis individually in out's domain, first only setup loop
   // structure within computeAt
-  for (int64_t out_i = 0; out_i < (int64_t)gpu_lower->caLoopMap().producedAt(out_tv);
+  for (int64_t out_i = 0; out_i < (int)out_tv->getThisComputeAtAxis();
        out_i++) {
     // Safe to use loop map since this is outside the compute at point
-    auto concrete_id = gpu_lower->caParallelMap().getConcreteMappedID(out_tv->axis(out_i));
+    auto concrete_id =
+        gpu_lower->caParallelMap().getConcreteMappedID(out_tv->axis(out_i));
     loop_structure.push_back(concrete_id);
   }
 
@@ -367,7 +368,7 @@ void LoopNestGenerator2::handle(const Expr* expr) {
   // invalidating it
   size_t out_id_i = std::distance(loop_structure.begin(), out_id_it);
   // Append axes outside the computeAt to the loop structure
-  for (int64_t out_i = (int64_t)gpu_lower->caIndexMap().producedAt(out_tv);
+  for (int64_t out_i = (int64_t)out_tv->getThisComputeAtAxis();
        out_i < out_tv->nDims();
        out_i++) {
     loop_structure.push_back(out_tv->axis(out_i));

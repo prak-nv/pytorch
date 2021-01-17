@@ -239,8 +239,9 @@ void ComputeAtMap::build() {
     // other outputs to be replayed as the first or should we do it?
     auto c_tv = expr->outputs()[0]->as<TensorView>();
     consumer_tvs.push_back(c_tv);
-    int c_max_ca_pos = 0;
-    bool terminating_output = c_tv->isFusionOutput() && c_tv->uses().empty();
+    // Iteration domains that mapped from producers into the consumer that were
+    // to the left of respective producer->getThisComputeAtPos in the producers
+    std::unordered_set<IterDomain*> mapped_c_ids_left_of_ca;
 
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
@@ -260,8 +261,11 @@ void ComputeAtMap::build() {
             p_tv->domain()->domain().end());
       }
       // if this is a producer tv, (i.e. not a terminating output tv), then
-      // produce at is the same as this compute at position
-      produce_at_map_[p_tv] = p_tv->getThisComputeAtAxis();
+      // produce at is the same as this compute at position. Loop mode does
+      // its own thing, see below in this function.
+      if(mapping_mode_ != MappingMode::LOOP){
+        produce_at_map_[p_tv] = p_tv->getThisComputeAtAxis();
+      }
 
       auto c2p_root_map =
           PairwiseRootDomainMap(p_tv, c_tv)
@@ -272,13 +276,13 @@ void ComputeAtMap::build() {
       // in function Index::getProducerIndex_impl. If we're using this map for
       // indexing, we do not want to propagate broadcast mismatches. If we're
       // using it to identify loop nests, we do want to propagate mismatches.
-      BestEffortReplay replay(
+      BestEffortReplay replay_PasC(
           p_tv->domain()->domain(),
           c_tv->domain()->domain(),
           c2p_root_map,
           mapping_mode_ == MappingMode::LOOP);
 
-      auto c2p_map = replay.getReplay();
+      auto c2p_map = replay_PasC.getReplay();
 
       // Map the entire replay map
       // Also reverse the map, as we use p2c_map to find this computeAt position
@@ -299,34 +303,38 @@ void ComputeAtMap::build() {
         p2c_map[p_id] = c_id;
       }
 
+      // Track which id's in the consumer are mapped to from within the producer
+      // compute at position
       for (size_t p_id_i = 0; p_id_i < p_tv->getThisComputeAtAxis(); p_id_i++) {
         auto p_id = p_tv->axis(p_id_i);
-
         auto c_id_it = p2c_map.find(p_id);
-
         if (c_id_it != p2c_map.end()) {
           auto c_id = c_id_it->second;
-
-          if (terminating_output) {
-            int ca_pos = (int)std::distance(
-                             c_tv->domain()->domain().begin(),
-                             std::find(
-                                 c_tv->domain()->domain().begin(),
-                                 c_tv->domain()->domain().end(),
-                                 c_id))
-                // Add one since this is CA position, not the axis position.
-                + 1;
-            c_max_ca_pos = std::max(c_max_ca_pos, ca_pos);
-          }
+          mapped_c_ids_left_of_ca.emplace(c_id);
         }
       }
+
     }
-    if (terminating_output) {
-      auto produce_at_it = produce_at_map_.find(c_tv);
-      if (produce_at_it == produce_at_map_.end()) {
-        produce_at_map_[c_tv] = c_max_ca_pos;
+
+    // For expression sorting we want to know the maximum iteration domain that
+    // we might have to map with producers. Consider a simple consumer with this
+    // compute at position as 1, but a producer who's compute at position maps
+    // to the consumers position 2, we need to exprSort starting with both
+    // positions in the consumer available to map to neighbors. We produce this
+    // special produce_at_map in loop mode. Pos is like compute at position, one
+    // above last thing that mapped.
+    int max_mapped_id_pos = 0;
+    bool terminating_output = c_tv->isFusionOutput() && c_tv->uses().empty();
+    if(terminating_output || mapping_mode_ == MappingMode::LOOP){
+      for(size_t c_i = 0; c_i < c_tv->nDims(); c_i++){
+        if(mapped_c_ids_left_of_ca.find(c_tv->axis(c_i)) != mapped_c_ids_left_of_ca.end()){
+          max_mapped_id_pos = c_i + 1;
+        }
       }
+      produce_at_map_[c_tv] = std::max(max_mapped_id_pos, (int) c_tv->getThisComputeAtAxis());
     }
+
+
   }
 
   std::unordered_set<std::shared_ptr<std::deque<IterDomain*>>> active_sets;
@@ -482,6 +490,7 @@ void ComputeAtMap::build() {
 }
 
 bool ComputeAtMap::areMapped(IterDomain* id0, IterDomain* id1) const {
+  if(id0 == id1) return true;
   auto set0_it = disjoint_iter_set_maps_.find(id0);
   auto set1_it = disjoint_iter_set_maps_.find(id1);
   if (set0_it == disjoint_iter_set_maps_.end() ||
@@ -492,6 +501,7 @@ bool ComputeAtMap::areMapped(IterDomain* id0, IterDomain* id1) const {
 }
 
 bool ComputeAtMap::areMapped(kir::IterDomain* id0, kir::IterDomain* id1) const {
+  if(id0 == id1) return true;
   auto set0_it = kir_disjoint_iter_set_maps_.find(id0);
   auto set1_it = kir_disjoint_iter_set_maps_.find(id1);
   if (set0_it == kir_disjoint_iter_set_maps_.end() ||

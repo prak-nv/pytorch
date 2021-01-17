@@ -83,7 +83,7 @@ void IrPrinter::handle(const IterDomain* id) {
     print_inline(id->start());
     os_ << " : ";
   }
-  print_inline(id->extent());
+  print_inline(id->rawExtent());
   os_ << "}";
   if (id->isRFactorProduct())
     os_ << "rf";

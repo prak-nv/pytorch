@@ -43,19 +43,6 @@ class ComputeAtMap {
   void
   build();
 
-  //! The standard form of compute at defines this compute at and relative
-  //! compute at, where relative is compute at position in consumer. However the
-  //! mechanism we rely on here for ordering is only dependent on local
-  //! information which is "produce at", what position in an output TV domain
-  //! should the output TV be produced at. Since we don't have this information
-  //! correct for outputs, we're going to transform this information into
-  //! produce_at.
-  //
-  // TODO: Move away from compute at in favor of produce at.
-  const std::unordered_map<TensorView*, int>& produce_at_map() const {
-    return produce_at_map_;
-  }
-
   // Returns the position in tv->domain() that the buffer should be computed at
   // / stored at
   int producedAt(TensorView* tv) const {

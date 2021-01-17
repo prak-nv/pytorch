@@ -121,7 +121,7 @@ void GpuLower::lower() {
   // TODO: Does this have to go before the next mapping?
   // :: first time nodes will be lowered so kir nodes are generated here.
   // :: Meaning we have to hit the right parallel strategy before lowing
-  ComputeAtMap ca_parallel_map(ComputeAtMap::MappingMode::PARALLEL);
+  ca_parallel_map = ComputeAtMap(ComputeAtMap::MappingMode::PARALLEL);
   ca_parallel_map.build();
   // std::cout << "Parallel map: " << ca_parallel_map.toString() << std::endl;
 
@@ -154,6 +154,7 @@ void GpuLower::lower() {
   // Generate loop-nests and place each expression at its
   // corresponding loop
   auto lowered_exprs = LoopNestGenerator2::loweredExprs(sorted_exprs);
+  // fusion_->printMath();
   // std::cout<<toString(lowered_exprs)<<std::endl;
   // Insert allocations
   const auto alloced_exprs = insertAllocations(lowered_exprs);
