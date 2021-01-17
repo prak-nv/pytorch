@@ -280,8 +280,7 @@ class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
 
       kir::IrBuilder ir_builder(GpuLower::current()->kernel());
       auto sync_expr = ir_builder.create<kir::Sync>();
-      int produced_at = GpuLower::current()->caLoopMap().producedAt(out_tv);
-      if (produced_at == 0) {
+      if (out_tv->fuserTv()->getThisComputeAtAxis() == 0) {
         // Sync should be placed at global scope, after its outer most loop if
         // it has one.
         kir::Expr* place_after = for_loops_.size() > 0 ? for_loops_[0] : expr;
@@ -301,7 +300,8 @@ class ReadAfterWriteSyncs : public kir::MutableIrVisitor {
         auto fuser_tv = out_tv->fuserTv();
         auto lowered_local_id =
             GpuLower::current()
-                ->lowerValue(fuser_tv->axis(produced_at - 1))
+                ->lowerValue(fuser_tv->axis(
+                    (int)out_tv->fuserTv()->getThisComputeAtAxis() - 1))
                 ->as<kir::IterDomain>();
 
         auto loops_it = std::find_if(
