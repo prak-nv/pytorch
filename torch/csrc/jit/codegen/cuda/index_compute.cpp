@@ -909,12 +909,10 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
   auto pairwiseMap = PairwiseRootDomainMap(producer_tv, consumer_tv);
-  auto producerAsC = TransformReplay::replayPasC(
-                         producer_tv->domain(),
-                         consumer_tv->domain(),
-                         -1,
-                         pairwiseMap)
-                         .first;
+  auto producerAsC =
+      TransformReplay::replayPasC(
+          producer_tv->domain(), consumer_tv->domain(), -1, pairwiseMap)
+          .first;
 
   // Cannot be done after domain_guard
   auto c2p_root_map = pairwiseMap.mapConsumerToProducer(
@@ -1524,8 +1522,9 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
       }
     }
   }
-  
-  const auto root_domain = (use_rfactor && kir_consumer_tv->domain()->hasRFactor())
+
+  const auto root_domain =
+      (use_rfactor && kir_consumer_tv->domain()->hasRFactor())
       ? kir_consumer_tv->domain()->rfactorDomain()
       : kir_consumer_tv->domain()->rootDomain();
 

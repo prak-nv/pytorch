@@ -169,10 +169,11 @@ TensorDomain* TestReplay::computeReplay() {
   std::vector<IterDomain*> loops_replayed_domain;
 
   std::unordered_set<IterDomain*> concrete_leaf_ids;
-  for(auto entry : concrete_to_id){
-    if(leaf_ids.find(entry.second) != leaf_ids.end()){
+  for (auto entry : concrete_to_id) {
+    if (leaf_ids.find(entry.second) != leaf_ids.end()) {
       concrete_leaf_ids.emplace(entry.first);
-      // std::cout<<"Concrete leaf: "<<entry.first<<" replayed leaf: "<<entry.second<<std::endl;
+      // std::cout<<"Concrete leaf: "<<entry.first<<" replayed leaf:
+      // "<<entry.second<<std::endl;
     }
   }
 
@@ -184,8 +185,8 @@ TensorDomain* TestReplay::computeReplay() {
       std::back_inserter(loops_replayed_domain),
       [&](IterDomain* loop_id) {
         // std::cout << "Looking for " << loop_id << std::endl;
-        for(auto id : concrete_leaf_ids){
-          if(GpuLower::current()->caLoopMap().areMapped(id, loop_id)){
+        for (auto id : concrete_leaf_ids) {
+          if (GpuLower::current()->caLoopMap().areMapped(id, loop_id)) {
             concrete_leaf_ids.erase(id);
             return concrete_to_id.at(id);
           }

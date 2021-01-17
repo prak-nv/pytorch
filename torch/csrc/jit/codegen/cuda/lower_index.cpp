@@ -13,8 +13,7 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-IndexLowering::IndexLowering(
-    const ThreadPredicateMap& thread_predicates)
+IndexLowering::IndexLowering(const ThreadPredicateMap& thread_predicates)
     : ir_builder_(GpuLower::current()->kernel()),
       thread_predicates_(thread_predicates) {}
 
@@ -258,10 +257,7 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
         grid_reduction_op, reduce_buffer, sync_buffer);
     grid_reduction->setThreadPredicate(thread_pred);
     const auto pred = PredicateCompute::getInlinePredicate(
-        rop,
-        scope_utils::getLoops(active_scope_expr_),
-        nullptr,
-        false);
+        rop, scope_utils::getLoops(active_scope_expr_), nullptr, false);
     grid_reduction->setPredicate(pred);
 
     pushBack(reduce_buffer);

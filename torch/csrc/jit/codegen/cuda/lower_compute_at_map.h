@@ -31,17 +31,12 @@ class ComputeAtMap {
   // really need to carry two sets of maps around for lowering.
   //
   // TODO: Document parallel mode example.
-  enum class MappingMode {
-    PARALLEL,
-    LOOP,
-    INDEX
-  };
+  enum class MappingMode { PARALLEL, LOOP, INDEX };
 
   ComputeAtMap() = default;
   ComputeAtMap(MappingMode mapping_mode) : mapping_mode_(mapping_mode) {}
 
-  void
-  build();
+  void build();
 
   // Returns the position in tv->domain() that the buffer should be computed at
   // / stored at

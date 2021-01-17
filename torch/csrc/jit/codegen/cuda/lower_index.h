@@ -26,8 +26,7 @@ class TORCH_CUDA_API IndexLowering : private kir::IrVisitor {
   }
 
  private:
-  explicit IndexLowering(
-      const ThreadPredicateMap& thread_predicates);
+  explicit IndexLowering(const ThreadPredicateMap& thread_predicates);
 
   void pushBack(kir::Expr*);
 

@@ -103,11 +103,10 @@ void GpuLower::lower() {
 
   // Start with a fresh kernel
   kernel_ = std::make_unique<kir::Kernel>();
-  
+
   // prepare for lowering
   validateIr(fusion_);
   replaceSymbolicSizes();
-
 
   // Compute thread predicates
   ThreadPredicateMap preds(fusion_);

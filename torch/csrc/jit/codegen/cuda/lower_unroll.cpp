@@ -85,8 +85,8 @@ void UnrollPass::handle(kir::Expr* expr) {
     const auto thread_pred = isReductionInitExpr(expr)
         ? ir_builder.create<kir::Bool>(true)
         : getThreadPredicate(out_tv);
-    const auto pred = PredicateCompute::getInlinePredicate(
-        expr, for_loops_, thread_pred);
+    const auto pred =
+        PredicateCompute::getInlinePredicate(expr, for_loops_, thread_pred);
 
     // If we need a predicate, put expr inside an if then else
     if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
@@ -134,8 +134,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     return;
   }
 
-  auto unroll_pred =
-      UnswitchPredicate::get(for_loops_, fl, p2c_root_map_);
+  auto unroll_pred = UnswitchPredicate::get(for_loops_, fl, p2c_root_map_);
 
   kir::ForLoop* parent_scope = for_loops_.empty() ? nullptr : for_loops_.back();
 

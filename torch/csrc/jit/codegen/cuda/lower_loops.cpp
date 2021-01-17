@@ -234,7 +234,7 @@ std::vector<kir::Expr*> LoopNestGenerator2::loweredExprs(
   return generator.lowered_exprs_;
 }
 
-LoopNestGenerator2::LoopNestGenerator2(const std::vector<Expr*>& exprs){
+LoopNestGenerator2::LoopNestGenerator2(const std::vector<Expr*>& exprs) {
   generate(exprs);
 }
 
@@ -352,11 +352,11 @@ void LoopNestGenerator2::handle(const Expr* expr) {
   // If the loop is not within the compute at point,
   // Tee up the loop structure
 
-
   while (out_id_it != loop_structure.end() && for_loop_it != for_loops_.end()) {
     auto lowered_out_id =
         gpu_lower->lowerValue(*out_id_it)->as<kir::IterDomain>();
-    if (gpu_lower->caLoopMap().areMapped(lowered_out_id, (*for_loop_it)->iter_domain())) {
+    if (gpu_lower->caLoopMap().areMapped(
+            lowered_out_id, (*for_loop_it)->iter_domain())) {
       out_id_it++;
       last_for_loop_matched = ++for_loop_it;
     } else {
@@ -384,7 +384,7 @@ void LoopNestGenerator2::handle(const Expr* expr) {
     // std::cout<<"Close"<<std::endl;
     closeFor();
   }
-  
+
   // std::cout << out_tv << std::endl;
   for (; out_id_it != loop_structure.end(); ++out_id_it) {
     // std::cout << "Open: " << (*out_id_it) << std::endl;

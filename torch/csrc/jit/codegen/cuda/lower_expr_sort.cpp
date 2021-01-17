@@ -57,7 +57,8 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
       return false;
     }
 
-    return GpuLower::current()->caIndexMap().areMapped(domain1.back(), domain2.back());
+    return GpuLower::current()->caIndexMap().areMapped(
+        domain1.back(), domain2.back());
   }
 
   SegmentedGroup* makeEmptyGroup() override {
@@ -76,7 +77,9 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
       auto* group_payload = payload(group);
       // Loop map produces a produce_at_map used specifically for expr sorting
       // when we generate it.
-      for (size_t tv_i = 0; tv_i < GpuLower::current()->caLoopMap().producedAt(out_tv); tv_i++) {
+      for (size_t tv_i = 0;
+           tv_i < GpuLower::current()->caLoopMap().producedAt(out_tv);
+           tv_i++) {
         group_payload->ca_domains.push_back(out_tv->axis(tv_i));
       }
     }
@@ -101,14 +104,16 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
         ++it1;
         ++it2;
       } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
-                   return GpuLower::current()->caIndexMap().areMapped(id1, *it2);
+                   return GpuLower::current()->caIndexMap().areMapped(
+                       id1, *it2);
                  })) {
         // Increment it1, as a later iter domain matches the current one in
         // domain2
         resulting_ca_axes.push_back(*it1++);
 
       } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
-                   return GpuLower::current()->caIndexMap().areMapped(id2, *it1);
+                   return GpuLower::current()->caIndexMap().areMapped(
+                       id2, *it1);
                  })) {
         // Increment it2, as a later iter domain matches the current one in
         // domain1
@@ -210,7 +215,6 @@ class ExprSortingWithCA : public SegmentCandidateFinder {
   // Track how many groups we have from iteration to iteration so we can track
   // when we've stopped merging nodes.
   size_t n_groups = 0;
-
 };
 
 std::vector<Expr*> reorderExprsTest() {

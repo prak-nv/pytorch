@@ -60,9 +60,7 @@ class TORCH_CUDA_API UnrollPass {
       const ThreadPredicateMap& thread_predicates);
 
  private:
-  UnrollPass(
-      Fusion* fusion,
-      const ThreadPredicateMap& thread_predicates)
+  UnrollPass(Fusion* fusion, const ThreadPredicateMap& thread_predicates)
       : thread_predicates_(thread_predicates) {
     p2c_root_map_ = loop_utils::p2cRootMap(fusion->exprs());
   }

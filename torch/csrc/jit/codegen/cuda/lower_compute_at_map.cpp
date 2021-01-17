@@ -263,7 +263,7 @@ void ComputeAtMap::build() {
       // if this is a producer tv, (i.e. not a terminating output tv), then
       // produce at is the same as this compute at position. Loop mode does
       // its own thing, see below in this function.
-      if(mapping_mode_ != MappingMode::LOOP){
+      if (mapping_mode_ != MappingMode::LOOP) {
         produce_at_map_[p_tv] = p_tv->getThisComputeAtAxis();
       }
 
@@ -313,7 +313,6 @@ void ComputeAtMap::build() {
           mapped_c_ids_left_of_ca.emplace(c_id);
         }
       }
-
     }
 
     // For expression sorting we want to know the maximum iteration domain that
@@ -325,16 +324,16 @@ void ComputeAtMap::build() {
     // above last thing that mapped.
     int max_mapped_id_pos = 0;
     bool terminating_output = c_tv->isFusionOutput() && c_tv->uses().empty();
-    if(terminating_output || mapping_mode_ == MappingMode::LOOP){
-      for(size_t c_i = 0; c_i < c_tv->nDims(); c_i++){
-        if(mapped_c_ids_left_of_ca.find(c_tv->axis(c_i)) != mapped_c_ids_left_of_ca.end()){
+    if (terminating_output || mapping_mode_ == MappingMode::LOOP) {
+      for (size_t c_i = 0; c_i < c_tv->nDims(); c_i++) {
+        if (mapped_c_ids_left_of_ca.find(c_tv->axis(c_i)) !=
+            mapped_c_ids_left_of_ca.end()) {
           max_mapped_id_pos = c_i + 1;
         }
       }
-      produce_at_map_[c_tv] = std::max(max_mapped_id_pos, (int) c_tv->getThisComputeAtAxis());
+      produce_at_map_[c_tv] =
+          std::max(max_mapped_id_pos, (int)c_tv->getThisComputeAtAxis());
     }
-
-
   }
 
   std::unordered_set<std::shared_ptr<std::deque<IterDomain*>>> active_sets;
@@ -490,7 +489,8 @@ void ComputeAtMap::build() {
 }
 
 bool ComputeAtMap::areMapped(IterDomain* id0, IterDomain* id1) const {
-  if(id0 == id1) return true;
+  if (id0 == id1)
+    return true;
   auto set0_it = disjoint_iter_set_maps_.find(id0);
   auto set1_it = disjoint_iter_set_maps_.find(id1);
   if (set0_it == disjoint_iter_set_maps_.end() ||
@@ -501,7 +501,8 @@ bool ComputeAtMap::areMapped(IterDomain* id0, IterDomain* id1) const {
 }
 
 bool ComputeAtMap::areMapped(kir::IterDomain* id0, kir::IterDomain* id1) const {
-  if(id0 == id1) return true;
+  if (id0 == id1)
+    return true;
   auto set0_it = kir_disjoint_iter_set_maps_.find(id0);
   auto set1_it = kir_disjoint_iter_set_maps_.find(id1);
   if (set0_it == kir_disjoint_iter_set_maps_.end() ||
@@ -646,7 +647,7 @@ std::string ComputeAtMap::toString() {
         ss << "  -> " << ParallelType::Serial;
       }
     }
-    ss<< "\n";
+    ss << "\n";
   }
   return ss.str();
 }

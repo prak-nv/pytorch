@@ -146,8 +146,8 @@ kir::Bool* PredicateCompute::getInlinePredicate(
     }
   }
 
-  auto pred_inds = Index::getConsumerRootPredIndices(
-      out_tv, loops, pred_contiguity);
+  auto pred_inds =
+      Index::getConsumerRootPredIndices(out_tv, loops, pred_contiguity);
   auto root_indices = pred_inds.first;
   bool use_maybe_rfactor = pred_inds.second;
 
@@ -297,8 +297,7 @@ UnswitchPredicate::UnswitchPredicate(
     std::vector<kir::ForLoop*> outer_loops,
     kir::ForLoop* unrolled_loop,
     const IterDomainMap& _p2c_root_map)
-    : for_loops_(std::move(outer_loops)),
-      p2c_root_map_(_p2c_root_map){
+    : for_loops_(std::move(outer_loops)), p2c_root_map_(_p2c_root_map) {
   openLoop(unrolled_loop);
 }
 
