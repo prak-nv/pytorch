@@ -272,10 +272,13 @@ void ComputeAtMap::build() {
               .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
 
       // Look for matching ID transformations in producer and consumer, replay
-      // producer as consumer. There's a comment about this in index_compute.cpp
-      // in function Index::getProducerIndex_impl. If we're using this map for
-      // indexing, we do not want to propagate broadcast mismatches. If we're
-      // using it to identify loop nests, we do want to propagate mismatches.
+      // producer as consumer. We want to play producer as consumer instead of
+      // the other way around since consumer may have some broadcasted axes
+      // producer doesn't have merged into loops producer may use. If we did
+      // consumer as producer we wouldn't have this information in the mapping.
+      // If we're using this map for indexing, we do not want to propagate
+      // broadcast mismatches. If we're using it to identify loop nests, we do
+      // want to propagate mismatches.
       BestEffortReplay replay_PasC(
           p_tv->domain()->domain(),
           c_tv->domain()->domain(),
