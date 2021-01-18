@@ -113,9 +113,9 @@ class ContigIDs : public OptInDispatch {
       if (root_copy.front() == ordered_inputs.front()) {
         root_copy.pop_front();
         ordered_inputs.pop_front();
-        // We probably should be able to make access contiguous through
-        // reduction domains, however, for now it's causing issues in predicate
-        // generation. See test: ReductionSchedulerMultiDimNonFastest
+        // This is no longer causing an error in:
+        // ReductionSchedulerMultiDimNonFastest TODO: test reenablement to make
+        // sure it does what's expected
         //  } else if (
         //     root_copy.front()->isReduction() ||
         //     root_copy.front()->isBroadcast()) {
@@ -482,12 +482,6 @@ IndexCompute IndexCompute::updateIndexCompute(
     }
   }
 
-  // std::cout<<"Initial index map"<<std::endl;
-  // for(auto entry : updated_index_map){
-  //   std::cout<<toString(entry.first, false)<<"
-  //   ->\n"<<toString(entry.second)<<std::endl;
-  // }
-
   IndexCompute updated_index_compute(
       new_td,
       updated_index_map,
@@ -496,11 +490,6 @@ IndexCompute IndexCompute::updateIndexCompute(
       root_contiguity);
   updated_index_compute.run();
 
-  // std::cout<<"Computed index map"<<std::endl;
-  // for(auto entry : updated_index_compute.indexMap()){
-  //   std::cout<<toString(entry.first)<<"
-  //   ->\n"<<toString(entry.second)<<std::endl;
-  // }
   return updated_index_compute;
 }
 
@@ -524,36 +513,44 @@ std::vector<bool> IndexCompute::contiguityAnd(
 // TODO: use new mapping functions
 // This mapping might need to go through rfactor, unclear
 std::vector<bool> IndexCompute::contiguityPasC(
-    kir::TensorDomain* producer,
-    kir::TensorDomain* consumer) {
+    kir::TensorView* producer,
+    kir::TensorView* consumer) {
   FUSER_PERF_SCOPE("contiguityPasC");
 
-  const std::vector<bool>& producer_contiguity = producer->contiguity();
-  std::vector<bool> as_consumer_contiguity;
+  auto producer_tv = producer->fuserTv();
+  auto consumer_tv = consumer->fuserTv();
 
-  auto c_root = consumer->rootDomain();
-  auto p_root = producer->rootDomain();
+  const std::vector<bool>& producer_contiguity =
+      producer_tv->domain()->contiguity();
+  std::vector<bool> as_consumer_contiguity(
+      consumer_tv->getRootDomain().size(), false);
 
-  size_t p_ind = 0;
-  size_t c_ind = 0;
-  while (p_ind < p_root.size()) {
-    if (p_root[p_ind]->isReduction()) {
-      p_ind++;
-    } else if (
-        c_root[c_ind]->isBroadcast() &&
-        p_root[p_ind]->iterType() != c_root[c_ind]->iterType()) {
-      c_ind++;
-      as_consumer_contiguity.push_back(false);
-    } else {
-      as_consumer_contiguity.push_back(producer_contiguity[p_ind]);
-      c_ind++;
-      p_ind++;
+  auto pairwiseMap = PairwiseRootDomainMap(producer_tv, consumer_tv);
+  auto p2c_root_map = pairwiseMap.mapProducerToConsumer(
+      producer_tv->domain(), consumer_tv->domain());
+
+  for (size_t p_root_i = 0; p_root_i < producer_tv->getRootDomain().size();
+       p_root_i++) {
+    auto p_root_id = producer_tv->getRootDomain()[p_root_i];
+    auto c_root_it = p2c_root_map.find(p_root_id);
+    if (c_root_it == p2c_root_map.end()) {
+      continue;
     }
-  }
+    auto c_root_id = c_root_it->second;
+    auto c_root_i = std::distance(
+        consumer_tv->getRootDomain().begin(),
+        std::find(
+            consumer_tv->getRootDomain().begin(),
+            consumer_tv->getRootDomain().end(),
+            c_root_id));
 
-  while (c_ind < c_root.size()) {
-    as_consumer_contiguity.push_back(false);
-    c_ind++;
+    if (p_root_id->isReduction() ||
+        (c_root_id->isBroadcast() &&
+         p_root_id->getIterType() != c_root_id->getIterType())) {
+      continue;
+    } else {
+      as_consumer_contiguity[c_root_i] = producer_contiguity[p_root_i];
+    }
   }
 
   return as_consumer_contiguity;
@@ -832,7 +829,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
 
   if (strided_inds.size() == 0)
     strided_inds.push_back(ir_builder.create<kir::Int>(0));
-  // std::cout<<"\n\n";
+
   return ir_builder.create<kir::TensorIndex>(producer_tv, strided_inds);
 }
 
@@ -1183,8 +1180,6 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
 kir::TensorIndex* Index::getConsumerIndex_impl(
     const TensorView* consumer_tv,
     const std::vector<kir::ForLoop*>& loops) {
-  // std::cout << "\n\nIndexing: " << consumer_tv << std::endl;
-
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
@@ -1192,8 +1187,6 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   auto reference = TestReplay::getReference(loops);
   auto reference_domain = reference.domain;
   auto reference_id_map = reference.concrete_to_id;
-
-  // std::cout<<reference_domain<<std::endl;
 
   auto alloc_point = loop_utils::getAllocPoint(consumer_tv, loops);
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map =
@@ -1235,18 +1228,6 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   auto ref_compute = getReferenceIndexing(
       loops, reference_domain, ref_id_to_ind_map, preferred_paths);
 
-  // std::cout<<"Reference indexing: "<<std::endl;
-  // for(auto entry : ref_compute.indexMap()){
-  //   std::cout << toString(entry.first, false) << " ->\n"
-  //             << toString(entry.second) << std::endl;
-  // }
-
-  // std::cout<<"Reference extent: "<<std::endl;
-  // for(auto entry : ref_compute.extentMap()){
-  //   std::cout << toString(entry.first, false) << " ->\n"
-  //             << toString(entry.second) << std::endl;
-  // }
-
   BestEffortReplay replay_out_as_ref(
       consumer_tv->domain()->domain(),
       reference_domain->domain(),
@@ -1255,22 +1236,12 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
 
   auto ref_2_consumer = replay_out_as_ref.getReplay();
 
-  // std::cout << "Ref2Consumer" << std::endl;
-  // for(auto entry : ref_2_consumer){
-  //   std::cout<<entry.first<<" -> "<<entry.second<<std::endl;
-  // }
-
   // Index into consumer using reference indexing
   auto consumer_indexing = ref_compute.updateIndexCompute(
       consumer_tv->domain(),
       ref_2_consumer,
       consumer_tv->domain()->contiguity());
 
-  // std::cout << "Consumer index:" << std::endl;
-  // for (auto ind_entry : consumer_indexing.indexMap()) {
-  //   std::cout << toString(ind_entry.first, false) << " ->\n"
-  //             << toString(ind_entry.second) << std::endl;
-  // }
   IndexSwizzle index_swizzle(
       consumer_tv,
       consumer_indexing.indexMap(),

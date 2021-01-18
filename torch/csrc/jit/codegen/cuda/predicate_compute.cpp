@@ -21,7 +21,7 @@ namespace {
 // TODO(kir): same question as ir_utils::getTvOutput():
 //    why do we assume a single TV output?
 //
-const kir::TensorView* firstTvOutput(const kir::Expr* expr) {
+kir::TensorView* firstTvOutput(const kir::Expr* expr) {
   TORCH_INTERNAL_ASSERT(expr != nullptr);
   for (auto out : expr->outputs()) {
     if (out->isA<kir::TensorView>()) {
@@ -128,7 +128,7 @@ kir::Bool* PredicateCompute::getInlinePredicate(
     }
   }
 
-  const auto out_tv = firstTvOutput(expr);
+  auto out_tv = firstTvOutput(expr);
 
   auto pred_contiguity = out_tv->domain()->contiguity();
 
@@ -140,8 +140,7 @@ kir::Bool* PredicateCompute::getInlinePredicate(
         continue;
       } else {
         pred_contiguity = IndexCompute::contiguityAnd(
-            pred_contiguity,
-            IndexCompute::contiguityPasC(inp_tv->domain(), out_tv->domain()));
+            pred_contiguity, IndexCompute::contiguityPasC(inp_tv, out_tv));
       }
     }
   }
@@ -233,7 +232,7 @@ void UnswitchPredicate::predicateOn(kir::Expr* tv_expr) {
     return;
   }
 
-  const auto out_tv = firstTvOutput(tv_expr);
+  auto out_tv = firstTvOutput(tv_expr);
 
   auto pred_contiguity = out_tv->domain()->contiguity();
 
@@ -245,8 +244,7 @@ void UnswitchPredicate::predicateOn(kir::Expr* tv_expr) {
         continue;
       } else {
         pred_contiguity = IndexCompute::contiguityAnd(
-            pred_contiguity,
-            IndexCompute::contiguityPasC(inp_tv->domain(), out_tv->domain()));
+            pred_contiguity, IndexCompute::contiguityPasC(inp_tv, out_tv));
       }
     }
   }

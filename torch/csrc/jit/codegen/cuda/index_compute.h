@@ -136,8 +136,8 @@ class IndexCompute : public BackwardVisitor {
   // Map producer contiguity information to consumer, if entries don't match
   // mark as false
   static std::vector<bool> contiguityPasC(
-      kir::TensorDomain* producer,
-      kir::TensorDomain* consumer);
+      kir::TensorView* producer,
+      kir::TensorView* consumer);
 
   static std::vector<bool> contiguityAnd(
       const std::vector<bool>& contig1,
