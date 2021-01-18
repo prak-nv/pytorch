@@ -1310,17 +1310,20 @@ void traverseProfileIValues(
   }
 }
 
+// break `linear` layer into `matmul` and `add_optional`. This allows us to fuse
+// the binary operation without supporting gemm.
+// Note that we are not breaking `linear` layer without bias.
 void decomposeLinearOps(Block* block) {
   std::vector<Node*> linear_nodes;
   for (Node* n : block->nodes()) {
     for (Block* b : n->blocks()) {
       decomposeLinearOps(b);
     }
-    if (n->kind() == aten::linear) {
-      if (!n->input(2)->type()->isSubtypeOf(
-              static_cast<c10::TypePtr>(NoneType::get()))) {
-        linear_nodes.push_back(n);
-      }
+    // only decompose `linear` layer with bias.
+    if (n->kind() == aten::linear &&
+        !n->input(2)->type()->isSubtypeOf(
+            static_cast<c10::TypePtr>(NoneType::get()))) {
+      linear_nodes.push_back(n);
     }
   }
 
@@ -1346,8 +1349,6 @@ void decomposeLinearOps(Block* block) {
 
     // TODO: memory stride should be considered here, our inference above is not
     // safe.
-    // auto bias = graph->insertNode(graph->create(aten::add,
-    // {matmul->output(0), n->input(2), graph->insertConstant(1)}, 1));
     auto bias = graph->insertNode(
         graph->create(prim::add_optional, {matmul->output(0), n->input(2)}, 1));
 

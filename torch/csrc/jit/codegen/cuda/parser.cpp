@@ -1153,6 +1153,10 @@ class IrParser {
     }
 
     {
+      // We are not fusing `linear` yet, because we can't codegen efficient gemm
+      // However, we still need this here, so PE would insert profile node for
+      // this node.
+      // During fusion pass, We decompose linear into gemm + elementwise.
       auto ptr_op = getOperatorForLiteral(
           "aten::linear(Tensor input, Tensor weight, Tensor? bias=None) -> Tensor");
       registerParseRule(
@@ -1163,6 +1167,7 @@ class IrParser {
             TORCH_INTERNAL_ASSERT(false, "not implemented yet");
           },
           [](const Node* node) -> bool {
+            // We only profile `linear` layer with bias.
             if (node->input(2)->type()->isSubtypeOf(
                     static_cast<c10::TypePtr>(NoneType::get()))) {
               return false;
