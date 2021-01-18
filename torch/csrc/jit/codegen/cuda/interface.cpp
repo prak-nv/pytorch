@@ -294,7 +294,7 @@ RegisterOperators reg_add_optional({
     Operator(
         "prim::add_optional(Tensor(a) input, Tensor? bias) -> Tensor(a)",
         [](const Node* node) -> Operation {
-          return [node](Stack* stack) {
+          return [](Stack* stack) {
             IValue input, bias;
             pop(stack, input, bias);
             if (bias.isNone()) {
