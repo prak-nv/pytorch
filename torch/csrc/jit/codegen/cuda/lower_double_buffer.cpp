@@ -263,7 +263,7 @@ class DoubleBuffering : private kir::MutableIrVisitor {
       return;
     }
     auto fuser_tv = tv->fuserTv();
-    if (!fuser_tv->isDoubleBuffered()) {
+    if (fuser_tv == nullptr || !fuser_tv->isDoubleBuffered()) {
       return;
     }
     kir::ForLoop* alloc_scope = active_scope_expr_->as<kir::ForLoop>();
@@ -297,7 +297,7 @@ class DoubleBuffering : private kir::MutableIrVisitor {
 
   void visit(kir::TensorIndex* ti) override {
     auto tv = ti->view();
-    if (!tv->fuserTv()->isDoubleBuffered()) {
+    if (tv->fuserTv() == nullptr || !tv->fuserTv()->isDoubleBuffered()) {
       return;
     }
 

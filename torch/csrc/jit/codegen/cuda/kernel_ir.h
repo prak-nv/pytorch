@@ -701,7 +701,7 @@ class TORCH_CUDA_API TensorView final : public Val {
   }
 
   fuser::cuda::TensorView* fuserTv() const {
-    TORCH_INTERNAL_ASSERT(fuser_tv_ != nullptr);
+    //TORCH_INTERNAL_ASSERT(fuser_tv_ != nullptr);
     // TODO(kir): remove the need for const_cast
     return const_cast<fuser::cuda::TensorView*>(fuser_tv_); // NOLINT
   }
