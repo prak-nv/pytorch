@@ -46,10 +46,23 @@ TORCH_CUDA_API TensorView* reductionOp(
     TensorView* v1,
     bool keep_dim = false);
 
+//! Auxiliary Struct holding result of
+//! a single welford op in ternsorview
+struct TORCH_CUDA_API WelfordResult {
+  TensorView* var;
+  TensorView* avg;
+  TensorView* n;
+
+  explicit WelfordResult(
+      TensorView* in_var,
+      TensorView* in_avg,
+      TensorView* in_n);
+};
+
 //! Welford operator on specified axes. This is currently the only scan op with
 //! multiple outputs that is supported. May consider generalization if more scan
 //! ops are added.
-TORCH_CUDA_API std::vector<TensorView*> Welford(
+TORCH_CUDA_API WelfordResult Welford(
     TensorView* tv,
     const std::vector<int>& axes,
     TensorView* init_var = nullptr,

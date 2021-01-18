@@ -710,7 +710,7 @@ TensorView* broadcast(
   return out_tensor;
 }
 
-std::vector<TensorView*> Welford(
+WelfordResult Welford(
     TensorView* tv,
     const std::vector<int>& axes,
     TensorView* init_var,
@@ -773,7 +773,16 @@ std::vector<TensorView*> Welford(
       tv,
       new Int(1)); /*in var/avg/count */
 
-  return {out_var, out_avg, out_N};
+  return WelfordResult(out_var, out_avg, out_N);
+}
+
+WelfordResult::WelfordResult(
+    TensorView* in_var,
+    TensorView* in_avg,
+    TensorView* in_n)
+    : var(in_var), avg(in_avg), n(in_n) {
+  TORCH_INTERNAL_ASSERT(var->definition()->sameAs(avg->definition()));
+  TORCH_INTERNAL_ASSERT(var->definition()->sameAs(n->definition()));
 }
 
 TensorView* transpose(
