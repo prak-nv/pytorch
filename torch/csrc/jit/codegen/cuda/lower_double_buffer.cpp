@@ -236,6 +236,8 @@ class DoubleBuffering : private kir::MutableIrVisitor {
  public:
   DoubleBuffering() : ir_builder_(GpuLower::current()->kernel()) {}
 
+  void validateDoubleBufferingUsage() {}
+
   void apply(const std::vector<kir::Expr*>& exprs) {
     lowered_exprs_ = exprs;
     for (auto expr : lowered_exprs_) {
@@ -298,6 +300,9 @@ class DoubleBuffering : private kir::MutableIrVisitor {
     if (!tv->fuserTv()->isDoubleBuffered()) {
       return;
     }
+
+    validateDoubleBufferingUsage(ti);
+
     BufferInfo& info = buffer_info_map_.at(tv);
     TORCH_INTERNAL_ASSERT(active_arith_expr_ != nullptr);
 
@@ -315,6 +320,23 @@ class DoubleBuffering : private kir::MutableIrVisitor {
           active_scope_expr_->isA<kir::IfThenElse>(), "Predicate not found");
       info.load_predicate = active_scope_expr_->as<kir::IfThenElse>();
     }
+  }
+
+  void validateDoubleBufferingUsage(kir::TensorIndex* ti) const {
+    const auto tv = ti->view();
+    const auto def = tv->definition();
+
+    TORCH_CHECK(def->isA<kir::UnaryOp>());
+    TORCH_CHECK(def->as<kir::UnaryOp>()->operation() == UnaryOpType::Set);
+
+    TORCH_CHECK(def->as<kir::UnaryOp>()->in()->isA<kir::TensorView>());
+    const auto in = def->as<kir::UnaryOp>()->in()->as<kir::TensorView>();
+
+    TORCH_CHECK(
+        in->memoryType() == MemoryType::Global ||
+        in->memoryType() == MemoryType::Shared);
+
+    TORCH_CHECK(tv->fuserTv()->getThisComputeAtAxis() > 0);
   }
 
   void moveAndExpandAllocate(const BufferInfo& info) {
