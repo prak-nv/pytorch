@@ -1003,7 +1003,14 @@ kir::TensorIndex* Index::getProducerIndex_impl(
       ref_2_producer,
       producer_tv->domain()->contiguity());
 
-  auto index_map = producer_indexing.indexMap();
+  IndexSwizzle index_swizzle(
+      producer_tv,
+      producer_indexing.indexMap(),
+      producer_indexing.extentMap(),
+      producer_indexing.zeroMergedIn());
+  index_swizzle.run();
+
+  auto index_map = index_swizzle.indexMap();
   auto extent_map = producer_indexing.extentMap();
 
   // Indices should now be mapped onto IterDomains in producer, so just grab
@@ -1259,23 +1266,19 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
       ref_2_consumer,
       consumer_tv->domain()->contiguity());
 
-  // TODO: Re-enable swizzle
-  // auto index_and_extent_map = generateIndexAndExtentMap(
-  //     tv_stack,
-  //     std::deque<kir::ForLoop*>(loops.begin(), loops.end()),
-  //     loop_to_ind_map,
-  //     std::vector<bool>(consumer_tv->getRootDomain().size(), false),
-  //     ca_root_map,
-  //     false,
-  //     true);
-
   // std::cout << "Consumer index:" << std::endl;
   // for (auto ind_entry : consumer_indexing.indexMap()) {
   //   std::cout << toString(ind_entry.first, false) << " ->\n"
   //             << toString(ind_entry.second) << std::endl;
   // }
+  IndexSwizzle index_swizzle(
+      consumer_tv,
+      consumer_indexing.indexMap(),
+      consumer_indexing.extentMap(),
+      consumer_indexing.zeroMergedIn());
+  index_swizzle.run();
 
-  auto index_map = consumer_indexing.indexMap();
+  auto index_map = index_swizzle.indexMap();
   auto extent_map = consumer_indexing.extentMap();
 
   // Indices should now be mapped onto IterDomains in consumer, so just grab
