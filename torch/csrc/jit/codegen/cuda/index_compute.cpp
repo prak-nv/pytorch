@@ -970,7 +970,8 @@ generateIndexAndExtentMap(
     loops.pop_back();
   }
 
-  if (tv->definition()->isA<WelfordOp>()) {
+  if (tv->definition() != nullptr && tv->definition()->outputs().size() > 1) {
+    TORCH_INTERNAL_ASSERT(tv->definition()->isA<WelfordOp>());
     mapMultiOutputOp(
         loops,
         initial_index_map,
@@ -1019,7 +1020,8 @@ generateIndexAndExtentMap(
       loops.pop_back();
     }
 
-    if (tv->definition()->isA<WelfordOp>()) {
+    if (tv->definition() != nullptr && tv->definition()->outputs().size() > 1) {
+      TORCH_INTERNAL_ASSERT(tv->definition()->isA<WelfordOp>());
       mapMultiOutputOp(
           loops,
           new_indices,

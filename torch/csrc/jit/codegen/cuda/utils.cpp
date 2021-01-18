@@ -45,7 +45,7 @@ auto parseDebugDumpOptions() {
             "Invalid debug dump option: '",
             token,
             "'\n  Available options: ",
-            "fusion_ir, fusion_ir_math, kernel_ir, cuda_kernel, cuda_full\n");
+            "fusion_ir, fusion_ir_math, kernel_ir, cuda_kernel, cuda_full, launch_param\n");
       }
       options_view = (end_pos != c10::string_view::npos)
           ? options_view.substr(end_pos + 1)
