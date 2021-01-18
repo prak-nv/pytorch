@@ -785,6 +785,10 @@ WelfordResult::WelfordResult(
   TORCH_INTERNAL_ASSERT(var->definition()->sameAs(n->definition()));
 }
 
+WelfordResult WelfordResult::rfactor(const std::vector<int>& axes) {
+  return n->rfactor(axes, var, avg, n);
+}
+
 TensorView* transpose(
     TensorView* inp,
     const std::unordered_map<int, int>& old2new) {

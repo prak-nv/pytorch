@@ -57,6 +57,8 @@ struct TORCH_CUDA_API WelfordResult {
       TensorView* in_var,
       TensorView* in_avg,
       TensorView* in_n);
+
+  WelfordResult rfactor(const std::vector<int>& axes);
 };
 
 //! Welford operator on specified axes. This is currently the only scan op with

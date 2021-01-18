@@ -10783,7 +10783,7 @@ TEST(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
   fusion.addOutput(tv_N);
 
   tv_N->split(1, 4);
-  std::vector<TensorView*> rtvs = tv_N->rFactorWelford({2});
+  auto rtvs = tvs.rfactor({2});
   tv1->computeAt(tv_N, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
