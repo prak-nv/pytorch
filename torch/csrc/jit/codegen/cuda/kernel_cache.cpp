@@ -425,7 +425,6 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
               reduction_params.value(),
               single_reduction_tv,
               tv_outputs_of_reduction);
-          fusion_clone.printMath();
         }
 
         // This means we have not found a previously generated kernel that is
@@ -465,6 +464,7 @@ FusionSegmentRuntime::FusionSegmentRuntime(
     size_t cache_id)
     : executors_(segmented_fusion->groups().size()),
       launch_params_(segmented_fusion->groups().size()),
+      schedule_heuristics_(segmented_fusion->groups().size()),
       segmented_fusion_(segmented_fusion),
       cache_id_(cache_id) {}
 
@@ -501,9 +501,10 @@ std::vector<at::Tensor> FusionSegmentRuntime::runSegmentWithInput(
         }
       }
       if (is_reduction) {
-        schedule_heuristics_[group_id] = getReductionHeuristics(
+        auto red_heuristics = getReductionHeuristics(
             fusion_seg.get(), inputs, clone_reduction_tv.front());
-        TORCH_INTERNAL_ASSERT(schedule_heuristics_[group_id].has_value());
+        TORCH_INTERNAL_ASSERT(red_heuristics.has_value());
+        schedule_heuristics_[group_id] = *red_heuristics;
         auto single_reduction_tv = clone_reduction_tv.front();
         auto outputs_of_reduction =
             DependencyCheck::getAllOutputsOf({single_reduction_tv});
@@ -513,20 +514,21 @@ std::vector<at::Tensor> FusionSegmentRuntime::runSegmentWithInput(
             tv_entries.begin(), tv_entries.end());
         scheduleReduction(
             fusion_seg.get(),
-            schedule_heuristics_[group_id].value(),
+            schedule_heuristics_[group_id],
             single_reduction_tv,
             tv_outputs_of_reduction);
       } else if (is_normalization) {
-        schedule_heuristics_[group_id] = getNormalizationHeuristics(
+        auto norm_heuristics = getNormalizationHeuristics(
             fusion_seg.get(), inputs, clone_reduction_tv);
-        TORCH_INTERNAL_ASSERT(schedule_heuristics_[group_id].has_value());
+        TORCH_INTERNAL_ASSERT(norm_heuristics.has_value());
+        schedule_heuristics_[group_id] = *norm_heuristics;
         scheduleNormalization(
             fusion_seg.get(),
-            schedule_heuristics_[group_id].value(),
+            schedule_heuristics_[group_id],
             clone_reduction_tv,
             clone_other_tv);
       }
-      launch_params = schedule_heuristics_[group_id]->lparams;
+      launch_params = schedule_heuristics_[group_id].lparams;
     } else {
       // schedule pointwise fusion
       scheduleFusion(fusion_seg.get(), inputs);
@@ -573,9 +575,11 @@ std::vector<at::Tensor> FusionSegmentRuntime::runWithInput(
 
       if (ready_to_run) {
         std::vector<IValue> group_runtime_inputs;
+
         for (auto input : group_inputs) {
           group_runtime_inputs.push_back(tensor_map.at(input));
         }
+
         auto group_runtime_outputs =
             runSegmentWithInput(group, group_runtime_inputs);
 

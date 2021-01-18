@@ -21,7 +21,7 @@ class SegmentedGroup;
 
 //! Simple implementation of a graph runtime to support multi-kernel fusion
 //! TODO: one FusionExecutor per segment could be expensive, optimize
-class FusionSegmentRuntime {
+class TORCH_CUDA_API FusionSegmentRuntime {
  public:
   explicit FusionSegmentRuntime(
       SegmentedFusion* segmented_fusion,
@@ -45,7 +45,7 @@ class FusionSegmentRuntime {
   // Entries indexed by groupID
   std::vector<FusionExecutor> executors_;
   std::vector<LaunchParams> launch_params_;
-  std::vector<c10::optional<ReductionParams>> schedule_heuristics_;
+  std::vector<ReductionParams> schedule_heuristics_;
 
   // States
   SegmentedFusion* segmented_fusion_;
@@ -175,7 +175,7 @@ class TORCH_CUDA_API InputsIdLookup : public NonCopyable {
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
 //!
 //!
-class FusionExecutorCache {
+class TORCH_CUDA_API FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes;

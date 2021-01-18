@@ -10962,14 +10962,13 @@ TEST(NVFuserTest, FusionAdvancedComputeAtTransposed6_CUDA) {
 // }
 
 TEST(NVFuserTest, FusionSegment_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
-  // TensorView* tv1 = transpose(tv0, {{0, 1}}); // level 0
-  TensorView* tv1 = add(tv0, new Double(0));
+  TensorView* tv1 = add(tv0, new Double(0)); // level 0
 
   TensorView* tv2 = add(tv1, new Double(1)); // level 1
   TensorView* tv3 = add(tv2, new Double(2)); // level 2
@@ -10982,13 +10981,12 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
   TensorView* tv9 = sum(tv7, {0});
   TensorView* tv10 = sum(tv8, {1});
 
-  fusion.addOutput(tv9);
-  fusion.addOutput(tv10);
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv10);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({63, 65}, options);
 
-  // auto t1 = t0.permute({0, 1});
   auto t1 = t0.add(0.0);
   auto t2 = t1.add(1.0);
   auto t3 = t2.add(2.0);
@@ -11001,17 +10999,11 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
   auto t9 = t7.sum(0);
   auto t10 = t8.sum(1);
 
-  std::cout << "Original fusion:" << std::endl;
-  fusion.printMath();
-
-  auto fusion_seg = fusion.segment();
-  fusion_seg->print();
-
-  // SingleReductionSegmenter kernels(&fusion);
-  // kernels.segment();
-  //// std::cout << &kernels << std::endl;
-  // kernels.generateFusions();
-  // auto cg_outputs = kernels.runFusionWithInputs({t0});
+  FusionExecutorCache fec(std::move(fusion), /*segment=*/true);
+  auto outputs = fec.runFusionWithInputs({t0});
+  TORCH_CHECK(outputs.size() == 2);
+  TORCH_CHECK(t9.allclose(outputs[0]));
+  TORCH_CHECK(t10.allclose(outputs[1]));
 }
 
 } // namespace jit

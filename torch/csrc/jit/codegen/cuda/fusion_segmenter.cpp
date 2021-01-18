@@ -39,13 +39,39 @@ std::vector<SegmentedGroup*> SegmentedGroup::getNeighbors() {
 
 std::vector<std::pair<SegmentedGroup*, SegmentedEdge*>> SegmentedGroup::
     getMergeCandidates() {
-  std::vector<std::pair<SegmentedGroup*, SegmentedEdge*>> neighbors =
-      getNeighborsPair();
-
   // Don't look for candidates if already merged
   if (merged) {
     return {};
   }
+
+  std::vector<std::pair<SegmentedGroup*, SegmentedEdge*>> neighbors =
+      getNeighborsPair();
+
+  // remove multi use edges: can relax this logic for better perf
+  // once we revisit multi-uses in a single group,
+  // disabling shared input, and multiple internall uses, but shouldn't be this
+  // strict
+  neighbors.erase(
+      std::remove_if(
+          neighbors.begin(),
+          neighbors.end(),
+          [this](auto& n) {
+            if (n.second->hasInternalUse()) {
+              return true;
+            }
+            for (auto e : n.first->producer_edges) {
+              if (hasUse(e->val_)) {
+                return true;
+              }
+            }
+            for (auto v : n.first->input_vals) {
+              if (hasUse(v)) {
+                return true;
+              }
+            }
+            return false;
+          }),
+      neighbors.end());
 
   // Can this node be merged with another? Check if neighbors are merged, if
   // so and merged neighbor is within 1 level or node merged with neighbor is
@@ -150,6 +176,50 @@ void SegmentedGroup::print() {
   std::cout << "}\n\n";
 }
 
+void SegmentedGroup::updateUse() {
+  // Move all the edgees to group input/output
+  for (auto e : exprs_) {
+    for (auto i : e->inputs()) {
+      if (i->isA<TensorView>()) {
+        internal_use.insert(i);
+      }
+    }
+  }
+}
+
+bool SegmentedGroup::hasUse(Val* v) {
+  // Move all the edgees to group input/output
+  return internal_use.count(v) != 0;
+}
+
+template <typename PREDICATE>
+void insertUniquePredicated(
+    std::vector<Val*>& v,
+    const std::vector<SegmentedEdge*>& e,
+    PREDICATE pred) {
+  std::unordered_set<Val*> to_add;
+  std::transform(
+      e.cbegin(),
+      e.cend(),
+      std::inserter(to_add, to_add.end()),
+      [](SegmentedEdge* se) { return se->val_; });
+  std::copy_if(
+      to_add.begin(), to_add.end(), std::back_inserter(v), [pred](Val* val) {
+        return pred(val);
+      });
+}
+
+void SegmentedGroup::finalize() {
+  // Move all the edgees to group input/output
+  // Inputs
+  insertUniquePredicated(
+      input_vals, producer_edges, [](Val* v) { return !v->isFusionInput(); });
+
+  // Outputs
+  insertUniquePredicated(
+      output_vals, consumer_edges, [](Val* v) { return !v->isFusionOutput(); });
+}
+
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   os << "g{";
   for (size_t i = 0; i < group->exprs_.size(); i++) {
@@ -169,6 +239,10 @@ void SegmentedEdge::print() {
   std::cout << "through: ";
   val_->print();
   std::cout << "}\\\\e\n\n";
+}
+
+bool SegmentedEdge::hasInternalUse() {
+  return from_->hasUse(this->val_);
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
@@ -239,6 +313,7 @@ SegmentedGroup* SegmentedFusion::newGroup() {
 SegmentedGroup* SegmentedFusion::newGroup(Expr* expr) {
   SegmentedGroup* g = impl_.makeGroup(expr);
   groups_.push_back(g);
+  g->updateUse();
   return g;
 }
 
@@ -283,6 +358,9 @@ std::string SegmentedFusion::toString(int verbosity) const {
 
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
+  for (auto g : groups_) {
+    g->finalize();
+  }
 }
 
 namespace {
@@ -531,6 +609,7 @@ void SegmentCandidateFinder::mergeNodes() {
     auto group2 = group1->merge_with;
     to_merge.erase(group1);
     to_merge.erase(group2);
+
     clean_up_groups.emplace(group1);
     clean_up_groups.emplace(group2);
 
@@ -572,6 +651,7 @@ void SegmentCandidateFinder::mergeNodes() {
     }
 
     joined_group->setHeuristic(deriveHeuristic(group1->merge_through));
+    joined_group->updateUse();
   }
 
   for (auto group : clean_up_groups) {

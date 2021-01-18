@@ -57,6 +57,7 @@ class SegmentedEdge {
   Val* val_;
 
   void print();
+  bool hasInternalUse();
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
@@ -106,11 +107,11 @@ class TORCH_CUDA_API SegmentedGroup {
   }
 
   std::vector<Val*> inputs() {
-    return edgesToVals(producer_edges);
+    return input_vals;
   }
 
   std::vector<Val*> outputs() {
-    return edgesToVals(consumer_edges);
+    return output_vals;
   }
 
   // might just set heuristic as public
@@ -123,6 +124,18 @@ class TORCH_CUDA_API SegmentedGroup {
   }
 
   void print();
+
+  //! Generate the use info for groups to avoid multi-use in
+  //!  a single group, expect to remove in the future so
+  //!  keeping this part separate
+  void updateUse();
+
+  //! Check if an edge is used internally within a group
+  bool hasUse(Val* se);
+
+  //! To be called at the very end of segment fusion
+  //!  no more segment merging should be done beyond
+  void finalize();
 
  public:
   // "Ancestor nodes", towards inputs of segmentedDAG
@@ -163,6 +176,7 @@ class TORCH_CUDA_API SegmentedGroup {
   // unique identifier in group
   int group_id_ = -1;
   ScheduleHeuristic heuristic_ = ScheduleHeuristic::PointWise;
+  std::unordered_set<Val*> internal_use;
 
  private:
   std::vector<Val*> edgesToVals(const std::vector<SegmentedEdge*>& se_v);
