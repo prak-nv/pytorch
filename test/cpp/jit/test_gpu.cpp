@@ -4618,7 +4618,6 @@ TEST(NVFuserTest, FusionAdvancedIndexing7_CUDA) {
       &fusion, cg_outputs, {at_t0, at_t1}, {aten_output}, __LINE__, __FILE__);
 }
 
-// TODO: Enable test
 TEST(NVFuserTest, FusionAdvancedIndexing8_CUDA) {
   // Same as 7 but with outer splits instead of inner
   Fusion fusion;
@@ -4640,39 +4639,130 @@ TEST(NVFuserTest, FusionAdvancedIndexing8_CUDA) {
   tv4->split(0, 128, false);
   tv4->split(0, 4, false);
 
-  // auto tv5 = tv4->rFactor({0, 1});
+  auto tv5 = tv4->rFactor({0, 1});
 
-  // tv5->computeAt(tv4, -1);
-  // tv0->computeAt(tv5, -1);
+  tv5->computeAt(tv4, -1);
+  tv0->computeAt(tv5, -1);
 
-  // tv4->axis(0)->parallelize(ParallelType::TIDx);
-  // fusion.printKernel();
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
 
-  // TORCH_INTERNAL_ASSERT(false, "Enable test");
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
 
-  // FusionExecutor fe;
-  // fe.compileFusion(&fusion);
+  const int numel_x = 100;
+  const int numel_y = 200;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto at_t0 = at::randn({numel_x}, options);
+  auto at_t1 = at::randn({numel_x, numel_y}, options);
 
-  // const int numel_x = 100;
-  // const int numel_y = 200;
-  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // auto at_t0 = at::randn({numel_x}, options);
-  // auto at_t1 = at::randn({numel_x, numel_y}, options);
+  auto cg_outputs = fe.runFusion({at_t0, at_t1});
 
-  // auto cg_outputs = fe.runFusion({at_t0, at_t1});
+  auto aten_output = (at_t0.unsqueeze(-1).expand({numel_x, numel_y}) + at_t1)
+                         .to(at::kDouble)
+                         .sum();
 
-  // auto aten_output = (at_t0.unsqueeze(-1).expand({numel_x, numel_y}) + at_t1)
-  //                        .to(at::kDouble)
-  //                        .sum();
+  testValidate(
+      &fusion, cg_outputs, {at_t0, at_t1}, {aten_output}, __LINE__, __FILE__);
+}
 
-  // testValidate(
-  //     &fusion, cg_outputs, {at_t0, at_t1}, {aten_output}, __LINE__,
-  //     __FILE__);
+// Intended to stress the lowering of our code generator
+TEST(NVFuserTest, FusionAdvancedLowering1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeConcreteTensor({9, 5});
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = add(tv0, new Double(1));
+  TensorView* tv2 = add(tv1, new Double(2));
+  TensorView* tv3 = add(tv1, new Double(3));
+  TensorView* tv4 = sum(tv3, {1});
+
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv4);
+
+  tv4->split(1, 4);
+  auto tv5 = tv4->rFactor({2});
+
+  tv1->computeAt(tv5, -1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn({9, 5}, options);
+
+  auto t1 = aten_input.add(1.0);
+  auto t2 = t1.add(2.0);
+  auto t3 = t1.add(3.0);
+  auto t4 = t3.sum(1);
+
+  std::vector<at::Tensor> aten_outputs = {t2, t4};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  auto cg_outputs = fe.runFusion({aten_input});
+
+  testValidate(
+      &fusion, cg_outputs, {aten_input}, aten_outputs, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionAdvancedLowering2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Progressively broadcast tensors
+  TensorView* tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  TensorView* tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  TensorView* tv2 = makeSymbolicTensor(3);
+  fusion.addInput(tv2);
+
+  TensorView* tv3 = add(tv0, new Double(1));
+  TensorView* tv4 = broadcast(tv3, {false, true});
+  TensorView* tv5 = add(tv4, tv1);
+  TensorView* tv6 = add(tv5, tv2);
+
+  fusion.addOutput(tv6);
+
+  // Split inner dimension
+  tv6->split(1, 4);
+  // Merge middle dims with outer dimensions
+  tv6->merge(2);
+  tv6->merge(0);
+
+  // tv6[I0*I1o, I1i*I2]
+
+  // Compute everything inline
+  tv0->computeAt(tv6, -1);
+
+  tv6->axis(0)->parallelize(ParallelType::BIDx);
+  tv6->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int x = 13, y = 9, z = 5;
+  at::Tensor t0 = at::randn({y}, options);
+  at::Tensor t1 = at::randn({y, z}, options);
+  at::Tensor t2 = at::randn({x, y, z}, options);
+
+  auto t3 = t0.add(1.0);
+  auto t4 = t3.unsqueeze(-1);
+  auto t5 = t4.add(t1);
+  auto t6 = t5.add(t2);
+
+  std::vector<IValue> aten_inputs = {t0, t1, t2};
+  std::vector<at::Tensor> aten_outputs = {t6};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
 }
 
 // TODO: Enable test
-TEST(NVFuserTest, FusionAdvancedIndexing9_CUDA) {
-  // Same as 7 but with outer splits instead of inner
+TEST(NVFuserTest, FusionAdvancedLowering3_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4683,6 +4773,7 @@ TEST(NVFuserTest, FusionAdvancedIndexing9_CUDA) {
 
   // [b0, i1]
   auto tv2 = add(tv0, new Double(2.0));
+
   // [i0, i1]
   auto tv3 = add(tv1, new Double(3.0));
 
@@ -4695,29 +4786,8 @@ TEST(NVFuserTest, FusionAdvancedIndexing9_CUDA) {
   fusion.addOutput(tv4);
   fusion.addOutput(tv5);
 
-  // fusion.printMath();
-
+  // TODO: Enable this computeAt, enable test.
   // tv0->computeAt(tv4, -1);
-
-  // TORCH_INTERNAL_ASSERT(false, "Enable test");
-
-  // auto tv0 = makeSymbolicTensor(1);
-  // fusion.addInput(tv0);
-
-  // auto tv1 = broadcast(tv0, {false, true});
-
-  // auto tv2 = makeSymbolicTensor(2);
-  // fusion.addInput(tv2);
-
-  // auto tv3 = add(tv1, tv2);
-  // auto tv4 = sum(tv3, {0, 1});
-  // fusion.addOutput(tv4);
-
-  // tv4->merge(0, 1);
-  // tv4->split(0, 128, false);
-  // tv4->split(0, 4, false);
-
-  // auto tv5 = tv4->rFactor({0, 1});
 }
 
 // Test a simple Gemm but also play around with fusion executor features
@@ -4844,9 +4914,6 @@ TEST(NVFuserTest, FusionSoftmax1D_CUDA) {
   for (auto tv : tensors_to_parallelize) {
     tv->axis(-1)->parallelize(ParallelType::TIDx);
   }
-
-  // fusion.printMath();
-  // fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dimx}, options);
@@ -5132,8 +5199,6 @@ TEST(NVFuserTest, FusionGridReduction1_CUDA) {
 
   int numel_x = 10000;
   int numel_y = 65000;
-
-  // fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({numel_x, numel_y}, options);
@@ -11480,63 +11545,6 @@ TEST(NVFuserTest, FusionTransposeWithSwizzle1DThreadBlock_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
-}
-
-TEST(NVFuserTest, FusionSegment_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* tv0 = makeConcreteTensor({9, 5});
-  fusion.addInput(tv0);
-
-  TensorView* tv1 = add(tv0, new Double(1));
-  TensorView* tv2 = add(tv1, new Double(2));
-  TensorView* tv3 = add(tv1, new Double(3));
-  TensorView* tv4 = sum(tv3, {1});
-
-  fusion.addOutput(tv2);
-  fusion.addOutput(tv4);
-
-  // fusion.printMath();
-
-  tv4->split(1, 4);
-  auto tv5 = tv4->rFactor({2});
-  // fusion.printMath();
-
-  tv1->computeAt(tv5, -1);
-
-  // std::cout << tv2 << std::endl;
-  // std::cout << tv2->getRelativeComputeAtAxis() << " / "
-  //           << tv2->getThisComputeAtAxis() << std::endl;
-
-  // reorderExprsTest(&fusion);
-  fusion.printKernel();
-
-  // fusion.printKernel();
-  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // at::Tensor aten_input = at::randn({63, 65}, options);
-
-  // auto t1 = aten_input.add(1.0);
-  // auto t2 = t1.add(2.0);
-  // auto t3 = t1.add(3.0);
-  // auto t4 = t3.sum(1);
-
-  // std::vector<at::Tensor> aten_outputs = {t2, t4};
-
-  //   FusionExecutor fe;
-  //   fe.compileFusion(&fusion);
-
-  //   auto cg_outputs = fe.runFusion({aten_input}, lparams);
-
-  //   testValidate(
-  //       &fusion,
-  //       cg_outputs,
-  //       {aten_input},
-  //       aten_outputs,
-  //       __LINE__,
-  //       __FILE__,
-  //       "",
-  //       lparams);
 }
 
 } // namespace jit
