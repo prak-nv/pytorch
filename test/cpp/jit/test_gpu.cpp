@@ -1,4 +1,4 @@
-// #if defined(USE_CUDA)
+#if defined(USE_CUDA)
 #include <gtest/gtest.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
@@ -18,7 +18,6 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
-#include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/mutator.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
@@ -354,9 +353,9 @@ TEST(NVFuserTest, FusionExprEvalPostLower_CUDA) {
   tv0->computeAt(tv3, 1);
   tv1->computeAt(tv3, 1);
 
-  // tv3->axis(0)->parallelize(ParallelType::BIDx);
-  // tv2->axis(1)->parallelize(ParallelType::Unroll);
-  // tv3->axis(1)->parallelize(ParallelType::Unroll);
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+  tv3->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -3957,11 +3956,6 @@ TEST(NVFuserTest, FusionSimpleBCast1_CUDA) {
   tv0->computeAt(tv7, -1);
   tv2->computeAt(tv7, -1);
 
-  std::vector<TensorView*> tvs = {tv0, tv1, tv2, tv3, tv4, tv5, tv6, tv7};
-  for (auto tv : tvs) {
-    // tv->setMemoryType(MemoryType::Global);
-  }
-
   tv7->axis(0)->parallelize(ParallelType::BIDx);
   tv7->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -4604,9 +4598,6 @@ TEST(NVFuserTest, FusionAdvancedIndexing7_CUDA) {
   tv0->computeAt(tv5, -1);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
-
-  fusion.printMath();
-  fusion.printKernel();
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -11551,4 +11542,4 @@ TEST(NVFuserTest, FusionSegment_CUDA) {
 } // namespace jit
 } // namespace torch
 
-// #endif // #if defined(USE_CUDA)
+#endif // #if defined(USE_CUDA)

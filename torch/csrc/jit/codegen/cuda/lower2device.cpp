@@ -111,10 +111,6 @@ void GpuLower::lower() {
   // Compute thread predicates
   ThreadPredicateMap preds(fusion_);
 
-  // Compute root-domain mappings
-  ca_root_map = ComputeAtRootDomainMap();
-  ca_root_map.build();
-
   // In the future we may directly use this map, but for now it will propagate
   // and validate (to some extent) the parallelization strategy.
   // TODO: Does this have to go before the next mapping?
@@ -152,9 +148,8 @@ void GpuLower::lower() {
 
   // Generate loop-nests and place each expression at its
   // corresponding loop
-  auto lowered_exprs = LoopNestGenerator2::loweredExprs(sorted_exprs);
-  // fusion_->printMath();
-  // std::cout<<toString(lowered_exprs)<<std::endl;
+  const auto lowered_exprs = LoopNestGenerator::loweredExprs(sorted_exprs);
+
   // Insert allocations
   const auto alloced_exprs = insertAllocations(lowered_exprs);
 

@@ -125,12 +125,10 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_set<kir::IterDomain*> preferred_paths = {});
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and
-  // returns a new IndexCompute ready to be used. new_index_entries are not
-  // mapped, but are added to index_map.
+  // returns a new IndexCompute ready to be used.
   IndexCompute updateIndexCompute(
       const TensorDomain* new_td,
       const std::unordered_map<IterDomain*, IterDomain*>& id_map,
-      std::unordered_map<kir::IterDomain*, kir::Val*> new_index_entries,
       const std::vector<bool>& _root_contiguity);
 
   virtual void run();

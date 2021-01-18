@@ -109,7 +109,8 @@ class AllocationInserter : public kir::MutableIrVisitor {
 
     std::vector<kir::IterDomain*> init_dims;
     for (size_t axis_i = info.alloc_pos; axis_i < fuser_tv->nDims(); axis_i++) {
-      if (info.buffer->fuserTv()->axis(axis_i)->isReduction()) {
+      if (info.buffer->fuserTv()->axis(axis_i)->isReduction() ||
+          info.buffer->fuserTv()->axis(axis_i)->isBroadcast()) {
         continue;
       }
       auto concrete_id =
@@ -203,7 +204,7 @@ class AllocationInserter : public kir::MutableIrVisitor {
       // TODO: Is this correct? Should allocations be based off of concrete
       // sizes?
       alloc_dims.push_back(
-          gpu_lower->caLoopMap().getConcreteMappedID(local_id)->rawExtent());
+          gpu_lower->caIndexMap().getConcreteMappedID(local_id)->rawExtent());
     }
 
     // Multiply all the dimensions we're going to use for the allocation

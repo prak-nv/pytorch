@@ -28,62 +28,12 @@ namespace cuda {
 //!
 //! It does not generate predicates, but it will generate allocations, and loop
 //! nests to initialize reduction buffers.
-//!
 class TORCH_CUDA_API LoopNestGenerator {
- public:
-  static std::vector<kir::Expr*> loweredExprs(
-      Fusion* fusion,
-      const std::vector<Expr*>& exprs,
-      const ComputeAtMap& ca_maps) {
-    FUSER_PERF_SCOPE("LoopNestGenerator::loweredExprs");
-    LoopNestGenerator generator(fusion, exprs, ca_maps);
-    return generator.lowered_exprs_;
-  }
-
- private:
-  LoopNestGenerator(
-      Fusion* fusion,
-      const std::vector<Expr*>& exprs,
-      const ComputeAtMap& ca_maps);
-
-  // Open a new inner most for loop, track which TV it was constructed from
-  // according to the computeAt chain.
-  void openFor(IterDomain*);
-
-  // Close the inner most for loop
-  void closeFor();
-
-  // Appends an expression to the current scope
-  void pushBack(kir::Expr* expr);
-
-  void handle(const Expr*);
-
-  // Run the pass and accumulate output in lowered_exprs_
-  void generate(const std::vector<Expr*>& exprs);
-
- private:
-  // Lowered exprs to return
-  std::vector<kir::Expr*> lowered_exprs_;
-
-  // Fusion pointer for convenience
-  Fusion* fusion_ = nullptr;
-
-  // Keep all for loops conveniently to make unrolling easier, basically just a
-  // stack of the active for_loops
-  std::vector<kir::ForLoop*> for_loops_;
-
-  // Kernel IR builder
-  kir::IrBuilder ir_builder_;
-
-  const ComputeAtMap& ca_maps_;
-};
-
-class TORCH_CUDA_API LoopNestGenerator2 {
  public:
   static std::vector<kir::Expr*> loweredExprs(const std::vector<Expr*>& exprs);
 
  private:
-  LoopNestGenerator2(const std::vector<Expr*>& exprs);
+  LoopNestGenerator(const std::vector<Expr*>& exprs);
 
   // Open a new inner most for loop, track which TV it was constructed from
   // according to the computeAt chain.

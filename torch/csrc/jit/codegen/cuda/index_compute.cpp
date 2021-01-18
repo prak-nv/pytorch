@@ -446,15 +446,12 @@ bool IndexCompute::hasZeroMerged(kir::IterDomain* id) {
 IndexCompute IndexCompute::updateIndexCompute(
     const TensorDomain* new_td,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
-    std::unordered_map<kir::IterDomain*, kir::Val*> new_index_entries,
     const std::vector<bool>& root_contiguity) {
   FUSER_PERF_SCOPE("updateIndexCompute");
 
   const auto gpu_lower = GpuLower::current();
 
-  std::unordered_map<kir::IterDomain*, kir::Val*>
-      updated_index_map; // =
-                         // std::move(new_index_entries);
+  std::unordered_map<kir::IterDomain*, kir::Val*> updated_index_map;
   std::unordered_map<kir::IterDomain*, kir::Val*> updated_extent_map;
   std::unordered_set<kir::IterDomain*> updated_zero_merged_in;
 
@@ -683,6 +680,7 @@ void IndexSwizzle::run() {
           swizzle_type_ == SwizzleType::Transpose,
       "Invalid swizzle type");
   const auto gpu_lower = GpuLower::current();
+  kir::IrBuilder ir_builder(gpu_lower->kernel());
   if (swizzle_type_ == SwizzleType::Transpose) {
     // Shifts the second axis by the first axis as ((idx_1 + idx_2) %
     // ext). Alternatively, ((idx_1 - idx_2) & (ext - 1)) would also
@@ -708,7 +706,6 @@ void IndexSwizzle::run() {
       auto idx_to_swizzle_i = indexMap().at(id_to_swizzle_i_kir);
       auto idx_to_swizzle_j = indexMap().at(id_to_swizzle_j_kir);
 
-      kir::IrBuilder ir_builder(gpu_lower->kernel());
       auto swizzled_idx = ir_builder.modExpr(
           ir_builder.addExpr(idx_to_swizzle_i, idx_to_swizzle_j),
           id_to_swizzle_j_kir->rawExtent());
@@ -751,10 +748,6 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
           producer_tv->domain(), consumer_tv->domain(), -1, pairwiseMap)
           .first;
 
-  // Cannot be done after domain_guard
-  auto c2p_root_map = pairwiseMap.mapConsumerToProducer(
-      consumer_tv->domain(), producer_tv->domain());
-
   // Make the producer_tv look like consumer while performing indexing math
   ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
 
@@ -788,7 +781,6 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
   auto producer_indexing = ref_compute.updateIndexCompute(
       producer_tv->domain(),
       ref_2_producer,
-      {},
       producer_tv->domain()->contiguity());
 
   // Indices should now be mapped onto IterDomains in producer, so just grab
@@ -906,6 +898,11 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
+  // Get a reference tensor replayed as existing loop structure
+  auto reference = TestReplay::getReference(loops);
+  auto reference_domain = reference.domain;
+  auto reference_id_map = reference.concrete_to_id;
+
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
   auto pairwiseMap = PairwiseRootDomainMap(producer_tv, consumer_tv);
@@ -914,11 +911,12 @@ kir::TensorIndex* Index::getProducerIndex_impl(
           producer_tv->domain(), consumer_tv->domain(), -1, pairwiseMap)
           .first;
 
-  // Cannot be done after domain_guard
+  ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
+
+  // Produce mapping between consumer nad producer, this is used to figure out
+  // hte allocation point of the producer relative to the loop nests
   auto c2p_root_map = pairwiseMap.mapConsumerToProducer(
       consumer_tv->domain(), producer_tv->domain());
-
-  ir_utils::TVDomainGuard domain_guard(producer_tv, producerAsC);
 
   BestEffortReplay replay_PasC(
       producer_tv->domain()->domain(),
@@ -941,17 +939,16 @@ kir::TensorIndex* Index::getProducerIndex_impl(
     }
   }
 
-  // Get a reference tensor replayed as existing loop structure
-  auto reference = TestReplay::getReference(loops);
-  auto reference_domain = reference.domain;
-  auto reference_id_map = reference.concrete_to_id;
-
+  // Find allocation point of producer relative to loop nests
   auto alloc_point =
       loop_utils::getAllocPoint(producer_tv, loops, p2c_map, true);
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map =
       indexMapFromTV(producer_tv, loops, alloc_point);
 
+  // Map loop nests to indicies, zeroing out those not used due to locality of
+  // memory
   std::unordered_map<kir::IterDomain*, kir::Val*> ref_id_to_ind_map;
+
   // Due to rfactor/initialization reference_domain may be bigger than loop nest
   // structure
   TORCH_INTERNAL_ASSERT(loops.size() <= reference_domain->nDims());
@@ -982,7 +979,8 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   }
 
   // Make sure propagation of indexing while mixing with 0 indicies we propagate
-  // in a way that consumer will be able to see what's going on.
+  // in a way that the producer will be able to see what's going on (propagating
+  // into common roots of reference and producer).
   auto preferred_paths = buildPreferredPaths(reference_domain, preferred_roots);
 
   // Index into the reference tensor
@@ -1003,7 +1001,6 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   auto producer_indexing = ref_compute.updateIndexCompute(
       producer_tv->domain(),
       ref_2_producer,
-      {},
       producer_tv->domain()->contiguity());
 
   auto index_map = producer_indexing.indexMap();
@@ -1122,7 +1119,6 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
   auto consumer_indexing = ref_compute.updateIndexCompute(
       consumer_tv->domain(),
       ref_2_consumer,
-      {},
       consumer_tv->domain()->contiguity());
 
   // Indices should now be mapped onto IterDomains in consumer, so just grab
@@ -1196,32 +1192,6 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map =
       indexMapFromTV(consumer_tv, loops, alloc_point);
 
-  // This is a special case with consumer tensor views that are a result of an
-  // rfactor. If we only use the reference tensor doesn't necessarily know the
-  // difference between reduction axes and iteration axes. So if it propagates
-  // zero merged in indices, it doesn't know not to propagate them from
-  // reduction IDs towards iter IDs. Since producer tensors won't have indices
-  // associated with their reduction axes (reductions have to be finished before
-  // they can be consumed) and since global consumers won't have zero merge in
-  // propagation this can only happen here. We will go through and zero out any
-  // for loops that are a reduction axis for the consumer, first find them.
-  {
-    auto c_it = consumer_tv->domain()->domain().begin();
-    for (auto for_loop : loops) {
-      if (c_it == consumer_tv->domain()->domain().end()) {
-        break;
-      }
-      auto lowered_c_it = gpu_lower->lowerValue(*c_it)->as<kir::IterDomain>();
-      if (gpu_lower->caLoopMap().areMapped(
-              lowered_c_it, for_loop->iter_domain())) {
-        if ((*c_it)->isReduction() || (*c_it)->isBroadcast()) {
-          loop_to_ind_map[for_loop] = ir_builder.create<kir::Int>(0);
-        }
-        c_it++;
-      }
-    }
-  }
-
   std::unordered_map<kir::IterDomain*, kir::Val*> ref_id_to_ind_map;
   // Due to rfactor/initialization reference_domain may be bigger than loop nest
   // structure
@@ -1287,7 +1257,6 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   auto consumer_indexing = ref_compute.updateIndexCompute(
       consumer_tv->domain(),
       ref_2_consumer,
-      {},
       consumer_tv->domain()->contiguity());
 
   // TODO: Re-enable swizzle
@@ -1500,7 +1469,7 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
 
   // Index into consumer using reference indexing
   auto consumer_indexing = ref_compute.updateIndexCompute(
-      consumer_tv->domain(), ref_2_consumer, {}, root_contiguity);
+      consumer_tv->domain(), ref_2_consumer, root_contiguity);
 
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
