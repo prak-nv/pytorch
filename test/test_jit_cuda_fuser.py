@@ -1616,10 +1616,10 @@ class TestCudaFuser(JitTestCase):
         bias = torch.randn(out_feature, dtype=torch.float32, device='cuda')
 
         def t(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor):
-          o = torch.nn.functional.linear(x, weight, bias)
-          o = torch.relu(o)
-          return o
- 
+            o = torch.nn.functional.linear(x, weight, bias)
+            o = torch.relu(o)
+            return o
+
         # bias set to true.
         t_jit = torch.jit.script(t)
         jit_o = t_jit(x, weight, bias)
