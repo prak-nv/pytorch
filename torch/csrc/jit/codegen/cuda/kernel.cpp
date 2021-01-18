@@ -71,12 +71,18 @@ class KernelIrScanner : private kir::IrVisitor {
     // Do we have any reductions?
     summary_.has_block_reductions =
         summary_.has_block_reductions || domain->hasBlockReduction();
-    summary_.has_grid_reductions =
-        summary_.has_grid_reductions || domain->hasGridReduction();
 
     // Do we have block broadcasts?
     summary_.has_block_broadcasts =
         summary_.has_block_broadcasts || domain->hasBlockBroadcast();
+
+    if (domain->hasGridReduction()) {
+      // tensor_index may be for initialization of a reduction
+      // buffer. Avoid counting twice.
+      if (tensor_index->definition()->isA<kir::ReductionOp>()) {
+        ++summary_.number_of_grid_reductions;
+      }
+    }
 
     // Update the largest smem data type
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
@@ -96,6 +102,16 @@ class KernelIrScanner : private kir::IrVisitor {
           summary_.has_block_welford || domain->hasBlockReduction();
       summary_.has_grid_welford =
           summary_.has_grid_welford || domain->hasGridReduction();
+    }
+
+    // Check Grid Reduction in loop
+    if (domain->hasGridReduction()) {
+      auto fuser_tv = tv->fuserTv();
+      for (size_t i = 0; i < fuser_tv->nDims(); ++i) {
+        const auto id = fuser_tv->getComputeAtAxis(i).first;
+        summary_.has_grid_reduction_in_loop =
+            summary_.has_grid_reduction_in_loop || !id->isThread();
+      }
     }
   }
 

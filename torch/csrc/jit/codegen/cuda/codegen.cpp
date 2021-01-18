@@ -114,13 +114,13 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
     // Do we have any reductions?
     const bool has_reductions = kernel_summary.has_block_reductions ||
-        kernel_summary.has_grid_reductions;
+        kernel_summary.number_of_grid_reductions > 0;
 
     const bool has_parallel_welford =
         kernel_summary.has_block_welford || kernel_summary.has_grid_welford;
 
     // Shared memory
-    if (has_dynamic_smem || has_reductions) {
+    if (has_dynamic_smem || has_reductions || has_parallel_welford) {
       indent() << "alignas("
 #ifndef __HIP_PLATFORM_HCC__
                << dataTypeSize(kernel_summary.largest_smem_data_type)
@@ -133,7 +133,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
         indent() << "unsigned offset = 0;\n";
       }
 
-      if (has_reductions) {
+      if (has_reductions || has_parallel_welford) {
         indent() << "void* shared_mem = array;\n";
         if (has_dynamic_smem) {
           if (has_parallel_welford) {
