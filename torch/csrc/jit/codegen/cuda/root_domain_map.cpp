@@ -574,24 +574,15 @@ void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
         TensorDomain::noReductions(i->getMaybeRFactorDomain());
     TORCH_INTERNAL_ASSERT(in_root.size() == out_root.size());
     for (size_t it = 0; it < in_root.size(); it++) {
-      if (e->isA<WelfordOp>()) {
-        const auto welford = e->as<WelfordOp>();
-        const auto var_tv = welford->outVar()->as<TensorView>();
-        const auto avg_tv = welford->outAvg()->as<TensorView>();
-        const auto n_tv = welford->outN()->as<TensorView>();
-
-        const auto var_td = var_tv->domain();
-        const auto var_root = var_td->getRootDomain();
-
-        const auto n_td = n_tv->domain();
-        const auto n_root = n_td->getRootDomain();
-
-        const auto avg_td = avg_tv->domain();
-        const auto avg_root = avg_td->getRootDomain();
-
-        setMaybeMapped(in_td, in_root[it], var_td, var_root[it]);
-        setMaybeMapped(in_td, in_root[it], avg_td, avg_root[it]);
-        setMaybeMapped(in_td, in_root[it], n_td, n_root[it]);
+      if (e->outputs().size() > 1) {
+        TORCH_INTERNAL_ASSERT(
+            e->isA<WelfordOp>(), "Only supported multioutput op is welford");
+        for (auto o : e->outputs()) {
+          auto o_tv = o->as<TensorView>();
+          auto o_td = o_tv->domain();
+          auto o_root = o_td->getRootDomain();
+          setMaybeMapped(in_td, in_root[it], o_td, o_root[it]);
+        }
       } else {
         setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
       }
