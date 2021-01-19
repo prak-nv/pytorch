@@ -1,10 +1,10 @@
 #include <torch/csrc/jit/codegen/cuda/test_index_compute.h>
+
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
-#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
-#include <torch/csrc/jit/codegen/cuda/transform_iter.h>
+#include <torch/csrc/jit/codegen/cuda/lower2device.h>
 
 namespace torch {
 namespace jit {
@@ -13,7 +13,6 @@ namespace cuda {
 
 // We're going to replay this split operation on the corresponding ID
 void TestReplay::handle(Split* s) {
-  // std::cout<<"Replay: "<<s<<std::endl;
   auto in = s->in();
 
   auto concrete_in = GpuLower::current()->caIndexMap().getConcreteMappedID(in);
@@ -59,7 +58,6 @@ void TestReplay::handle(Merge* m) {
 
   if (mapped_in_outer_it == concrete_to_id.end() ||
       mapped_in_inner_it == concrete_to_id.end()) {
-    // std::cout << "No concrete mapping." << std::endl;
     return;
   }
 
@@ -70,13 +68,10 @@ void TestReplay::handle(Merge* m) {
       leaf_ids.find(mapped_in_inner) == leaf_ids.end()) {
     return;
   }
-  // std::cout<<"Replayed."<<std::endl;
   auto replayed = IterDomain::merge(mapped_in_outer, mapped_in_inner);
 
   auto concrete_out =
       GpuLower::current()->caIndexMap().getConcreteMappedID(m->out());
-  // std::cout << "Setting concrete: " << concrete_out << " <- " <<
-  // m->out() << std::endl;
   leaf_ids.erase(mapped_in_outer);
   leaf_ids.erase(mapped_in_inner);
 
@@ -89,7 +84,6 @@ TensorDomain* TestReplay::computeReplay() {
   // Extract iter domain's from the loop structure
   std::vector<IterDomain*> fusion_loop_structure;
 
-  // std::cout<<"Loops:"<<std::endl;
   std::transform(
       loop_structure_.begin(),
       loop_structure_.end(),
@@ -97,7 +91,6 @@ TensorDomain* TestReplay::computeReplay() {
       [&](kir::ForLoop* fl) {
         auto fid =
             GpuLower::current()->caIndexMap().toFusion(fl->iter_domain());
-        // std::cout<<fid<<std::endl;
         return fid;
       });
 
@@ -107,10 +100,6 @@ TensorDomain* TestReplay::computeReplay() {
       FusionGuard::getCurFusion(),
       std::vector<Val*>(
           fusion_loop_structure.begin(), fusion_loop_structure.end()));
-
-  // for(auto inp : all_inputs){
-  //   std::cout<<inp<<", ";
-  // }std::cout<<std::endl;
 
   auto all_iter_inputs = ir_utils::filterByType<IterDomain>(all_inputs);
 
@@ -139,16 +128,12 @@ TensorDomain* TestReplay::computeReplay() {
   // map to eachother
   std::unordered_set<IterDomain*> root_axes;
   for (auto root_id : sorted_inputs) {
-    // std::cout<<"Root axis: "<<root_id;
     auto concrete_id =
         GpuLower::current()->caIndexMap().getConcreteMappedID(root_id);
     if (concrete_to_id.find(concrete_id) != concrete_to_id.end()) {
-      // std::cout << " already set: " << concrete_id << " -> "
-      //           << concrete_to_id[concrete_id] << " not to: " << root_id
-      //           << std::endl;
       continue;
     }
-    // std::cout << "  -> " << concrete_id << std::endl;
+
     root_axes.emplace(root_id);
     concrete_to_id[concrete_id] = root_id;
     leaf_ids.emplace(root_id);
@@ -161,7 +146,6 @@ TensorDomain* TestReplay::computeReplay() {
 
   // Run the replay
   for (auto expr : replay_exprs) {
-    // std::cout<<"Replay: "<<expr<<std::endl;
     OptInDispatch::handle(expr);
   }
 
@@ -172,8 +156,6 @@ TensorDomain* TestReplay::computeReplay() {
   for (auto entry : concrete_to_id) {
     if (leaf_ids.find(entry.second) != leaf_ids.end()) {
       concrete_leaf_ids.emplace(entry.first);
-      // std::cout<<"Concrete leaf: "<<entry.first<<" replayed leaf:
-      // "<<entry.second<<std::endl;
     }
   }
 
@@ -184,7 +166,6 @@ TensorDomain* TestReplay::computeReplay() {
       fusion_loop_structure.end(),
       std::back_inserter(loops_replayed_domain),
       [&](IterDomain* loop_id) {
-        // std::cout << "Looking for " << loop_id << std::endl;
         for (auto id : concrete_leaf_ids) {
           if (GpuLower::current()->caLoopMap().areMapped(id, loop_id)) {
             concrete_leaf_ids.erase(id);
@@ -310,22 +291,8 @@ class PreferredPathCompute : public IterVisitor {
         reference_domain->getRootDomain().begin(),
         reference_domain->getRootDomain().end());
 
-    // This assert doesn't work because preferred_roots may be on index tensors
-    // rfactor domain, which could differ from references root domain. Would be
-    // nice to make sure that preferred_roots are somewhere in the history of
-    // reference, but chose not to do that due to complexity. May make sense to
-    // do in a debug mode.
-    //
-    // TORCH_INTERNAL_ASSERT(
-    //     std::all_of(
-    //         preferred_roots.begin(),
-    //         preferred_roots.end(),
-    //         [&reference_root](IterDomain* preferred_root) {
-    //           return reference_root.find(preferred_root) !=
-    //               reference_root.end();
-    //         }),
-    //     "Preferred path compute recieved root tensors to prefer that are not
-    //     in reference.");
+    // TODO: assert all provided preferred roots are in the history of reference
+    // domain.
 
     std::vector<Val*> val_domain(
         reference_domain->domain().begin(), reference_domain->domain().end());
