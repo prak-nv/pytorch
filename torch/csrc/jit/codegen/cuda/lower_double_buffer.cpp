@@ -153,6 +153,17 @@ class Replace : private kir::MutableIrVisitor {
     registerReplacement(node, new_node);
   }
 
+  void visit(kir::BroadcastOp* node) override {
+    node->in()->accept(this);
+    auto in_new = getReplacement(node->in());
+    kir::Val* out_new = nullptr;
+    node->out()->accept(this);
+    out_new = getReplacement(node->out());
+    auto new_node = ir_builder_.create<kir::BroadcastOp>(
+        out_new, in_new);
+    registerReplacement(node, new_node);
+  }
+
   void visit(kir::TensorIndex* ti) override {
     if (isReplaced(ti)) {
       return;
@@ -224,10 +235,10 @@ struct TensorIndexInfo {
 };
 
 struct BufferInfo {
-  kir::TensorView* tv = nullptr;
+  kir::ForLoop* loop = nullptr;
   kir::Allocate* alloc = nullptr;
-  kir::ForLoop* alloc_scope = nullptr;
-  kir::UnaryOp* load = nullptr;
+  //kir::ForLoop* alloc_scope = nullptr;
+  kir::Expr* load = nullptr;
   kir::IfThenElse* load_predicate = nullptr;
   std::vector<TensorIndexInfo> uses;
 };
@@ -235,8 +246,6 @@ struct BufferInfo {
 class DoubleBuffering : private kir::MutableIrVisitor {
  public:
   DoubleBuffering() : ir_builder_(GpuLower::current()->kernel()) {}
-
-  void validateDoubleBufferingUsage() {}
 
   void apply(const std::vector<kir::Expr*>& exprs) {
     lowered_exprs_ = exprs;
@@ -262,13 +271,11 @@ class DoubleBuffering : private kir::MutableIrVisitor {
     if (tv == nullptr) {
       return;
     }
-    auto fuser_tv = tv->fuserTv();
-    if (fuser_tv == nullptr || !fuser_tv->isDoubleBuffered()) {
+    if (!isDoubleBuffered(tv)) {
       return;
     }
-    kir::ForLoop* alloc_scope = active_scope_expr_->as<kir::ForLoop>();
-    BufferInfo info{tv, node, alloc_scope};
-    buffer_info_map_.insert({tv, info});
+    BufferInfo& info = getBufferInfo(tv);
+    info.alloc = node;
   }
 
   void visit(kir::UnaryOp* node) override {
@@ -295,16 +302,36 @@ class DoubleBuffering : private kir::MutableIrVisitor {
     active_arith_expr_ = nullptr;
   }
 
+  void visit(kir::BroadcastOp* node) override {
+    active_arith_expr_ = node;
+    node->out()->accept(this);
+    node->in()->accept(this);
+    active_arith_expr_ = nullptr;
+  }
+
+  void visit(kir::ReductionOp* node) override {
+    active_arith_expr_ = node;
+    node->out()->accept(this);
+    node->in()->accept(this);
+    active_arith_expr_ = nullptr;
+  }
+
   void visit(kir::TensorIndex* ti) override {
     auto tv = ti->view();
-    if (tv->fuserTv() == nullptr || !tv->fuserTv()->isDoubleBuffered()) {
+    if (!isDoubleBuffered(tv)) {
       return;
     }
 
-    validateDoubleBufferingUsage(ti);
+    BufferInfo& info = getBufferInfo(tv);
 
-    BufferInfo& info = buffer_info_map_.at(tv);
     TORCH_INTERNAL_ASSERT(active_arith_expr_ != nullptr);
+
+    std::cerr << "TI: " << kir::toString(ti) << std::endl;
+    if (ti->definition()) {
+      std::cerr << "TI Definition: " << kir::toString(ti->definition()) << std::endl;
+    } else {
+      std::cerr << "TI Definition: null\n";
+    }
 
     // Uses
     info.uses.push_back(
@@ -312,31 +339,100 @@ class DoubleBuffering : private kir::MutableIrVisitor {
 
     // Load
     if (active_arith_expr_->outputs()[0] == ti) {
-      auto uop = dynamic_cast<kir::UnaryOp*>(active_arith_expr_);
-      TORCH_INTERNAL_ASSERT(uop != nullptr);
-      TORCH_INTERNAL_ASSERT(uop->operation() == UnaryOpType::Set);
-      info.load = uop;
+      //auto uop = dynamic_cast<kir::UnaryOp*>(active_arith_expr_);
+      //TORCH_INTERNAL_ASSERT(uop != nullptr);
+      //TORCH_INTERNAL_ASSERT(uop->operation() == UnaryOpType::Set);
+      info.load = active_arith_expr_;
       TORCH_INTERNAL_ASSERT(
-          active_scope_expr_->isA<kir::IfThenElse>(), "Predicate not found");
-      info.load_predicate = active_scope_expr_->as<kir::IfThenElse>();
+          active_scope_expr_.back()->isA<kir::IfThenElse>(), "Predicate not found");
+      info.load_predicate = active_scope_expr_.back()->as<kir::IfThenElse>();
     }
   }
 
-  void validateDoubleBufferingUsage(kir::TensorIndex* ti) const {
-    const auto tv = ti->view();
+  bool isDoubleBuffered(const kir::TensorView* tv) const {
+    if (tv->fuserTv() == nullptr || !tv->fuserTv()->isDoubleBuffered()) {
+      return false;
+    }
+    validateDoubleBufferingUsage(tv);
+    return true;
+  }
+
+  BufferInfo& getBufferInfo(const kir::TensorView* tv) {
+    if (buffer_info_map_.find(tv) == buffer_info_map_.end()) {
+      validateDoubleBufferingUsage(tv);
+      auto buffering_loop = findBufferingLoop(tv->fuserTv());
+      BufferInfo info({buffering_loop});
+      buffer_info_map_.insert({tv, info});
+    }
+    return buffer_info_map_.at(tv);
+  }
+
+  void validateDoubleBufferingUsage(const kir::TensorView* tv) const {
     const auto def = tv->definition();
 
-    TORCH_CHECK(def->isA<kir::UnaryOp>());
-    TORCH_CHECK(def->as<kir::UnaryOp>()->operation() == UnaryOpType::Set);
+    const kir::TensorView* in_tv = nullptr;
 
-    TORCH_CHECK(def->as<kir::UnaryOp>()->in()->isA<kir::TensorView>());
-    const auto in = def->as<kir::UnaryOp>()->in()->as<kir::TensorView>();
+    if (def->isA<kir::UnaryOp>()) {
+      TORCH_CHECK(def->as<kir::UnaryOp>()->operation() == UnaryOpType::Set);
+      TORCH_CHECK(def->as<kir::UnaryOp>()->in()->isA<kir::TensorView>());
+      in_tv = def->as<kir::UnaryOp>()->in()->as<kir::TensorView>();
+    } else if (def->isA<kir::BroadcastOp>()) {
+      in_tv = def->as<kir::BroadcastOp>()->in()->as<kir::TensorView>();
+    } else {
+      TORCH_CHECK("Double-buffering not supported for this expression: ",
+                  kir::toString(def));
+    }
 
     TORCH_CHECK(
-        in->memoryType() == MemoryType::Global ||
-        in->memoryType() == MemoryType::Shared);
+        in_tv->memoryType() == MemoryType::Global ||
+        in_tv->memoryType() == MemoryType::Shared);
+
+    // Double-buffering to global memory shouldn't be what the user
+    // should really do.
+    TORCH_CHECK(
+        tv->memoryType() == MemoryType::Local ||
+        tv->memoryType() == MemoryType::Shared);
 
     TORCH_CHECK(tv->fuserTv()->getThisComputeAtAxis() > 0);
+  }
+
+  kir::ForLoop* findBufferingLoop(const TensorView* tv) const {
+    int buffering_axis_idx = -1;
+    for (size_t i = tv->getThisComputeAtAxis() - 1; i >= 0; --i) {
+      if (tv->axis(i)->isBroadcast()) {
+        if (tv->getComputeAtAxis(i).first->isBroadcast()) {
+          continue;
+        } else {
+          // This isn't technicallly invalid, but double-buffering this
+          // tensor would be a little complicated. Instead of
+          // double-buffering, it is likely the user should reconsider
+          // the computeAt position of this tensor.
+          // TODO: Error message
+          TORCH_CHECK(false);
+        }
+      } else {
+        buffering_axis_idx = i;
+        break;
+      }
+    }
+    TORCH_INTERNAL_ASSERT(buffering_axis_idx >= 0);
+
+    auto buffering_axis_id =
+        GpuLower::current()->lowerValue(
+            tv->getComputeAtAxis(buffering_axis_idx).first)->as<kir::IterDomain>();
+
+    // find the corresponding ForLoop
+    auto it = std::find_if(active_scope_expr_.begin(), active_scope_expr_.end(),
+                 [&buffering_axis_id](const kir::Expr* scope_expr) {
+                   if (auto fl = dynamic_cast<const kir::ForLoop*>(scope_expr)) {
+                     return fl->iter_domain() == buffering_axis_id;
+                   } else {
+                     return false;
+                   }
+                 });
+    TORCH_INTERNAL_ASSERT(it != active_scope_expr_.end());
+
+    return (*it)->as<kir::ForLoop>();
   }
 
   void moveAndExpandAllocate(const BufferInfo& info) {
@@ -346,13 +442,13 @@ class DoubleBuffering : private kir::MutableIrVisitor {
         ir_builder_.mulExpr(alloc->size(), ir_builder_.create<kir::Int>(2));
     // Create a new allocate expr with the expanded size
     auto expanded_alloc = ir_builder_.create<kir::Allocate>(
-        info.tv, alloc->memoryType(), size, alloc->zeroInit());
+        alloc->buffer(), alloc->memoryType(), size, alloc->zeroInit());
 
-    TORCH_INTERNAL_ASSERT(info.alloc_scope);
+    //TORCH_INTERNAL_ASSERT(info.alloc_scope);
     // Insert the new alloc expr
-    insertBeforeScope(expanded_alloc, info.alloc_scope);
+    insertBeforeScope(expanded_alloc, info.loop);
     // Remove the existing one
-    removeExpr(info.alloc, info.alloc_scope);
+    removeExpr(info.alloc, info.loop);
   }
 
   void insertInitialLoad(const BufferInfo& info) {
@@ -360,22 +456,21 @@ class DoubleBuffering : private kir::MutableIrVisitor {
     // Replace the loop index with zero
     auto initial_load = Replace(
                             load_copy,
-                            info.alloc_scope->index(),
+                            info.loop->index(),
                             ir_builder_.create<kir::Int>(0))()
                             ->as<kir::Expr>();
-    insertBeforeScope(initial_load, info.alloc_scope);
+    insertBeforeScope(initial_load, info.loop);
   }
 
   void updateBufferOffset(BufferInfo& info) {
     TORCH_INTERNAL_ASSERT(info.load != nullptr);
     kir::Allocate* allocate = info.alloc;
     kir::Val* size = allocate->size();
-    kir::ForLoop* alloc_fl = info.alloc_scope;
     kir::Val* buffer_switch = newResult(ir_builder_, DataType::Int);
     ir_builder_.create<kir::BinaryOp>(
         BinaryOpType::And,
         buffer_switch,
-        alloc_fl->index(),
+        info.loop->index(),
         ir_builder_.create<kir::Int>(1));
     auto buffer_offset = ir_builder_.mulExpr(size, buffer_switch);
 
@@ -389,16 +484,24 @@ class DoubleBuffering : private kir::MutableIrVisitor {
       auto new_expr = Replace(old_expr, old_ti, new_ti)()->as<kir::Expr>();
       replaceExpr(old_expr, new_expr, ti_info.scope);
       if (old_expr == info.load) {
-        info.load = new_expr->as<kir::UnaryOp>();
+        info.load = new_expr;
       }
     }
   }
 
   kir::Expr* copyLoad(const BufferInfo& info) {
     kir::Expr* cur_scope_expr = info.load_predicate;
-    kir::Expr* expr_copy = ir_builder_.create<kir::UnaryOp>(
-        info.load->operation(), info.load->out(), info.load->in());
-    while (cur_scope_expr != info.alloc_scope) {
+    kir::Expr* expr_copy = nullptr;
+    if (auto uop = dynamic_cast<kir::UnaryOp*>(info.load)) {
+      expr_copy = ir_builder_.create<kir::UnaryOp>(
+          uop->operation(), uop->out(), uop->in());
+    } else if (auto bcast = dynamic_cast<kir::BroadcastOp*>(info.load)) {
+      expr_copy = ir_builder_.create<kir::BroadcastOp>(
+          bcast->out(), bcast->in());
+    } else {
+      TORCH_INTERNAL_ASSERT(false);
+    }
+    while (cur_scope_expr != info.loop) {
       if (auto fl = dynamic_cast<kir::ForLoop*>(cur_scope_expr)) {
         auto fl_copy = ir_builder_.create<kir::ForLoop>(
             fl->index(), fl->iter_domain(), nullptr);
@@ -416,7 +519,7 @@ class DoubleBuffering : private kir::MutableIrVisitor {
   }
 
   void advanceLoadOffset(const BufferInfo& info) {
-    auto idx = info.alloc_scope->index();
+    auto idx = info.loop->index();
     auto idx_next = ir_builder_.addExpr(idx, ir_builder_.create<kir::Int>(1));
     auto new_predicated_load =
         Replace(info.load_predicate, idx, idx_next)()->as<kir::IfThenElse>();
@@ -479,24 +582,17 @@ class DoubleBuffering : private kir::MutableIrVisitor {
   }
 
   void visit(kir::ForLoop* for_loop) override {
-    const auto prev_scope_expr = active_scope_expr_;
-
-    active_scope_expr_ = for_loop;
+    active_scope_expr_.push_back(for_loop);
     active_scope_.push_back(&for_loop->body());
-
     for (auto expr : for_loop->body().exprs()) {
       expr->accept(this);
     }
-
     active_scope_.pop_back();
-    active_scope_expr_ = prev_scope_expr;
+    active_scope_expr_.pop_back();
   }
 
   void visit(kir::IfThenElse* ite) override {
-    const auto prev_scope_expr = active_scope_expr_;
-
-    active_scope_expr_ = ite;
-
+    active_scope_expr_.push_back(ite);
     active_scope_.push_back(&ite->thenBody());
     for (auto expr : ite->thenBody().exprs()) {
       expr->accept(this);
@@ -506,9 +602,8 @@ class DoubleBuffering : private kir::MutableIrVisitor {
     for (auto expr : ite->elseBody().exprs()) {
       expr->accept(this);
     }
-
     active_scope_.pop_back();
-    active_scope_expr_ = prev_scope_expr;
+    active_scope_expr_.pop_back();
   }
 
  private:
@@ -516,7 +611,7 @@ class DoubleBuffering : private kir::MutableIrVisitor {
 
   kir::IrBuilder ir_builder_;
   std::deque<kir::Scope*> active_scope_;
-  kir::Expr* active_scope_expr_ = nullptr;
+  std::deque<kir::Expr*> active_scope_expr_;
   kir::Expr* active_arith_expr_ = nullptr;
   std::unordered_map<const kir::TensorView*, BufferInfo> buffer_info_map_;
 };

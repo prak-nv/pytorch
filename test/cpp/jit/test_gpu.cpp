@@ -11461,7 +11461,7 @@ TEST(NVFuserTest, FusionMultipleGridReductions_CUDA) {
   ASSERT_ANY_THROW(fe.compileFusion(&fusion));
 }
 
-TEST(NVFuserTest, FusionDoubleBuffering_CUDA) {
+TEST(NVFuserTest, FusionDoubleBuffering1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -11494,6 +11494,107 @@ TEST(NVFuserTest, FusionDoubleBuffering_CUDA) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   auto aten_output = t0 + 1;
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionDoubleBuffering2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int bx = 100;
+  const int by = 200;
+
+  auto tv0 = makeConcreteTensor({bx, by});
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, new Double(1));
+  fusion.addOutput(tv1);
+
+  auto tv0_cache = tv0->cache_after();
+
+  tv0->computeAt(tv1, 1);
+
+  // fusion.printMath();
+  fusion.printKernel();
+
+  tv0_cache->doubleBuffer();
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({bx, by}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0 + 1;
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionDoubleBuffering3_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = broadcast(tv0, {false, true, false});
+  auto tv2 = makeSymbolicTensor(3);
+  fusion.addInput(tv2);
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  tv0->computeAt(tv3, 2);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  tv1->doubleBuffer();
+
+  // This isn't supported
+  ASSERT_ANY_THROW(fusion.printKernel());
+}
+
+TEST(NVFuserTest, FusionDoubleBuffering4_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int bx = 100;
+  const int by = 200;
+
+  auto tv0 = makeConcreteTensor({bx});
+  fusion.addInput(tv0);
+  auto tv1 = broadcast(tv0, {true, false});
+  auto tv2 = add(tv1, new Double(1));
+  auto tv3 = makeConcreteTensor({by, bx});
+  fusion.addInput(tv3);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  tv2->split(-1, 4);
+  tv0->computeAt(tv2, 2);
+
+  tv1->doubleBuffer();
+
+  fusion.printKernel();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({bx}, options);
+  at::Tensor t3 = at::randn({by, bx}, options);
+  std::vector<IValue> aten_inputs = {t0, t3};
+
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = (t0 + 1).unsqueeze(0) + t3;
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
