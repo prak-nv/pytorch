@@ -5,18 +5,18 @@
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
+#include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
-#include <torch/csrc/jit/codegen/cuda/segmenter_helper.h>
 
 #include <unordered_map>
 #include <unordered_set>
-// TODO: Which of these do we need?
+
 #include <deque>
 #include <list>
-#include <sstream>
-#include <unordered_set>
 #include <vector>
+
+#include <sstream>
 
 namespace torch {
 namespace jit {
@@ -24,32 +24,21 @@ namespace fuser {
 namespace cuda {
 
 namespace {
-// TODO: Remove
-template <class T>
-void print(const std::unordered_set<T>* set) {
-  std::cout << "{";
-  for (auto it = set->begin(); it != set->end(); it++) {
-    std::cout << (*it);
-    std::cout << ", ";
-  }
-  std::cout << "}\n";
-}
 
-// TODO: Clean up deque, use vector when possible
 // TODO: Review const model, and objects
-// TODO: Rename,
-//  segment -> fusion_segmenter.cpp/.h
-//  FusionSegmentFinder
+//  ExprSegmentationSorter
 //    Responsible for going through DAG and proposing things we could try to
-//    fuse together, calls "canGenerateCode" on these proposed segments to see
-//    if they are valid and we can generate code for them.
-//  FusionSegment
-//    A group of exprs that are segmented together
-//  FusionSegmentConnections
+//    merge together, calls "supportedMerge" on these proposed groups to see
+//    if they should be merged together, then merges them if so.
+//  ExprGroup
+//    A group of exprs that are grouped together based on their loop nest
+//    structures.
+//  ExprGroupConnections
 //    Holds vals and what they connect. In other words it's a val that is an
-//    output of a FusionSegment "from" and an input of FusionSegment "to".
-//    There's nothing preventing from a val being between segments twice.
-//    TODO: make sure there's nothing wrong with segmentation on nodes that
+//    output of a ExprSegmentationSorter "from" and an input of
+//    ExprSegmentationSorter "to". There's nothing preventing from a val being
+//    between groups twice.
+//    TODO: make sure there's nothing wrong with grouping of nodes that
 //    have the same value input twice. i.e. (B = A*A)
 
 // Selecting segments to propose is based on the theorem 4.2 in the paper which
@@ -80,8 +69,12 @@ class ExprGroupConnections {
 
 std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge);
 
-class TraversalPayload : public PolymorphicBase {
+class ExprSortPayload : public PolymorphicBase {
  public:
+  // Track the active domains that start at the compute at point of the
+  // expression and increment outward
+  std::vector<IterDomain*> ca_domains;
+
   // Maximum path distance from an input expr group required for
   // Theorem 4.2
   int level = -1;
@@ -99,17 +92,14 @@ class TraversalPayload : public PolymorphicBase {
 // Groups together expressions which create a expr group
 class ExprGroup {
  public:
-  explicit ExprGroup(
-      std::unique_ptr<TraversalPayload>&& _payload =
-          std::make_unique<TraversalPayload>())
-      : payload_(std::move(_payload)) {}
+  explicit ExprGroup() : payload_(std::make_unique<ExprSortPayload>()) {}
 
-  ExprGroup(Expr* expr) : payload_(std::make_unique<TraversalPayload>()) {
+  ExprGroup(Expr* expr) : payload_(std::make_unique<ExprSortPayload>()) {
     exprs_.push_back(expr);
   }
 
   ExprGroup(const ExprGroup& other)
-      : payload_(new TraversalPayload(*(other.payload_))) {}
+      : payload_(new ExprSortPayload(*(other.payload_))) {}
 
   ExprGroup& operator=(const ExprGroup& other) {
     *payload_ = *other.payload_;
@@ -119,9 +109,6 @@ class ExprGroup {
 
   void clearTraversalInfo();
 
-  // TODO: May want to sort this based on size of connections between this and
-  // neighbors as well as if the connection is an output of the fusion (has to
-  // be saved to gmem anyways)
   std::vector<ExprGroup*> getNeighbors();
 
   // Look at all neighbors of this and return who this could merge with based on
@@ -132,7 +119,7 @@ class ExprGroup {
   // the original fusion.
   bool isInputGroup();
 
-  std::unique_ptr<TraversalPayload>& payload() {
+  std::unique_ptr<ExprSortPayload>& payload() {
     return payload_;
   }
 
@@ -150,16 +137,16 @@ class ExprGroup {
   std::vector<Expr*> exprs_;
 
   // ==== Stateful traversal information below ====
-  std::unique_ptr<TraversalPayload> payload_;
+  std::unique_ptr<ExprSortPayload> payload_;
 };
 
 std::ostream& operator<<(std::ostream& os, const ExprGroup* group);
 
-class ExprGrouper {
+class ExprSegmentationSorter {
  public:
   // Take a copy of fusion to own, it will get reused and copies sent to
   // schedulers.
-  ExprGrouper(Fusion* fusion);
+  ExprSegmentationSorter(Fusion* fusion);
 
   void segment();
 
@@ -176,43 +163,47 @@ class ExprGrouper {
   }
 
  protected:
-  // For payload overload
-  virtual ExprGroup* makeEmptyGroup();
+  // Allocate an empty expr group and return it
+  ExprGroup* makeEmptyGroup();
 
-  // For payload overload
-  virtual ExprGroup* makeEmptyGroup(Expr*);
+  // Allocate an expr group with the provided expr and return it
+  ExprGroup* makeEmptyGroup(Expr*);
 
-  // Mechanism by which we decide if we support a given fusion of nodes, meaning
-  // sg1, and sg2 will be segmented together.
-  virtual bool codeGenSupportedMerge(ExprGroup* sg1, ExprGroup* sg2);
+  // Returns if sg1 and sg2 should be merged together, is called if they can
+  // based on the current status of the DAG.
+  bool supportedMerge(ExprGroup* sg1, ExprGroup* sg2);
 
-  virtual ExprGroup* makeMergedNode(ExprGroup* sg1, ExprGroup* sg2);
+  // Merges two ExprGroups and returns the new ExprGroup
+  ExprGroup* makeMergedNode(ExprGroup* sg1, ExprGroup* sg2);
 
-  // Return true if we want to run more iterations of the segmentation after
-  // this function is called. It's good if we want to segment, process, then
-  // segment more (used in lower_expr_sort).
-  virtual bool interIterUpdate() {
-    return false;
-  };
+  // This is called once no more groups can be merged together. This will lower
+  // the compute at position of a segment group if the last dimension of the
+  // segment group doesn't map to any of the dimensions of its neighbors.
+  bool interIterUpdate();
 
  private:
-  // Reset the TraversalPayload of the groups
+  // Reset the ExprSortPayload of the groups so we can traverse and identify
+  // merge candidates.
   void resetTraversal();
 
-  // Reset the set levels which the analysis of if we can fuse nodes together
-  // but maintain the graph is a DAG
+  // Reset the set levels of each group. This is what's used to identify which
+  // nodes can be merged together.
   void resetLevels();
 
-  // Go through groups which should me marked with other nodes to merge with,
-  // and merges them.
+  // Go through groups that are marked as to merge and merge them.
   void mergeNodes();
 
   // Disconnect the edges connecting group to the rest of the graph, and return
   // all the edges that were disconnected
   std::unordered_set<ExprGroupConnections*> disconnectGroup(ExprGroup* group);
 
+  // Track how many groups we have from iteration to iteration so we can track
+  // when we've stopped merging nodes.
+  size_t n_groups = 0;
+
  protected:
-  // Lifetime of the graph view of the fusion and segmentation
+  // Lifetime of the graph view of the fusion and segmentation. Use list to not
+  // invalidate any entries on insertion/deletion.
   std::list<std::unique_ptr<ExprGroupConnections>> edges;
   std::list<std::unique_ptr<ExprGroup>> groups;
 
@@ -229,7 +220,7 @@ class ExprGrouper {
   Fusion* complete_fusion;
 };
 
-std::ostream& operator<<(std::ostream& os, const ExprGrouper* scf);
+std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf);
 
 std::vector<ExprGroup*> ExprGroup::getNeighbors() {
   std::vector<ExprGroup*> neighbors;
@@ -352,7 +343,7 @@ std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge) {
   return os;
 }
 
-void ExprGrouper::resetTraversal() {
+void ExprSegmentationSorter::resetTraversal() {
   for (auto& group : groups) {
     // Start traversal at input groups
     if (group->producer_edges.empty()) {
@@ -363,7 +354,7 @@ void ExprGrouper::resetTraversal() {
   }
 }
 
-void ExprGrouper::resetLevels() {
+void ExprSegmentationSorter::resetLevels() {
   while (!to_visit.empty()) {
     auto visit = to_visit.front();
     to_visit.pop_front();
@@ -404,18 +395,30 @@ void ExprGrouper::resetLevels() {
   TORCH_INTERNAL_ASSERT(next_to_visit.empty(), "Error in graph, is not a DAG.");
 }
 
-ExprGroup* ExprGrouper::makeEmptyGroup() {
+ExprGroup* ExprSegmentationSorter::makeEmptyGroup() {
   groups.push_back(std::make_unique<ExprGroup>());
   return groups.back().get();
 }
 
-ExprGroup* ExprGrouper::makeEmptyGroup(Expr* expr) {
+ExprGroup* ExprSegmentationSorter::makeEmptyGroup(Expr* expr) {
   groups.push_back(std::make_unique<ExprGroup>());
-  groups.back().get()->exprs_.push_back(expr);
-  return groups.back().get();
+  auto* group = groups.back().get();
+  group->exprs_.push_back(expr);
+  if (ir_utils::isTVOp(expr)) {
+    auto out_tv = expr->outputs()[0]->as<TensorView>();
+    // Loop map produces a produce_at_map used specifically for expr sorting
+    // when we generate it.
+    for (size_t tv_i = 0;
+         tv_i < GpuLower::current()->caLoopMap().producedAt(out_tv);
+         tv_i++) {
+      group->payload()->ca_domains.push_back(out_tv->axis(tv_i));
+    }
+  }
+  return group;
 }
 
-std::string ExprGrouper::toString(int verbosity) const {
+// Debug function that prints the current state of the sorter.
+std::string ExprSegmentationSorter::toString(int verbosity) const {
   std::stringstream ss;
   for (auto& group : groups) {
     ss << group.get() << "\n";
@@ -546,8 +549,8 @@ const ExprGroup* getProducer(const ExprGroup* sg1, const ExprGroup* sg2) {
 } // namespace
 
 // Disconect group from neighbors, and return edges that were disconnected
-std::unordered_set<ExprGroupConnections*> ExprGrouper::disconnectGroup(
-    ExprGroup* group) {
+std::unordered_set<ExprGroupConnections*> ExprSegmentationSorter::
+    disconnectGroup(ExprGroup* group) {
   std::unordered_set<ExprGroupConnections*> removed_edges(
       group->producer_edges.begin(), group->producer_edges.end());
 
@@ -575,14 +578,50 @@ std::unordered_set<ExprGroupConnections*> ExprGrouper::disconnectGroup(
   return removed_edges;
 }
 
-ExprGroup* ExprGrouper::makeMergedNode(ExprGroup* sg1, ExprGroup* sg2) {
-  // Make the new joined node
-  auto joined_group = makeEmptyGroup();
+ExprGroup* ExprSegmentationSorter::makeMergedNode(
+    ExprGroup* sg1,
+    ExprGroup* sg2) {
+  std::vector<IterDomain*> resulting_ca_axes;
+  auto& domain1 = sg1->payload()->ca_domains;
+  auto& domain2 = sg2->payload()->ca_domains;
+  auto it1 = domain1.begin();
+  auto it2 = domain2.begin();
 
-  joined_group->input_vals =
+  while (it1 != domain1.end() && it2 != domain2.end()) {
+    if (it1 == domain1.end()) {
+      resulting_ca_axes.push_back(*it2++);
+    } else if (it2 == domain2.end()) {
+      resulting_ca_axes.push_back(*it1++);
+    } else if (GpuLower::current()->caIndexMap().areMapped(*it1, *it2)) {
+      resulting_ca_axes.push_back(*it1);
+      ++it1;
+      ++it2;
+    } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
+                 return GpuLower::current()->caIndexMap().areMapped(id1, *it2);
+               })) {
+      // Increment it1, as a later iter domain matches the current one in
+      // domain2
+      resulting_ca_axes.push_back(*it1++);
+
+    } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
+                 return GpuLower::current()->caIndexMap().areMapped(id2, *it1);
+               })) {
+      // Increment it2, as a later iter domain matches the current one in
+      // domain1
+      resulting_ca_axes.push_back(*it2++);
+    } else {
+      resulting_ca_axes.push_back(*it1++);
+      resulting_ca_axes.push_back(*it2++);
+    }
+  }
+
+  // Make the new joined node
+  auto joined_groups = makeEmptyGroup();
+
+  joined_groups->input_vals =
       uniqueValConcat({sg1->input_vals, sg2->input_vals});
 
-  joined_group->output_vals =
+  joined_groups->output_vals =
       uniqueValConcat({sg1->output_vals, sg2->output_vals});
 
   // Keep Expr's sorted in topological order.
@@ -593,9 +632,9 @@ ExprGroup* ExprGrouper::makeMergedNode(ExprGroup* sg1, ExprGroup* sg2) {
       producer != nullptr,
       "Tried to merge expr's together that aren't neighbors.");
 
-  joined_group->exprs_ = producer->exprs_;
-  joined_group->exprs_.insert(
-      joined_group->exprs_.end(),
+  joined_groups->exprs_ = producer->exprs_;
+  joined_groups->exprs_.insert(
+      joined_groups->exprs_.end(),
       consumer->exprs_.begin(),
       consumer->exprs_.end());
 
@@ -606,9 +645,9 @@ ExprGroup* ExprGrouper::makeMergedNode(ExprGroup* sg1, ExprGroup* sg2) {
     auto val = edge->val_;
 
     edges.push_back(
-        std::make_unique<ExprGroupConnections>(from, joined_group, val));
+        std::make_unique<ExprGroupConnections>(from, joined_groups, val));
 
-    joined_group->producer_edges.push_back(edges.back().get());
+    joined_groups->producer_edges.push_back(edges.back().get());
     from->consumer_edges.push_back(edges.back().get());
   }
 
@@ -619,15 +658,85 @@ ExprGroup* ExprGrouper::makeMergedNode(ExprGroup* sg1, ExprGroup* sg2) {
     auto val = edge->val_;
 
     edges.push_back(
-        std::make_unique<ExprGroupConnections>(joined_group, to, val));
-    joined_group->consumer_edges.push_back(edges.back().get());
+        std::make_unique<ExprGroupConnections>(joined_groups, to, val));
+    joined_groups->consumer_edges.push_back(edges.back().get());
     edge->to_->producer_edges.push_back(edges.back().get());
   }
 
-  return joined_group;
+  joined_groups->payload()->ca_domains = resulting_ca_axes;
+
+  return joined_groups;
 }
 
-void ExprGrouper::mergeNodes() {
+// Update in between attempts to segment. This is called once no more groups
+// can be merged together. Typically we will want to remove compute at groups
+// that have finished being grouped together. However if no gruops have been
+// merged after we've done this, we may need to stop as we could have multiple
+// disjoint groups that won't be merged.
+bool ExprSegmentationSorter::interIterUpdate() {
+  // Go through groups and lower compute at domain
+  bool lowered_ca_domain = false;
+  for (auto& unique_group : groups) {
+    auto group = unique_group.get();
+    IterDomain* g_last_id = nullptr;
+    if (group->payload()->ca_domains.size() > 0) {
+      g_last_id = group->payload()->ca_domains.back();
+    }
+    if (g_last_id == nullptr) {
+      continue;
+    }
+
+    bool matching_neighbor = false;
+    for (auto neighbor : group->getNeighbors()) {
+      if (matching_neighbor) {
+        break;
+      }
+      for (auto p_id : neighbor->payload()->ca_domains) {
+        if (GpuLower::current()->caIndexMap().areMapped(p_id, g_last_id)) {
+          matching_neighbor = true;
+          break;
+        }
+      }
+    }
+
+    if (!matching_neighbor) {
+      group->payload()->ca_domains.pop_back();
+      lowered_ca_domain = true;
+    }
+  }
+
+  // If we couldn't lower compute at domain any further, and we haven't merged
+  // any new groups since the last time we were called, make sure we're done.
+  if (!lowered_ca_domain && n_groups == groups.size()) {
+    // Make sure none of the groups are still connected, as that would mean we
+    // should have been able to merge them.
+
+    TORCH_INTERNAL_ASSERT(
+        std::all_of(
+            groups.begin(),
+            groups.end(),
+            [](std::unique_ptr<ExprGroup>& sg) {
+              return sg->producer_edges.empty() && sg->consumer_edges.empty();
+            }),
+        "Couldn't succcessfully sort out the fusion expressions. ",
+        "There are remaining connections of the heirarchical segmentation which should have been ",
+        "flattened to a single ordered group, or disjoint ordered groups.");
+
+    // Successfully finished
+    return false;
+  }
+
+  // Initialize n_groups if this is the first pass.
+  if (n_groups == 0 && groups.size() > 0) {
+    n_groups = groups.size();
+  }
+
+  n_groups = groups.size();
+  // Not done, continue.
+  return true;
+}
+
+void ExprSegmentationSorter::mergeNodes() {
   while (!to_merge.empty()) {
     auto group1 = *to_merge.begin();
     auto group2 = group1->payload()->merge_with;
@@ -656,13 +765,26 @@ void ExprGrouper::mergeNodes() {
   clean_up_groups.clear();
 }
 
-bool ExprGrouper::codeGenSupportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
-  return true;
+bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
+  auto domain1 = sg1->payload()->ca_domains;
+  auto domain2 = sg2->payload()->ca_domains;
+
+  if (domain1.empty() && domain2.empty()) {
+    return true;
+  }
+
+  if (domain1.empty() || domain2.empty()) {
+    return false;
+  }
+
+  return GpuLower::current()->caIndexMap().areMapped(
+      domain1.back(), domain2.back());
 }
 
-ExprGrouper::ExprGrouper(Fusion* fusion) : complete_fusion(fusion) {}
+ExprSegmentationSorter::ExprSegmentationSorter(Fusion* fusion)
+    : complete_fusion(fusion) {}
 
-void ExprGrouper::segment() {
+void ExprSegmentationSorter::segment() {
   // TODO: Make traversal items local to this function.
 
   // Need this for initialization of the DAG that is process
@@ -722,7 +844,7 @@ void ExprGrouper::segment() {
 
         auto candidate_it = candidates.begin();
         while (candidate_it != candidates.end() &&
-               !codeGenSupportedMerge(group.get(), *candidate_it)) {
+               !supportedMerge(group.get(), *candidate_it)) {
           candidate_it++;
         }
         if (candidate_it == candidates.end()) {
@@ -745,218 +867,21 @@ void ExprGrouper::segment() {
 
       mergeNodes();
 
-      // std::cout << this->toString(4) << std::endl;
       inter_iter_update = interIterUpdate();
     }
   }
 }
 
-std::ostream& operator<<(std::ostream& os, const ExprGrouper* scf) {
+std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf) {
   return os << scf->toString();
 }
 
 } // namespace
 
-class ExprSortPayload : public TraversalPayload {
- public:
-  std::vector<IterDomain*> ca_domains;
-};
-
-class ExprSortingWithCA : public ExprGrouper {
- public:
-  ExprSortingWithCA() : ExprGrouper(FusionGuard::getCurFusion()) {
-    TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
-  }
-
-  ExprSortPayload* payload(ExprGroup* sg) {
-    return sg->payload()->as<ExprSortPayload>();
-  }
-
-  bool codeGenSupportedMerge(ExprGroup* sg1, ExprGroup* sg2) override;
-
-  ExprGroup* makeEmptyGroup() override;
-
-  ExprGroup* makeEmptyGroup(Expr* expr);
-
-  ExprGroup* makeMergedNode(ExprGroup* sg1, ExprGroup* sg2) override;
-
-  // Update in between attempts to segment. This is called once no more groups
-  // can be merged together. Typically we will want to remove compute at groups
-  // that have finished being grouped together. However if no gruops have been
-  // merged after we've done this, we may need to stop as we could have multiple
-  // disjoint groups that won't be merged.
-  bool interIterUpdate() override;
-
-  // Track how many groups we have from iteration to iteration so we can track
-  // when we've stopped merging nodes.
-  size_t n_groups = 0;
-};
-
-bool ExprSortingWithCA::codeGenSupportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
-  auto domain1 = payload(sg1)->ca_domains;
-  auto domain2 = payload(sg2)->ca_domains;
-
-  if (domain1.empty() && domain2.empty()) {
-    return true;
-  }
-
-  if (domain1.empty() || domain2.empty()) {
-    return false;
-  }
-
-  return GpuLower::current()->caIndexMap().areMapped(
-      domain1.back(), domain2.back());
-}
-
-ExprGroup* ExprSortingWithCA::makeEmptyGroup() {
-  groups.push_back(
-      std::make_unique<ExprGroup>(std::make_unique<ExprSortPayload>()));
-  return groups.back().get();
-}
-
-ExprGroup* ExprSortingWithCA::makeEmptyGroup(Expr* expr) {
-  groups.push_back(
-      std::make_unique<ExprGroup>(std::make_unique<ExprSortPayload>()));
-  auto* group = groups.back().get();
-  group->exprs_.push_back(expr);
-  if (ir_utils::isTVOp(expr)) {
-    auto out_tv = expr->outputs()[0]->as<TensorView>();
-    auto* group_payload = payload(group);
-    // Loop map produces a produce_at_map used specifically for expr sorting
-    // when we generate it.
-    for (size_t tv_i = 0;
-         tv_i < GpuLower::current()->caLoopMap().producedAt(out_tv);
-         tv_i++) {
-      group_payload->ca_domains.push_back(out_tv->axis(tv_i));
-    }
-  }
-  return group;
-}
-
-ExprGroup* ExprSortingWithCA::makeMergedNode(ExprGroup* sg1, ExprGroup* sg2) {
-  std::vector<IterDomain*> resulting_ca_axes;
-  auto& domain1 = payload(sg1)->ca_domains;
-  auto& domain2 = payload(sg2)->ca_domains;
-  auto it1 = domain1.begin();
-  auto it2 = domain2.begin();
-
-  while (it1 != domain1.end() && it2 != domain2.end()) {
-    if (it1 == domain1.end()) {
-      resulting_ca_axes.push_back(*it2++);
-    } else if (it2 == domain2.end()) {
-      resulting_ca_axes.push_back(*it1++);
-    } else if (GpuLower::current()->caIndexMap().areMapped(*it1, *it2)) {
-      resulting_ca_axes.push_back(*it1);
-      ++it1;
-      ++it2;
-    } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
-                 return GpuLower::current()->caIndexMap().areMapped(id1, *it2);
-               })) {
-      // Increment it1, as a later iter domain matches the current one in
-      // domain2
-      resulting_ca_axes.push_back(*it1++);
-
-    } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
-                 return GpuLower::current()->caIndexMap().areMapped(id2, *it1);
-               })) {
-      // Increment it2, as a later iter domain matches the current one in
-      // domain1
-      resulting_ca_axes.push_back(*it2++);
-    } else {
-      resulting_ca_axes.push_back(*it1++);
-      resulting_ca_axes.push_back(*it2++);
-    }
-  }
-
-  ExprGroup* joined_groups = ExprGrouper::makeMergedNode(sg1, sg2);
-
-  payload(joined_groups)->ca_domains = resulting_ca_axes;
-
-  return joined_groups;
-}
-
-// Update in between attempts to segment. This is called once no more groups
-// can be merged together. Typically we will want to remove compute at groups
-// that have finished being grouped together. However if no gruops have been
-// merged after we've done this, we may need to stop as we could have multiple
-// disjoint groups that won't be merged.
-bool ExprSortingWithCA::interIterUpdate() {
-  // for(auto& group : groups){
-  //   std::cout<<"==============="<<std::endl;
-  //   for(auto expr : group->exprs_){
-  //     std::cout<<expr<<std::endl;
-  //   }
-  // }
-  // std::cout<<"==============="<<std::endl;
-
-  // Go through groups and lower compute at domain
-  bool lowered_ca_domain = false;
-  for (auto& unique_group : groups) {
-    auto group = unique_group.get();
-    IterDomain* g_last_id = nullptr;
-    if (payload(group)->ca_domains.size() > 0) {
-      g_last_id = payload(group)->ca_domains.back();
-    }
-    if (g_last_id == nullptr) {
-      continue;
-    }
-
-    bool matching_neighbor = false;
-    for (auto neighbor : group->getNeighbors()) {
-      if (matching_neighbor) {
-        break;
-      }
-      for (auto p_id : payload(neighbor)->ca_domains) {
-        if (GpuLower::current()->caIndexMap().areMapped(p_id, g_last_id)) {
-          matching_neighbor = true;
-          break;
-        }
-      }
-    }
-
-    if (!matching_neighbor) {
-      // std::cout<<"Lowering group: ";
-      // for(auto expr : unique_group->exprs_){
-      //   std::cout<<"T"<<expr->outputs()[0]->name()<<", ";
-      // }std::cout<<std::endl;
-      payload(group)->ca_domains.pop_back();
-      lowered_ca_domain = true;
-    }
-  }
-
-  // If we couldn't lower compute at domain any further, and we haven't merged
-  // any new groups since the last time we were called, make sure we're done.
-  if (!lowered_ca_domain && n_groups == groups.size()) {
-    // Make sure none of the groups are still connected, as that would mean we
-    // should have been able to merge them.
-
-    TORCH_INTERNAL_ASSERT(
-        std::all_of(
-            groups.begin(),
-            groups.end(),
-            [](std::unique_ptr<ExprGroup>& sg) {
-              return sg->producer_edges.empty() && sg->consumer_edges.empty();
-            }),
-        "Couldn't succcessfully sort out the fusion expressions. ",
-        "There are remaining connections of the heirarchical segmentation which should have been ",
-        "flattened to a single ordered group, or disjoint ordered groups.");
-
-    // Successfully finished
-    return false;
-  }
-
-  // Initialize n_groups if this is the first pass.
-  if (n_groups == 0 && groups.size() > 0) {
-    n_groups = groups.size();
-  }
-
-  n_groups = groups.size();
-  // Not done, continue.
-  return true;
-}
-
 std::vector<Expr*> reorderExprsTest() {
-  ExprSortingWithCA sorter;
+  auto fusion = FusionGuard::getCurFusion();
+  TORCH_INTERNAL_ASSERT(fusion != nullptr);
+  ExprSegmentationSorter sorter(fusion);
   sorter.segment();
   auto groups = sorter.getGroups();
   TORCH_INTERNAL_ASSERT(
