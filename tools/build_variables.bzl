@@ -407,7 +407,6 @@ libtorch_cuda_sources = [
     "torch/csrc/jit/codegen/cuda/register_interface.cpp",
     "torch/csrc/jit/codegen/cuda/root_domain_map.cpp",
     "torch/csrc/jit/codegen/cuda/scheduler.cpp",
-    "torch/csrc/jit/codegen/cuda/segmenter_helper.cpp",
     "torch/csrc/jit/codegen/cuda/shape_inference.cpp",
     "torch/csrc/jit/codegen/cuda/tensor_view.cpp",
     "torch/csrc/jit/codegen/cuda/transform_iter.cpp",
