@@ -497,7 +497,7 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
   return producer;
 }
 
-TensorView* TensorView::rfactorTVHelper(
+TensorView* TensorView::welfordRfactorHelper(
     TensorView* tv,
     const std::vector<int>& axes) {
   // Hack:
@@ -576,9 +576,9 @@ WelfordResult TensorView::rfactor(
   TORCH_INTERNAL_ASSERT(
       n->sameAs(wop->outN()), "Welford rfactor not used correctly");
 
-  auto producer_var = rfactorTVHelper(var, axes);
-  auto producer_avg = rfactorTVHelper(avg, axes);
-  auto producer_n = rfactorTVHelper(n, axes);
+  auto producer_var = welfordRfactorHelper(var, axes);
+  auto producer_avg = welfordRfactorHelper(avg, axes);
+  auto producer_n = welfordRfactorHelper(n, axes);
 
   // Setup dependency chain, inserting producer before this op.
   // Expr* producer_definition =

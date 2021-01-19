@@ -371,7 +371,9 @@ class TORCH_CUDA_API TensorView : public Val {
 
   //! A helper function to maintain the consistency of welford output
   //! schedules when doing rfactor on welford ops.
-  TensorView* rfactorTVHelper(TensorView* tv, const std::vector<int>& axes);
+  TensorView* welfordRfactorHelper(
+      TensorView* tv,
+      const std::vector<int>& axes);
 
  private:
   TensorDomain* domain_ = nullptr;
