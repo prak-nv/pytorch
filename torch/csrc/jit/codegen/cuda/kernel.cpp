@@ -96,7 +96,8 @@ class KernelIrScanner : private kir::IrVisitor {
     }
 
     // Update Welford
-    if (tensor_index->definition()->isA<kir::WelfordOp>()) {
+    if (tensor_index->definition() != nullptr &&
+        tensor_index->definition()->isA<kir::WelfordOp>()) {
       summary_.has_welford = true;
       summary_.has_block_welford =
           summary_.has_block_welford || domain->hasBlockReduction();
