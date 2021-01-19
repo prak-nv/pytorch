@@ -20,9 +20,9 @@ struct ReferenceTensor {
   std::unordered_map<IterDomain*, IterDomain*> concrete_to_id;
 };
 
-class TestReplay : public OptInDispatch {
+class IndexReferenceReplay : public OptInDispatch {
  private:
-  TestReplay(const std::vector<kir::ForLoop*>& loop_structure)
+  IndexReferenceReplay(const std::vector<kir::ForLoop*>& loop_structure)
       : loop_structure_(loop_structure) {}
 
   // We're going to replay this split operation on the corresponding ID
@@ -47,7 +47,7 @@ class TestReplay : public OptInDispatch {
  public:
   static ReferenceTensor getReference(
       const std::vector<kir::ForLoop*>& loop_structure) {
-    auto replay = TestReplay(loop_structure);
+    auto replay = IndexReferenceReplay(loop_structure);
     ReferenceTensor ref;
     ref.domain = replay.computeReplay();
     ref.concrete_to_id = replay.concrete_to_id;
@@ -55,13 +55,15 @@ class TestReplay : public OptInDispatch {
   }
 };
 
+// Index into the reference based on the provided index map.
 IndexCompute getReferenceIndexing(
     const std::vector<kir::ForLoop*>& loop_structure,
     TensorDomain* reference_domain,
     std::unordered_map<kir::IterDomain*, kir::Val*> index_map,
     std::unordered_set<IterDomain*> preferred_path);
 
-// Short cut for global TVs
+// Short cut for global TVs. Index into the reference based on all loop indicies
+// in the loop structure.
 IndexCompute getReferenceIndexing(
     const std::vector<kir::ForLoop*>& loop_structure,
     TensorDomain* reference_domain);

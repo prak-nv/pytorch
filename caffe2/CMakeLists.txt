@@ -531,8 +531,8 @@ if(NOT INTERN_BUILD_MOBILE OR NOT BUILD_CAFFE2_MOBILE)
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/executor_utils.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/fusion.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/graph_fuser.cpp
-      ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/test_index_compute.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/index_compute.cpp
+      ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/index_reference_replay.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/instrumentation.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/ir_base_nodes.cpp
       ${TORCH_SRC_DIR}/csrc/jit/codegen/cuda/ir_cloner.cpp

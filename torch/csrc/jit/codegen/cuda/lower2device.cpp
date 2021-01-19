@@ -15,8 +15,6 @@
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/lower_validation.h>
 
-#include <torch/csrc/jit/codegen/cuda/test_index_compute.h>
-
 namespace torch {
 namespace jit {
 namespace fuser {

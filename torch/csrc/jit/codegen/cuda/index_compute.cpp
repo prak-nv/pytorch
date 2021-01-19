@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/codegen/cuda/index_compute.h>
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/codegen/cuda/arith.h>
+#include <torch/csrc/jit/codegen/cuda/index_reference_replay.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
@@ -10,7 +11,6 @@
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
-#include <torch/csrc/jit/codegen/cuda/test_index_compute.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 
@@ -737,7 +737,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // Get a reference tensor replayed as existing loop structure
-  auto reference = TestReplay::getReference(loops);
+  auto reference = IndexReferenceReplay::getReference(loops);
   auto reference_domain = reference.domain;
   auto reference_id_map = reference.concrete_to_id;
 
@@ -896,7 +896,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // Get a reference tensor replayed as existing loop structure
-  auto reference = TestReplay::getReference(loops);
+  auto reference = IndexReferenceReplay::getReference(loops);
   auto reference_domain = reference.domain;
   auto reference_id_map = reference.concrete_to_id;
 
@@ -1099,7 +1099,7 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // Get a reference tensor replayed as existing loop structure
-  auto reference = TestReplay::getReference(loops);
+  auto reference = IndexReferenceReplay::getReference(loops);
   auto reference_domain = reference.domain;
   auto reference_id_map = reference.concrete_to_id;
 
@@ -1189,7 +1189,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // Get a reference tensor replayed as existing loop structure
-  auto reference = TestReplay::getReference(loops);
+  auto reference = IndexReferenceReplay::getReference(loops);
   auto reference_domain = reference.domain;
   auto reference_id_map = reference.concrete_to_id;
 
@@ -1393,7 +1393,7 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
   // Get a reference tensor replayed as existing loop structure
-  auto reference = TestReplay::getReference(loops);
+  auto reference = IndexReferenceReplay::getReference(loops);
   auto reference_domain = reference.domain;
   auto reference_id_map = reference.concrete_to_id;
 
