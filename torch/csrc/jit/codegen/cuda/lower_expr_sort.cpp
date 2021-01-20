@@ -54,6 +54,14 @@ namespace {
 // ffhal02306566f
 
 class ExprGroup;
+class ExprGroupConnections;
+class ExprSegmentationSorter;
+
+// Debug printing disabled due to clang tidy, see below for definitions
+// std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge);
+// std::ostream& operator<<(std::ostream& os, const ExprGroup* group);
+// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter*
+// scf);
 
 // Wrapper for values, these are edges between expr groups. Multiple edges can
 // exist between expr groups, and the same Val can show up more than once in
@@ -66,8 +74,6 @@ class ExprGroupConnections {
   ExprGroup* to_;
   Val* val_;
 };
-
-std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge);
 
 class ExprSortPayload : public PolymorphicBase {
  public:
@@ -138,8 +144,6 @@ class ExprGroup {
   // Stateful traversal information
   std::unique_ptr<ExprSortPayload> payload_;
 };
-
-std::ostream& operator<<(std::ostream& os, const ExprGroup* group);
 
 class ExprSegmentationSorter {
  public:
@@ -215,8 +219,6 @@ class ExprSegmentationSorter {
   // original provided fusion.
   Fusion* complete_fusion;
 };
-
-std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf);
 
 std::vector<ExprGroup*> ExprGroup::getNeighbors() {
   std::vector<ExprGroup*> neighbors;
@@ -322,28 +324,6 @@ void ExprGroup::clearTraversalInfo() {
   payload()->merge_with = nullptr;
   payload()->merged = false;
 }
-
-// Commenting as this is for debug and don't know how to suppress clang tidy
-// unused function
-//  std::ostream& operator<<(std::ostream& os, const ExprGroup*
-// group) {
-//   os << "g{";
-//   for (size_t i = 0; i < group->exprs_.size(); i++) {
-//     os << group->exprs_[i]->name();
-//     if (i + 1 != group->exprs_.size())
-//       os << ", ";
-//   }
-//   os << "}";
-//   return os;
-// }
-
-// Commenting as this is for debug and don't know how to suppress clang tidy
-// unused function
-// std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge)
-// {
-//   os << "e{ " << edge->from_ << " -> " << edge->to_ << " }" << std::endl;
-//   return os;
-// }
 
 void ExprSegmentationSorter::resetTraversal() {
   for (auto& group : groups) {
@@ -877,8 +857,25 @@ void ExprSegmentationSorter::sort() {
   }
 }
 
-// Commenting as this is for debug and don't know how to suppress clang tidy
-// unused function
+// Debug printing, disabled due to clang-tidy see above for declarations.
+//  std::ostream& operator<<(std::ostream& os, const ExprGroup*
+// group) {
+//   os << "g{";
+//   for (size_t i = 0; i < group->exprs_.size(); i++) {
+//     os << group->exprs_[i]->name();
+//     if (i + 1 != group->exprs_.size())
+//       os << ", ";
+//   }
+//   os << "}";
+//   return os;
+// }
+//
+// std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge)
+// {
+//   os << "e{ " << edge->from_ << " -> " << edge->to_ << " }" << std::endl;
+//   return os;
+// }
+//
 // std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf)
 // {
 //   return os << scf->toString();
