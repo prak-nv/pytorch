@@ -772,7 +772,7 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
       root_ref_to_producer,
       false);
 
-  auto ref_2_producer = replay_producer_as_ref.getReplay();
+  const auto& ref_2_producer = replay_producer_as_ref.getReplay();
 
   // Index into producer using reference indexing
   auto producer_indexing = ref_compute.updateIndexCompute(
@@ -956,7 +956,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   // structure, ignore IterDomains that aren't present in the loop nest when
   // indexing reference.
   TORCH_INTERNAL_ASSERT(loops.size() <= reference_domain->nDims());
-  for (size_t loop_i; loop_i < loops.size(); loop_i++) {
+  for (size_t loop_i = 0; loop_i < loops.size(); loop_i++) {
     auto ref_axis = gpu_lower->lowerValue(reference_domain->axis(loop_i))
                         ->as<kir::IterDomain>();
     ref_id_to_ind_map[ref_axis] = loop_to_ind_map[loops[loop_i]];
@@ -999,7 +999,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
       root_ref_to_producer,
       false);
 
-  auto ref_2_producer = replay_producer_as_ref.getReplay();
+  const auto& ref_2_producer = replay_producer_as_ref.getReplay();
 
   // Index into producer using reference indexing
   auto producer_indexing = ref_compute.updateIndexCompute(
@@ -1119,7 +1119,7 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
       root_ref_to_consumer,
       false);
 
-  auto ref_2_consumer = replay_consumer_as_ref.getReplay();
+  const auto& ref_2_consumer = replay_consumer_as_ref.getReplay();
 
   // Index into the reference tensor
   auto ref_compute = getReferenceIndexing(loops, reference_domain);
@@ -1205,7 +1205,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   // structure, ignore IterDomains that aren't present in the loop nest when
   // indexing reference.
   TORCH_INTERNAL_ASSERT(loops.size() <= reference_domain->nDims());
-  for (size_t loop_i; loop_i < loops.size(); loop_i++) {
+  for (size_t loop_i = 0; loop_i < loops.size(); loop_i++) {
     auto ref_axis = gpu_lower->lowerValue(reference_domain->axis(loop_i))
                         ->as<kir::IterDomain>();
     ref_id_to_ind_map[ref_axis] = loop_to_ind_map[loops[loop_i]];
@@ -1245,7 +1245,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
       root_ref_to_consumer,
       true);
 
-  auto ref_2_consumer = replay_consumer_as_ref.getReplay();
+  const auto& ref_2_consumer = replay_consumer_as_ref.getReplay();
 
   // Index into consumer using reference indexing
   auto consumer_indexing = ref_compute.updateIndexCompute(
@@ -1443,7 +1443,7 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
   // Due to rfactor/initialization reference_domain may be bigger than loop nest
   // structure
   TORCH_INTERNAL_ASSERT(loops.size() <= reference_domain->nDims());
-  for (size_t loop_i; loop_i < loops.size(); loop_i++) {
+  for (size_t loop_i = 0; loop_i < loops.size(); loop_i++) {
     auto ref_axis = gpu_lower->lowerValue(reference_domain->axis(loop_i))
                         ->as<kir::IterDomain>();
     ref_id_to_ind_map[ref_axis] = loop_to_ind_map[loops[loop_i]];

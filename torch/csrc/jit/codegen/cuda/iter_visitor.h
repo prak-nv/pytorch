@@ -233,7 +233,7 @@ class InputsOf : public IterVisitor {
   static std::unordered_set<Val*> output(Fusion* fusion, Val* output_);
   static std::unordered_set<Val*> outputs(
       Fusion* fusion,
-      std::vector<Val*> outputs_);
+      const std::vector<Val*>& outputs_);
 };
 
 } // namespace cuda

@@ -584,7 +584,7 @@ std::unordered_set<Val*> InputsOf::output(Fusion* fusion, Val* output_) {
 
 std::unordered_set<Val*> InputsOf::outputs(
     Fusion* fusion,
-    std::vector<Val*> outputs_) {
+    const std::vector<Val*>& outputs_) {
   InputsOf io;
   io.traverseFrom(fusion, outputs_, false);
   return io.inputs;

@@ -74,7 +74,7 @@ IndexCompute getReferenceIndexing(
 // preference) to reach the roots provided in preferred_roots.
 std::unordered_set<IterDomain*> buildPreferredPaths(
     TensorDomain* reference_domain,
-    std::unordered_set<IterDomain*> preferred_roots);
+    const std::unordered_set<IterDomain*>& preferred_roots);
 
 } // namespace cuda
 } // namespace fuser

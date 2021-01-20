@@ -145,15 +145,16 @@ void LoopNestGenerator::handle(const Expr* expr) {
     }
   }
 
+  // Append axes outside the computeAt to the loop structure
+  for (auto out_i = out_tv->getThisComputeAtAxis();
+       out_i < (unsigned int)out_tv->nDims();
+       out_i++) {
+    loop_structure.push_back(out_tv->axis((int)out_i));
+  }
+
   // Save position of out_id_it as we will append to loop structure
   // invalidating it
-  size_t out_id_i = std::distance(loop_structure.begin(), out_id_it);
-  // Append axes outside the computeAt to the loop structure
-  for (int64_t out_i = (int64_t)out_tv->getThisComputeAtAxis();
-       out_i < out_tv->nDims();
-       out_i++) {
-    loop_structure.push_back(out_tv->axis(out_i));
-  }
+  auto out_id_i = std::distance(loop_structure.begin(), out_id_it);
 
   // Reset out_id_it
   out_id_it = loop_structure.begin() + out_id_i;
@@ -161,7 +162,7 @@ void LoopNestGenerator::handle(const Expr* expr) {
   auto n_loops_to_close =
       std::distance(last_for_loop_matched, for_loops_.end());
 
-  for (size_t i = 0; i < n_loops_to_close; i++) {
+  for (int64_t i = 0; i < n_loops_to_close; i++) {
     closeFor();
   }
 

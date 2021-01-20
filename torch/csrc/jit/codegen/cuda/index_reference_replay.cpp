@@ -283,7 +283,7 @@ IndexCompute getReferenceIndexing(
 
   IndexCompute compute(
       reference_tensor,
-      index_map,
+      index_map, // NOLINT
       // reference_extent_map, // Seems this is not necessary, see comment above
       // in this function
       {},
@@ -351,7 +351,7 @@ class PreferredPathCompute : public IterVisitor {
 // External interface for preferred path propagation.
 std::unordered_set<IterDomain*> buildPreferredPaths(
     TensorDomain* reference_tensor,
-    std::unordered_set<IterDomain*> preferred_roots) {
+    const std::unordered_set<IterDomain*>& preferred_roots) {
   return PreferredPathCompute::compute(reference_tensor, preferred_roots);
 }
 

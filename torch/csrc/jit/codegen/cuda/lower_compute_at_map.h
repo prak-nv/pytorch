@@ -49,7 +49,7 @@ class ComputeAtMap {
 
   // Returns the position in tv->domain() that the buffer should be computed at
   // / stored at
-  int producedAt(TensorView* tv) const {
+  unsigned int producedAt(TensorView* tv) const {
     auto produce_at_it = produce_at_map_.find(tv);
     TORCH_INTERNAL_ASSERT(
         produce_at_it != produce_at_map_.end(),
@@ -60,7 +60,7 @@ class ComputeAtMap {
 
   // Returns the position in tv->domain() that the buffer should be computed at
   // / stored at
-  int producedAt(kir::TensorView* tv) const {
+  unsigned int producedAt(kir::TensorView* tv) const {
     return producedAt(tv->fuserTv());
   }
 
@@ -96,7 +96,7 @@ class ComputeAtMap {
   // This is actually only used when mapping mode == LOOP. Only used in expr
   // sorting, it's actually maximum position where a loop is shared across any
   // neighbor.
-  std::unordered_map<TensorView*, int> produce_at_map_;
+  std::unordered_map<TensorView*, unsigned int> produce_at_map_;
 
   // Disjoint sets of iter domains, only defined if iter domain is within
   // compute at of a tensor view. Maps these iter domains to a set containing

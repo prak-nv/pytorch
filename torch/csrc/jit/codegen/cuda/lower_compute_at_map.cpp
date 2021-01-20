@@ -30,7 +30,8 @@ class ConcreteInputCounter : public IterVisitor {
         counter.concrete_domain_set_.begin(),
         counter.concrete_domain_set_.end(),
         std::inserter(count_map, count_map.begin()),
-        [](std::pair<IterDomain*, std::unordered_set<IterDomain*>> entry) {
+        [](const std::pair<IterDomain*, std::unordered_set<IterDomain*>>&
+               entry) {
           return std::make_pair(entry.first, entry.second.size());
         });
     // Inputs may be root domains which wouldn't have any entries if no exprs
@@ -93,7 +94,7 @@ class ConcreteInputCounter : public IterVisitor {
 
 // Only used once, consider removing.
 template <class T>
-std::deque<T*> deduplicateDeque(std::deque<T*>& deque) {
+std::deque<T*> deduplicateDeque(const std::deque<T*>& deque) {
   std::unordered_set<T*> used;
   std::deque<T*> deduped;
   for (auto entry : deque) {
@@ -325,24 +326,24 @@ void ComputeAtMap::build() {
       // with both positions in the consumer available to map to neighbors. We
       // produce this special produce_at_map in loop mode. Pos is like compute
       // at position, one above last thing that mapped.
-      int max_mapped_id_pos = 0;
+      unsigned int max_mapped_id_pos = 0;
       bool terminating_output = c_tv->isFusionOutput() && c_tv->uses().empty();
       if (terminating_output || mapping_mode_ == MappingMode::LOOP) {
-        for (size_t c_i = 0; c_i < c_tv->nDims(); c_i++) {
+        for (unsigned int c_i = 0; c_i < (unsigned int)c_tv->nDims(); c_i++) {
           if (mapped_c_ids_left_of_ca.find(c_tv->axis(c_i)) !=
               mapped_c_ids_left_of_ca.end()) {
             max_mapped_id_pos = c_i + 1;
           }
         }
         produce_at_map_[c_tv] =
-            std::max(max_mapped_id_pos, (int)c_tv->getThisComputeAtAxis());
+            std::max(max_mapped_id_pos, c_tv->getThisComputeAtAxis());
       }
     }
   }
 
   std::unordered_set<std::shared_ptr<std::deque<IterDomain*>>> active_sets;
   // Populate disjoint_iter_sets_ as they are all computed now
-  for (auto iter_set_map : disjoint_iter_set_maps_) {
+  for (const auto& iter_set_map : disjoint_iter_set_maps_) {
     active_sets.emplace(iter_set_map.second);
   }
 
@@ -357,7 +358,7 @@ void ComputeAtMap::build() {
       disjoint_iter_sets_.begin(), disjoint_iter_set_end);
 
   // deduplicate iter domain entries in each set
-  for (auto iter_set : disjoint_iter_sets_) {
+  for (const auto& iter_set : disjoint_iter_sets_) {
     *iter_set = deduplicateDeque(*iter_set);
   }
 
@@ -434,7 +435,7 @@ void ComputeAtMap::build() {
       std::shared_ptr<std::deque<kir::IterDomain*>>>
       disjoint_set_2_kir;
 
-  for (auto disjoint_iter_set : disjoint_iter_set_maps_) {
+  for (const auto& disjoint_iter_set : disjoint_iter_set_maps_) {
     auto fusion_set = disjoint_iter_set.second;
     auto kir_set_it = disjoint_set_2_kir.find(fusion_set);
     if (kir_set_it == disjoint_set_2_kir.end()) {
@@ -463,7 +464,7 @@ void ComputeAtMap::build() {
         gpu_lower->lowerValue(entry.second)->as<kir::IterDomain>()));
   }
 
-  for (auto entry : disjoint_iter_set_maps_) {
+  for (const auto& entry : disjoint_iter_set_maps_) {
     kir_2_fusion[gpu_lower->lowerValue(entry.first)->as<kir::IterDomain>()] =
         entry.first;
   }
@@ -546,7 +547,7 @@ std::string ComputeAtMap::toString() {
   // so first grab unique entries and iterate over them.
   std::unordered_set<std::shared_ptr<std::deque<IterDomain*>>> disjoint_sets;
 
-  for (auto entry : disjoint_iter_set_maps_) {
+  for (const auto& entry : disjoint_iter_set_maps_) {
     disjoint_sets.emplace(entry.second);
   }
 

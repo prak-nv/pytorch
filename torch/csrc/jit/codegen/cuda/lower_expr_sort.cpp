@@ -241,15 +241,15 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates() {
   // so and merged neighbor is within 1 level or node merged with neighbor is
   // within 1 level, can't merge this node with anything else.
   bool can_merge_this = true;
-  for (size_t i = 0; i < neighbors.size(); i++) {
-    if (!neighbors[i]->payload()->merged) {
+  for (auto neighbor : neighbors) {
+    if (!neighbor->payload()->merged) {
       continue;
     }
-    if (std::abs(neighbors[i]->payload()->level - payload()->level) <= 1) {
+    if (std::abs(neighbor->payload()->level - payload()->level) <= 1) {
       can_merge_this = false;
     }
     if (std::abs(
-            neighbors[i]->payload()->merge_with->payload()->level -
+            neighbor->payload()->merge_with->payload()->level -
             payload()->level) <= 1) {
       can_merge_this = false;
     }
@@ -334,7 +334,9 @@ std::ostream& operator<<(std::ostream& os, const ExprGroup* group) {
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge) {
+std::ostream& operator<<(
+    std::ostream& os,
+    const ExprGroupConnections* edge) { // NOLINT
   os << "e{ " << edge->from_ << " -> " << edge->to_ << " }" << std::endl;
   return os;
 }
@@ -407,7 +409,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(Expr* expr) {
     // when we generate it. Produce at may be a misnomer, as it really marks the
     // inner most loop that is shared with any producers of a tv.
     for (size_t tv_i = 0;
-         tv_i < GpuLower::current()->caLoopMap().producedAt(out_tv);
+         tv_i < (size_t)GpuLower::current()->caLoopMap().producedAt(out_tv);
          tv_i++) {
       group->payload()->ca_domains.push_back(out_tv->axis(tv_i));
     }
@@ -462,7 +464,7 @@ std::vector<Val*> uniqueValConcat(
     const std::vector<std::vector<Val*>>& val_vecs) {
   std::vector<Val*> unique_vals;
   std::unordered_set<Val*> added;
-  for (auto vec : val_vecs) {
+  for (const auto& vec : val_vecs) {
     for (auto val : vec) {
       if (added.find(val) == added.end()) {
         unique_vals.push_back(val);
@@ -586,24 +588,27 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   auto it2 = domain2.begin();
 
   while (it1 != domain1.end() && it2 != domain2.end()) {
-    if (it1 == domain1.end()) {
+    // no lint is for repeated branching, don't lint to avoid running any_of
+    // when not necessary.
+    if (it1 == domain1.end()) { // NOLINT
       resulting_ca_axes.push_back(*it2++);
-    } else if (it2 == domain2.end()) {
+    } else if (it2 == domain2.end()) { // NOLINT
       resulting_ca_axes.push_back(*it1++);
-    } else if (GpuLower::current()->caIndexMap().areMapped(*it1, *it2)) {
+    } else if (GpuLower::current()->caIndexMap().areMapped(
+                   *it1, *it2)) { // NOLINT
       resulting_ca_axes.push_back(*it1);
       ++it1;
       ++it2;
     } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
                  return GpuLower::current()->caIndexMap().areMapped(id1, *it2);
-               })) {
+               })) { // NOLINT
       // Increment it1, as a later iter domain matches the current one in
       // domain2
       resulting_ca_axes.push_back(*it1++);
 
     } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
                  return GpuLower::current()->caIndexMap().areMapped(id2, *it1);
-               })) {
+               })) { // NOLINT
       // Increment it2, as a later iter domain matches the current one in
       // domain1
       resulting_ca_axes.push_back(*it2++);
@@ -742,7 +747,7 @@ void ExprSegmentationSorter::mergeNodes() {
     to_merge.erase(group2);
     clean_up_groups.emplace(group1);
     clean_up_groups.emplace(group2);
-    auto joined_group = makeMergedNode(group1, group2);
+    makeMergedNode(group1, group2);
   }
 
   for (auto group : clean_up_groups) {
@@ -868,7 +873,9 @@ void ExprSegmentationSorter::sort() {
   }
 }
 
-std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf) {
+std::ostream& operator<<(
+    std::ostream& os,
+    const ExprSegmentationSorter* scf) { // NOLINT
   return os << scf->toString();
 }
 
