@@ -1413,7 +1413,7 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
       root_ref_to_consumer,
       false);
 
-  auto ref_2_consumer = replay_consumer_as_ref.getReplay();
+  const auto& ref_2_consumer = replay_consumer_as_ref.getReplay();
 
   std::unordered_map<kir::ForLoop*, kir::Val*> loop_to_ind_map;
 

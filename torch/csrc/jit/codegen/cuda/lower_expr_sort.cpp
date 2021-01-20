@@ -323,23 +323,27 @@ void ExprGroup::clearTraversalInfo() {
   payload()->merged = false;
 }
 
-std::ostream& operator<<(std::ostream& os, const ExprGroup* group) {
-  os << "g{";
-  for (size_t i = 0; i < group->exprs_.size(); i++) {
-    os << group->exprs_[i]->name();
-    if (i + 1 != group->exprs_.size())
-      os << ", ";
-  }
-  os << "}";
-  return os;
-}
+// Commenting as this is for debug and don't know how to suppress clang tidy
+// unused function
+//  std::ostream& operator<<(std::ostream& os, const ExprGroup*
+// group) {
+//   os << "g{";
+//   for (size_t i = 0; i < group->exprs_.size(); i++) {
+//     os << group->exprs_[i]->name();
+//     if (i + 1 != group->exprs_.size())
+//       os << ", ";
+//   }
+//   os << "}";
+//   return os;
+// }
 
-std::ostream& operator<<(
-    std::ostream& os,
-    const ExprGroupConnections* edge) { // NOLINT
-  os << "e{ " << edge->from_ << " -> " << edge->to_ << " }" << std::endl;
-  return os;
-}
+// Commenting as this is for debug and don't know how to suppress clang tidy
+// unused function
+// std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge)
+// {
+//   os << "e{ " << edge->from_ << " -> " << edge->to_ << " }" << std::endl;
+//   return os;
+// }
 
 void ExprSegmentationSorter::resetTraversal() {
   for (auto& group : groups) {
@@ -873,11 +877,12 @@ void ExprSegmentationSorter::sort() {
   }
 }
 
-std::ostream& operator<<(
-    std::ostream& os,
-    const ExprSegmentationSorter* scf) { // NOLINT
-  return os << scf->toString();
-}
+// Commenting as this is for debug and don't know how to suppress clang tidy
+// unused function
+// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf)
+// {
+//   return os << scf->toString();
+// }
 
 } // namespace
 

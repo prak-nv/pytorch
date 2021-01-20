@@ -330,7 +330,7 @@ void ComputeAtMap::build() {
       bool terminating_output = c_tv->isFusionOutput() && c_tv->uses().empty();
       if (terminating_output || mapping_mode_ == MappingMode::LOOP) {
         for (unsigned int c_i = 0; c_i < (unsigned int)c_tv->nDims(); c_i++) {
-          if (mapped_c_ids_left_of_ca.find(c_tv->axis(c_i)) !=
+          if (mapped_c_ids_left_of_ca.find(c_tv->axis((int)c_i)) !=
               mapped_c_ids_left_of_ca.end()) {
             max_mapped_id_pos = c_i + 1;
           }
@@ -378,7 +378,7 @@ void ComputeAtMap::build() {
   }
 
   // Populate concrete id map
-  for (auto set : disjoint_iter_sets_) {
+  for (const auto& set : disjoint_iter_sets_) {
     int max_pos = -1;
     IterDomain* concrete_id = nullptr;
     for (auto id : *set) {
