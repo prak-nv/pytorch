@@ -88,6 +88,10 @@ class ComputeAtMap {
  private:
   void mapIds(IterDomain* id0, IterDomain* id1);
 
+  //! Convert everything to lowered structures (kernel ir), as we will use
+  //! this class frequently during lowering.
+  void convertToKir();
+
  private:
   MappingMode mapping_mode_ = MappingMode::LOOP;
 

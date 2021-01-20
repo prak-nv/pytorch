@@ -402,11 +402,12 @@ void ComputeAtMap::build() {
     }
   }
 
-  // ===== CONVERSION TO KERNEL IR =========
+  convertToKir();
+}
 
-  // Convert everything to lowered structures (kernel ir), as we will use
-  // this class frequently during lowering.
-
+void ComputeAtMap::convertToKir() {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  TORCH_INTERNAL_ASSERT(fusion != nullptr);
   auto gpu_lower = GpuLower::current();
 
   std::unordered_map<
@@ -417,8 +418,9 @@ void ComputeAtMap::build() {
   for (const auto& disjoint_iter_set : disjoint_iter_set_maps_) {
     auto fusion_set = disjoint_iter_set.second;
     auto kir_set_it = disjoint_set_2_kir.find(fusion_set);
+    std::shared_ptr<std::deque<kir::IterDomain*>> kir_set;
     if (kir_set_it == disjoint_set_2_kir.end()) {
-      auto kir_set = std::make_shared<std::deque<kir::IterDomain*>>();
+      kir_set = std::make_shared<std::deque<kir::IterDomain*>>();
       std::transform(
           fusion_set->begin(),
           fusion_set->end(),
@@ -427,14 +429,12 @@ void ComputeAtMap::build() {
             return gpu_lower->lowerValue(id)->as<kir::IterDomain>();
           });
       disjoint_set_2_kir.emplace(std::make_pair(fusion_set, kir_set));
-      kir_disjoint_iter_set_maps_.emplace(std::make_pair(
-          gpu_lower->lowerValue(disjoint_iter_set.first)->as<kir::IterDomain>(),
-          kir_set));
     } else {
-      kir_disjoint_iter_set_maps_.emplace(std::make_pair(
-          gpu_lower->lowerValue(disjoint_iter_set.first)->as<kir::IterDomain>(),
-          kir_set_it->second));
+      kir_set = kir_set_it->second;
     }
+    kir_disjoint_iter_set_maps_.emplace(std::make_pair(
+        gpu_lower->lowerValue(disjoint_iter_set.first)->as<kir::IterDomain>(),
+        kir_set));
   }
 
   for (auto entry : concrete_id_map_) {
