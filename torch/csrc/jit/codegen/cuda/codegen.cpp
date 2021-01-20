@@ -114,7 +114,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
     // Do we have any reductions?
     const bool has_reductions = kernel_summary.has_block_reductions ||
-        kernel_summary.has_grid_reductions;
+        kernel_summary.number_of_grid_reductions > 0;
 
     // Shared memory
     if (has_dynamic_smem || has_reductions) {
@@ -375,7 +375,12 @@ class CudaKernelGenerator : private kir::IrVisitor {
           }
           code_ << " " << gen(node->rhs());
         } else {
-          code_ << " = " << op_type << "(\n";
+          if (integer_op_str(op_type) && isIntegralType(node->out()->dtype())) {
+            auto int_op = integer_op_str(op_type);
+            code_ << " = " << *int_op << "(\n";
+          } else {
+            code_ << " = " << op_type << "(\n";
+          }
           indent() << kTab << gen(node->lhs()) << ",\n";
           indent() << kTab << gen(node->rhs()) << ")";
         }

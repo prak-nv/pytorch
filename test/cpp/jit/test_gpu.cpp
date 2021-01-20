@@ -2903,15 +2903,14 @@ IValue gen_aten_operand(
       } else {
         return IValue(at::empty({blocks, threads}, options));
       }
-    } else if (desc.second == DataType::Int) {
+    } else if (desc.second == DataType::Int || desc.second == DataType::Int32) {
+      auto dtype = desc.second == DataType::Int32 ? at::kInt : at::kLong;
       if (rand) {
         auto options =
             at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-        return IValue(
-            at::randn({blocks, threads}, options).mul(5).to(at::kLong));
+        return IValue(at::randn({blocks, threads}, options).mul(5).to(dtype));
       } else {
-        auto options =
-            at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+        auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
         return IValue(at::empty({blocks, threads}, options));
       }
     } else if (desc.second == DataType::Bool) {
@@ -3120,7 +3119,7 @@ TEST(NVFuserTest, FusionUnaryOps_CUDA) {
         std::make_tuple(std::make_pair(ValType::TensorView, dtype)));
   }
 
-  dtypes = {DataType::Int, DataType::Bool};
+  dtypes = {DataType::Int, DataType::Int32, DataType::Bool};
   for (auto dtype : dtypes) {
     test_op(
         /*blocks*/ 128,
@@ -10632,15 +10631,15 @@ __global__ void kernel1(
         tmp_N,
         0.f,
         in,
-        (long) 1, 
+        (long) 1,
         &work_buf_M2[0],
         &work_buf_avg[0],
         &work_buf_N[0],
         sync_flag,
-        (float*)shared_buf_M2, 
+        (float*)shared_buf_M2,
         (float*)shared_buf_avg,
         (long*)shared_buf_N,
-        threadIdx.x<out_var.size[0], 
+        threadIdx.x<out_var.size[0],
         0.f);
     if(T_pred){
         out_var[threadIdx.x*out_var.stride[0]]=tmp_M2/tmp_N;
@@ -11545,6 +11544,43 @@ TEST(NVFuserTest, FusionTransposeWithSwizzle1DThreadBlock_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+// Grid reduction can be executed only once in a kernel. Should result
+// in an error at the time of compilation.
+TEST(NVFuserTest, FusionGridReductionInLoop_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  fusion.addOutput(tv1);
+
+  tv1->axis(1)->parallelize(ParallelType::BIDx);
+
+  FusionExecutor fe;
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion));
+}
+
+// Grid reduction can be executed only once in a kernel. Should result
+// in an error at the time of compilation.
+TEST(NVFuserTest, FusionMultipleGridReductions_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {0});
+  fusion.addOutput(tv1);
+  auto tv2 = sum(tv0, {0});
+  fusion.addOutput(tv2);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+
+  FusionExecutor fe;
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion));
 }
 
 } // namespace jit
