@@ -30,7 +30,16 @@ class ComputeAtMap {
   // depending on the loop nest structure and how it was built. Therefore we
   // really need to carry two sets of maps around for lowering.
   //
-  // TODO: Document parallel mode example.
+  // Parallel mode is important if we have something like:
+  // consumer[i0o, threadIdx.x{i0i}] = producer[i0o, threadIdx.y{i0i}](computeAt
+  // = 1) which can easily happen when using shared memory. We want to make sure
+  // that the iteration domain used for loop construction (concreteId) has the
+  // proper parallelization strategy. In parallel mode we do typical iteration
+  // domain mapping, however we remove from it any iteration domains outside the
+  // computeAt of producer when mapping. This guarentees we won't map
+  // IterDomains that could have different parallelization strategies. We also
+  // propagate the parallel strategy in parallel mode so all mapped IDs that
+  // must have the same parallel type, do.
   enum class MappingMode { PARALLEL, LOOP, INDEX };
 
   ComputeAtMap() = default;
@@ -115,7 +124,7 @@ class ComputeAtMap {
   std::unordered_map<kir::IterDomain*, kir::IterDomain*> kir_concrete_id_map_;
 
   // Map kir::IterDomain* back to the fusion IR IterDomain*.
-  // TODO: This should be removed!
+  // TODO: Would be great if we didn't need this.
   std::unordered_map<kir::IterDomain*, IterDomain*> kir_2_fusion;
 };
 

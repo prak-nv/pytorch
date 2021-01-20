@@ -201,8 +201,6 @@ class AllocationInserter : public kir::MutableIrVisitor {
           continue;
         }
       }
-      // TODO: Is this correct? Should allocations be based off of concrete
-      // sizes?
       alloc_dims.push_back(
           gpu_lower->caIndexMap().getConcreteMappedID(local_id)->rawExtent());
     }
