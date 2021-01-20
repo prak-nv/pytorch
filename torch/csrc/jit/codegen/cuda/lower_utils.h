@@ -105,7 +105,7 @@ namespace loop_utils {
 std::pair<kir::ForLoop*, int64_t> getAllocPoint(
     const TensorView* tv,
     const std::vector<kir::ForLoop*>& loops,
-    std::unordered_map<IterDomain*, IterDomain*> id_map,
+    const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map);
 
 std::pair<kir::ForLoop*, int64_t> getAllocPoint(

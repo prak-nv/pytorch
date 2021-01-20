@@ -108,7 +108,7 @@ std::deque<T*> deduplicateDeque(const std::deque<T*>& deque) {
 
 } // namespace
 
-void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
+void ComputeAtMap::mapIds(IterDomain* id0, IterDomain* id1) {
   auto set_it_0 = disjoint_iter_set_maps_.find(id0);
   auto set_it_1 = disjoint_iter_set_maps_.find(id1);
   if (set_it_0 == disjoint_iter_set_maps_.end() &&
@@ -302,7 +302,7 @@ void ComputeAtMap::build() {
             continue;
           }
           // Map the id's together
-          map_ids(p_id, c_id);
+          mapIds(p_id, c_id);
           p2c_map[p_id] = c_id;
         }
 
@@ -465,7 +465,7 @@ void ComputeAtMap::build() {
   }
 
   for (const auto& entry : disjoint_iter_set_maps_) {
-    kir_2_fusion[gpu_lower->lowerValue(entry.first)->as<kir::IterDomain>()] =
+    kir_2_fusion_[gpu_lower->lowerValue(entry.first)->as<kir::IterDomain>()] =
         entry.first;
   }
 
@@ -479,7 +479,7 @@ void ComputeAtMap::build() {
 
     for (auto out : tv_outputs) {
       for (auto entry : out->domain()->domain()) {
-        kir_2_fusion[gpu_lower->lowerValue(entry)->as<kir::IterDomain>()] =
+        kir_2_fusion_[gpu_lower->lowerValue(entry)->as<kir::IterDomain>()] =
             entry;
       }
     }
@@ -487,8 +487,9 @@ void ComputeAtMap::build() {
 }
 
 bool ComputeAtMap::areMapped(IterDomain* id0, IterDomain* id1) const {
-  if (id0 == id1)
+  if (id0 == id1) {
     return true;
+  }
   auto set0_it = disjoint_iter_set_maps_.find(id0);
   auto set1_it = disjoint_iter_set_maps_.find(id1);
   if (set0_it == disjoint_iter_set_maps_.end() ||
@@ -499,8 +500,9 @@ bool ComputeAtMap::areMapped(IterDomain* id0, IterDomain* id1) const {
 }
 
 bool ComputeAtMap::areMapped(kir::IterDomain* id0, kir::IterDomain* id1) const {
-  if (id0 == id1)
+  if (id0 == id1) {
     return true;
+  }
   auto set0_it = kir_disjoint_iter_set_maps_.find(id0);
   auto set1_it = kir_disjoint_iter_set_maps_.find(id1);
   if (set0_it == kir_disjoint_iter_set_maps_.end() ||
@@ -527,9 +529,9 @@ kir::IterDomain* ComputeAtMap::getConcreteMappedID(kir::IterDomain* id) const {
 }
 
 IterDomain* ComputeAtMap::toFusion(kir::IterDomain* kir) const {
-  auto kir_2_fusion_it = kir_2_fusion.find(kir);
+  auto kir_2_fusion_it = kir_2_fusion_.find(kir);
   TORCH_INTERNAL_ASSERT(
-      kir_2_fusion_it != kir_2_fusion.end(),
+      kir_2_fusion_it != kir_2_fusion_.end(),
       "Kernel ir is not guarneteed to be reversible into fusion ir, could not find fusion entry.");
   return kir_2_fusion_it->second;
 }

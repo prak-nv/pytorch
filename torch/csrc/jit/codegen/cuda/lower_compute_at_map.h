@@ -48,7 +48,6 @@ class ComputeAtMap {
   void build();
 
   // Returns the position in tv->domain() that the buffer should be computed at
-  // / stored at
   unsigned int producedAt(TensorView* tv) const {
     auto produce_at_it = produce_at_map_.find(tv);
     TORCH_INTERNAL_ASSERT(
@@ -59,7 +58,6 @@ class ComputeAtMap {
   }
 
   // Returns the position in tv->domain() that the buffer should be computed at
-  // / stored at
   unsigned int producedAt(kir::TensorView* tv) const {
     return producedAt(tv->fuserTv());
   }
@@ -88,11 +86,11 @@ class ComputeAtMap {
   std::string toString();
 
  private:
-  void map_ids(IterDomain* id0, IterDomain* id1);
-
-  MappingMode mapping_mode_ = MappingMode::LOOP;
+  void mapIds(IterDomain* id0, IterDomain* id1);
 
  private:
+  MappingMode mapping_mode_ = MappingMode::LOOP;
+
   // This is actually only used when mapping mode == LOOP. Only used in expr
   // sorting, it's actually maximum position where a loop is shared across any
   // neighbor.
@@ -125,7 +123,7 @@ class ComputeAtMap {
 
   // Map kir::IterDomain* back to the fusion IR IterDomain*.
   // TODO: Would be great if we didn't need this.
-  std::unordered_map<kir::IterDomain*, IterDomain*> kir_2_fusion;
+  std::unordered_map<kir::IterDomain*, IterDomain*> kir_2_fusion_;
 };
 
 } // namespace cuda

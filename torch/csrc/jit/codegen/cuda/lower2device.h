@@ -39,15 +39,15 @@ class TORCH_CUDA_API GpuLower {
   static GpuLower* current();
 
   const ComputeAtMap& caLoopMap() const {
-    return ca_loop_map;
+    return ca_loop_map_;
   }
 
   const ComputeAtMap& caIndexMap() const {
-    return ca_index_map;
+    return ca_index_map_;
   }
 
   const ComputeAtMap& caParallelMap() const {
-    return ca_parallel_map;
+    return ca_parallel_map_;
   }
 
  private:
@@ -70,9 +70,9 @@ class TORCH_CUDA_API GpuLower {
   std::unordered_map<const Expr*, kir::Expr*> kir_expr_map_;
 
   // Some stateful information during lowering
-  ComputeAtMap ca_loop_map;
-  ComputeAtMap ca_index_map;
-  ComputeAtMap ca_parallel_map;
+  ComputeAtMap ca_loop_map_;
+  ComputeAtMap ca_index_map_;
+  ComputeAtMap ca_parallel_map_;
 
   Fusion* fusion_ = nullptr;
 };
