@@ -111,22 +111,19 @@ void GpuLower::lower() {
 
   // In the future we may directly use this map, but for now it will propagate
   // and validate (to some extent) the parallelization strategy.
-  // TODO: Does this have to go before the next mapping?
-  // :: first time nodes will be lowered so kir nodes are generated here.
-  // :: Meaning we have to hit the right parallel strategy before lowing
+  // This is the first time nodes will be lowered to kir nodes. Since for now we
+  // propagate the parallel strategy in some instances, we need to do it before
+  // lowering.
   ca_parallel_map = ComputeAtMap(ComputeAtMap::MappingMode::PARALLEL);
   ca_parallel_map.build();
-  // std::cout << "Parallel map: " << ca_parallel_map.toString() << std::endl;
 
   // Generate mappings to generate indices
   ca_index_map = ComputeAtMap(ComputeAtMap::MappingMode::INDEX);
   ca_index_map.build();
-  // std::cout<<"Index map: "<<ca_index_map.toString()<<std::endl;
 
   // Generate mappings to generate and map to loop nests
   ca_loop_map = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
   ca_loop_map.build();
-  // std::cout<<"Loop map: "<<ca_loop_map.toString()<<std::endl;
 
   // Set the kernel inputs & outputs
   for (auto input : fusion_->inputs()) {

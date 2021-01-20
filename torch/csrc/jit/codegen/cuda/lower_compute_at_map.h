@@ -61,28 +61,6 @@ class ComputeAtMap {
 
   bool areMapped(kir::IterDomain* id0, kir::IterDomain* id1) const;
 
-  //! Returns an iter domain that is parallelized that the provided iter domain
-  //! is mapped to. If no parallelized iter domain exists, returns provided iter
-  //! domain.
-  ParallelType getMappedParallelType(IterDomain* id) const;
-
-  ParallelType getMappedParallelType(kir::IterDomain* id) const;
-
-  // // Using concrete mapped IDs map the IterDomains in the provided vectors
-  // std::unordered_map<IterDomain*, IterDomain*> mapFromTo(
-  //     const std::vector<IterDomain*>& from,
-  //     const std::vector<IterDomain*>& to) const;
-
-  // std::unordered_map<kir::IterDomain*, kir::IterDomain*> mapFromTo(
-  //     const std::vector<kir::IterDomain*>& from,
-  //     const std::vector<kir::IterDomain*>& to) const;
-
-  // TODO: This is terrible, but we have nice functionality in iter_visitor that
-  // isn't moved over. Use of this is limited to indexing and this should
-  // definitely be removed by building out kernel ir to have better parity with
-  // fusion ir.
-  IterDomain* toFusion(kir::IterDomain* kir) const;
-
   //! Returns an iter domain that is the maximum expanded size of all iter
   //! domains the one provided maps to. Useful for opening loops to the correct
   //! iteration size. Not guarenteed to return the same ID every call, but is
@@ -90,6 +68,12 @@ class ComputeAtMap {
   IterDomain* getConcreteMappedID(IterDomain* id) const;
 
   kir::IterDomain* getConcreteMappedID(kir::IterDomain* id) const;
+
+  // TODO: Would be great if we didn't need this, but we have nice functionality
+  // in iter_visitor that isn't moved over. Use of this is limited to indexing
+  // and this should definitely be removed by building out kernel ir to have
+  // better parity with fusion ir.
+  IterDomain* toFusion(kir::IterDomain* kir) const;
 
   // Prints mapping information via Fusion IR
   std::string toString();
@@ -100,6 +84,9 @@ class ComputeAtMap {
   MappingMode mapping_mode_ = MappingMode::LOOP;
 
  private:
+  // This is actually only used when mapping mode == LOOP. Only used in expr
+  // sorting, it's actually maximum position where a loop is shared across any
+  // neighbor.
   std::unordered_map<TensorView*, int> produce_at_map_;
 
   // Disjoint sets of iter domains, only defined if iter domain is within
@@ -118,13 +105,8 @@ class ComputeAtMap {
 
   // Tracks if there's a parallel iter domain associated a disjoint iter domain
   // set
-  // TODO: Use shared_pointer instead of pointer to the unordered maps
   std::unordered_map<std::shared_ptr<std::deque<IterDomain*>>, ParallelType>
       parallel_type_map_;
-
-  std::
-      unordered_map<std::shared_ptr<std::deque<kir::IterDomain*>>, ParallelType>
-          kir_parallel_type_map_;
 
   // For each IterDomain set we will track how many concrete root domains were
   // used to generate the IterDomain

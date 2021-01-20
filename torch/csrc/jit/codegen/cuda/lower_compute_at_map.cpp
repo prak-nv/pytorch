@@ -91,6 +91,7 @@ class ConcreteInputCounter : public IterVisitor {
       concrete_domain_set_;
 };
 
+// Only used once, consider removing.
 template <class T>
 std::deque<T*> deduplicateDeque(std::deque<T*>& deque) {
   std::unordered_set<T*> used;
@@ -166,8 +167,9 @@ void ComputeAtMap::map_ids(IterDomain* id0, IterDomain* id1) {
       } else if (parallel_type_1_it != parallel_type_map_.end()) {
         // Set 1 has a parallel type, set 0 does not, set parallel entry
         parallel_type_map_[set0_ptr] = parallel_type_1_it->second;
-      } // Else set 0 already has the right parallel type set in the map, if at
-        // all
+      }
+      // Else set 0 already has the right parallel type set in the map, if at
+      // all
 
       // Remove set1 from the parallel type map as it shouldn't exist anymore
       parallel_type_map_.erase(set1_ptr);
@@ -234,108 +236,107 @@ void ComputeAtMap::build() {
       continue;
     }
 
-    // TODO: Do we need to map all output tensors if more than one, or just the
-    // first? For indexing we may need all of them mapped. Do we expect all
-    // other outputs to be replayed as the first or should we do it?
-    auto c_tv = expr->outputs()[0]->as<TensorView>();
-    consumer_tvs.push_back(c_tv);
-    // Iteration domains that mapped from producers into the consumer that were
-    // to the left of respective producer->getThisComputeAtPos in the producers
-    std::unordered_set<IterDomain*> mapped_c_ids_left_of_ca;
+    auto tv_outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    for (auto c_tv : tv_outputs) {
+      consumer_tvs.push_back(c_tv);
+      // Iteration domains that mapped from producers into the consumer that
+      // were to the left of respective producer->getThisComputeAtPos in the
+      // producers
+      std::unordered_set<IterDomain*> mapped_c_ids_left_of_ca;
 
-    auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+      auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
-    for (auto p_tv : tv_inputs) {
-      // If outside computeAt axis, we don't want to directly map
-      // consumer/producer as their thread mappings could change as long as it's
-      // across shared/global memory.
-      // TODO: Make better consistency checks allowing this when not acros
-      // shared/global memory and looking for consistency.
+      for (auto p_tv : tv_inputs) {
+        // If outside computeAt axis, we don't want to directly map
+        // consumer/producer as their thread mappings could change as long as
+        // it's across shared/global memory.
 
-      // Mark axes outside compute at point for parallel type tracking
-      std::unordered_set<IterDomain*> right_of_ca_point;
-      if (mapping_mode_ == MappingMode::PARALLEL &&
-          p_tv->getThisComputeAtAxis() < p_tv->nDims()) {
-        right_of_ca_point.insert(
-            p_tv->domain()->domain().begin() + p_tv->getThisComputeAtAxis(),
-            p_tv->domain()->domain().end());
-      }
-      // if this is a producer tv, (i.e. not a terminating output tv), then
-      // produce at is the same as this compute at position. Loop mode does
-      // its own thing, see below in this function.
-      if (mapping_mode_ != MappingMode::LOOP) {
-        produce_at_map_[p_tv] = p_tv->getThisComputeAtAxis();
-      }
-
-      auto c2p_root_map =
-          PairwiseRootDomainMap(p_tv, c_tv)
-              .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
-
-      // Look for matching ID transformations in producer and consumer, replay
-      // producer as consumer. We want to play producer as consumer instead of
-      // the other way around since consumer may have some broadcasted axes
-      // producer doesn't have merged into loops producer may use. If we did
-      // consumer as producer we wouldn't have this information in the mapping.
-      // If we're using this map for indexing, we do not want to propagate
-      // broadcast mismatches. If we're using it to identify loop nests, we do
-      // want to propagate mismatches.
-      BestEffortReplay replay_PasC(
-          p_tv->domain()->domain(),
-          c_tv->domain()->domain(),
-          c2p_root_map,
-          mapping_mode_ == MappingMode::LOOP);
-
-      auto c2p_map = replay_PasC.getReplay();
-
-      // Map the entire replay map
-      // Also reverse the map, as we use p2c_map to find this computeAt position
-      // in consumer. This could be removed if we changed computeAt of
-      // TensorViews
-      std::unordered_map<IterDomain*, IterDomain*> p2c_map;
-      for (auto entry : c2p_map) {
-        auto c_id = entry.first;
-        auto p_id = entry.second;
-        // If outside CA point and we're creating parallel map, do not map the
-        // axis
+        // Mark axes outside compute at point for parallel type tracking
+        std::unordered_set<IterDomain*> right_of_ca_point;
         if (mapping_mode_ == MappingMode::PARALLEL &&
-            right_of_ca_point.find(p_id) != right_of_ca_point.end()) {
-          continue;
+            p_tv->getThisComputeAtAxis() < p_tv->nDims()) {
+          right_of_ca_point.insert(
+              p_tv->domain()->domain().begin() + p_tv->getThisComputeAtAxis(),
+              p_tv->domain()->domain().end());
         }
-        // Map the id's together
-        map_ids(p_id, c_id);
-        p2c_map[p_id] = c_id;
+        // if this is a producer tv, (i.e. not a terminating output tv), then
+        // produce at is the same as this compute at position. Loop mode does
+        // its own thing, see below in this function.
+        if (mapping_mode_ != MappingMode::LOOP) {
+          produce_at_map_[p_tv] = p_tv->getThisComputeAtAxis();
+        }
+
+        auto c2p_root_map =
+            PairwiseRootDomainMap(p_tv, c_tv)
+                .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
+
+        // Look for matching ID transformations in producer and consumer, replay
+        // producer as consumer. We want to play producer as consumer instead of
+        // the other way around since consumer may have some broadcasted axes
+        // producer doesn't have merged into loops producer may use. If we did
+        // consumer as producer we wouldn't have this information in the
+        // mapping. If we're using this map for indexing, we do not want to
+        // propagate broadcast mismatches. If we're using it to identify loop
+        // nests, we do want to propagate mismatches.
+        BestEffortReplay replay_PasC(
+            p_tv->domain()->domain(),
+            c_tv->domain()->domain(),
+            c2p_root_map,
+            mapping_mode_ == MappingMode::LOOP);
+
+        auto c2p_map = replay_PasC.getReplay();
+
+        // Map the entire replay map
+        // Also reverse the map, as we use p2c_map to find this computeAt
+        // position in consumer. This could be removed if we changed computeAt
+        // of TensorViews
+        std::unordered_map<IterDomain*, IterDomain*> p2c_map;
+        for (auto entry : c2p_map) {
+          auto c_id = entry.first;
+          auto p_id = entry.second;
+          // If outside CA point and we're creating parallel map, do not map the
+          // axis
+          if (mapping_mode_ == MappingMode::PARALLEL &&
+              right_of_ca_point.find(p_id) != right_of_ca_point.end()) {
+            continue;
+          }
+          // Map the id's together
+          map_ids(p_id, c_id);
+          p2c_map[p_id] = c_id;
+        }
+
+        // Track which id's in the consumer are mapped to from within the
+        // producer compute at position
+        for (size_t p_id_i = 0; p_id_i < p_tv->getThisComputeAtAxis();
+             p_id_i++) {
+          auto p_id = p_tv->axis(p_id_i);
+          auto c_id_it = p2c_map.find(p_id);
+          if (c_id_it != p2c_map.end()) {
+            auto c_id = c_id_it->second;
+            mapped_c_ids_left_of_ca.emplace(c_id);
+          }
+        }
       }
 
-      // Track which id's in the consumer are mapped to from within the producer
-      // compute at position
-      for (size_t p_id_i = 0; p_id_i < p_tv->getThisComputeAtAxis(); p_id_i++) {
-        auto p_id = p_tv->axis(p_id_i);
-        auto c_id_it = p2c_map.find(p_id);
-        if (c_id_it != p2c_map.end()) {
-          auto c_id = c_id_it->second;
-          mapped_c_ids_left_of_ca.emplace(c_id);
+      // For expression sorting we want to know the maximum iteration domain
+      // that we might have to map with producers. Consider a simple consumer
+      // with this compute at position as 1, but a producer who's compute at
+      // position maps to the consumers position 2, we need to exprSort starting
+      // with both positions in the consumer available to map to neighbors. We
+      // produce this special produce_at_map in loop mode. Pos is like compute
+      // at position, one above last thing that mapped.
+      int max_mapped_id_pos = 0;
+      bool terminating_output = c_tv->isFusionOutput() && c_tv->uses().empty();
+      if (terminating_output || mapping_mode_ == MappingMode::LOOP) {
+        for (size_t c_i = 0; c_i < c_tv->nDims(); c_i++) {
+          if (mapped_c_ids_left_of_ca.find(c_tv->axis(c_i)) !=
+              mapped_c_ids_left_of_ca.end()) {
+            max_mapped_id_pos = c_i + 1;
+          }
         }
+        produce_at_map_[c_tv] =
+            std::max(max_mapped_id_pos, (int)c_tv->getThisComputeAtAxis());
       }
-    }
-
-    // For expression sorting we want to know the maximum iteration domain that
-    // we might have to map with producers. Consider a simple consumer with this
-    // compute at position as 1, but a producer who's compute at position maps
-    // to the consumers position 2, we need to exprSort starting with both
-    // positions in the consumer available to map to neighbors. We produce this
-    // special produce_at_map in loop mode. Pos is like compute at position, one
-    // above last thing that mapped.
-    int max_mapped_id_pos = 0;
-    bool terminating_output = c_tv->isFusionOutput() && c_tv->uses().empty();
-    if (terminating_output || mapping_mode_ == MappingMode::LOOP) {
-      for (size_t c_i = 0; c_i < c_tv->nDims(); c_i++) {
-        if (mapped_c_ids_left_of_ca.find(c_tv->axis(c_i)) !=
-            mapped_c_ids_left_of_ca.end()) {
-          max_mapped_id_pos = c_i + 1;
-        }
-      }
-      produce_at_map_[c_tv] =
-          std::max(max_mapped_id_pos, (int)c_tv->getThisComputeAtAxis());
     }
   }
 
@@ -382,7 +383,6 @@ void ComputeAtMap::build() {
     for (auto id : *set) {
       // Uncertain if the following is needed, Maybe it makes sense to not
       // create loop nests based on rfactor axes if we can avoid it
-      // // Don't use rfactor iter domains if not required.
       // if(id->isRFactorProduct() && id->definition() == nullptr){
       //   continue;
       // }
@@ -457,12 +457,6 @@ void ComputeAtMap::build() {
     }
   }
 
-  for (auto entry : parallel_type_map_) {
-    auto fusion_set = entry.first;
-    auto kir_set = disjoint_set_2_kir.at(fusion_set);
-    kir_parallel_type_map_.emplace(std::make_pair(kir_set, entry.second));
-  }
-
   for (auto entry : concrete_id_map_) {
     kir_concrete_id_map_.emplace(std::make_pair(
         gpu_lower->lowerValue(entry.first)->as<kir::IterDomain>(),
@@ -531,85 +525,6 @@ kir::IterDomain* ComputeAtMap::getConcreteMappedID(kir::IterDomain* id) const {
   return id;
 }
 
-ParallelType ComputeAtMap::getMappedParallelType(IterDomain* id) const {
-  TORCH_INTERNAL_ASSERT(
-      mapping_mode_ == MappingMode::PARALLEL,
-      "Need to restrict mode to parallel mode to use this function.");
-  auto disjoint_set_it = disjoint_iter_set_maps_.find(id);
-  if (disjoint_set_it == disjoint_iter_set_maps_.end()) {
-    return id->getParallelType();
-  }
-  auto parallel_type_it = parallel_type_map_.find(disjoint_set_it->second);
-  if (parallel_type_it == parallel_type_map_.end()) {
-    return id->getParallelType();
-  }
-  return parallel_type_it->second;
-}
-
-ParallelType ComputeAtMap::getMappedParallelType(kir::IterDomain* id) const {
-  TORCH_INTERNAL_ASSERT(
-      mapping_mode_ == MappingMode::PARALLEL,
-      "Need to restrict mode to parallel mode to use this function.");
-  auto disjoint_set_it = kir_disjoint_iter_set_maps_.find(id);
-  if (disjoint_set_it == kir_disjoint_iter_set_maps_.end()) {
-    return id->parallelType();
-  }
-  auto parallel_type_it = kir_parallel_type_map_.find(disjoint_set_it->second);
-  if (parallel_type_it == kir_parallel_type_map_.end()) {
-    return id->parallelType();
-  }
-  return parallel_type_it->second;
-}
-
-// std::unordered_map<IterDomain*, IterDomain*> ComputeAtMap::mapFromTo(
-//     const std::vector<IterDomain*>& from,
-//     const std::vector<IterDomain*>& to) const {
-//   std::unordered_map<IterDomain*, IterDomain*> concrete_to_from;
-//   for (auto from_id : from) {
-//     auto concrete_id = getConcreteMappedID(from_id);
-//     concrete_to_from[concrete_id] = from_id;
-//   }
-
-//   std::unordered_map<IterDomain*, IterDomain*> from_to_to;
-//   for(auto to_id : to){
-//     auto concrete_id = getConcreteMappedID(to_id);
-
-//     auto from_it = concrete_to_from.find(concrete_id);
-//     if(from_it == concrete_to_from.end()){
-//       continue;
-//     }
-
-//     from_to_to[from_it->second] = to_id;
-//   }
-
-//   return from_to_to;
-// }
-
-// std::unordered_map<kir::IterDomain*, kir::IterDomain*>
-// ComputeAtMap::mapFromTo(
-//     const std::vector<kir::IterDomain*>& from,
-//     const std::vector<kir::IterDomain*>& to) const {
-//   std::unordered_map<kir::IterDomain*, kir::IterDomain*> concrete_to_from;
-//   for (auto from_id : from) {
-//     auto concrete_id = getConcreteMappedID(from_id);
-//     concrete_to_from[concrete_id] = from_id;
-//   }
-
-//   std::unordered_map<kir::IterDomain*, kir::IterDomain*> from_to_to;
-//   for (auto to_id : to) {
-//     auto concrete_id = getConcreteMappedID(to_id);
-
-//     auto from_it = concrete_to_from.find(concrete_id);
-//     if (from_it == concrete_to_from.end()) {
-//       continue;
-//     }
-
-//     from_to_to[from_it->second] = to_id;
-//   }
-
-//   return from_to_to;
-// }
-
 IterDomain* ComputeAtMap::toFusion(kir::IterDomain* kir) const {
   auto kir_2_fusion_it = kir_2_fusion.find(kir);
   TORCH_INTERNAL_ASSERT(
@@ -627,7 +542,8 @@ std::string ComputeAtMap::toString() {
   }
   ss << "} end produce_at_map_\n";
 
-  // TODO: Fix this iteration to loop over our deque
+  // We may not have cleaned up non active sets as this is intended for debug,
+  // so first grab unique entries and iterate over them.
   std::unordered_set<std::shared_ptr<std::deque<IterDomain*>>> disjoint_sets;
 
   for (auto entry : disjoint_iter_set_maps_) {
