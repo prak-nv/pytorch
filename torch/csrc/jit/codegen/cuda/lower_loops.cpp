@@ -113,8 +113,6 @@ void LoopNestGenerator::handle(const Expr* expr) {
 
   TensorView* out_tv = expr->output(0)->as<TensorView>();
 
-  // std::cout<<"Processing: "<<out_tv<<std::endl;
-
   // Figure out what the entire loop structure should look like.
   std::deque<IterDomain*> loop_structure;
 
@@ -127,15 +125,6 @@ void LoopNestGenerator::handle(const Expr* expr) {
         gpu_lower->caParallelMap().getConcreteMappedID(out_tv->axis(out_i));
     loop_structure.push_back(concrete_id);
   }
-
-  // std::cout<<"For: "<<out_tv<<" loop structure should be:\n  ";
-  // for(auto id : loop_structure){
-  //   std::cout<<id<<", ";
-  // }
-  // std::cout<<"it is:\n  "<<std::endl;
-  // for(auto fl : for_loops_){
-  //   std::cout<<toString(fl->iter_domain(), false)<<", ";
-  // }std::cout<<std::endl;
 
   auto out_id_it = loop_structure.begin();
   auto for_loop_it = for_loops_.begin();
@@ -173,13 +162,10 @@ void LoopNestGenerator::handle(const Expr* expr) {
       std::distance(last_for_loop_matched, for_loops_.end());
 
   for (size_t i = 0; i < n_loops_to_close; i++) {
-    // std::cout<<"Close"<<std::endl;
     closeFor();
   }
 
-  // std::cout << out_tv << std::endl;
   for (; out_id_it != loop_structure.end(); ++out_id_it) {
-    // std::cout << "Open: " << (*out_id_it) << std::endl;
     openFor(*out_id_it);
   }
 
