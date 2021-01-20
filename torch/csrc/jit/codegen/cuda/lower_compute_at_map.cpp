@@ -176,50 +176,29 @@ void ComputeAtMap::mapIds(IterDomain* id0, IterDomain* id1) {
       parallel_type_map_.erase(set1_ptr);
     }
 
-  } else if (set_it_0 != disjoint_iter_set_maps_.end()) {
-    // set0 already exists but set1 does not, use set0
-    auto set0 = set_it_0->second;
-    set0->push_back(id1);
-    disjoint_iter_set_maps_[id1] = set0;
-
-    // Update parallel type map
-    if (mapping_mode_ == MappingMode::PARALLEL) {
-      auto parallel_type_0_it = parallel_type_map_.find(set0);
-      if (parallel_type_0_it != parallel_type_map_.end() &&
-          id1->isParallelized()) {
-        // set0 has a parallel type already and id1 has a parallel type, make
-        // sure they match. No need to update map
-        TORCH_INTERNAL_ASSERT(
-            parallel_type_0_it->second == id1->getParallelType());
-      } else if (
-          parallel_type_0_it == parallel_type_map_.end() &&
-          id1->isParallelized()) {
-        // Set parallel type of set0 as the newly added id1 is parallel
-        parallel_type_map_[set0] = id1->getParallelType();
-      }
-    }
-
   } else {
-    // set1 already exists but set0 does not, use set1
-    auto set1 = set_it_1->second;
-    set1->push_back(id0);
-    disjoint_iter_set_maps_[id0] = set1;
+    auto existing_set = set_it_0 != disjoint_iter_set_maps_.end()
+        ? set_it_0->second
+        : set_it_1->second;
+    auto missing_id = set_it_0 != disjoint_iter_set_maps_.end() ? id1 : id0;
+    existing_set->push_back(missing_id);
+    disjoint_iter_set_maps_[missing_id] = existing_set;
 
     // Update parallel type map
     if (mapping_mode_ == MappingMode::PARALLEL) {
-      auto parallel_type_1_it = parallel_type_map_.find(set1);
-      if (parallel_type_1_it != parallel_type_map_.end() &&
-          id0->isParallelized()) {
-        // Set1 already has a parallel type and id0 has a parallel type make
-        // sure they match
+      auto parallel_type_it = parallel_type_map_.find(existing_set);
+      if (parallel_type_it != parallel_type_map_.end() &&
+          missing_id->isParallelized()) {
+        // existing_set has a parallel type already and missing_id has a
+        // parallel type, make sure they match. No need to update map
         TORCH_INTERNAL_ASSERT(
-            parallel_type_1_it->second == id0->getParallelType());
+            parallel_type_it->second == missing_id->getParallelType());
       } else if (
-          parallel_type_1_it == parallel_type_map_.end() &&
-          id0->isParallelized()) {
-        // Set1 doesn't have a parallel type but the newly added id0 has a
-        // parallel type
-        parallel_type_map_[set1] = id0->getParallelType();
+          parallel_type_it == parallel_type_map_.end() &&
+          id1->isParallelized()) {
+        // Set parallel type of existing_set as the newly added missing_id is
+        // parallel
+        parallel_type_map_[existing_set] = missing_id->getParallelType();
       }
     }
   }
