@@ -68,8 +68,7 @@ void IrPrinter::handle(const TensorView* tv) {
     if (tv->getComputeAtView() != nullptr) {
       os_ << " compute_at( ";
       os_ << "T" << tv->getComputeAtView()->name();
-      os_ << ", " << tv->getThisComputeAtAxis() << "/"
-          << tv->getRelativeComputeAtAxis() << " )";
+      os_ << ", " << tv->getRelativeComputeAtAxis() << " )";
     }
   }
 }
@@ -83,7 +82,7 @@ void IrPrinter::handle(const IterDomain* id) {
     print_inline(id->start());
     os_ << " : ";
   }
-  print_inline(id->rawExtent());
+  print_inline(id->extent());
   os_ << "}";
   if (id->isRFactorProduct())
     os_ << "rf";

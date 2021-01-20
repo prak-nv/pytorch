@@ -1,7 +1,6 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
-#include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/type.h>
 
 #include <utility>
@@ -80,7 +79,7 @@ std::string IrPrinter::gen(const kir::Node* node, bool top_level) {
 
   // If we're generatign a top level statement we expect to start
   // with an empty set of uses
-  TORCH_INTERNAL_ASSERT(!implicit_definition_ || uses_.empty() || !top_level);
+  TORCH_INTERNAL_ASSERT(uses_.empty() || !top_level);
 
   // Mark the node as generated
   visited_.insert(node);
@@ -90,9 +89,7 @@ std::string IrPrinter::gen(const kir::Node* node, bool top_level) {
   std::swap(node_str, ir_str_);
   node->accept(this);
   std::swap(node_str, ir_str_);
-  if (!implicit_definition_) {
-    return node_str.str();
-  }
+
   if (top_level) {
     // Implicitly mark top level nodes as used, so we
     // get their definitions printed (useful for debugging)
@@ -210,8 +207,7 @@ void IrPrinter::visit(const kir::TensorDomain*) {
 
 void IrPrinter::visit(const kir::TensorView* node) {
   // TODO(kir): print memory type too?
-  // ir_str_ << varName(node, "T");
-  ir_str_ << node->fuserTv();
+  ir_str_ << varName(node, "T");
 }
 
 void IrPrinter::visit(const kir::UnaryOp* node) {
@@ -340,21 +336,10 @@ void IrPrinter::visit(const kir::Sync* node) {
            << ")\n";
 }
 
-std::string toString(const kir::Node* stmt, bool implicit_definitions) {
+std::string toString(const kir::Node* stmt) {
   std::stringstream ss;
-  IrPrinter ir_printer(ss, implicit_definitions);
+  IrPrinter ir_printer(ss);
   ir_printer.printNode(stmt);
-  return ss.str();
-}
-
-std::string toString(
-    const std::vector<kir::Expr*>& exprs,
-    bool implicit_definitions) {
-  std::stringstream ss;
-  IrPrinter ir_printer(ss, implicit_definitions);
-  for (auto expr : exprs) {
-    ir_printer.printNode(expr);
-  }
   return ss.str();
 }
 
