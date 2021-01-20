@@ -577,9 +577,7 @@ void InputsOf::handle(Val* v) {
 }
 
 std::unordered_set<Val*> InputsOf::output(Fusion* fusion, Val* output_) {
-  InputsOf io;
-  io.traverseFrom(fusion, {output_}, false);
-  return io.inputs;
+  return outputs(fusion, {output_});
 }
 
 std::unordered_set<Val*> InputsOf::outputs(
