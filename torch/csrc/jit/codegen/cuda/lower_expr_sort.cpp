@@ -79,13 +79,14 @@ class ExprSortPayload : public PolymorphicBase {
   // Theorem 4.2
   int level = -1;
 
-  // traversal marker, has this node already been processed
+  // Traversal marker, marks if this group has been visited by current pass
   bool visited = false;
 
-  // Did we select another group to merge with
+  // Marks if this group is already selected to merge with another group, marks
+  // which group to merge with
   ExprGroup* merge_with = nullptr;
 
-  // Has this node been merged?
+  // Marks if this group is already selected to merge with another group
   bool merged = false;
 };
 
@@ -107,17 +108,15 @@ class ExprGroup {
     return *this;
   }
 
+  // Clears the traversal information in the payload
   void clearTraversalInfo();
 
+  // Returns all neighbors, producers and consumers
   std::vector<ExprGroup*> getNeighbors();
 
   // Look at all neighbors of this and return who this could merge with based on
   // level values of this, neighbors, and merged neighbors of neighbors
   std::vector<ExprGroup*> getMergeCandidates();
-
-  // Doesn't have any producer edges mapped to an Expr, they're all inputs of
-  // the original fusion.
-  bool isInputGroup();
 
   std::unique_ptr<ExprSortPayload>& payload() {
     return payload_;
@@ -136,7 +135,7 @@ class ExprGroup {
   // Exprs that make up the group
   std::vector<Expr*> exprs_;
 
-  // ==== Stateful traversal information below ====
+  // Stateful traversal information
   std::unique_ptr<ExprSortPayload> payload_;
 };
 
@@ -144,11 +143,9 @@ std::ostream& operator<<(std::ostream& os, const ExprGroup* group);
 
 class ExprSegmentationSorter {
  public:
-  // Take a copy of fusion to own, it will get reused and copies sent to
-  // schedulers.
-  ExprSegmentationSorter(Fusion* fusion);
+  ExprSegmentationSorter(Fusion* fusion) : complete_fusion(fusion) {}
 
-  void segment();
+  void sort();
 
   std::string toString(int verbosity = 0) const;
 
@@ -162,7 +159,7 @@ class ExprSegmentationSorter {
     return group_vec;
   }
 
- protected:
+ private:
   // Allocate an empty expr group and return it
   ExprGroup* makeEmptyGroup();
 
@@ -181,7 +178,6 @@ class ExprSegmentationSorter {
   // segment group doesn't map to any of the dimensions of its neighbors.
   bool interIterUpdate();
 
- private:
   // Reset the ExprSortPayload of the groups so we can traverse and identify
   // merge candidates.
   void resetTraversal();
@@ -201,7 +197,7 @@ class ExprSegmentationSorter {
   // when we've stopped merging nodes.
   size_t n_groups = 0;
 
- protected:
+ private:
   // Lifetime of the graph view of the fusion and segmentation. Use list to not
   // invalidate any entries on insertion/deletion.
   std::list<std::unique_ptr<ExprGroupConnections>> edges;
@@ -349,11 +345,12 @@ void ExprSegmentationSorter::resetTraversal() {
     if (group->producer_edges.empty()) {
       to_visit.push_back(group.get());
     }
-    group->payload()->visited = false;
-    group->payload()->level = 0;
+    group->clearTraversalInfo();
   }
 }
 
+// Level is maximum distance from inputs. It's the metric used to select what
+// nodes can be merged while maintaining a DAG
 void ExprSegmentationSorter::resetLevels() {
   while (!to_visit.empty()) {
     auto visit = to_visit.front();
@@ -407,7 +404,8 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(Expr* expr) {
   if (ir_utils::isTVOp(expr)) {
     auto out_tv = expr->outputs()[0]->as<TensorView>();
     // Loop map produces a produce_at_map used specifically for expr sorting
-    // when we generate it.
+    // when we generate it. Produce at may be a misnomer, as it really marks the
+    // inner most loop that is shared with any producers of a tv.
     for (size_t tv_i = 0;
          tv_i < GpuLower::current()->caLoopMap().producedAt(out_tv);
          tv_i++) {
@@ -781,13 +779,8 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
       domain1.back(), domain2.back());
 }
 
-ExprSegmentationSorter::ExprSegmentationSorter(Fusion* fusion)
-    : complete_fusion(fusion) {}
-
-void ExprSegmentationSorter::segment() {
-  // TODO: Make traversal items local to this function.
-
-  // Need this for initialization of the DAG that is process
+void ExprSegmentationSorter::sort() {
+  // Need this for initialization of the DAG that is processed
   std::unordered_map<Expr*, ExprGroup*> expr2group;
 
   // Initialize DAG, convert each expr to a segment group
@@ -827,7 +820,9 @@ void ExprSegmentationSorter::segment() {
 
   bool inter_iter_update = true;
   while (inter_iter_update) {
+    // If we didn't do any update, stop traversal, we're done.
     bool merged_nodes = true;
+    // Merge expressions in sorted order
     while (merged_nodes) {
       // Reset stateful traversal details in ExprGroups
       resetTraversal();
@@ -867,6 +862,7 @@ void ExprSegmentationSorter::segment() {
 
       mergeNodes();
 
+      // Move compute at axes left
       inter_iter_update = interIterUpdate();
     }
   }
@@ -882,7 +878,7 @@ std::vector<Expr*> reorderExprsTest() {
   auto fusion = FusionGuard::getCurFusion();
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
   ExprSegmentationSorter sorter(fusion);
-  sorter.segment();
+  sorter.sort();
   auto groups = sorter.getGroups();
   TORCH_INTERNAL_ASSERT(
       groups.size() > 0,
