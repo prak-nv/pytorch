@@ -546,7 +546,7 @@ class IrParser {
             auto input = value_map[node->input(0)->unique()];
 	    auto train = constant_as<bool>(node->input(2));
 
-            TORCH_INTERNAL_ASSERT(!train,
+            TORCH_INTERNAL_ASSERT(train.has_value() && train.value() == false,
               "The train parameter should not be set during inference.");
 
 	    auto out = add(input, new Int(0));
@@ -1478,6 +1478,28 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
   // is skip constant necessary?
   if (node->input(offset)->node()->kind() == prim::Constant) {
     return false;
+  }
+  
+  static auto dropout_schema =
+      getOperatorForLiteral(
+          "aten::dropout(Tensor input, float p, bool train) -> Tensor")
+          ->schema();
+  static auto native_dropout_schema =
+      getOperatorForLiteral(
+          "aten::native_dropout(Tensor input, float p, bool train) -> (Tensor, Tensor)")
+          ->schema();
+  if (node->matches(dropout_schema) ||
+      node->matches(native_dropout_schema)) {
+    std::cout << "MATCHED Dropout Schema!" << std::endl;
+    switch (offset) {
+      // argument 2: Is training?
+      case 2:
+        profileBool(pr, node, offset);
+        break;
+      default:
+        return false;
+    }
+    return true;
   }
 
   static auto reduction_operator_schema =
