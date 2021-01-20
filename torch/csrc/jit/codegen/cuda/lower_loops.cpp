@@ -33,7 +33,7 @@ LoopNestGenerator::LoopNestGenerator(const std::vector<Expr*>& exprs) {
 namespace {
 
 // TODO(kir): revisit and try to simplify this
-kir::ForLoop* openForHelper2(kir::ForLoop* scope, IterDomain* id) {
+kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
   const auto kir_id = gpu_lower->lowerValue(id)->as<kir::IterDomain>();
@@ -59,11 +59,11 @@ kir::ForLoop* openForHelper2(kir::ForLoop* scope, IterDomain* id) {
 
 void LoopNestGenerator::openFor(IterDomain* iter_domain) {
   if (for_loops_.size() > 0) {
-    const auto new_scope = openForHelper2(for_loops_.back(), iter_domain);
+    const auto new_scope = openForHelper(for_loops_.back(), iter_domain);
     // for_loop_allocations_.insert({new_scope, 0});
     for_loops_.push_back(new_scope);
   } else {
-    for_loops_.push_back(openForHelper2(nullptr, iter_domain));
+    for_loops_.push_back(openForHelper(nullptr, iter_domain));
     lowered_exprs_.insert(lowered_exprs_.begin(), for_loops_.back());
   }
 }
