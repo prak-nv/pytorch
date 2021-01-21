@@ -54,9 +54,6 @@ class TORCH_CUDA_API LoopNestGenerator {
   // Lowered exprs to return
   std::vector<kir::Expr*> lowered_exprs_;
 
-  // Fusion pointer for convenience
-  Fusion* fusion_ = nullptr;
-
   // Keep all for loops conveniently to make unrolling easier, basically just a
   // stack of the active for_loops
   std::vector<kir::ForLoop*> for_loops_;

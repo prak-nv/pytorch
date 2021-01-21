@@ -44,13 +44,13 @@ class ConcreteInputCounter : public IterVisitor {
     return count_map;
   }
 
+ private:
   ConcreteInputCounter(const std::vector<IterDomain*>& domain_) {
     traverseFrom(
         domain_[0]->fusion(),
         std::vector<Val*>(domain_.begin(), domain_.end()));
   }
 
- private:
   std::unordered_set<IterDomain*>& getEntry(IterDomain* id) {
     auto concrete_set_it = concrete_domain_set_.find(id);
     if (concrete_set_it == concrete_domain_set_.end()) {
@@ -78,6 +78,7 @@ class ConcreteInputCounter : public IterVisitor {
             false, "Invalid expr type found in transform traversal.");
     }
 
+    // Gather all non-broadcast input domains
     std::unordered_set<IterDomain*> resulting_set;
     for (auto input_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
       auto input_entry = getEntry(input_id);
@@ -154,6 +155,10 @@ void ComputeAtMap::mapIds(IterDomain* id0, IterDomain* id1) {
       set0_ptr->push_back(id);
       disjoint_iter_set_maps_[id] = set0_ptr;
     }
+
+    // set1 no longer needed as its IDs are copied into set0
+    disjoint_iter_sets_.erase(std::find(
+        disjoint_iter_sets_.begin(), disjoint_iter_sets_.end(), set1_ptr));
 
     // Update parallel type map
     if (mapping_mode_ == MappingMode::PARALLEL) {
@@ -251,8 +256,8 @@ void ComputeAtMap::build() {
                 .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
 
         // Look for matching ID transformations in producer and consumer, replay
-        // producer as consumer. We want to play producer as consumer instead of
-        // the other way around since consumer may have some broadcasted axes
+        // producer as consumer. We want to replay producer as consumer instead
+        // of the other way around since consumer may have some broadcasted axes
         // producer doesn't have merged into loops producer may use. If we did
         // consumer as producer we wouldn't have this information in the
         // mapping. If we're using this map for indexing, we do not want to
@@ -319,22 +324,6 @@ void ComputeAtMap::build() {
       }
     }
   }
-
-  std::unordered_set<std::shared_ptr<std::deque<IterDomain*>>> active_sets;
-  // Populate disjoint_iter_sets_ as they are all computed now
-  for (const auto& iter_set_map : disjoint_iter_set_maps_) {
-    active_sets.emplace(iter_set_map.second);
-  }
-
-  auto disjoint_iter_set_end = std::remove_if(
-      disjoint_iter_sets_.begin(),
-      disjoint_iter_sets_.end(),
-      [&](std::shared_ptr<std::deque<IterDomain*>>& set) {
-        return active_sets.find(set) == active_sets.end();
-      });
-
-  disjoint_iter_sets_ = std::deque<std::shared_ptr<std::deque<IterDomain*>>>(
-      disjoint_iter_sets_.begin(), disjoint_iter_set_end);
 
   // deduplicate iter domain entries in each set
   for (const auto& iter_set : disjoint_iter_sets_) {
