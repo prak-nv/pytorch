@@ -197,21 +197,17 @@ class ExprSegmentationSorter {
   // all the edges that were disconnected
   std::unordered_set<ExprGroupConnections*> disconnectGroup(ExprGroup* group);
 
+ private:
   // Track how many groups we have from iteration to iteration so we can track
   // when we've stopped merging nodes.
-  size_t n_groups = 0;
+  size_t n_groups_ = 0;
 
- private:
   // Lifetime of the graph view of the fusion and segmentation. Use list to not
   // invalidate any entries on insertion/deletion.
   std::list<std::unique_ptr<ExprGroupConnections>> edges_;
   std::list<std::unique_ptr<ExprGroup>> groups_;
 
   std::deque<ExprGroup*> to_visit_;
-  std::vector<ExprGroup*> next_to_visit_;
-
-  std::unordered_set<ExprGroup*> clean_up_groups_;
-  std::unordered_set<ExprGroupConnections*> clean_up_edges_;
 
   std::unordered_set<ExprGroup*> to_merge_;
 
@@ -338,6 +334,8 @@ void ExprSegmentationSorter::resetTraversal() {
 // Level is maximum distance from inputs. It's the metric used to select what
 // nodes can be merged while maintaining a DAG
 void ExprSegmentationSorter::resetLevels() {
+  std::vector<ExprGroup*> next_to_visit;
+
   while (!to_visit_.empty()) {
     auto visit = to_visit_.front();
     to_visit_.pop_front();
@@ -356,15 +354,15 @@ void ExprSegmentationSorter::resetLevels() {
     if (!ready) {
       // In case traversal doesn't complete because there's an error in the
       // DAG topology.
-      next_to_visit_.push_back(visit);
+      next_to_visit.push_back(visit);
       continue;
     }
 
     visit->payload()->visited = true;
 
     to_visit_.insert(
-        to_visit_.end(), next_to_visit_.begin(), next_to_visit_.end());
-    next_to_visit_.clear();
+        to_visit_.end(), next_to_visit.begin(), next_to_visit.end());
+    next_to_visit.clear();
 
     for (auto out : visit->consumer_edges_) {
       to_visit_.push_back(out->to_);
@@ -376,8 +374,7 @@ void ExprSegmentationSorter::resetLevels() {
           std::max(visit->payload()->level, inp->from_->payload()->level + 1);
     }
   }
-  TORCH_INTERNAL_ASSERT(
-      next_to_visit_.empty(), "Error in graph, is not a DAG.");
+  TORCH_INTERNAL_ASSERT(next_to_visit.empty(), "Error in graph, is not a DAG.");
 }
 
 ExprGroup* ExprSegmentationSorter::makeEmptyGroup() {
@@ -460,58 +457,45 @@ std::vector<Val*> uniqueValConcat(
   return unique_vals;
 }
 
-// Concat's producer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
-std::vector<ExprGroupConnections*> getMergedProducerEdges(
+// Concat's edges of sg1 and sg2, but removes any edges from/to sg1/sg2
+std::vector<ExprGroupConnections*> getMergedEdges(
     const ExprGroup* sg1,
-    const ExprGroup* sg2) {
+    const std::vector<ExprGroupConnections*>& edges1,
+    const ExprGroup* sg2,
+    const std::vector<ExprGroupConnections*>& edges2) {
   TORCH_INTERNAL_ASSERT(
       sg1 != nullptr && sg2 != nullptr,
       "This function doesn't handle trivial.");
 
-  auto producer_edges = sg1->producer_edges_;
-  producer_edges.insert(
-      producer_edges.end(),
-      sg2->producer_edges_.begin(),
-      sg2->producer_edges_.end());
+  auto merged_edges = edges1;
+  merged_edges.insert(merged_edges.end(), edges2.begin(), edges2.end());
 
-  producer_edges.erase(
+  // Remove intra edges
+  merged_edges.erase(
       std::remove_if(
-          producer_edges.begin(),
-          producer_edges.end(),
+          merged_edges.begin(),
+          merged_edges.end(),
           [&sg1, &sg2](ExprGroupConnections* se) {
             return (se->to_ == sg1 && se->from_ == sg2) ||
                 (se->to_ == sg2 && se->from_ == sg1);
           }),
-      producer_edges.end());
+      merged_edges.end());
 
-  return producer_edges;
+  return merged_edges;
+}
+
+// Concat's producer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
+std::vector<ExprGroupConnections*> getMergedProducerEdges(
+    const ExprGroup* sg1,
+    const ExprGroup* sg2) {
+  return getMergedEdges(sg1, sg1->producer_edges_, sg2, sg2->producer_edges_);
 }
 
 // Concat's consumer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
 std::vector<ExprGroupConnections*> getMergedConsumerEdges(
     const ExprGroup* sg1,
     const ExprGroup* sg2) {
-  TORCH_INTERNAL_ASSERT(
-      sg1 != nullptr && sg2 != nullptr,
-      "This function doesn't handle trivial.");
-
-  auto consumer_edges = sg1->consumer_edges_;
-  consumer_edges.insert(
-      consumer_edges.end(),
-      sg2->consumer_edges_.begin(),
-      sg2->consumer_edges_.end());
-
-  consumer_edges.erase(
-      std::remove_if(
-          consumer_edges.begin(),
-          consumer_edges.end(),
-          [&sg1, &sg2](ExprGroupConnections* se) {
-            return (se->to_ == sg1 && se->from_ == sg2) ||
-                (se->to_ == sg2 && se->from_ == sg1);
-          }),
-      consumer_edges.end());
-
-  return consumer_edges;
+  return getMergedEdges(sg1, sg1->consumer_edges_, sg2, sg2->consumer_edges_);
 }
 
 // Assuming sg1 and sg2 are connected, figure out which is the consumer
@@ -591,20 +575,20 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
     } else if (it2 == domain2.end()) { // NOLINT
       // domain2 has all been pushed, finish pushing domain 1
       resulting_ca_axes.push_back(*it1++);
-    } else if (GpuLower::current()->caIndexMap().areMapped(
+    } else if (GpuLower::current()->caLoopMap().areMapped(
                    *it1, *it2)) { // NOLINT
       resulting_ca_axes.push_back(*it1);
       ++it1;
       ++it2;
     } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
-                 return GpuLower::current()->caIndexMap().areMapped(id1, *it2);
+                 return GpuLower::current()->caLoopMap().areMapped(id1, *it2);
                })) { // NOLINT
       // Increment it1, as a later iter domain matches the current one in
       // domain2
       resulting_ca_axes.push_back(*it1++);
 
     } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
-                 return GpuLower::current()->caIndexMap().areMapped(id2, *it1);
+                 return GpuLower::current()->caLoopMap().areMapped(id2, *it1);
                })) { // NOLINT
       // Increment it2, as a later iter domain matches the current one in
       // domain1
@@ -670,14 +654,13 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
 
 // Update in between attempts to segment. This is called once no more groups
 // can be merged together. Typically we will want to remove compute at groups
-// that have finished being grouped together. However if no gruops have been
+// that have finished being grouped together. However if no groups have been
 // merged after we've done this, we may need to stop as we could have multiple
 // disjoint groups that won't be merged.
 bool ExprSegmentationSorter::interIterUpdate() {
   // Go through groups and lower compute at domain
   bool lowered_ca_domain = false;
-  for (auto& unique_group : groups_) {
-    auto group = unique_group.get();
+  for (auto& group : groups_) {
     IterDomain* g_last_id = nullptr;
     if (group->payload()->ca_domains.size() > 0) {
       g_last_id = group->payload()->ca_domains.back();
@@ -692,7 +675,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
         break;
       }
       for (auto p_id : neighbor->payload()->ca_domains) {
-        if (GpuLower::current()->caIndexMap().areMapped(p_id, g_last_id)) {
+        if (GpuLower::current()->caLoopMap().areMapped(p_id, g_last_id)) {
           matching_neighbor = true;
           break;
         }
@@ -707,7 +690,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
 
   // If we couldn't lower compute at domain any further, and we haven't merged
   // any new groups since the last time we were called, make sure we're done.
-  if (!lowered_ca_domain && n_groups == groups_.size()) {
+  if (!lowered_ca_domain && n_groups_ == groups_.size()) {
     // Make sure none of the groups are still connected, as that would mean we
     // should have been able to merge them.
 
@@ -726,45 +709,37 @@ bool ExprSegmentationSorter::interIterUpdate() {
     return false;
   }
 
-  // Initialize n_groups if this is the first pass.
-  if (n_groups == 0 && groups_.size() > 0) {
-    n_groups = groups_.size();
-  }
-
-  n_groups = groups_.size();
+  n_groups_ = groups_.size();
   // Not done, continue.
   return true;
 }
 
 void ExprSegmentationSorter::mergeNodes() {
+  std::unordered_set<ExprGroup*> clean_up_groups;
+  std::unordered_set<ExprGroupConnections*> clean_up_edges;
+
   while (!to_merge_.empty()) {
     auto group1 = *to_merge_.begin();
     auto group2 = group1->payload()->merge_with;
     to_merge_.erase(group1);
     to_merge_.erase(group2);
-    clean_up_groups_.emplace(group1);
-    clean_up_groups_.emplace(group2);
+    clean_up_groups.emplace(group1);
+    clean_up_groups.emplace(group2);
     makeMergedNode(group1, group2);
   }
 
-  for (auto group : clean_up_groups_) {
+  for (auto group : clean_up_groups) {
     auto disconnected_edges = disconnectGroup(group);
-    clean_up_edges_.insert(
-        disconnected_edges.begin(), disconnected_edges.end());
+    clean_up_edges.insert(disconnected_edges.begin(), disconnected_edges.end());
   }
 
-  edges_.remove_if([this](std::unique_ptr<ExprGroupConnections>& edge) {
-    return this->clean_up_edges_.find(edge.get()) !=
-        this->clean_up_edges_.end();
+  edges_.remove_if([&](std::unique_ptr<ExprGroupConnections>& edge) {
+    return clean_up_edges.find(edge.get()) != clean_up_edges.end();
   });
 
-  groups_.remove_if([this](std::unique_ptr<ExprGroup>& group) {
-    return this->clean_up_groups_.find(group.get()) !=
-        this->clean_up_groups_.end();
+  groups_.remove_if([&](std::unique_ptr<ExprGroup>& group) {
+    return clean_up_groups.find(group.get()) != clean_up_groups.end();
   });
-
-  clean_up_edges_.clear();
-  clean_up_groups_.clear();
 }
 
 bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
@@ -779,7 +754,7 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
     return false;
   }
 
-  return GpuLower::current()->caIndexMap().areMapped(
+  return GpuLower::current()->caLoopMap().areMapped(
       domain1.back(), domain2.back());
 }
 
