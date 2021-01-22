@@ -208,7 +208,6 @@ class ExprSegmentationSorter {
   std::list<std::unique_ptr<ExprGroup>> groups_;
 
   std::deque<ExprGroup*> to_visit_;
-  std::vector<ExprGroup*> next_to_visit_;
 
   std::unordered_set<ExprGroup*> to_merge_;
 
@@ -335,6 +334,8 @@ void ExprSegmentationSorter::resetTraversal() {
 // Level is maximum distance from inputs. It's the metric used to select what
 // nodes can be merged while maintaining a DAG
 void ExprSegmentationSorter::resetLevels() {
+  std::vector<ExprGroup*> next_to_visit;
+
   while (!to_visit_.empty()) {
     auto visit = to_visit_.front();
     to_visit_.pop_front();
@@ -353,15 +354,15 @@ void ExprSegmentationSorter::resetLevels() {
     if (!ready) {
       // In case traversal doesn't complete because there's an error in the
       // DAG topology.
-      next_to_visit_.push_back(visit);
+      next_to_visit.push_back(visit);
       continue;
     }
 
     visit->payload()->visited = true;
 
     to_visit_.insert(
-        to_visit_.end(), next_to_visit_.begin(), next_to_visit_.end());
-    next_to_visit_.clear();
+        to_visit_.end(), next_to_visit.begin(), next_to_visit.end());
+    next_to_visit.clear();
 
     for (auto out : visit->consumer_edges_) {
       to_visit_.push_back(out->to_);
@@ -374,7 +375,7 @@ void ExprSegmentationSorter::resetLevels() {
     }
   }
   TORCH_INTERNAL_ASSERT(
-      next_to_visit_.empty(), "Error in graph, is not a DAG.");
+      next_to_visit.empty(), "Error in graph, is not a DAG.");
 }
 
 ExprGroup* ExprSegmentationSorter::makeEmptyGroup() {
