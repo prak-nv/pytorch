@@ -7,7 +7,7 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-TORCH_CUDA_API std::vector<Expr*> reorderExprsTest();
+TORCH_CUDA_API std::vector<Expr*> reorderExprsForLoopNestGeneration();
 
 } // namespace cuda
 } // namespace fuser

@@ -197,11 +197,11 @@ class ExprSegmentationSorter {
   // all the edges that were disconnected
   std::unordered_set<ExprGroupConnections*> disconnectGroup(ExprGroup* group);
 
+ private:
   // Track how many groups we have from iteration to iteration so we can track
   // when we've stopped merging nodes.
-  size_t n_groups = 0;
+  size_t n_groups_ = 0;
 
- private:
   // Lifetime of the graph view of the fusion and segmentation. Use list to not
   // invalidate any entries on insertion/deletion.
   std::list<std::unique_ptr<ExprGroupConnections>> edges_;
@@ -209,9 +209,6 @@ class ExprSegmentationSorter {
 
   std::deque<ExprGroup*> to_visit_;
   std::vector<ExprGroup*> next_to_visit_;
-
-  std::unordered_set<ExprGroup*> clean_up_groups_;
-  std::unordered_set<ExprGroupConnections*> clean_up_edges_;
 
   std::unordered_set<ExprGroup*> to_merge_;
 
@@ -645,14 +642,13 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
 
 // Update in between attempts to segment. This is called once no more groups
 // can be merged together. Typically we will want to remove compute at groups
-// that have finished being grouped together. However if no gruops have been
+// that have finished being grouped together. However if no groups have been
 // merged after we've done this, we may need to stop as we could have multiple
 // disjoint groups that won't be merged.
 bool ExprSegmentationSorter::interIterUpdate() {
   // Go through groups and lower compute at domain
   bool lowered_ca_domain = false;
-  for (auto& unique_group : groups_) {
-    auto group = unique_group.get();
+  for (auto& group : groups_) {
     IterDomain* g_last_id = nullptr;
     if (group->payload()->ca_domains.size() > 0) {
       g_last_id = group->payload()->ca_domains.back();
@@ -682,7 +678,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
 
   // If we couldn't lower compute at domain any further, and we haven't merged
   // any new groups since the last time we were called, make sure we're done.
-  if (!lowered_ca_domain && n_groups == groups_.size()) {
+  if (!lowered_ca_domain && n_groups_ == groups_.size()) {
     // Make sure none of the groups are still connected, as that would mean we
     // should have been able to merge them.
 
@@ -701,45 +697,40 @@ bool ExprSegmentationSorter::interIterUpdate() {
     return false;
   }
 
-  // Initialize n_groups if this is the first pass.
-  if (n_groups == 0 && groups_.size() > 0) {
-    n_groups = groups_.size();
-  }
-
-  n_groups = groups_.size();
+  n_groups_ = groups_.size();
   // Not done, continue.
   return true;
 }
 
 void ExprSegmentationSorter::mergeNodes() {
+  std::unordered_set<ExprGroup*> clean_up_groups;
+  std::unordered_set<ExprGroupConnections*> clean_up_edges;
+
   while (!to_merge_.empty()) {
     auto group1 = *to_merge_.begin();
     auto group2 = group1->payload()->merge_with;
     to_merge_.erase(group1);
     to_merge_.erase(group2);
-    clean_up_groups_.emplace(group1);
-    clean_up_groups_.emplace(group2);
+    clean_up_groups.emplace(group1);
+    clean_up_groups.emplace(group2);
     makeMergedNode(group1, group2);
   }
 
-  for (auto group : clean_up_groups_) {
+  for (auto group : clean_up_groups) {
     auto disconnected_edges = disconnectGroup(group);
-    clean_up_edges_.insert(
+    clean_up_edges.insert(
         disconnected_edges.begin(), disconnected_edges.end());
   }
 
-  edges_.remove_if([this](std::unique_ptr<ExprGroupConnections>& edge) {
-    return this->clean_up_edges_.find(edge.get()) !=
-        this->clean_up_edges_.end();
+  edges_.remove_if([&](std::unique_ptr<ExprGroupConnections>& edge) {
+    return clean_up_edges.find(edge.get()) !=
+        clean_up_edges.end();
   });
 
-  groups_.remove_if([this](std::unique_ptr<ExprGroup>& group) {
-    return this->clean_up_groups_.find(group.get()) !=
-        this->clean_up_groups_.end();
+  groups_.remove_if([&](std::unique_ptr<ExprGroup>& group) {
+    return clean_up_groups.find(group.get()) !=
+        clean_up_groups.end();
   });
-
-  clean_up_edges_.clear();
-  clean_up_groups_.clear();
 }
 
 bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
@@ -873,7 +864,7 @@ void ExprSegmentationSorter::sort() {
 
 } // namespace
 
-std::vector<Expr*> reorderExprsTest() {
+std::vector<Expr*> reorderExprsForLoopNestGeneration() {
   auto fusion = FusionGuard::getCurFusion();
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
   ExprSegmentationSorter sorter(fusion);

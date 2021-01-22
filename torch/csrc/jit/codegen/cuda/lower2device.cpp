@@ -139,7 +139,7 @@ void GpuLower::lower() {
 
   // Reorder expressions for loop-nest generation respecting computeAt
   // relationships
-  auto sorted_exprs = reorderExprsTest();
+  auto sorted_exprs = reorderExprsForLoopNestGeneration();
 
   // Generate loop-nests and place each expression at its
   // corresponding loop
