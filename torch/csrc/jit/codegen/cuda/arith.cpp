@@ -786,7 +786,8 @@ WelfordResult::WelfordResult(
 }
 
 WelfordResult WelfordResult::rfactor(const std::vector<int>& axes) {
-  return n->rfactor(axes, var, avg, n);
+  auto o_tv = var->definition()->as<WelfordOp>()->out()->as<TensorView>();
+  return o_tv->rfactor(axes, var, avg, n);
 }
 
 TensorView* transpose(

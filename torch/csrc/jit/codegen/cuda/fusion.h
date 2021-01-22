@@ -102,6 +102,10 @@ class TORCH_CUDA_API Fusion final {
   // TODO: Rename to register
   void addOutput(Val* output);
 
+  //! Register output as an output of the fusion
+  // TODO: Rename to register
+  void addOutput(WelfordResult output);
+
   //! Deregister input as an input of the fusion
   // TODO: Rename to register
   void removeInput(Val* input);

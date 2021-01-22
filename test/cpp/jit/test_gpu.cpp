@@ -10810,6 +10810,62 @@ TEST(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
       __FILE__);
 }
 
+TEST(NVFuserTest, FusionWelfordSchedule_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int M = 64, N = 128;
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = mul(tv0, new Double(1));
+  auto tvs = Welford(tv1, {1});
+  auto tv_M2 = tvs.var;
+  auto tv_avg = tvs.avg;
+  auto tv_N = tvs.n;
+  fusion.addOutput(tv_M2);
+  fusion.addOutput(tv_N);
+  fusion.addOutput(tv_avg);
+
+  // unroll
+  tv_avg->split(1, 4);
+  tv_avg->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
+  tv_avg->split(0, NamedScalar::getParallelDim(ParallelType::TIDy));
+
+  auto rtvs = tvs.rfactor({-3, -1});
+
+  rtvs.avg->computeAt(tv_N, -1);
+
+  rtvs.avg->axis(-1)->parallelize(ParallelType::Unroll);
+
+  tv_avg->axis(0)->parallelize(ParallelType::BIDx);
+  tv_avg->axis(1)->parallelize(ParallelType::TIDy);
+  tv_avg->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->computeAt(rtvs.avg, -1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N}, options);
+
+  fusion.printMath();
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({t0});
+
+  // by default Welford outputs sum of square diff so need to divide to get var
+  outputs[0] /= N;
+
+  testValidate(
+      &fusion,
+      outputs,
+      {t0},
+      {t0.var({1}, false), t0.mean({1}), at::ones({M}, options_int) * N},
+      __LINE__,
+      __FILE__);
+}
+
 TEST(NVFuserTest, FusionTranspose1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
