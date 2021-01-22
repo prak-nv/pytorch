@@ -274,10 +274,9 @@ void ComputeAtMap::build() {
         // Find this computeAt position in consumer. This could be removed if we
         // changed computeAt of TensorViews to always have a this computeAt
         // position even for terminating outputs
-        std::unordered_map<IterDomain*, bool> within_producer_compute_at;
-        for (unsigned int p_i = 0; p_i < p_tv->nDims(); p_i++) {
-          within_producer_compute_at[p_tv->axis(p_i)] =
-              p_i < p_tv->getThisComputeAtAxis();
+        std::unordered_set<IterDomain*> within_producer_compute_at;
+        for (unsigned int p_i = 0; p_i < p_tv->getThisComputeAtAxis(); p_i++) {
+          within_producer_compute_at.insert(p_tv->axis(p_i));
         }
 
         // Map the entire replay map
@@ -295,9 +294,7 @@ void ComputeAtMap::build() {
 
           if (within_producer_compute_at.find(p_id) !=
               within_producer_compute_at.end()) {
-            if (within_producer_compute_at.at(p_id)) {
-              mapped_c_ids_left_of_ca.emplace(c_id);
-            }
+            mapped_c_ids_left_of_ca.emplace(c_id);
           }
         }
       }
