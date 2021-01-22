@@ -362,7 +362,8 @@ void ExprSegmentationSorter::resetLevels() {
 
     visit->payload()->visited = true;
 
-    to_visit_.insert(to_visit_.end(), next_to_visit_.begin(), next_to_visit_.end());
+    to_visit_.insert(
+        to_visit_.end(), next_to_visit_.begin(), next_to_visit_.end());
     next_to_visit_.clear();
 
     for (auto out : visit->consumer_edges_) {
@@ -375,7 +376,8 @@ void ExprSegmentationSorter::resetLevels() {
           std::max(visit->payload()->level, inp->from_->payload()->level + 1);
     }
   }
-  TORCH_INTERNAL_ASSERT(next_to_visit_.empty(), "Error in graph, is not a DAG.");
+  TORCH_INTERNAL_ASSERT(
+      next_to_visit_.empty(), "Error in graph, is not a DAG.");
 }
 
 ExprGroup* ExprSegmentationSorter::makeEmptyGroup() {
@@ -458,58 +460,45 @@ std::vector<Val*> uniqueValConcat(
   return unique_vals;
 }
 
-// Concat's producer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
-std::vector<ExprGroupConnections*> getMergedProducerEdges(
+// Concat's edges of sg1 and sg2, but removes any edges from/to sg1/sg2
+std::vector<ExprGroupConnections*> getMergedEdges(
     const ExprGroup* sg1,
-    const ExprGroup* sg2) {
+    const std::vector<ExprGroupConnections*>& edges1,
+    const ExprGroup* sg2,
+    const std::vector<ExprGroupConnections*>& edges2) {
   TORCH_INTERNAL_ASSERT(
       sg1 != nullptr && sg2 != nullptr,
       "This function doesn't handle trivial.");
 
-  auto producer_edges = sg1->producer_edges_;
-  producer_edges.insert(
-      producer_edges.end(),
-      sg2->producer_edges_.begin(),
-      sg2->producer_edges_.end());
+  auto merged_edges = edges1;
+  merged_edges.insert(merged_edges.end(), edges2.begin(), edges2.end());
 
-  producer_edges.erase(
+  // Remove intra edges
+  merged_edges.erase(
       std::remove_if(
-          producer_edges.begin(),
-          producer_edges.end(),
+          merged_edges.begin(),
+          merged_edges.end(),
           [&sg1, &sg2](ExprGroupConnections* se) {
             return (se->to_ == sg1 && se->from_ == sg2) ||
                 (se->to_ == sg2 && se->from_ == sg1);
           }),
-      producer_edges.end());
+      merged_edges.end());
 
-  return producer_edges;
+  return merged_edges;
+}
+
+// Concat's producer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
+std::vector<ExprGroupConnections*> getMergedProducerEdges(
+    const ExprGroup* sg1,
+    const ExprGroup* sg2) {
+  return getMergedEdges(sg1, sg1->producer_edges_, sg2, sg2->producer_edges_);
 }
 
 // Concat's consumer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
 std::vector<ExprGroupConnections*> getMergedConsumerEdges(
     const ExprGroup* sg1,
     const ExprGroup* sg2) {
-  TORCH_INTERNAL_ASSERT(
-      sg1 != nullptr && sg2 != nullptr,
-      "This function doesn't handle trivial.");
-
-  auto consumer_edges = sg1->consumer_edges_;
-  consumer_edges.insert(
-      consumer_edges.end(),
-      sg2->consumer_edges_.begin(),
-      sg2->consumer_edges_.end());
-
-  consumer_edges.erase(
-      std::remove_if(
-          consumer_edges.begin(),
-          consumer_edges.end(),
-          [&sg1, &sg2](ExprGroupConnections* se) {
-            return (se->to_ == sg1 && se->from_ == sg2) ||
-                (se->to_ == sg2 && se->from_ == sg1);
-          }),
-      consumer_edges.end());
-
-  return consumer_edges;
+  return getMergedEdges(sg1, sg1->consumer_edges_, sg2, sg2->consumer_edges_);
 }
 
 // Assuming sg1 and sg2 are connected, figure out which is the consumer
@@ -735,11 +724,13 @@ void ExprSegmentationSorter::mergeNodes() {
 
   for (auto group : clean_up_groups_) {
     auto disconnected_edges = disconnectGroup(group);
-    clean_up_edges_.insert(disconnected_edges.begin(), disconnected_edges.end());
+    clean_up_edges_.insert(
+        disconnected_edges.begin(), disconnected_edges.end());
   }
 
   edges_.remove_if([this](std::unique_ptr<ExprGroupConnections>& edge) {
-    return this->clean_up_edges_.find(edge.get()) != this->clean_up_edges_.end();
+    return this->clean_up_edges_.find(edge.get()) !=
+        this->clean_up_edges_.end();
   });
 
   groups_.remove_if([this](std::unique_ptr<ExprGroup>& group) {
