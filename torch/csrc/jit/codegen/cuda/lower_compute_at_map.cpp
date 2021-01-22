@@ -271,11 +271,16 @@ void ComputeAtMap::build() {
 
         auto c2p_map = replay_PasC.getReplay();
 
+        // Find this computeAt position in consumer. This could be removed if we
+        // changed computeAt of TensorViews to always have a this computeAt
+        // position even for terminating outputs
+        std::unordered_map<IterDomain*, bool> within_producer_compute_at;
+        for (unsigned int p_i = 0; p_i < p_tv->nDims(); p_i++) {
+          within_producer_compute_at[p_tv->axis(p_i)] =
+              p_i < p_tv->getThisComputeAtAxis();
+        }
+
         // Map the entire replay map
-        // Also reverse the map, as we use p2c_map to find this computeAt
-        // position in consumer. This could be removed if we changed computeAt
-        // of TensorViews
-        std::unordered_map<IterDomain*, IterDomain*> p2c_map;
         for (auto entry : c2p_map) {
           auto c_id = entry.first;
           auto p_id = entry.second;
@@ -287,18 +292,12 @@ void ComputeAtMap::build() {
           }
           // Map the id's together
           mapIds(p_id, c_id);
-          p2c_map[p_id] = c_id;
-        }
 
-        // Track which id's in the consumer are mapped to from within the
-        // producer compute at position
-        for (size_t p_id_i = 0; p_id_i < p_tv->getThisComputeAtAxis();
-             p_id_i++) {
-          auto p_id = p_tv->axis(p_id_i);
-          auto c_id_it = p2c_map.find(p_id);
-          if (c_id_it != p2c_map.end()) {
-            auto c_id = c_id_it->second;
-            mapped_c_ids_left_of_ca.emplace(c_id);
+          if (within_producer_compute_at.find(p_id) !=
+              within_producer_compute_at.end()) {
+            if (within_producer_compute_at.at(p_id)) {
+              mapped_c_ids_left_of_ca.emplace(c_id);
+            }
           }
         }
       }

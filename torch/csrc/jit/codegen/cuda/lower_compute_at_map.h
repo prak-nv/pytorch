@@ -57,11 +57,6 @@ class ComputeAtMap {
     return produce_at_it->second;
   }
 
-  // Returns the position in tv->domain() that the buffer should be computed at
-  unsigned int producedAt(kir::TensorView* tv) const {
-    return producedAt(tv->fuserTv());
-  }
-
   //! Returns if id0 and id1 are mapped to eachother, meaning they represent the
   //! same loop nest in the lowered code
   bool areMapped(IterDomain* id0, IterDomain* id1) const;
