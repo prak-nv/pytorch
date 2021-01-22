@@ -548,6 +548,10 @@ std::unordered_set<ExprGroupConnections*> ExprSegmentationSorter::
   return removed_edges;
 }
 
+// TODO: This function may be sub optimial. If we find that an iteration domain
+// matches later in the other domain, we will hold all other iteration domains
+// until that one matches. There may be cases where duplicating that iteration
+// domain, and moving on could be more efficient.
 ExprGroup* ExprSegmentationSorter::makeMergedNode(
     ExprGroup* sg1,
     ExprGroup* sg2) {
@@ -557,12 +561,20 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   auto it1 = domain1.begin();
   auto it2 = domain2.begin();
 
-  while (it1 != domain1.end() && it2 != domain2.end()) {
+  // Need to merge domains together. These domains are representative of what's
+  // within all the compute at positions of their respective groups (could be
+  // many Exprs). The domains do not necessarily match, and we want to pull in
+  // all iteration domains, maintaining relative ordering of both domains, while
+  // removing as many duplicate iter domains (iter domains that map to eachother
+  // through index map).
+  while (it1 != domain1.end() || it2 != domain2.end()) {
     // no lint is for repeated branching, don't lint to avoid running any_of
     // when not necessary.
     if (it1 == domain1.end()) { // NOLINT
+      // domain1 has all been pushed, finish pushing domain 2
       resulting_ca_axes.push_back(*it2++);
     } else if (it2 == domain2.end()) { // NOLINT
+      // domain2 has all been pushed, finish pushing domain 1
       resulting_ca_axes.push_back(*it1++);
     } else if (GpuLower::current()->caIndexMap().areMapped(
                    *it1, *it2)) { // NOLINT
@@ -865,7 +877,7 @@ void ExprSegmentationSorter::sort() {
 
 } // namespace
 
-std::vector<Expr*> reorderExprsForLoopNestGeneration() {
+std::vector<Expr*> reorderExprsForComputeAt() {
   auto fusion = FusionGuard::getCurFusion();
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
   ExprSegmentationSorter sorter(fusion);
