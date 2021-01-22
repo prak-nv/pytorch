@@ -374,8 +374,7 @@ void ExprSegmentationSorter::resetLevels() {
           std::max(visit->payload()->level, inp->from_->payload()->level + 1);
     }
   }
-  TORCH_INTERNAL_ASSERT(
-      next_to_visit.empty(), "Error in graph, is not a DAG.");
+  TORCH_INTERNAL_ASSERT(next_to_visit.empty(), "Error in graph, is not a DAG.");
 }
 
 ExprGroup* ExprSegmentationSorter::makeEmptyGroup() {
@@ -731,18 +730,15 @@ void ExprSegmentationSorter::mergeNodes() {
 
   for (auto group : clean_up_groups) {
     auto disconnected_edges = disconnectGroup(group);
-    clean_up_edges.insert(
-        disconnected_edges.begin(), disconnected_edges.end());
+    clean_up_edges.insert(disconnected_edges.begin(), disconnected_edges.end());
   }
 
   edges_.remove_if([&](std::unique_ptr<ExprGroupConnections>& edge) {
-    return clean_up_edges.find(edge.get()) !=
-        clean_up_edges.end();
+    return clean_up_edges.find(edge.get()) != clean_up_edges.end();
   });
 
   groups_.remove_if([&](std::unique_ptr<ExprGroup>& group) {
-    return clean_up_groups.find(group.get()) !=
-        clean_up_groups.end();
+    return clean_up_groups.find(group.get()) != clean_up_groups.end();
   });
 }
 
