@@ -575,20 +575,20 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
     } else if (it2 == domain2.end()) { // NOLINT
       // domain2 has all been pushed, finish pushing domain 1
       resulting_ca_axes.push_back(*it1++);
-    } else if (GpuLower::current()->caIndexMap().areMapped(
+    } else if (GpuLower::current()->caLoopMap().areMapped(
                    *it1, *it2)) { // NOLINT
       resulting_ca_axes.push_back(*it1);
       ++it1;
       ++it2;
     } else if (std::any_of(it1 + 1, domain1.end(), [&](IterDomain* id1) {
-                 return GpuLower::current()->caIndexMap().areMapped(id1, *it2);
+                 return GpuLower::current()->caLoopMap().areMapped(id1, *it2);
                })) { // NOLINT
       // Increment it1, as a later iter domain matches the current one in
       // domain2
       resulting_ca_axes.push_back(*it1++);
 
     } else if (std::any_of(it2 + 1, domain2.end(), [&](IterDomain* id2) {
-                 return GpuLower::current()->caIndexMap().areMapped(id2, *it1);
+                 return GpuLower::current()->caLoopMap().areMapped(id2, *it1);
                })) { // NOLINT
       // Increment it2, as a later iter domain matches the current one in
       // domain1
@@ -675,7 +675,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
         break;
       }
       for (auto p_id : neighbor->payload()->ca_domains) {
-        if (GpuLower::current()->caIndexMap().areMapped(p_id, g_last_id)) {
+        if (GpuLower::current()->caLoopMap().areMapped(p_id, g_last_id)) {
           matching_neighbor = true;
           break;
         }
@@ -754,7 +754,7 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
     return false;
   }
 
-  return GpuLower::current()->caIndexMap().areMapped(
+  return GpuLower::current()->caLoopMap().areMapped(
       domain1.back(), domain2.back());
 }
 
