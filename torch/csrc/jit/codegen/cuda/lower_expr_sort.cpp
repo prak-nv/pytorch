@@ -54,7 +54,7 @@ namespace {
 // ffhal02306566f
 
 class ExprGroup;
-class ExprGroupConnections;
+struct ExprGroupConnections;
 class ExprSegmentationSorter;
 
 // Debug printing disabled due to clang tidy, see below for definitions
@@ -66,20 +66,21 @@ class ExprSegmentationSorter;
 // Wrapper for values, these are edges between expr groups. Multiple edges can
 // exist between expr groups, and the same Val can show up more than once in
 // multiple edges.
-class ExprGroupConnections {
- public:
-  ExprGroupConnections(ExprGroup* from, ExprGroup* to, Val* val)
-      : from_(from), to_(to), val_(val) {}
-  ExprGroup* from_;
-  ExprGroup* to_;
-  Val* val_;
+struct ExprGroupConnections {
+  ExprGroupConnections(
+      ExprGroup* group_from,
+      ExprGroup* group_to,
+      Val* val_to_connect)
+      : from(group_from), to(group_to), val(val_to_connect) {}
+  ExprGroup* from;
+  ExprGroup* to;
+  Val* val;
 };
 
-class ExprSortPayload : public PolymorphicBase {
- public:
+struct ExprSortPayload : public PolymorphicBase {
   // Track the active domains that start at the compute at point of the
   // expression and increment outward
-  std::vector<IterDomain*> ca_domains;
+  std::vector<IterDomain*> ca_domains_;
 
   // Maximum path distance from an input expr group required for
   // Theorem 4.2
@@ -99,7 +100,7 @@ class ExprSortPayload : public PolymorphicBase {
 // Groups together expressions which create a expr group
 class ExprGroup {
  public:
-  explicit ExprGroup() : payload_(std::make_unique<ExprSortPayload>()) {}
+  ExprGroup() : payload_(std::make_unique<ExprSortPayload>()) {}
 
   ExprGroup(Expr* expr) : payload_(std::make_unique<ExprSortPayload>()) {
     exprs_.push_back(expr);
@@ -128,13 +129,93 @@ class ExprGroup {
     return payload_;
   }
 
- public:
+  const auto& producerEdges() const {
+    return producer_edges_;
+  }
+
+  void addProducerEdge(ExprGroupConnections* edge) {
+    addEdge(producer_edges_, edge);
+  }
+
+  void removeProducerEdge(ExprGroupConnections* edge) {
+    removeEdge(producer_edges_, edge);
+  }
+
+  void clearProducerEdges() {
+    producer_edges_.clear();
+  }
+
+  const auto& consumerEdges() const {
+    return consumer_edges_;
+  }
+
+  void addConsumerEdge(ExprGroupConnections* edge) {
+    addEdge(consumer_edges_, edge);
+  }
+
+  void removeConsumerEdge(ExprGroupConnections* edge) {
+    removeEdge(consumer_edges_, edge);
+  }
+
+  void clearConsumerEdges() {
+    consumer_edges_.clear();
+  }
+
+  auto& exprs() {
+    return exprs_;
+  }
+
+  const auto& exprs() const {
+    return exprs_;
+  }
+
+  const auto& inputVals() const {
+    return input_vals_;
+  }
+
+  void setInputVals(const std::vector<Val*>& input_vals) {
+    input_vals_ = input_vals;
+  }
+
+  void addInputVal(Val* input_val) {
+    input_vals_.push_back(input_val);
+  }
+
+  const auto& outputVals() const {
+    return output_vals_;
+  }
+
+  void setOutputVals(const std::vector<Val*>& output_vals) {
+    output_vals_ = output_vals;
+  }
+
+  void addOutputVal(Val* output_val) {
+    output_vals_.push_back(output_val);
+  }
+
+ private:
+  static void addEdge(
+      std::vector<ExprGroupConnections*>& edges,
+      ExprGroupConnections* edge_to_add) {
+    edges.push_back(edge_to_add);
+  }
+
+  static void removeEdge(
+      std::vector<ExprGroupConnections*>& edges,
+      ExprGroupConnections* edge_to_remove) {
+    auto it = std::find(edges.begin(), edges.end(), edge_to_remove);
+    TORCH_INTERNAL_ASSERT(it != edges.end(), "Could not find edge to remove.");
+    edges.erase(it);
+  }
+
+ private:
   // "Ancestor nodes", towards inputs of segmentedDAG
   std::vector<ExprGroupConnections*> producer_edges_;
 
   // "Descendent nodes", towards outputs of segmentedDAG
   std::vector<ExprGroupConnections*> consumer_edges_;
 
+  // TODO: Used?
   std::vector<Val*> input_vals_;
   std::vector<Val*> output_vals_;
 
@@ -212,10 +293,10 @@ class ExprSegmentationSorter {
 std::vector<ExprGroup*> ExprGroup::getNeighbors() {
   std::vector<ExprGroup*> neighbors;
   for (auto inp : producer_edges_) {
-    neighbors.push_back(inp->from_);
+    neighbors.push_back(inp->from);
   }
-  for (auto out : consumer_edges_) {
-    neighbors.push_back(out->to_);
+  for (auto out : consumerEdges()) {
+    neighbors.push_back(out->to);
   }
   return neighbors;
 }
@@ -317,7 +398,7 @@ void ExprGroup::clearTraversalInfo() {
 void ExprSegmentationSorter::resetTraversal() {
   for (auto& group : groups_) {
     // Start traversal at input groups
-    if (group->producer_edges_.empty()) {
+    if (group->producerEdges().empty()) {
       to_visit_.push_back(group.get());
     }
     group->clearTraversalInfo();
@@ -335,12 +416,12 @@ void ExprSegmentationSorter::resetLevels() {
 
     // All inputs processed?
     bool ready = true;
-    if (!visit->producer_edges_.empty()) {
+    if (!visit->producerEdges().empty()) {
       ready = std::all_of(
-          visit->producer_edges_.begin(),
-          visit->producer_edges_.end(),
+          visit->producerEdges().begin(),
+          visit->producerEdges().end(),
           [&](ExprGroupConnections* dep) {
-            return dep->from_->payload()->visited;
+            return dep->from->payload()->visited;
           });
     }
 
@@ -357,14 +438,14 @@ void ExprSegmentationSorter::resetLevels() {
         to_visit_.end(), next_to_visit.begin(), next_to_visit.end());
     next_to_visit.clear();
 
-    for (auto out : visit->consumer_edges_) {
-      to_visit_.push_back(out->to_);
+    for (auto out : visit->consumerEdges()) {
+      to_visit_.push_back(out->to);
     }
 
     visit->payload()->level = 0;
-    for (auto inp : visit->producer_edges_) {
+    for (auto inp : visit->producerEdges()) {
       visit->payload()->level =
-          std::max(visit->payload()->level, inp->from_->payload()->level + 1);
+          std::max(visit->payload()->level, inp->from->payload()->level + 1);
     }
   }
   TORCH_INTERNAL_ASSERT(next_to_visit.empty(), "Error in graph, is not a DAG.");
@@ -377,7 +458,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup() {
 
 ExprGroup* ExprSegmentationSorter::makeEmptyGroup(Expr* expr) {
   auto group = makeEmptyGroup();
-  group->exprs_.push_back(expr);
+  group->exprs().push_back(expr);
   if (ir_utils::isTVOp(expr)) {
     auto out_tv = expr->outputs()[0]->as<TensorView>();
     // Loop map produces a produce_at_map used specifically for expr sorting
@@ -386,7 +467,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(Expr* expr) {
     for (size_t tv_i = 0;
          tv_i < (size_t)GpuLower::current()->caLoopMap().producedAt(out_tv);
          tv_i++) {
-      group->payload()->ca_domains.push_back(out_tv->axis(tv_i));
+      group->payload()->ca_domains_.push_back(out_tv->axis(tv_i));
     }
   }
   return group;
@@ -399,10 +480,10 @@ std::string ExprSegmentationSorter::toString(int verbosity) const {
     ss << group.get() << "\n";
 
     if (verbosity > 1) {
-      if (group->producer_edges_.size() > 0) {
+      if (group->producerEdges().size() > 0) {
         ss << "  produced by groups: { \n";
-        for (auto producer_edge : group->producer_edges_) {
-          ss << "    " << producer_edge->from_ << " via " << producer_edge->val_
+        for (auto producer_edge : group->producerEdges()) {
+          ss << "    " << producer_edge->from << " via " << producer_edge->val
              << "\n";
         }
         ss << "  }"
@@ -411,10 +492,10 @@ std::string ExprSegmentationSorter::toString(int verbosity) const {
     }
 
     if (verbosity > 0) {
-      if (group->consumer_edges_.size() > 0) {
+      if (group->consumerEdges().size() > 0) {
         ss << "  Consumed by groups: { \n";
-        for (auto consumer_edge : group->consumer_edges_) {
-          ss << "    " << consumer_edge->to_ << "\n";
+        for (auto consumer_edge : group->consumerEdges()) {
+          ss << "    " << consumer_edge->to << "\n";
         }
         ss << "  }"
            << "\n";
@@ -423,7 +504,7 @@ std::string ExprSegmentationSorter::toString(int verbosity) const {
 
     if (verbosity > 2) {
       ss << "  Exprs{\n";
-      for (auto expr : group->exprs_) {
+      for (auto expr : group->exprs()) {
         ss << "    " << expr;
       }
       ss << "  }\n";
@@ -469,8 +550,8 @@ std::vector<ExprGroupConnections*> getMergedEdges(
           merged_edges.begin(),
           merged_edges.end(),
           [&sg1, &sg2](ExprGroupConnections* se) {
-            return (se->to_ == sg1 && se->from_ == sg2) ||
-                (se->to_ == sg2 && se->from_ == sg1);
+            return (se->to == sg1 && se->from == sg2) ||
+                (se->to == sg2 && se->from == sg1);
           }),
       merged_edges.end());
 
@@ -481,26 +562,26 @@ std::vector<ExprGroupConnections*> getMergedEdges(
 std::vector<ExprGroupConnections*> getMergedProducerEdges(
     const ExprGroup* sg1,
     const ExprGroup* sg2) {
-  return getMergedEdges(sg1, sg1->producer_edges_, sg2, sg2->producer_edges_);
+  return getMergedEdges(sg1, sg1->producerEdges(), sg2, sg2->producerEdges());
 }
 
 // Concat's consumer edges of sg1 and sg2, but removes any edges from/to sg1/sg2
 std::vector<ExprGroupConnections*> getMergedConsumerEdges(
     const ExprGroup* sg1,
     const ExprGroup* sg2) {
-  return getMergedEdges(sg1, sg1->consumer_edges_, sg2, sg2->consumer_edges_);
+  return getMergedEdges(sg1, sg1->consumerEdges(), sg2, sg2->consumerEdges());
 }
 
 // Assuming sg1 and sg2 are connected, figure out which is the consumer
 const ExprGroup* getProducer(const ExprGroup* sg1, const ExprGroup* sg2) {
-  for (auto producer_edge : sg1->producer_edges_) {
-    if (producer_edge->from_ == sg2) {
+  for (auto producer_edge : sg1->producerEdges()) {
+    if (producer_edge->from == sg2) {
       return sg2;
     }
   }
 
-  for (auto consumer_edge : sg1->consumer_edges_) {
-    if (consumer_edge->to_ == sg2) {
+  for (auto consumer_edge : sg1->consumerEdges()) {
+    if (consumer_edge->to == sg2) {
       return sg1;
     }
   }
@@ -514,28 +595,18 @@ const ExprGroup* getProducer(const ExprGroup* sg1, const ExprGroup* sg2) {
 std::unordered_set<ExprGroupConnections*> ExprSegmentationSorter::
     disconnectGroup(ExprGroup* group) {
   std::unordered_set<ExprGroupConnections*> removed_edges(
-      group->producer_edges_.begin(), group->producer_edges_.end());
+      group->producerEdges().begin(), group->producerEdges().end());
 
-  for (auto edge : group->producer_edges_) {
-    auto from = edge->from_;
-    auto& from_edges = from->consumer_edges_;
-    auto from_edge_it = std::find(from_edges.begin(), from_edges.end(), edge);
-    TORCH_INTERNAL_ASSERT(
-        from_edge_it != from_edges.end(), "Could not find edge to remove.");
-    from_edges.erase(from_edge_it);
+  for (auto edge : group->producerEdges()) {
+    edge->from->removeConsumerEdge(edge);
   }
 
-  for (auto edge : group->consumer_edges_) {
-    auto to = edge->to_;
-    auto& to_edges = to->producer_edges_;
-    auto to_edge_it = std::find(to_edges.begin(), to_edges.end(), edge);
-    TORCH_INTERNAL_ASSERT(
-        to_edge_it != to_edges.end(), "Could not find edge to remove.");
-    to_edges.erase(to_edge_it);
+  for (auto edge : group->consumerEdges()) {
+    edge->to->removeProducerEdge(edge);
   }
 
-  group->producer_edges_.clear();
-  group->consumer_edges_.clear();
+  group->clearProducerEdges();
+  group->clearConsumerEdges();
 
   return removed_edges;
 }
@@ -548,8 +619,8 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
     ExprGroup* sg1,
     ExprGroup* sg2) {
   std::vector<IterDomain*> resulting_ca_axes;
-  auto& domain1 = sg1->payload()->ca_domains;
-  auto& domain2 = sg2->payload()->ca_domains;
+  auto& domain1 = sg1->payload()->ca_domains_;
+  auto& domain2 = sg2->payload()->ca_domains_;
   auto it1 = domain1.begin();
   auto it2 = domain2.begin();
 
@@ -598,11 +669,11 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
   // Make the new joined node
   auto joined_groups = makeEmptyGroup();
 
-  joined_groups->input_vals_ =
-      uniqueValConcat({sg1->input_vals_, sg2->input_vals_});
+  joined_groups->setInputVals(
+      uniqueValConcat({sg1->inputVals(), sg2->inputVals()}));
 
-  joined_groups->output_vals_ =
-      uniqueValConcat({sg1->output_vals_, sg2->output_vals_});
+  joined_groups->setOutputVals(
+      uniqueValConcat({sg1->outputVals(), sg2->outputVals()}));
 
   // Keep Expr's sorted in topological order.
   auto producer = getProducer(sg1, sg2);
@@ -612,38 +683,38 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
       producer != nullptr,
       "Tried to merge expr's together that aren't neighbors.");
 
-  joined_groups->exprs_ = producer->exprs_;
-  joined_groups->exprs_.insert(
-      joined_groups->exprs_.end(),
-      consumer->exprs_.begin(),
-      consumer->exprs_.end());
+  joined_groups->exprs() = producer->exprs();
+  joined_groups->exprs().insert(
+      joined_groups->exprs().end(),
+      consumer->exprs().begin(),
+      consumer->exprs().end());
 
   auto producer_edges = getMergedProducerEdges(sg1, sg2);
   // Connect joined group to resulting neighbors
   for (auto& edge : producer_edges) {
-    auto from = edge->from_;
-    auto val = edge->val_;
+    auto from = edge->from;
+    auto val = edge->val;
 
     edges_.push_back(
         std::make_unique<ExprGroupConnections>(from, joined_groups, val));
 
-    joined_groups->producer_edges_.push_back(edges_.back().get());
-    from->consumer_edges_.push_back(edges_.back().get());
+    joined_groups->addProducerEdge(edges_.back().get());
+    from->addConsumerEdge(edges_.back().get());
   }
 
   auto consumer_edges = getMergedConsumerEdges(sg1, sg2);
 
   for (auto& edge : consumer_edges) {
-    auto to = edge->to_;
-    auto val = edge->val_;
+    auto to = edge->to;
+    auto val = edge->val;
 
     edges_.push_back(
         std::make_unique<ExprGroupConnections>(joined_groups, to, val));
-    joined_groups->consumer_edges_.push_back(edges_.back().get());
-    edge->to_->producer_edges_.push_back(edges_.back().get());
+    joined_groups->addConsumerEdge(edges_.back().get());
+    edge->to->addProducerEdge(edges_.back().get());
   }
 
-  joined_groups->payload()->ca_domains = resulting_ca_axes;
+  joined_groups->payload()->ca_domains_ = resulting_ca_axes;
 
   return joined_groups;
 }
@@ -658,8 +729,8 @@ bool ExprSegmentationSorter::interIterUpdate() {
   bool lowered_ca_domain = false;
   for (auto& group : groups_) {
     IterDomain* g_last_id = nullptr;
-    if (group->payload()->ca_domains.size() > 0) {
-      g_last_id = group->payload()->ca_domains.back();
+    if (group->payload()->ca_domains_.size() > 0) {
+      g_last_id = group->payload()->ca_domains_.back();
     }
     if (g_last_id == nullptr) {
       continue;
@@ -670,7 +741,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
       if (matching_neighbor) {
         break;
       }
-      for (auto p_id : neighbor->payload()->ca_domains) {
+      for (auto p_id : neighbor->payload()->ca_domains_) {
         if (GpuLower::current()->caLoopMap().areMapped(p_id, g_last_id)) {
           matching_neighbor = true;
           break;
@@ -679,7 +750,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
     }
 
     if (!matching_neighbor) {
-      group->payload()->ca_domains.pop_back();
+      group->payload()->ca_domains_.pop_back();
       lowered_ca_domain = true;
     }
   }
@@ -695,7 +766,7 @@ bool ExprSegmentationSorter::interIterUpdate() {
             groups_.begin(),
             groups_.end(),
             [](std::unique_ptr<ExprGroup>& sg) {
-              return sg->producer_edges_.empty() && sg->consumer_edges_.empty();
+              return sg->producerEdges().empty() && sg->consumerEdges().empty();
             }),
         "Couldn't succcessfully sort out the fusion expressions. ",
         "There are remaining connections of the heirarchical segmentation which should have been ",
@@ -739,8 +810,8 @@ void ExprSegmentationSorter::mergeNodes() {
 }
 
 bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
-  auto domain1 = sg1->payload()->ca_domains;
-  auto domain2 = sg2->payload()->ca_domains;
+  auto domain1 = sg1->payload()->ca_domains_;
+  auto domain2 = sg2->payload()->ca_domains_;
 
   if (domain1.empty() && domain2.empty()) {
     return true;
@@ -769,7 +840,7 @@ void ExprSegmentationSorter::sort() {
     auto expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
       if (inp->isFusionInput()) {
-        expr_group->input_vals_.push_back(inp);
+        expr_group->addInputVal(inp);
         continue;
       }
 
@@ -783,12 +854,12 @@ void ExprSegmentationSorter::sort() {
       auto def_group = expr2group.at(inp->definition());
       edges_.push_back(
           std::make_unique<ExprGroupConnections>(def_group, expr_group, inp));
-      expr_group->producer_edges_.push_back(edges_.back().get());
-      def_group->consumer_edges_.push_back(edges_.back().get());
+      expr_group->addProducerEdge(edges_.back().get());
+      def_group->addConsumerEdge(edges_.back().get());
     }
     for (auto out : expr->outputs()) {
       if (out->isFusionOutput()) {
-        expr_group->output_vals_.push_back(out);
+        expr_group->addOutputVal(out);
       }
     }
   }
@@ -858,7 +929,7 @@ void ExprSegmentationSorter::sort() {
 //
 // std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge)
 // {
-//   os << "e{ " << edge->from_ << " -> " << edge->to_ << " }" << std::endl;
+//   os << "e{ " << edge->from << " -> " << edge->to << " }" << std::endl;
 //   return os;
 // }
 //
@@ -870,7 +941,7 @@ void ExprSegmentationSorter::sort() {
 std::vector<Expr*> ExprSegmentationSorter::getExprs() const {
   std::vector<Expr*> exprs;
   for (auto& group : groups_) {
-    exprs.insert(exprs.end(), group->exprs_.begin(), group->exprs_.end());
+    exprs.insert(exprs.end(), group->exprs().begin(), group->exprs().end());
   }
   return exprs;
 }
