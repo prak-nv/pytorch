@@ -1045,10 +1045,11 @@ const std::vector<std::string> functions = {
                     p: float,
                     train: bool):
             p1m = 1. - p
-            res,mask = torch.native_dropout(input, p1m, train)
+            scale = 1. / (float(p1m == 0.) + p1m)
+            res,mask = torch.native_dropout(input, p1m, scale, train)
 
             def backward(grad_output):
-                grad_input = torch.native_dropout_backward(grad_output, mask, p1m)
+                grad_input = torch.native_dropout_backward(grad_output, mask, scale)
                 return grad_input, None, None
             return res, backward
 

@@ -518,18 +518,23 @@ class IrParser {
 
     {
       auto ptr_op = getOperatorForLiteral(
-          "aten::native_dropout(Tensor input, float p, bool train) -> (Tensor, Tensor)");
+          "aten::native_dropout(Tensor input, float p, float scale, bool train) -> (Tensor, Tensor)");
       registerParseRule(
           ptr_op,
           [](const Node* node,
              std::unordered_map<size_t, CgValue>& value_map) -> void {
             auto input = value_map[node->input(0)->unique()];
             auto prob = value_map[node->input(1)->unique()];
-	    auto train = constant_as<bool>(node->input(2));
+            auto scale = value_map[node->input(2)->unique()];
+	    auto train = constant_as<bool>(node->input(3));
+  
+	    TORCH_INTERNAL_ASSERT(train.has_value() and train.value(), 
+	      "Train parameter is incorrectly set!");
 
             auto rand_vals = unaryOp(UnaryOpType::RandLike, input);
 	    auto mask = lt(rand_vals, prob);
-	    auto out = mul(input, mask);
+	    auto apply_mask = mul(input, mask);
+	    auto out = mul(apply_mask, scale);
 
             value_map.emplace(node->output(0)->unique(), out);
             value_map.emplace(node->output(1)->unique(), mask);
@@ -556,7 +561,7 @@ class IrParser {
 
     {
       auto ptr_op = getOperatorForLiteral(
-          "aten::native_dropout_backward(Tensor grad, Tensor mask, float p) -> Tensor");
+          "aten::native_dropout_backward(Tensor grad, Tensor mask, float scale) -> Tensor");
       registerParseRule(
           ptr_op,
           [](const Node* node,
@@ -1486,11 +1491,9 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
           ->schema();
   static auto native_dropout_schema =
       getOperatorForLiteral(
-          "aten::native_dropout(Tensor input, float p, bool train) -> (Tensor, Tensor)")
+          "aten::native_dropout(Tensor input, float p, float scale, bool train) -> (Tensor, Tensor)")
           ->schema();
-  if (node->matches(dropout_schema) ||
-      node->matches(native_dropout_schema)) {
-    std::cout << "MATCHED Dropout Schema!" << std::endl;
+  if (node->matches(dropout_schema) || node->matches(native_dropout_schema)) {
     switch (offset) {
       // argument 2: Is training?
       case 2:

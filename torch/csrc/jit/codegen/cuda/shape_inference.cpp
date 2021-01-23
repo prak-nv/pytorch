@@ -190,6 +190,11 @@ class NaiveTypePropagator {
 
         break;
       }
+      case aten::native_dropout_backward: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+        node->output()->setType(out_type);
+        break;
+      }
       case aten::batch_norm: {
         auto out_type = node->input(0)->type()->cast<TensorType>();
         node->output()->setType(out_type);

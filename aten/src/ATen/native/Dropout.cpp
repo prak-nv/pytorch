@@ -84,22 +84,21 @@ ALIAS_SPECIALIZATION(_feature_alpha_dropout, true,  true )
 } // anomymous namepsace
 
 std::tuple<Tensor,Tensor>
-native_dropout_cpu(const Tensor& input, double p, bool train) {
-  if (!train) {
-    return std::make_tuple(input, at::empty({}, input.options()));
-  } else if (input.numel() == 0) {
+native_dropout_cpu(const Tensor& input, double p, double scale, bool train) {
+  TORCH_CHECK(train, "Train parameter is incorrectly set!");
+  if (input.numel() == 0) {
     return std::make_tuple(input, at::empty_like(input, input.options()));
   }
 
   auto noise = at::empty_like(input, LEGACY_CONTIGUOUS_MEMORY_FORMAT);
   noise.bernoulli_(p);
 
-  auto output = input.mul_(noise).div_(p);
+  auto output = input.mul(noise).mul_(scale);
   return std::make_tuple(output, noise);
 }
 
-Tensor native_dropout_backward_cpu(const Tensor& grad, const Tensor& mask, double p) {
-  Tensor result = grad * mask * (1. / p);
+Tensor native_dropout_backward_cpu(const Tensor& grad, const Tensor& mask, double scale) {
+  Tensor result = grad * mask * scale;
   return result;
 }
 
@@ -108,7 +107,13 @@ Tensor dropout(const Tensor& input, double p, bool train) {
   auto result = [&]() {
     NoNamesGuard guard;
     double p1m = 1. - p;
-    return std::get<0>(at::native_dropout(input, p1m, train));
+    // Check for probability of zero to avoid divide by zero and NaN results
+    double scale = p1m == 0 ? 0. : 1. / p1m;
+    if (train) {
+      return std::get<0>(at::native_dropout(input, p1m, scale, train));
+    } else {
+      return input;
+    }
   }();
   namedinference::propagate_names(result, input);
   return result;

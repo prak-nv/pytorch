@@ -164,18 +164,18 @@
   use_c10_dispatcher: full
   variants: function
 
-- func: native_dropout(Tensor input, float p, bool train) -> (Tensor, Tensor)
+- func: native_dropout(Tensor input, float p, float scale, bool train) -> (Tensor, Tensor)
   use_c10_dispatcher: full
   variants: function
   dispatch:
     CPU: native_dropout_cpu
     CUDA: native_dropout_cuda
 
-- func: native_dropout_backward(Tensor grad, Tensor mask, float p) -> Tensor
+- func: native_dropout_backward(Tensor grad, Tensor mask, float scale) -> Tensor
   use_c10_dispatcher: full
   dispatch:
     CPU: native_dropout_backward_cpu
-    CUDA: masked_scale_cuda
+    CUDA: native_dropout_backward_cuda
 
 - func: _sobol_engine_draw(Tensor quasi, int n, Tensor sobolstate, int dimension, int num_generated, ScalarType? dtype) -> (Tensor, Tensor)
   use_c10_dispatcher: full
