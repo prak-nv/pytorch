@@ -153,15 +153,8 @@ class ExprSegmentationSorter {
 
   std::string toString(int verbosity = 0) const;
 
-  const std::vector<ExprGroup*> getGroups() {
-    std::vector<ExprGroup*> group_vec;
-    std::transform(
-        groups_.begin(),
-        groups_.end(),
-        std::back_inserter(group_vec),
-        [](std::unique_ptr<ExprGroup>& sg) { return sg.get(); });
-    return group_vec;
-  }
+  //! Returns a flattened list of sorted exprs
+  std::vector<Expr*> getExprs() const;
 
  private:
   // Allocate an empty expr group and return it
@@ -872,6 +865,14 @@ void ExprSegmentationSorter::sort() {
 //   return os << scf->toString();
 // }
 
+std::vector<Expr*> ExprSegmentationSorter::getExprs() const {
+  std::vector<Expr*> exprs;
+  for (auto& group : groups_) {
+    exprs.insert(exprs.end(), group->exprs_.begin(), group->exprs_.end());
+  }
+  return exprs;
+}
+
 } // namespace
 
 std::vector<Expr*> reorderExprsForComputeAt() {
@@ -879,18 +880,11 @@ std::vector<Expr*> reorderExprsForComputeAt() {
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
   ExprSegmentationSorter sorter(fusion);
   sorter.sort();
-  auto groups = sorter.getGroups();
+  auto sorted_exprs = sorter.getExprs();
   TORCH_INTERNAL_ASSERT(
-      groups.size() > 0,
+      sorted_exprs.size() > 0,
       "Error during expression sorting, no expressions produced.");
-
-  // We could have multiple groups if they're disjoint. Simply flatten them in
-  // order as they could be in any order.
-  std::vector<Expr*> exprs;
-  for (auto group : groups) {
-    exprs.insert(exprs.end(), group->exprs_.begin(), group->exprs_.end());
-  }
-  return exprs;
+  return sorted_exprs;
 }
 
 } // namespace cuda
