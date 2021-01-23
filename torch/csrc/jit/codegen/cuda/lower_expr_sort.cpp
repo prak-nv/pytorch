@@ -587,6 +587,8 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
       // domain1
       resulting_ca_axes.push_back(*it2++);
     } else {
+      // This should not be reachalble since the axes here only
+      // include the shared axes between the two expr groups.
       TORCH_INTERNAL_ASSERT(false, "Should not be reachable.");
       resulting_ca_axes.push_back(*it1++);
       resulting_ca_axes.push_back(*it2++);
