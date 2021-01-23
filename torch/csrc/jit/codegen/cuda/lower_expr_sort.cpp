@@ -594,6 +594,7 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
       // domain1
       resulting_ca_axes.push_back(*it2++);
     } else {
+      TORCH_INTERNAL_ASSERT(false, "Should not be reachable.");
       resulting_ca_axes.push_back(*it1++);
       resulting_ca_axes.push_back(*it2++);
     }
