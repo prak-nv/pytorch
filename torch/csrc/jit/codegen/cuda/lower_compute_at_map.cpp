@@ -276,7 +276,7 @@ void ComputeAtMap::build() {
         // position even for terminating outputs
         std::unordered_set<IterDomain*> within_producer_compute_at;
         for (unsigned int p_i = 0; p_i < p_tv->getThisComputeAtAxis(); p_i++) {
-          within_producer_compute_at.insert(p_tv->axis(p_i));
+          within_producer_compute_at.insert(p_tv->axis((int)p_i));
         }
 
         // Map the entire replay map
