@@ -356,7 +356,7 @@ ForLoop::ForLoop(
     : Expr(passkey),
       index_{index},
       iter_domain_{iter_domain},
-      is_vectorized(vectorize) {
+      is_vectorized_(vectorize) {
   TORCH_INTERNAL_ASSERT(index->dtype() == DataType::Int);
   setParentScope(parent_scope);
   addInput(index);

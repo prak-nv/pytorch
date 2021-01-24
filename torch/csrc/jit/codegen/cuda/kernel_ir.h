@@ -1136,14 +1136,18 @@ class TORCH_CUDA_API ForLoop final : public Expr {
   }
 
   bool isVectorized() const {
-    return is_vectorized;
+    return is_vectorized_;
+  }
+
+  void setVectorized(bool vectorized) {
+    is_vectorized_ = vectorized;
   }
 
  private:
   Val* const index_ = nullptr;
   IterDomain* const iter_domain_;
   Scope body_;
-  bool is_vectorized = false;
+  bool is_vectorized_ = false;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its

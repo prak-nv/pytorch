@@ -6949,19 +6949,11 @@ TEST(NVFuserTest, FusionVectorization2_CUDA) {
 
   auto c0 = tv0->cache_after();
   c0->split(-1, 4);
-  c0->axis(-2)->parallelize(ParallelType::Unroll);
+  c0->axis(-2)->parallelize(ParallelType::Vectorize);
 
-  fusion.printKernel();
-
-  /*
-  auto c0 = tv0->cache_after();
-  auto c1 = tv1->cache_after();
-  c0->split(-1, 4);
-  c1->split(-1, 4);
-
-  c0->axis(-1)->parallelize(ParallelType::Vectorize);
-  c1->axis(-1)->parallelize(ParallelType::Vectorize);
-  */
+  auto c3 = tv3->cache_before();
+  tv3->split(-1, 4);
+  tv3->axis(-2)->parallelize(ParallelType::Vectorize);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 100;

@@ -59,46 +59,53 @@ bool isReductionInitExpr(const kir::Expr* expr) {
   return true;
 }
 
-void unrollForLoopBody(kir::ForLoop* fl, kir::IfThenElse* ite) {
-  // Get the loop nest for the unrolled path
-  kir::ForLoop* loop_nest = cloneLoopNest(fl, ite);
-  ite->thenBody().push_back(loop_nest);
-}
-
-void vectorizeForLoopBody(kir::ForLoop* fl, kir::IfThenElse* ite) {
-  // Get the loop nest for the vectorized path
+kir::ForLoop* cloneVectorizeLoopNest(
+    const kir::ForLoop* for_loop,
+    kir::Expr* parent_scope) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
-  const auto vectorize_loop_nest = ir_builder.create<kir::ForLoop>(
-      fl->index(), fl->iter_domain(), true, ite);
+  const auto new_loop = ir_builder.create<kir::ForLoop>(
+      for_loop->index(),
+      for_loop->iter_domain(),
+      for_loop->isVectorized(),
+      parent_scope);
 
-  // Get size of vectorized dimension
-  auto vector_size = fl->iter_domain()->rawExtent();
+  for (auto expr : for_loop->body().exprs()) {
+    if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      expr = cloneVectorizeLoopNest(nested_for_loop, new_loop);
+      new_loop->body().push_back(expr);
+    } else if (
+        expr != nullptr && expr->isA<kir::UnaryOp>() &&
+        expr->as<kir::UnaryOp>()->operation() == UnaryOpType::Set) {
+      TORCH_CHECK(for_loop->body().exprs().size() == 1);
+      new_loop->setVectorized(true);
 
-  TORCH_INTERNAL_ASSERT(fl->body().exprs().size() == 1);
-  for (auto expr : fl->body().exprs()) {
-    if (expr->isA<kir::UnaryOp>()) {
+      // Get size of vectorized dimension
+      auto vector_size = for_loop->iter_domain()->rawExtent();
+
       auto unaryOp = expr->as<kir::UnaryOp>();
-      if (unaryOp->operation() == UnaryOpType::Set) {
-        auto input = unaryOp->in()->as<kir::TensorView>();
-        auto output = unaryOp->out()->as<kir::TensorView>();
+      auto input = unaryOp->in()->as<kir::TensorView>();
+      auto output = unaryOp->out()->as<kir::TensorView>();
 
-        bool isVectorizedRead = output->memoryType() == MemoryType::Local &&
-            input->memoryType() == MemoryType::Global;
-        if (isVectorizedRead) {
-          output->allocation()->setVectorSize(vector_size);
-          auto vectorize_read = ir_builder.create<kir::UnaryOp>(
-              UnaryOpType::VectorizeRead, output, input);
-          vectorize_loop_nest->body().push_back(vectorize_read);
-        } else {
-          input->allocation()->setVectorSize(vector_size);
-          auto vectorize_write = ir_builder.create<kir::UnaryOp>(
-              UnaryOpType::VectorizeWrite, output, input);
-          vectorize_loop_nest->body().push_back(vectorize_write);
-        }
+      bool isVectorizedRead = output->memoryType() == MemoryType::Local &&
+          input->memoryType() == MemoryType::Global;
+
+      if (isVectorizedRead) {
+        output->allocation()->setVectorSize(vector_size);
+        auto vectorize_read = ir_builder.create<kir::UnaryOp>(
+            UnaryOpType::VectorizeRead, output, input);
+        new_loop->body().push_back(vectorize_read);
+      } else {
+        input->allocation()->setVectorSize(vector_size);
+        auto vectorize_write = ir_builder.create<kir::UnaryOp>(
+            UnaryOpType::VectorizeWrite, output, input);
+        new_loop->body().push_back(vectorize_write);
       }
+    } else {
+      new_loop->body().push_back(expr);
     }
   }
-  ite->thenBody().push_back(vectorize_loop_nest);
+
+  return new_loop;
 }
 
 } // namespace
@@ -189,16 +196,19 @@ void UnrollPass::handle(kir::ForLoop* fl) {
 
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
+  if (is_vectorize) {
+    auto vectorize_pred =
+        VectorizePredicate::get(for_loops_, fl, p2c_root_map_, ca_root_map_);
+    auto pred = ir_builder.andExpr(unroll_pred, vectorize_pred);
+    unroll_pred = pred->as<kir::Bool>();
+  }
+
   kir::IfThenElse* ite =
       ir_builder.create<kir::IfThenElse>(unroll_pred, parent_scope);
 
-  if (is_unroll) {
-    // Get the loop nest for the unrolled path
-    unrollForLoopBody(fl, ite);
-  } else {
-    // Get the loop nest for the vectorized path
-    vectorizeForLoopBody(fl, ite);
-  }
+  kir::ForLoop* loop_nest =
+      (is_unroll) ? cloneLoopNest(fl, ite) : cloneVectorizeLoopNest(fl, ite);
+  ite->thenBody().push_back(loop_nest);
 
   // Loop nest for inlined path
   kir::ForLoop* inlined_loop = cloneLoopNest(fl, ite);

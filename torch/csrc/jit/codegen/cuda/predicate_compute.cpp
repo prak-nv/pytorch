@@ -308,6 +308,105 @@ UnswitchPredicate::UnswitchPredicate(
   openLoop(unrolled_loop);
 }
 
+kir::Bool* VectorizePredicate::get(
+    const std::vector<kir::ForLoop*>& outer_loops,
+    kir::ForLoop* vectorized_loop,
+    const IterDomainMap& p2c_root_map,
+    const ComputeAtRootDomainMap& ca_root_map) {
+  FUSER_PERF_SCOPE("VectorizePredicate::get");
+
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+
+  VectorizePredicate up(
+      outer_loops, vectorized_loop, p2c_root_map, ca_root_map);
+  return up.vectorize_pred_;
+}
+
+void VectorizePredicate::predicateOn(kir::Expr* tv_expr) {
+  FUSER_PERF_SCOPE("UnswitchPredicate::predicateOn");
+
+  if (for_loops_.empty()) {
+    return;
+  }
+
+  if (!tv_expr->isA<kir::UnaryOp>() ||
+      tv_expr->as<kir::UnaryOp>()->operation() != UnaryOpType::Set) {
+    return;
+  }
+
+  auto unaryOp = tv_expr->as<kir::UnaryOp>();
+  auto in_tv = unaryOp->in()->as<kir::TensorView>();
+  auto out_tv = unaryOp->out()->as<kir::TensorView>();
+
+  auto pred_contiguity = out_tv->domain()->contiguity();
+  for (auto inp : tv_expr->inputs()) {
+    if (auto inp_tv = dynamic_cast<kir::TensorView*>(inp)) {
+      if (inp_tv->domain()->hasRFactor() ||
+          inp_tv->memoryType() == MemoryType::Shared ||
+          inp_tv->memoryType() == MemoryType::Local) {
+        continue;
+      } else {
+        pred_contiguity = IndexCompute::contiguityAnd(
+            pred_contiguity,
+            IndexCompute::contiguityPasC(inp_tv->domain(), out_tv->domain()));
+      }
+    }
+  }
+
+  bool isVectorizedRead = out_tv->memoryType() == MemoryType::Local &&
+      in_tv->memoryType() == MemoryType::Global;
+
+  auto pred_inds = (isVectorizedRead)
+      ? Index::getProducerRootVectIndices(
+            in_tv, out_tv, for_loops_, pred_contiguity, ca_root_map_)
+      : Index::getConsumerRootVectIndices(
+            out_tv, for_loops_, pred_contiguity, ca_root_map_);
+
+  const auto gpu_lower = GpuLower::current();
+  kir::IrBuilder ir_builder(gpu_lower->kernel());
+
+  kir::Val* index = nullptr;
+  for (auto idx : pred_inds) {
+    index = (index == nullptr) ? idx : ir_builder.addExpr(index, idx);
+  }
+
+  //! check base_index % vector_size == 0
+  auto zero = ir_builder.create<kir::Int>(0);
+  auto vector_size = out_tv->domain()->domain().back()->extent();
+  auto data_size = ir_builder.create<kir::Int>(dataTypeSize(out_tv->dtype()));
+  auto size = ir_builder.mulExpr(vector_size, data_size);
+  auto expr = ir_builder.modExpr(index, size);
+  auto pred = ir_builder.eqExpr(expr, zero);
+  vectorize_pred_ = pred->as<kir::Bool>();
+}
+
+void VectorizePredicate::openLoop(kir::ForLoop* fl) {
+  FUSER_PERF_SCOPE("UnswitchPredicate::openLoop");
+
+  for_loops_.push_back(fl);
+
+  for (auto expr : fl->body().exprs()) {
+    if (ir_utils::isTVOp(expr)) {
+      predicateOn(expr);
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      openLoop(for_loop);
+    }
+  }
+
+  for_loops_.pop_back();
+}
+
+VectorizePredicate::VectorizePredicate(
+    std::vector<kir::ForLoop*> outer_loops,
+    kir::ForLoop* vectorized_loop,
+    const IterDomainMap& _p2c_root_map,
+    const ComputeAtRootDomainMap& ca_root_map)
+    : for_loops_(std::move(outer_loops)),
+      p2c_root_map_(_p2c_root_map),
+      ca_root_map_(ca_root_map) {
+  openLoop(vectorized_loop);
+}
+
 } // namespace cuda
 } // namespace fuser
 } // namespace jit

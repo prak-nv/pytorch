@@ -77,6 +77,33 @@ class TORCH_CUDA_API UnswitchPredicate {
   const ComputeAtRootDomainMap& ca_root_map_;
 };
 
+class TORCH_CUDA_API VectorizePredicate {
+ public:
+  static kir::Bool* get(
+      const std::vector<kir::ForLoop*>& outer_loops,
+      kir::ForLoop* vectorized_loop,
+      const IterDomainMap& p2c_root_map,
+      const ComputeAtRootDomainMap& ca_root_map);
+
+ private:
+  VectorizePredicate(
+      std::vector<kir::ForLoop*> outer_loops,
+      kir::ForLoop* vectorized_loop,
+      const IterDomainMap& _p2c_root_map,
+      const ComputeAtRootDomainMap& ca_root_map);
+
+  void predicateOn(kir::Expr*);
+
+  void openLoop(kir::ForLoop*);
+
+ private:
+  kir::Bool* vectorize_pred_ = nullptr;
+  std::vector<kir::ForLoop*> for_loops_;
+
+  const IterDomainMap& p2c_root_map_;
+  const ComputeAtRootDomainMap& ca_root_map_;
+};
+
 } // namespace cuda
 } // namespace fuser
 } // namespace jit

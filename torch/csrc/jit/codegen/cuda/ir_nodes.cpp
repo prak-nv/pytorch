@@ -578,14 +578,6 @@ void IterDomain::parallelize(ParallelType t) {
         " and extent ",
         extent(),
         " .");
-
-    const auto extent_value = extent()->getInt().value_or(-1);
-    TORCH_CHECK(
-        extent_value == 2 || extent_value == 4,
-        "Vectorize only supports 64-bit and 128-bit loads/stores, but got ",
-        " an extent of ",
-        extent(),
-        " .");
   }
 
   if (t == ParallelType::Unroll || t == ParallelType::Unswitch) {
