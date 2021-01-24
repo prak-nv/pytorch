@@ -114,7 +114,7 @@ fused_dropout_kernel(cuda::detail::TensorInfo<scalar_t, IndexType> a,
                      cuda::detail::TensorInfo<scalar_t, IndexType> b,
                      cuda::detail::TensorInfo<bool, IndexType> c,
                      IndexType totalElements, accscalar_t p,
-		     accscalar_t scale,
+                     accscalar_t scale,
                      PhiloxCudaState philox_args) {
   auto seeds = at::cuda::philox::unpack(philox_args);
   IndexType idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -242,7 +242,7 @@ inline void launcher(
                       mask_info,
                       nelem,
                       pa,
-		      casted_scale,
+                      casted_scale,
                       rng_engine_inputs);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
               break;
@@ -259,7 +259,7 @@ inline void launcher(
                       mask_info,
                       nelem,
                       pa,
-		      casted_scale,
+                      casted_scale,
                       rng_engine_inputs);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
               break;
@@ -274,7 +274,7 @@ inline void launcher(
                       mask_info,
                       nelem,
                       pa,
-		      casted_scale,
+                      casted_scale,
                       rng_engine_inputs);
               C10_CUDA_KERNEL_LAUNCH_CHECK();
               break;
@@ -291,7 +291,7 @@ inline void launcher(
                         mask_info,
                         nelem,
                         pa,
-			casted_scale,
+                        casted_scale,
                         rng_engine_inputs);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               } else {
@@ -305,7 +305,7 @@ inline void launcher(
                         mask_info,
                         nelem,
                         pa,
-			casted_scale,
+                        casted_scale,
                         rng_engine_inputs);
                 C10_CUDA_KERNEL_LAUNCH_CHECK();
               }

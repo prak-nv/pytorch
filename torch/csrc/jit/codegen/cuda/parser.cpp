@@ -526,15 +526,15 @@ class IrParser {
             auto input = value_map[node->input(0)->unique()];
             auto prob = value_map[node->input(1)->unique()];
             auto scale = value_map[node->input(2)->unique()];
-	    auto train = constant_as<bool>(node->input(3));
-  
-	    TORCH_INTERNAL_ASSERT(train.has_value() and train.value(), 
-	      "Train parameter is incorrectly set!");
+            auto train = constant_as<bool>(node->input(3));
+
+            TORCH_INTERNAL_ASSERT(train.has_value() and train.value(), 
+              "Train parameter is incorrectly set!");
 
             auto rand_vals = unaryOp(UnaryOpType::RandLike, input);
-	    auto mask = lt(rand_vals, prob);
-	    auto apply_mask = mul(input, mask);
-	    auto out = mul(apply_mask, scale);
+            auto mask = lt(rand_vals, prob);
+            auto apply_mask = mul(input, mask);
+            auto out = mul(apply_mask, scale);
 
             value_map.emplace(node->output(0)->unique(), out);
             value_map.emplace(node->output(1)->unique(), mask);
@@ -549,12 +549,12 @@ class IrParser {
           [](const Node* node,
              std::unordered_map<size_t, CgValue>& value_map) -> void {
             auto input = value_map[node->input(0)->unique()];
-	    auto train = constant_as<bool>(node->input(2));
+            auto train = constant_as<bool>(node->input(2));
 
             TORCH_INTERNAL_ASSERT(train.has_value() && train.value() == false,
               "The train parameter should not be set during inference.");
 
-	    auto out = add(input, new Int(0));
+            auto out = add(input, new Int(0));
             value_map.emplace(node->output()->unique(), out);
           });
     }
@@ -571,7 +571,7 @@ class IrParser {
             auto scale = value_map[node->input(2)->unique()];
 
             auto temp = mul(grad, mask);
-	    auto out = mul(temp, scale);
+            auto out = mul(temp, scale);
             value_map.emplace(node->output()->unique(), out);
           });
     }
