@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+#include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/codegen.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
@@ -222,7 +223,7 @@ void Fusion::addOutput(Val* output) {
   resetTvUses();
 }
 
-void Fusion::addOutput(WelfordResult wr) {
+void Fusion::addOutput(WelfordResult& wr) {
   // Want to always make sure the avg gets added last
   //  since avg will be the out() value of welfordOp,
   //  and want to make it the top of the computeAt chain

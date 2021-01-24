@@ -10782,9 +10782,9 @@ TEST(NVFuserTest, FusionRfactorWelfordOp_CUDA) {
   fusion.addOutput(tv_avg);
   fusion.addOutput(tv_N);
 
-  tv_N->split(1, 4);
+  tv_avg->split(1, 4);
   auto rtvs = tvs.rfactor({2});
-  tv1->computeAt(tv_N, -1);
+  tv1->computeAt(tv_avg, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -10827,6 +10827,12 @@ TEST(NVFuserTest, FusionWelfordSchedule_CUDA) {
   fusion.addOutput(tv_N);
   fusion.addOutput(tv_avg);
 
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N}, options);
+  auto red_params = getReductionHeuristics(&fusion, {t0}, tv_avg);
+
   // unroll
   tv_avg->split(1, 4);
   tv_avg->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
@@ -10844,26 +10850,26 @@ TEST(NVFuserTest, FusionWelfordSchedule_CUDA) {
 
   tv1->computeAt(rtvs.avg, -1);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::manual_seed(0);
-  at::Tensor t0 = at::randn({M, N}, options);
-
-  fusion.printMath();
   FusionExecutor fe;
   fe.compileFusion(&fusion);
-  auto outputs = fe.runFusion({t0});
+  auto outputs = fe.runFusion({t0}, red_params.value().lparams);
 
   // by default Welford outputs sum of square diff so need to divide to get var
   outputs[0] /= N;
+
+  auto at_var = t0.var({1}, false);
+  auto at_avg = t0.mean({1});
+  auto at_n = at::ones({M}, options_int) * N;
 
   testValidate(
       &fusion,
       outputs,
       {t0},
-      {t0.var({1}, false), t0.mean({1}), at::ones({M}, options_int) * N},
+      {at_var, at_n, at_avg},
       __LINE__,
-      __FILE__);
+      __FILE__,
+      "validate welford",
+      red_params.value().lparams);
 }
 
 TEST(NVFuserTest, FusionTranspose1_CUDA) {

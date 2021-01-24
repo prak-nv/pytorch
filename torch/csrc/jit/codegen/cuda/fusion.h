@@ -47,6 +47,7 @@ namespace cuda {
 
 class Fusion;
 class TensorView;
+class WelfordResult;
 
 //! Fusion Guard is our "context manager". It holds the actrive fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
@@ -104,7 +105,7 @@ class TORCH_CUDA_API Fusion final {
 
   //! Register output as an output of the fusion
   // TODO: Rename to register
-  void addOutput(WelfordResult output);
+  void addOutput(WelfordResult& output);
 
   //! Deregister input as an input of the fusion
   // TODO: Rename to register
