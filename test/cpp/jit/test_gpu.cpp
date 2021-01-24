@@ -6881,7 +6881,7 @@ TEST(NVFuserTest, FusionSmemDynamicPersistentSoftmax2D_CUDA) {
       __FILE__);
 }
 
-TEST(NVFuserTest, FusionVectorization_CUDA) {
+TEST(NVFuserTest, FusionVectorization1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -6919,11 +6919,62 @@ TEST(NVFuserTest, FusionVectorization_CUDA) {
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
-
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   auto aten_output = t0 + t1;
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
 
+TEST(NVFuserTest, FusionVectorization2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = mul(tv2, new Double(3));
+
+  fusion.addOutput(tv3);
+
+  tv3->split(-1, 16);
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  tv0->computeAt(tv3, -2);
+  tv2->computeAt(tv3, -2);
+
+  auto c0 = tv0->cache_after();
+  c0->split(-1, 4);
+  c0->axis(-2)->parallelize(ParallelType::Unroll);
+
+  fusion.printKernel();
+
+  /*
+  auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
+  c0->split(-1, 4);
+  c1->split(-1, 4);
+
+  c0->axis(-1)->parallelize(ParallelType::Vectorize);
+  c1->axis(-1)->parallelize(ParallelType::Vectorize);
+  */
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 100;
+  const int by = 1000;
+  at::Tensor t0 = at::randn({bx, by}, options);
+  at::Tensor t1 = at::randn({bx, by}, options);
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = (t0 + t1) * 3;
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }

@@ -241,9 +241,6 @@ void IndexCompute::handle(Split* split) {
   bool is_vectorized = false;
   // in_id inherits vectorize flag from inner_id
   if (vectorized_domain_.find(inner_id) != vectorized_domain_.end()) {
-    vectorized_domain_.insert(in_id);
-  }
-  if (vectorized_domain_.find(in_id) != vectorized_domain_.end()) {
     is_vectorized = true;
   }
 
@@ -267,9 +264,14 @@ void IndexCompute::handle(Split* split) {
     index_map_[in_id] = ir_builder.create<kir::Int>(0);
     extent_map_[in_id] = ir_builder.create<kir::Int>(0);
   } else if (outer_zero) {
-    index_map_[in_id] = inner_ind;
+    if (is_vectorized) {
+      index_map_[in_id] = ir_builder.create<kir::Int>(0);
+      extent_map_[in_id] = ir_builder.create<kir::Int>(0);
+    } else {
+      index_map_[in_id] = inner_ind;
+      extent_map_[in_id] = getExtent(inner_id);
+    }
     zero_merged_in_.emplace(in_id);
-    extent_map_[in_id] = getExtent(inner_id);
   } else if (inner_zero) {
     index_map_[in_id] = outer_ind;
     zero_merged_in_.emplace(in_id);
@@ -1253,14 +1255,6 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
 
-  for (auto fl : loops) {
-    if (fl->isVectorized()) {
-      std::vector<kir::Val*> strided_inds;
-      strided_inds.push_back(ir_builder.create<kir::Int>(0));
-      return ir_builder.create<kir::TensorIndex>(producer_tv, strided_inds);
-    }
-  }
-
   // grab all tensor views from producer_tv <- computeAtRoot
   auto tv_stack = getComputeAtTVStackFrom(consumer_tv);
   tv_stack.push_back(producer_tv);
@@ -1435,14 +1429,6 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
     const ComputeAtRootDomainMap& ca_root_map) {
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
-
-  for (auto fl : loops) {
-    if (fl->isVectorized()) {
-      std::vector<kir::Val*> strided_inds;
-      strided_inds.push_back(ir_builder.create<kir::Int>(0));
-      return ir_builder.create<kir::TensorIndex>(consumer_tv, strided_inds);
-    }
-  }
 
   // grab all tensor views from consumer_tv <- computeAtRoot
   auto tv_stack = getComputeAtTVStackFrom(consumer_tv);

@@ -278,7 +278,16 @@ class CudaKernelGenerator : private kir::IrVisitor {
     const auto op_type = node->operation();
     if (!print_inline_) {
       if (op_type == UnaryOpType::VectorizeRead) {
-        indent() << "vec_" << gen(node->out());
+        // indent() << "vec_" << gen(node->out());
+        indent() << "*reinterpret_cast<"
+                 << "Array<" << node->out()->dtype() << ", "
+                 << genInline(node->out()
+                                  ->as<kir::TensorIndex>()
+                                  ->view()
+                                  ->allocation()
+                                  ->vectorSize())
+                 << ">*>"
+                 << "(&" << gen(node->out()) << ")";
       } else if (op_type == UnaryOpType::VectorizeWrite) {
         indent() << "*reinterpret_cast<"
                  << "Array<" << node->out()->dtype() << ", "
@@ -317,7 +326,16 @@ class CudaKernelGenerator : private kir::IrVisitor {
             << ">*>"
             << "(&" << gen(node->in()) << ")";
     } else if (op_type == UnaryOpType::VectorizeWrite) {
-      code_ << "vec_" << gen(node->in());
+      // code_ << "vec_" << gen(node->in());
+      code_ << "*reinterpret_cast<"
+            << "Array<" << node->in()->dtype() << ", "
+            << genInline(node->in()
+                             ->as<kir::TensorIndex>()
+                             ->view()
+                             ->allocation()
+                             ->vectorSize())
+            << ">*>"
+            << "(&" << gen(node->in()) << ")";
     } else {
       if (op_type == UnaryOpType::Cast) {
         const auto cast_str =
@@ -707,15 +725,6 @@ class CudaKernelGenerator : private kir::IrVisitor {
         default:
           TORCH_INTERNAL_ASSERT(false, "Unexpected memory type");
       }
-    }
-
-    if (node->vectorSize() != nullptr) {
-      indent() << "Array<" << buffer_dtype << ", "
-               << genInline(node->vectorSize()) << ">* "
-               << "vec_" << varName(tv) << " = reinterpret_cast<"
-               << "Array<" << buffer_dtype << ", "
-               << genInline(node->vectorSize()) << ">*>"
-               << "(&" << varName(tv) << ");\n";
     }
   }
 
