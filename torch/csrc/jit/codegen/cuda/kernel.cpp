@@ -71,8 +71,6 @@ class KernelIrScanner : private kir::IrVisitor {
     // Do we have any reductions?
     summary_.has_block_reductions =
         summary_.has_block_reductions || domain->hasBlockReduction();
-    summary_.has_grid_reductions =
-        summary_.has_grid_reductions || domain->hasGridReduction();
 
     // Do we have block broadcasts?
     summary_.has_block_broadcasts =
@@ -87,6 +85,17 @@ class KernelIrScanner : private kir::IrVisitor {
         max_smem_type_size_ = type_size;
         summary_.largest_smem_data_type = data_type;
       }
+    }
+  }
+
+  void visit(const kir::GridReduction* grid_reduction) final {
+    ++summary_.number_of_grid_reductions;
+
+    const auto fuser_tv = grid_reduction->reduction_op()->out()->as<kir::TensorIndex>()->view()->fuserTv();
+    for (size_t i = 0; i < fuser_tv->nDims(); ++i) {
+      const auto id = fuser_tv->getComputeAtAxis(i).first;
+      summary_.has_grid_reduction_in_loop =
+          summary_.has_grid_reduction_in_loop || !id->isThread();
     }
   }
 
