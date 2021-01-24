@@ -10833,14 +10833,13 @@ TEST(NVFuserTest, FusionWelfordSchedule_CUDA) {
   at::Tensor t0 = at::randn({M, N}, options);
   auto red_params = getReductionHeuristics(&fusion, {t0}, tv_avg);
 
-  // unroll
   tv_avg->split(1, 4);
   tv_avg->split(1, NamedScalar::getParallelDim(ParallelType::TIDx));
   tv_avg->split(0, NamedScalar::getParallelDim(ParallelType::TIDy));
 
   auto rtvs = tvs.rfactor({-3, -1});
 
-  rtvs.avg->computeAt(tv_N, -1);
+  rtvs.avg->computeAt(tv_avg, -1);
 
   rtvs.avg->axis(-1)->parallelize(ParallelType::Unroll);
 
