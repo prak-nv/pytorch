@@ -169,30 +169,6 @@ class ExprGroup {
     return exprs_;
   }
 
-  const auto& inputVals() const {
-    return input_vals_;
-  }
-
-  void setInputVals(const std::vector<Val*>& input_vals) {
-    input_vals_ = input_vals;
-  }
-
-  void addInputVal(Val* input_val) {
-    input_vals_.push_back(input_val);
-  }
-
-  const auto& outputVals() const {
-    return output_vals_;
-  }
-
-  void setOutputVals(const std::vector<Val*>& output_vals) {
-    output_vals_ = output_vals;
-  }
-
-  void addOutputVal(Val* output_val) {
-    output_vals_.push_back(output_val);
-  }
-
  private:
   static void addEdge(
       std::vector<ExprGroupConnections*>& edges,
@@ -214,10 +190,6 @@ class ExprGroup {
 
   // "Descendent nodes", towards outputs of segmentedDAG
   std::vector<ExprGroupConnections*> consumer_edges_;
-
-  // TODO: Used?
-  std::vector<Val*> input_vals_;
-  std::vector<Val*> output_vals_;
 
   // Exprs that make up the group
   std::vector<Expr*> exprs_;
@@ -516,21 +488,6 @@ std::string ExprSegmentationSorter::toString(int verbosity) const {
 
 namespace {
 
-std::vector<Val*> uniqueValConcat(
-    const std::vector<std::vector<Val*>>& val_vecs) {
-  std::vector<Val*> unique_vals;
-  std::unordered_set<Val*> added;
-  for (const auto& vec : val_vecs) {
-    for (auto val : vec) {
-      if (added.find(val) == added.end()) {
-        unique_vals.push_back(val);
-        added.emplace(val);
-      }
-    }
-  }
-  return unique_vals;
-}
-
 // Concat's edges of sg1 and sg2, but removes any edges from/to sg1/sg2
 std::vector<ExprGroupConnections*> getMergedEdges(
     const ExprGroup* sg1,
@@ -668,12 +625,6 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
 
   // Make the new joined node
   auto joined_groups = makeEmptyGroup();
-
-  joined_groups->setInputVals(
-      uniqueValConcat({sg1->inputVals(), sg2->inputVals()}));
-
-  joined_groups->setOutputVals(
-      uniqueValConcat({sg1->outputVals(), sg2->outputVals()}));
 
   // Keep Expr's sorted in topological order.
   auto producer = getProducer(sg1, sg2);
@@ -840,7 +791,6 @@ void ExprSegmentationSorter::sort() {
     auto expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
       if (inp->isFusionInput()) {
-        expr_group->addInputVal(inp);
         continue;
       }
 
@@ -856,11 +806,6 @@ void ExprSegmentationSorter::sort() {
           std::make_unique<ExprGroupConnections>(def_group, expr_group, inp));
       expr_group->addProducerEdge(edges_.back().get());
       def_group->addConsumerEdge(edges_.back().get());
-    }
-    for (auto out : expr->outputs()) {
-      if (out->isFusionOutput()) {
-        expr_group->addOutputVal(out);
-      }
     }
   }
 
