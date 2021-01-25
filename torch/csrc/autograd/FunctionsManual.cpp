@@ -725,7 +725,7 @@ Tensor repeat_backward(Tensor grad, IntArrayRef repeats, IntArrayRef input_shape
   return grad;
 }
 
-// p1m == 1 - p
+// scale == (1 / (1 - prob))
 Tensor infinitely_differentiable_native_dropout_backward(Tensor grad, Tensor mask, double scale) {
   return grad * (mask.type_as(grad) * scale);
 }

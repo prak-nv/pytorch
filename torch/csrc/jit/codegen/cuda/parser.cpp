@@ -554,8 +554,7 @@ class IrParser {
             TORCH_INTERNAL_ASSERT(train.has_value() && train.value() == false,
               "The train parameter should not be set during inference.");
 
-            auto out = add(input, new Int(0));
-            value_map.emplace(node->output()->unique(), out);
+            value_map.emplace(node->output()->unique(), input);
           });
     }
 
