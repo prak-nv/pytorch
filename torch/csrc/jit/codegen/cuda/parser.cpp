@@ -780,6 +780,7 @@ class IrParser {
             return OperatorType::Normalization;
           });
     }
+
     {
       std::array<const char*, kNumLayernormFwd> LayerNormFwd = {
           "aten::native_layer_norm(Tensor input, int[] normalized_shape, Tensor? weight, Tensor? bias, float eps) -> (Tensor, Tensor, Tensor)",
@@ -1537,14 +1538,26 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
       getOperatorForLiteral(
           "aten::dropout(Tensor input, float p, bool train) -> Tensor")
           ->schema();
+  if (node->matches(dropout_schema)) {
+    switch (offset) {
+      // argument 2: Is training?
+      case 2:
+        profileBool(pr, node, offset);
+        break;
+      default:
+        return false;
+    }
+    return true;
+  }
+
   static auto native_dropout_schema =
       getOperatorForLiteral(
           "aten::native_dropout(Tensor input, float p, float scale, bool train) -> (Tensor, Tensor)")
           ->schema();
-  if (node->matches(dropout_schema) || node->matches(native_dropout_schema)) {
+  if (node->matches(native_dropout_schema)) {
     switch (offset) {
-      // argument 2: Is training?
-      case 2:
+      // argument 3: Is training?
+      case 3:
         profileBool(pr, node, offset);
         break;
       default:
