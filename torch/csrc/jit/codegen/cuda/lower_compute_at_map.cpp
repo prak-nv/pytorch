@@ -267,7 +267,8 @@ void ComputeAtMap::build() {
             p_tv->domain()->domain(),
             c_tv->domain()->domain(),
             c2p_root_map,
-            mapping_mode_ == MappingMode::LOOP);
+            mapping_mode_ == MappingMode::LOOP ||
+                mapping_mode_ == MappingMode::PARALLEL);
 
         auto c2p_map = replay_PasC.getReplay();
 
