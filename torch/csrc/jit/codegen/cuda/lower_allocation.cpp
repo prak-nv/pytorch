@@ -201,8 +201,7 @@ class AllocationInserter : public kir::MutableIrVisitor {
           continue;
         }
       }
-      alloc_dims.push_back(
-          gpu_lower->caIndexMap().getConcreteMappedID(local_id)->rawExtent());
+      alloc_dims.push_back(concrete_id->rawExtent());
     }
 
     // Multiply all the dimensions we're going to use for the allocation
