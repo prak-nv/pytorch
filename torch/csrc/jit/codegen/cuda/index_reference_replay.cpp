@@ -200,8 +200,8 @@ TensorDomain* IndexReferenceReplay::computeReplay() {
       });
 
   // Add any remaining leaf iter domains, this can happen from rfactor patterns.
-  for (auto entry : leaf_ids_) {
-    loops_replayed_domain.push_back(entry);
+  for (auto entry : concrete_leaf_ids) {
+    loops_replayed_domain.push_back(concrete_to_id_.at(entry));
   }
   if (replay_exprs.empty()) {
     auto domain = new TensorDomain(
