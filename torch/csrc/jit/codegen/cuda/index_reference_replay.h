@@ -39,10 +39,10 @@ class IndexReferenceReplay : public OptInDispatch {
   const std::vector<kir::ForLoop*>& loop_structure_;
 
   // Replay map
-  std::unordered_map<IterDomain*, IterDomain*> concrete_to_id;
+  std::unordered_map<IterDomain*, IterDomain*> concrete_to_id_;
 
   // Replay map
-  std::unordered_set<IterDomain*> leaf_ids;
+  std::unordered_set<IterDomain*> leaf_ids_;
 
  public:
   static ReferenceTensor getReference(
@@ -50,7 +50,7 @@ class IndexReferenceReplay : public OptInDispatch {
     auto replay = IndexReferenceReplay(loop_structure);
     ReferenceTensor ref;
     ref.domain = replay.computeReplay();
-    ref.concrete_to_id = replay.concrete_to_id;
+    ref.concrete_to_id = replay.concrete_to_id_;
     return ref;
   }
 };

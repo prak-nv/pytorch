@@ -16,15 +16,15 @@ void IndexReferenceReplay::handle(Split* s) {
   auto in = s->in();
 
   auto concrete_in = GpuLower::current()->caIndexMap().getConcreteMappedID(in);
-  auto mapped_in_it = concrete_to_id.find(concrete_in);
-  if (mapped_in_it == concrete_to_id.end()) {
+  auto mapped_in_it = concrete_to_id_.find(concrete_in);
+  if (mapped_in_it == concrete_to_id_.end()) {
     // If we can't find the concrete IDs in our local map, don't do anything.
     return;
   }
 
   auto mapped_in = mapped_in_it->second;
 
-  if (leaf_ids.find(mapped_in) == leaf_ids.end()) {
+  if (leaf_ids_.find(mapped_in) == leaf_ids_.end()) {
     // If ID has already been replayed, don't do anything.
     return;
   }
@@ -38,11 +38,11 @@ void IndexReferenceReplay::handle(Split* s) {
       GpuLower::current()->caIndexMap().getConcreteMappedID(s->inner());
 
   // Update leaf id set and concrete id map
-  leaf_ids.erase(mapped_in);
-  leaf_ids.emplace(replayed_outs.first);
-  leaf_ids.emplace(replayed_outs.second);
-  concrete_to_id[concrete_outer] = replayed_outs.first;
-  concrete_to_id[concrete_inner] = replayed_outs.second;
+  leaf_ids_.erase(mapped_in);
+  leaf_ids_.emplace(replayed_outs.first);
+  leaf_ids_.emplace(replayed_outs.second);
+  concrete_to_id_[concrete_outer] = replayed_outs.first;
+  concrete_to_id_[concrete_inner] = replayed_outs.second;
 }
 
 // We're going to replay this merge operation on the corresponding IDs
@@ -55,11 +55,11 @@ void IndexReferenceReplay::handle(Merge* m) {
   auto concrete_in_inner =
       GpuLower::current()->caIndexMap().getConcreteMappedID(in_inner);
 
-  auto mapped_in_outer_it = concrete_to_id.find(concrete_in_outer);
-  auto mapped_in_inner_it = concrete_to_id.find(concrete_in_inner);
+  auto mapped_in_outer_it = concrete_to_id_.find(concrete_in_outer);
+  auto mapped_in_inner_it = concrete_to_id_.find(concrete_in_inner);
 
-  if (mapped_in_outer_it == concrete_to_id.end() ||
-      mapped_in_inner_it == concrete_to_id.end()) {
+  if (mapped_in_outer_it == concrete_to_id_.end() ||
+      mapped_in_inner_it == concrete_to_id_.end()) {
     // If we can't find the concrete IDs in our local map, don't do anything.
     return;
   }
@@ -67,8 +67,8 @@ void IndexReferenceReplay::handle(Merge* m) {
   auto mapped_in_outer = mapped_in_outer_it->second;
   auto mapped_in_inner = mapped_in_inner_it->second;
 
-  if (leaf_ids.find(mapped_in_outer) == leaf_ids.end() &&
-      leaf_ids.find(mapped_in_inner) == leaf_ids.end()) {
+  if (leaf_ids_.find(mapped_in_outer) == leaf_ids_.end() &&
+      leaf_ids_.find(mapped_in_inner) == leaf_ids_.end()) {
     // If ID has already been replayed, don't do anything.
     return;
   }
@@ -78,10 +78,10 @@ void IndexReferenceReplay::handle(Merge* m) {
       GpuLower::current()->caIndexMap().getConcreteMappedID(m->out());
 
   // Update leaf id set and concrete id map
-  leaf_ids.erase(mapped_in_outer);
-  leaf_ids.erase(mapped_in_inner);
-  leaf_ids.emplace(replayed);
-  concrete_to_id[concrete_out] = replayed;
+  leaf_ids_.erase(mapped_in_outer);
+  leaf_ids_.erase(mapped_in_inner);
+  leaf_ids_.emplace(replayed);
+  concrete_to_id_[concrete_out] = replayed;
 }
 
 TensorDomain* IndexReferenceReplay::computeReplay() {
@@ -118,6 +118,8 @@ TensorDomain* IndexReferenceReplay::computeReplay() {
   // concrete iter domain but it's producer has a broadcast domain, and the
   // compute at axis is across a split on this domain. The producer would give a
   // broadcast input, consumer would have iter domain input.
+  // Additionally, we prefer non-reduction iter domains over reduciton
+  // domains, but this is just optional and not necessary for correctness.
   std::vector<IterDomain*> sorted_inputs;
   std::copy_if(
       all_iter_inputs.begin(),
@@ -141,14 +143,14 @@ TensorDomain* IndexReferenceReplay::computeReplay() {
   for (auto root_id : sorted_inputs) {
     auto concrete_id =
         GpuLower::current()->caIndexMap().getConcreteMappedID(root_id);
-    if (concrete_to_id.find(concrete_id) != concrete_to_id.end()) {
+    if (concrete_to_id_.find(concrete_id) != concrete_to_id_.end()) {
       continue;
     }
 
     // Initialize root axes, concrete map, and leaf map for replay.
     root_axes.emplace(root_id);
-    concrete_to_id[concrete_id] = root_id;
-    leaf_ids.emplace(root_id);
+    concrete_to_id_[concrete_id] = root_id;
+    leaf_ids_.emplace(root_id);
   }
 
   // Order is important here, replay expressions from loops outside to inside.
@@ -167,8 +169,8 @@ TensorDomain* IndexReferenceReplay::computeReplay() {
   // Grab a set of concrete leaf ids to make it easier to search which for loop
   // matches the leaf id from the replay.
   std::unordered_set<IterDomain*> concrete_leaf_ids;
-  for (auto entry : concrete_to_id) {
-    if (leaf_ids.find(entry.second) != leaf_ids.end()) {
+  for (auto entry : concrete_to_id_) {
+    if (leaf_ids_.find(entry.second) != leaf_ids_.end()) {
       concrete_leaf_ids.emplace(entry.first);
     }
   }
@@ -187,7 +189,7 @@ TensorDomain* IndexReferenceReplay::computeReplay() {
           // map and loop map do not have the same concrete id mapping.
           if (GpuLower::current()->caLoopMap().areMapped(id, loop_id)) {
             concrete_leaf_ids.erase(id);
-            return concrete_to_id.at(id);
+            return concrete_to_id_.at(id);
           }
         }
 
@@ -198,7 +200,7 @@ TensorDomain* IndexReferenceReplay::computeReplay() {
       });
 
   // Add any remaining leaf iter domains, this can happen from rfactor patterns.
-  for (auto entry : leaf_ids) {
+  for (auto entry : leaf_ids_) {
     loops_replayed_domain.push_back(entry);
   }
   if (replay_exprs.empty()) {
