@@ -85,6 +85,28 @@ void IndexReferenceReplay::handle(Merge* m) {
 }
 
 TensorDomain* IndexReferenceReplay::computeReplay() {
+  // Throw an error when two loops are mapped with each other, which
+  // violates an assumption that unique mappings between concrete
+  // IterDomains and the IterDomains of the loop structure must be
+  // established. It should be a reasonable assumption, but fusions
+  // like below won't work:
+  // tv0 = [I0]
+  // tv1 = broadcast(tv0, {true, false});
+  // tv2 = broadcast(tv0, {false, true});
+  // tv3 = tv1 + tv2
+  // Notice that the two axes of each of tv1, tv2 and tv3 are mapped
+  // with each other. We believe it is unlikely this limitation
+  // becomes a real concern in practice.
+  for (auto it_i = loop_structure_.begin(); it_i != loop_structure_.end();
+       ++it_i) {
+    for (auto it_j = it_i + 1; it_j != loop_structure_.end(); ++it_j) {
+      TORCH_INTERNAL_ASSERT(
+          !GpuLower::current()->caIndexMap().areMapped(
+              (*it_i)->iter_domain(), (*it_j)->iter_domain()),
+          "Unsupported loop structure. Two loops are mapped together.");
+    }
+  }
+
   // Grab the iter domain's from the loop structure
   std::vector<IterDomain*> fusion_loop_structure;
 
