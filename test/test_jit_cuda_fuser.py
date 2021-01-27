@@ -1676,7 +1676,7 @@ class TestCudaFuser(JitTestCase):
         t_jit = torch.jit.script(t)
 
         self._run_helper(t_jit, t, x, 0.15, False)
-    
+
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
@@ -1693,7 +1693,7 @@ class TestCudaFuser(JitTestCase):
         t_jit = torch.jit.script(t)
 
         self._run_helper(t_jit, t, x, 0.0, True)
-    
+
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
@@ -1739,7 +1739,7 @@ class TestCudaFuser(JitTestCase):
             return o
 
         t_jit = torch.jit.script(t)
-        
+
         # The drop probability needs to be set to zero given that the order of picking random
         # numbers between eager mode and the jit is different
         self._run_training_helper(t_jit, t, grads, x, 0.0, True)

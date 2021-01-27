@@ -182,10 +182,7 @@ class NaiveTypePropagator {
         node->output(0)->setType(out_type);
 
         auto mask_type = TensorType::create(
-            at::ScalarType::Bool,
-            *out_type->device(),
-            *out_type->dim(),
-            false);
+            at::ScalarType::Bool, *out_type->device(), *out_type->dim(), false);
 
         node->output(1)->setType(mask_type);
 

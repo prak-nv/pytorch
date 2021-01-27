@@ -528,8 +528,9 @@ class IrParser {
             auto scale = value_map[node->input(2)->unique()];
             auto train = constant_as<bool>(node->input(3));
 
-            TORCH_INTERNAL_ASSERT(train.has_value() and train.value(), 
-              "Train parameter is incorrectly set to false!");
+            TORCH_INTERNAL_ASSERT(
+                train.has_value() and train.value(),
+                "Train parameter is incorrectly set to false!");
 
             auto rand_vals = unaryOp(UnaryOpType::RandLike, input);
             auto mask = lt(rand_vals, prob);
@@ -553,7 +554,7 @@ class IrParser {
 
             if (train) {
               auto prob = value_map[node->input(1)->unique()];
-              auto p1m  = sub(new Double(1.), prob);
+              auto p1m = sub(new Double(1.), prob);
 
               auto zero_check = add(eq(p1m, new Double(0.)), p1m);
               auto scale = div(new Double(1.), zero_check);
@@ -1543,7 +1544,7 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
   if (node->input(offset)->node()->kind() == prim::Constant) {
     return false;
   }
-  
+
   static auto dropout_schema =
       getOperatorForLiteral(
           "aten::dropout(Tensor input, float p, bool train) -> Tensor")
