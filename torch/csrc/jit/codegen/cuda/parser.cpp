@@ -529,7 +529,7 @@ class IrParser {
             auto train = constant_as<bool>(node->input(3));
 
             TORCH_INTERNAL_ASSERT(train.has_value() and train.value(), 
-              "Train parameter is incorrectly set!");
+              "Train parameter is incorrectly set to false!");
 
             auto rand_vals = unaryOp(UnaryOpType::RandLike, input);
             auto mask = lt(rand_vals, prob);
@@ -551,10 +551,21 @@ class IrParser {
             auto input = value_map[node->input(0)->unique()];
             auto train = constant_as<bool>(node->input(2));
 
-            TORCH_INTERNAL_ASSERT(train.has_value() && train.value() == false,
-              "The train parameter should not be set during inference.");
+            if (train) {
+              auto prob = value_map[node->input(1)->unique()];
+              auto p1m  = sub(new Double(1.), prob);
 
-            value_map.emplace(node->output()->unique(), input);
+              auto zero_check = add(eq(p1m, new Double(0.)), p1m);
+              auto scale = div(new Double(1.), zero_check);
+              auto rand_vals = unaryOp(UnaryOpType::RandLike, input);
+              auto mask = lt(rand_vals, p1m);
+              auto apply_mask = mul(input, mask);
+              auto out = mul(apply_mask, scale);
+
+              value_map.emplace(node->output()->unique(), out);
+            } else {
+              value_map.emplace(node->output()->unique(), input);
+            }
           });
     }
 
