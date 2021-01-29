@@ -1243,7 +1243,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
       consumer_tv->domain()->domain(),
       reference_domain->domain(),
       root_ref_to_consumer,
-      true);
+      false);
 
   const auto& ref_2_consumer = replay_consumer_as_ref.getReplay();
 
