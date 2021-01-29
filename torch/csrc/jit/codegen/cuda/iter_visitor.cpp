@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
+
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
@@ -53,8 +54,8 @@ std::vector<Statement*> IterVisitor::next(Val* v) {
 
 std::vector<Statement*> IterVisitor::next(Expr* expr) {
   FusionGuard::getCurFusion()->assertInFusion(expr, "Cannot traverse expr, ");
-  std::vector<Statement*> next_stmts{expr->inputs().begin(),
-                                     expr->inputs().end()};
+  std::vector<Statement*> next_stmts{
+      expr->inputs().begin(), expr->inputs().end()};
   return next_stmts;
 }
 

@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/shape_inference.h>
+
 #include <c10/core/ScalarType.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/ir/constants.h>
@@ -171,6 +172,27 @@ class NaiveTypePropagator {
         node->output()->setType(promoted_type);
         break;
       }
+      case aten::dropout: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+        node->output()->setType(out_type);
+        break;
+      }
+      case aten::native_dropout: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+        node->output(0)->setType(out_type);
+
+        auto mask_type = TensorType::create(
+            at::ScalarType::Bool, *out_type->device(), *out_type->dim(), false);
+
+        node->output(1)->setType(mask_type);
+
+        break;
+      }
+      case aten::native_dropout_backward: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+        node->output()->setType(out_type);
+        break;
+      }
       case aten::batch_norm: {
         auto out_type = node->input(0)->type()->cast<TensorType>();
         node->output()->setType(out_type);
@@ -282,10 +304,23 @@ class NaiveTypePropagator {
         node->output()->setType(type0->withScalarType(type1->scalarType()));
         break;
       }
+      case prim::add_optional: {
+        const auto type0 = node->input(0)->type()->cast<TensorType>();
+        const auto type1 = node->input(1)->type()->cast<TensorType>();
+        TORCH_CHECK(type0 != nullptr);
+        if (type1 != nullptr) {
+          node->output()->setType(type0);
+        } else {
+          const auto promoted_type = binary_broadcast_type(type0, type1);
+          node->output()->setType(promoted_type);
+        }
+        break;
+      }
       default:
         TORCH_CHECK(
             false,
-            "type inference failed, unrecognized operation encountered.");
+            "type inference failed, unrecognized operation encountered:",
+            node->kind().toDisplayString());
         // TODO: generate a proper error log, as this probably means something
         //       went unexpected.
         break;

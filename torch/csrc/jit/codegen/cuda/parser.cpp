@@ -518,6 +518,77 @@ class IrParser {
 
     {
       auto ptr_op = getOperatorForLiteral(
+          "aten::native_dropout(Tensor input, float p, float scale, bool train) -> (Tensor, Tensor)");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            auto input = value_map[node->input(0)->unique()];
+            auto prob = value_map[node->input(1)->unique()];
+            auto scale = value_map[node->input(2)->unique()];
+            auto train = constant_as<bool>(node->input(3));
+
+            TORCH_INTERNAL_ASSERT(
+                train.has_value() and train.value(),
+                "Train parameter is incorrectly set to false!");
+
+            auto rand_vals = unaryOp(UnaryOpType::RandLike, input);
+            auto mask = lt(rand_vals, prob);
+            auto apply_mask = mul(input, mask);
+            auto out = mul(apply_mask, scale);
+
+            value_map.emplace(node->output(0)->unique(), out);
+            value_map.emplace(node->output(1)->unique(), mask);
+          });
+    }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
+          "aten::dropout(Tensor input, float p, bool train) -> Tensor");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            auto input = value_map[node->input(0)->unique()];
+            auto train = constant_as<bool>(node->input(2));
+
+            if (train) {
+              auto prob = value_map[node->input(1)->unique()];
+              auto p1m = sub(new Double(1.), prob);
+
+              auto zero_check = add(eq(p1m, new Double(0.)), p1m);
+              auto scale = div(new Double(1.), zero_check);
+              auto rand_vals = unaryOp(UnaryOpType::RandLike, input);
+              auto mask = lt(rand_vals, p1m);
+              auto apply_mask = mul(input, mask);
+              auto out = mul(apply_mask, scale);
+
+              value_map.emplace(node->output()->unique(), out);
+            } else {
+              value_map.emplace(node->output()->unique(), input);
+            }
+          });
+    }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
+          "aten::native_dropout_backward(Tensor grad, Tensor mask, float scale) -> Tensor");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            auto grad = value_map[node->input(0)->unique()];
+            auto mask = value_map[node->input(1)->unique()];
+            auto scale = value_map[node->input(2)->unique()];
+
+            auto temp = mul(grad, mask);
+            auto out = mul(temp, scale);
+            value_map.emplace(node->output()->unique(), out);
+          });
+    }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
           "aten::batch_norm(Tensor input, Tensor? weight, Tensor? bias, Tensor? running_mean, Tensor? running_var, bool training, float momentum, float eps, bool cudnn_enabled) -> Tensor");
       registerParseRule(
           ptr_op,
@@ -1151,6 +1222,54 @@ class IrParser {
             value_map.emplace(node->output()->unique(), out);
           });
     }
+
+    {
+      // We are not fusing `linear` yet, because we can't codegen efficient gemm
+      // However, we still need this here, so PE would insert profile node for
+      // this node.
+      // During fusion pass, We decompose linear into gemm + elementwise.
+      auto ptr_op = getOperatorForLiteral(
+          "aten::linear(Tensor input, Tensor weight, Tensor? bias=None) -> Tensor");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            // this entry is created so we do profile input tensors;
+            TORCH_INTERNAL_ASSERT(false, "not implemented yet");
+          },
+          [](const Node* node) -> bool {
+            // We only profile `linear` layer with bias.
+            if (node->input(2)->type()->isSubtypeOf(
+                    static_cast<c10::TypePtr>(NoneType::get()))) {
+              return false;
+            }
+            return true;
+          });
+    }
+
+    {
+      auto ptr_op = getOperatorForLiteral(
+          "prim::add_optional(Tensor(a) input, Tensor? bias) -> Tensor(a)");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            // this entry is created so we do profile input tensors;
+            if (node->input(1)->type()->isSubtypeOf(
+                    static_cast<c10::TypePtr>(NoneType::get()))) {
+              // forwarding the value;
+              value_map.emplace(
+                  node->output()->unique(),
+                  value_map[node->inputs()[0]->unique()]);
+            } else {
+              auto lhs = value_map[node->inputs()[0]->unique()];
+              auto rhs = value_map[node->inputs()[1]->unique()];
+
+              auto out = binaryOp(BinaryOpType::Add, lhs, rhs);
+              value_map.emplace(node->output()->unique(), out);
+            }
+          });
+    }
   }
 
   void processJitNode(const JitOp* node) {
@@ -1424,6 +1543,38 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
   // is skip constant necessary?
   if (node->input(offset)->node()->kind() == prim::Constant) {
     return false;
+  }
+
+  static auto dropout_schema =
+      getOperatorForLiteral(
+          "aten::dropout(Tensor input, float p, bool train) -> Tensor")
+          ->schema();
+  if (node->matches(dropout_schema)) {
+    switch (offset) {
+      // argument 2: Is training?
+      case 2:
+        profileBool(pr, node, offset);
+        break;
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  static auto native_dropout_schema =
+      getOperatorForLiteral(
+          "aten::native_dropout(Tensor input, float p, float scale, bool train) -> (Tensor, Tensor)")
+          ->schema();
+  if (node->matches(native_dropout_schema)) {
+    switch (offset) {
+      // argument 3: Is training?
+      case 3:
+        profileBool(pr, node, offset);
+        break;
+      default:
+        return false;
+    }
+    return true;
   }
 
   static auto reduction_operator_schema =

@@ -8,7 +8,10 @@ from torch.testing._internal.common_utils import run_tests, ProfilingMode, GRAPH
 from torch.testing._internal.codegen.random_topo_test import runDefaultTestWithSeed
 from torch.testing import FileCheck
 
-from torch.testing._internal.jit_utils import JitTestCase, RUN_CUDA
+from test_jit import JitTestCase, RUN_CUDA
+
+from jit.test_fuser_common import TestFuserCommon  # noqa: F401
+
 import itertools
 import numpy as np
 import math
@@ -77,6 +80,7 @@ class TestCudaFuser(JitTestCase):
         torch._C._jit_override_can_fuse_on_cpu(False)
         torch._C._jit_override_can_fuse_on_gpu(False)
         self.old_guard = torch._C._jit_set_nvfuser_guard_mode(False)
+        torch._C._debug_set_autodiff_subgraph_inlining(False)
 
         if(RUN_CUDA):
             self.old_nvfuser = torch._C._jit_set_nvfuser_enabled(True)
@@ -87,6 +91,7 @@ class TestCudaFuser(JitTestCase):
         torch._C._jit_override_can_fuse_on_cpu(self.old_cpu_fuse)
         torch._C._jit_override_can_fuse_on_gpu(self.old_gpu_fuse)
         torch._C._jit_set_nvfuser_guard_mode(self.old_guard)
+        torch._C._debug_set_autodiff_subgraph_inlining(True)
         super(TestCudaFuser, self).tearDown()
 
     def _run_helper(self, jit_op, op, *args):
@@ -97,7 +102,24 @@ class TestCudaFuser(JitTestCase):
         torch.cuda.manual_seed_all(123)
         o = op(*args)
         self.assertEqual(o, jit_o)
-        self.assertGraphContains(jit_op.graph_for(*args), FUSION_GUARD)
+        self.assertGraphContainsExactly(jit_op.graph_for(*args), FUSION_GUARD, 1, consider_subgraphs=True)
+
+    def _run_training_helper(self, jit_op, op, grads, *args):
+        torch.cuda.manual_seed_all(123)
+        jit_o = jit_op(*args)
+        jit_g = jit_o.backward(grads)
+        torch.cuda.manual_seed_all(123)
+        jit_o = jit_op(*args)
+        jit_g = jit_o.backward(grads)
+        torch.cuda.manual_seed_all(123)
+        jit_o = jit_op(*args)
+        jit_g = jit_o.backward(grads)
+        torch.cuda.manual_seed_all(123)
+        o = op(*args)
+        g = o.backward(grads)
+        self.assertEqual(o, jit_o)
+        self.assertEqual(g, jit_g)
+        self.assertGraphContainsExactly(jit_op.graph_for(*args), FUSION_GUARD, 1, consider_subgraphs=True)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -1641,6 +1663,146 @@ class TestCudaFuser(JitTestCase):
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
                      "Requires fusion optimization pass to be effective")
+    def test_dropout_inference_fusion(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([10, 4, 8], dtype=dtype, device=device)
+
+        def t(x: torch.Tensor, p: float, train: bool):
+            o = torch.nn.functional.dropout(x, p, training=train)
+            o = o + 1.0
+            return o
+
+        t_jit = torch.jit.script(t)
+
+        self._run_helper(t_jit, t, x, 0.15, False)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_dropout_train_nograd_fusion(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([10, 4, 8], dtype=dtype, device=device)
+
+        def t(x: torch.Tensor, p: float, train: bool):
+            o = torch.nn.functional.dropout(x, p, training=train)
+            o = o + 1.0
+            return o
+
+        t_jit = torch.jit.script(t)
+
+        self._run_helper(t_jit, t, x, 0.0, True)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_dropout_train_nograd_prob_check(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([1024, 1024], dtype=dtype, device=device)
+
+        def t(x: torch.Tensor, p: float, train: bool):
+            o = torch.nn.functional.dropout(x, p, training=train)
+            o = o + 0.0
+            return o
+
+        t_jit = torch.jit.script(t)
+
+        for prob in [0.0, 0.15, 0.5, 0.85, 1.] :
+            torch.cuda.manual_seed_all(123)
+            jit_o = t_jit(x, prob, True)
+            torch.cuda.manual_seed_all(123)
+            jit_o = t_jit(x, prob, True)
+
+            self.assertTrue(jit_o.detach().isfinite().all().item())
+
+            num_elems = x.numel()
+            num_zeros = num_elems - jit_o.detach().count_nonzero().item()
+            percent_zeros = num_zeros / num_elems
+
+            self.assertTrue((percent_zeros >= (prob - 0.01)) and (percent_zeros <= (prob + 0.01)))
+            self.assertGraphContainsExactly(t_jit.graph_for(x, prob, True), FUSION_GUARD, 1, consider_subgraphs=True)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_dropout_training_fusion(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([10, 4, 8], dtype=dtype, device=device, requires_grad=True)
+        grads = torch.randn([10, 4, 8], dtype=dtype, device=device)
+
+        def t(x: torch.Tensor, p: float, train: bool):
+            o = torch.nn.functional.dropout(x, p, training=train)
+            o = o + 1.0
+            return o
+
+        t_jit = torch.jit.script(t)
+
+        # The drop probability needs to be set to zero given that the order of picking random
+        # numbers between eager mode and the jit is different
+        self._run_training_helper(t_jit, t, grads, x, 0.0, True)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_dropout_training_prob_check(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([1024, 1024], dtype=dtype, device=device, requires_grad=True)
+        x_nograd = torch.randn([1024, 1024], dtype=dtype, device=device)
+
+        def t(x: torch.Tensor, p: float, train: bool):
+            o = torch.nn.functional.dropout(x, p, training=train)
+            o = o + 0.0
+            return o
+
+        t_jit = torch.jit.script(t)
+
+        for prob in [0.0, 0.15, 0.5, 0.85, 1.] :
+            torch.cuda.manual_seed_all(123)
+            jit_o = t_jit(x, prob, True)
+            torch.cuda.manual_seed_all(123)
+            jit_o = t_jit(x, prob, True)
+
+            self.assertTrue(jit_o.detach().isfinite().all().item())
+
+            num_elems = x.numel()
+            num_zeros = num_elems - jit_o.detach().count_nonzero().item()
+            percent_zeros = num_zeros / num_elems
+
+            self.assertTrue((percent_zeros >= (prob - 0.01)) and (percent_zeros <= (prob + 0.01)))
+            self.assertGraphContainsExactly(t_jit.graph_for(x, prob, True), FUSION_GUARD, 1, consider_subgraphs=True)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_linear(self):
+        in_feature = 2
+        out_feature = 8
+        x = torch.randn(4, in_feature, dtype=torch.float32, device='cuda')
+        weight = torch.randn(out_feature, in_feature, dtype=torch.float32, device='cuda')
+        bias = torch.randn(out_feature, dtype=torch.float32, device='cuda')
+
+        def t(x: torch.Tensor, weight: torch.Tensor, bias: torch.Tensor):
+            o = torch.nn.functional.linear(x, weight, bias)
+            o = torch.relu(o)
+            return o
+
+        # bias set to true.
+        t_jit = torch.jit.script(t)
+        jit_o = t_jit(x, weight, bias)
+        jit_o = t_jit(x, weight, bias)
+        o = t(x, weight, bias)
+        self.assertEqual(o, jit_o)
+        # since the output value is not used at all, the fusion operator should
+        # have been optimized away
+        self.assertGraphContainsExactly(t_jit.graph_for(x, weight, bias), FUSION_GUARD, 1)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
     def test_backward_type(self):
         # not super useful to check gradient of integer/bool, so skipping here
         type_pairs = [
@@ -1674,7 +1836,6 @@ class TestCudaFuser(JitTestCase):
             FileCheck().check(FUSION_GROUP).run(bwd_graph)
             self.assertEqual(x.grad.dtype, x.dtype)
             self.assertEqual(y.grad.dtype, y.dtype)
-
 
 class TestPassManagerCudaFuser(JitTestCase):
 
