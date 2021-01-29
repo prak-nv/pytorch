@@ -4809,14 +4809,9 @@ TEST(NVFuserTest, FusionAdvancedLowering4_CUDA) {
   auto tv4 = add(tv2, tv3);
   fusion.addOutput(tv4);
 
-  fusion.printMath();
-
   tv4->merge(1)->merge(0);
   tv4->split(0, 8);
   tv0->computeAt(tv4, 1);
-
-  fusion.printMath();
-  fusion.printKernel();
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
