@@ -1,4 +1,3 @@
-#include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
@@ -6,14 +5,15 @@
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
+#include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/lower_utils.h>
 
-#include <unordered_map>
-#include <unordered_set>
 #include <deque>
 #include <list>
-#include <vector>
 #include <sstream>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace torch {
 namespace jit {
