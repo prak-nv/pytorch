@@ -10882,6 +10882,82 @@ TEST(NVFuserTest, FusionAdvancedComputeAtTransposed6_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+namespace {
+void checkRedMap(
+    TensorView* v0,
+    const std::vector<IterDomain*>& root0,
+    TensorView* v1,
+    const std::vector<IterDomain*>& root1,
+    bool should_map = true) {
+  ComputeAtRootDomainMap map;
+  map.build(true);
+  TORCH_INTERNAL_ASSERT(root0.size() == root1.size());
+  for (size_t it = 0; it < root0.size(); it++) {
+    const bool mapped =
+        map.canMap(v0->domain(), root0[it], v1->domain(), root1[it]);
+    TORCH_INTERNAL_ASSERT(should_map == mapped);
+  }
+}
+} // namespace
+
+TEST(NVFuserTest, FusionMapBatchNorm_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const float kMomentum = 0.1;
+  const float kEps = 1e-5;
+
+  std::vector<int64_t> input_shape{20, 100, 35, 45};
+  auto input = makeSymbolicTensor(input_shape.size());
+  auto input2 = makeSymbolicTensor(input_shape.size());
+
+  auto weight = makeSymbolicTensor(1);
+  auto bias = makeSymbolicTensor(1);
+  fusion.addInput(input);
+  fusion.addInput(input2);
+  fusion.addInput(weight);
+  fusion.addInput(bias);
+
+  auto nn2 = add(input2, new Int(10));
+  const int kNumberOfDims = input->nDims();
+  std::vector<int> reduction_axes;
+  std::vector<bool> broadcast_mask(kNumberOfDims, false);
+  Val* num_features = new Double(1);
+  for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
+    if (axis != 1) {
+      reduction_axes.push_back(axis);
+      broadcast_mask[axis] = true;
+      num_features =
+          mul(num_features, input->domain()->domain()[axis]->extent());
+    }
+  }
+
+  auto x_sum = sum(input, reduction_axes);
+  auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
+  auto x_mean = div(x_sum_bcast, num_features);
+
+  auto x_mean_sub = sub(input, x_mean);
+  auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
+  auto var_sum = sum(x_mean_sub_pow, reduction_axes);
+  auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
+  auto var = div(var_sum_bcast, num_features);
+
+  auto var_eps = add(var, new Double(kEps));
+  auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
+  auto norm = mul(x_mean_sub, rvar);
+
+  auto weight_bcast = broadcast(weight, broadcast_mask);
+  auto bias_bcast = broadcast(bias, broadcast_mask);
+  auto norm_gamma = mul(norm, weight_bcast);
+  auto norm_gamma_bias = add(norm_gamma, bias_bcast);
+  fusion.addOutput(norm_gamma_bias);
+
+  checkRedMap(x_sum, x_sum->getRootDomain(), var_sum, var_sum->getRootDomain());
+  checkRedMap(x_sum, x_sum->getRootDomain(), nn2, nn2->getRootDomain(), false);
+  ASSERT_ANY_THROW(checkIdMapped(
+      x_sum, x_sum->getRootDomain(), var_sum, var_sum->getRootDomain()));
+}
+
 // TEST(NVFuserTest, FusionManualMultiKernel_CUDA) {
 //   Fusion fusion;
 //   FusionGuard fg(&fusion);

@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/scheduler_registry.h>
+#include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 
 namespace torch {
 namespace jit {
@@ -26,6 +27,31 @@ inline bool isTrivialReduction(ReductionOp* red) {
   }
   return true;
 }
+
+std::vector<ReductionOp*> findReductionOps(Fusion* fusion) {
+  std::vector<ReductionOp*> red_ops;
+  for (auto expr : fusion->exprs()) {
+    if (auto red = expr->as<ReductionOp>()) {
+      if (!isTrivialReduction(red)) {
+        red_ops.push_back(red);
+      }
+    }
+  }
+  return red_ops;
+}
+
+std::vector<TensorView*> findOutputsOfRed(Fusion* fusion, TensorView* red_tv) {
+  TORCH_INTERNAL_ASSERT(fusion->inFusion(red_tv));
+  auto output_set = DependencyCheck::getAllOutputsOf({red_tv});
+  std::vector<TensorView*> ret_vec;
+  std::transform(
+      output_set.begin(),
+      output_set.end(),
+      std::back_inserter(ret_vec),
+      [](Val* val) { return val->as<TensorView>(); });
+  return ret_vec;
+}
+
 } // namespace
 
 namespace {
@@ -37,26 +63,35 @@ class SingleReductionScheduler : public SchedulerEntry {
     getHeuristics(fusion, ee);
   }
 
+  //! Check if the reduction heuristics apply in given fusion
   static bool canSchedule(Fusion* fusion) {
-    int reduction_count = 0;
-    for (auto expr : fusion->exprs()) {
-      if (auto red = expr->as<ReductionOp>()) {
-        // Check trivial
-        if (!isTrivialReduction(red)) {
-          reduction_count++;
-          if (reduction_count > 1) {
-            return false;
-          }
+    auto red_ops = findReductionOps(fusion);
+    if (red_ops.size() != 1) {
+      return false;
+    }
+
+    auto red_tv = red_ops[0]->out()->as<TensorView>();
+
+    // Not allowing broadcasting reduction result to support
+    //  grid reduction. This is an overkill might want to consider
+    //  trying to get the heuristics and check only if grid reduction is
+    //  required.
+    auto uses = DependencyCheck::getAllUseChains(red_tv);
+    for (auto& chain : uses) {
+      for (auto val : chain) {
+        if (val->definition()->isA<BroadcastOp>()) {
+          return false;
         }
       }
     }
-    return (reduction_count == 1);
+
+    return true;
   }
 
   void schedule(Fusion* fusion) override {
     // TODO find outputs of tv: what would we need to fill in?
     auto red_tv = findReductionTV(fusion);
-    auto output_tv = findOutputsOfRed(fusion);
+    auto output_tv = findOutputsOfRed(fusion, red_tv);
     scheduleReduction(fusion, rparams_, red_tv, output_tv);
   }
 
@@ -79,10 +114,6 @@ class SingleReductionScheduler : public SchedulerEntry {
     TORCH_INTERNAL_ASSERT(false, "unreachable");
     return nullptr;
   }
-
-  std::vector<TensorView*> findOutputsOfRed(Fusion* fusion) {
-    return {};
-  }
 };
 
 class PointWiseScheduler : public SchedulerEntry {
@@ -91,16 +122,8 @@ class PointWiseScheduler : public SchedulerEntry {
       : SchedulerEntry(ScheduleHeuristic::PointWise, false) {}
 
   static bool canSchedule(Fusion* fusion) {
-    int reduction_count = 0;
-    for (auto expr : fusion->exprs()) {
-      if (auto red = expr->as<ReductionOp>()) {
-        // Check trivial
-        if (!isTrivialReduction(red)) {
-          return false;
-        }
-      }
-    }
-    return (reduction_count == 1);
+    auto red_ops = findReductionOps(fusion);
+    return red_ops.empty();
   }
 
   void schedule(Fusion* fusion) override {
@@ -111,10 +134,81 @@ class PointWiseScheduler : public SchedulerEntry {
 class NormalizationScheduler : public SchedulerEntry {
  public:
   explicit NormalizationScheduler(Fusion* fusion, ExpressionEvaluator& ee)
-      : SchedulerEntry(ScheduleHeuristic::Normalization, true) {}
+      : SchedulerEntry(ScheduleHeuristic::Normalization, true) {
+    getHeuristics(fusion, ee);
+  }
 
   void schedule(Fusion* fusion) override {
     return;
+  }
+
+  static bool canSchedule(Fusion* fusion) {
+    auto red_ops = findReductionOps(fusion);
+
+    if (red_ops.size() < 2) {
+      // Use single reduction or pointwise logic
+      return false;
+    }
+    // Before examining the reduction axes want to quickly
+    //   check the reductions have the same axis width
+    //   to avoid building root domain in easier cases
+    int axis_count = -1;
+    auto reduction_root = [](ReductionOp* rop) {
+      return rop->out()->as<TensorView>()->getRootDomain();
+    };
+    for (auto red : red_ops) {
+      if (axis_count == -1) {
+        axis_count = reduction_root(red).size();
+      } else {
+        if (reduction_root(red).size() != axis_count) {
+          return false;
+        }
+      }
+    }
+
+    // Use root domain map to check the reduction ops have the same axes
+    FusionGuard fg(fusion);
+    ComputeAtRootDomainMap root_map;
+    root_map.build(true);
+
+    // red_ops.size()>1 checked before
+    for (size_t it = 1; it < red_ops.size(); it++) {
+      if (!checkEquivalence(red_ops[0], red_ops[1], root_map)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+ private:
+  void getHeuristics(Fusion* fusion, ExpressionEvaluator& ee) {
+    std::vector<TensorView*> red_tvs;
+    for (auto red : findReductionOps(fusion)) {
+      red_tvs.push_back(red->out()->as<TensorView>());
+    }
+    auto rparams = getNormalizationHeuristics(fusion, ee, red_tvs);
+    TORCH_INTERNAL_ASSERT(rparams.has_value());
+    rparams_ = rparams.value();
+  }
+
+  static inline bool checkEquivalence(
+      ReductionOp* op0,
+      ReductionOp* op1,
+      const ComputeAtRootDomainMap& root_map) {
+    const auto out_tv0 = op0->out()->as<TensorView>();
+    const auto out_tv1 = op1->out()->as<TensorView>();
+    const auto out_root0 = out_tv0->getRootDomain();
+    const auto out_root1 = out_tv1->getRootDomain();
+    const auto domain0 = out_tv0->domain();
+    const auto domain1 = out_tv1->domain();
+
+    TORCH_INTERNAL_ASSERT(out_root0.size() == out_root1.size());
+    for (size_t it = 0; it < out_root0.size(); it++) {
+      if (!root_map.canMap(domain0, out_root0[it], domain1, out_root1[it])) {
+        return false;
+      }
+    }
+    return true;
   }
 };
 
@@ -131,7 +225,7 @@ const static std::vector<ScheduleHeuristic>& all_heuristics() {
 bool canSchedule(ScheduleHeuristic sh, Fusion* fusion) {
   switch (sh) {
     case ScheduleHeuristic::PointWise:
-      return false;
+      return PointWiseScheduler::canSchedule(fusion);
     case ScheduleHeuristic::Reduction:
       return false;
     case ScheduleHeuristic::Normalization:
