@@ -4789,6 +4789,51 @@ TEST(NVFuserTest, FusionAdvancedLowering3_CUDA) {
   // tv0->computeAt(tv4, -1);
 }
 
+// This excercises indexing with broadcast root axes. Non-broadcast
+// axes need to be preferred when propagating index exprs to root
+// axes. See, e.g., Index::getConsumerIndex_impl.
+TEST(NVFuserTest, FusionAdvancedLowering4_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = broadcast(tv1, {false, false, true});
+  auto tv3 = makeSymbolicTensor(3);
+  fusion.addInput(tv3);
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  tv4->merge(1)->merge(0);
+  tv4->split(0, 8);
+  tv0->computeAt(tv4, 1);
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 10;
+  const int by = 20;
+  const int bz = 30;
+  at::Tensor t0 = at::randn({bx}, options);
+  at::Tensor t3 = at::randn({bx, by, bz}, options);
+  std::vector<IValue> aten_inputs = {t0, t3};
+
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output =
+      t0.unsqueeze(-1).expand({bx, by}).unsqueeze(-1).expand({bx, by, bz}) + t3;
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
 // Test a simple Gemm but also play around with fusion executor features
 TEST(NVFuserTest, FusionSimpleGemm_CUDA) {
   Fusion fusion;
