@@ -250,6 +250,7 @@ IndexCompute getReferenceIndexing(
   // This is only applicable to global memory buffers.
   std::unordered_map<kir::IterDomain*, kir::Val*> initial_index_map;
 
+  TORCH_INTERNAL_ASSERT(loop_structure.size() <= reference_tensor->nDims());
   for (size_t loop_i = 0; loop_i < loop_structure.size(); loop_i++) {
     auto lowered_id = gpu_lower->lowerValue(reference_tensor->axis(loop_i))
                           ->as<kir::IterDomain>();
