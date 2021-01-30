@@ -4,6 +4,7 @@
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler_registry.h>
 
 #include <c10/util/ArrayRef.h>
 #include <torch/csrc/WindowsTorchApiMacro.h>
@@ -18,39 +19,136 @@ namespace fuser {
 namespace cuda {
 
 class SegmentedGroup;
+class SegmentHeuristics;
 
-//! Simple implementation of a graph runtime to support multi-kernel fusion
-//! TODO: one FusionExecutor per segment could be expensive, optimize
+//! Implementation of a graph runtime with simple scheduling to support
+//! multi-kernel fusion
 class TORCH_CUDA_API FusionSegmentRuntime {
  public:
+  //! Type notations within FusionSegmentRuntime Context
+  using HashType = size_t;
+  using SchedulerEntryPtr = std::unique_ptr<SchedulerEntry>;
+
   explicit FusionSegmentRuntime(
       SegmentedFusion* segmented_fusion,
-      size_t cache_id);
+      std::unique_ptr<SegmentHeuristics>& heuristics,
+      size_t input_id);
 
-  void evictCache(size_t cache_id) {
-    TORCH_INTERNAL_ASSERT(cache_id == cache_id_);
+  //! FusionExecutorCache API for evicting an input id
+  void evictCache(size_t input_id) {
     for (auto& fe : executors_) {
-      fe.evictCache(cache_id);
+      fe.evictCache(input_id);
     }
   }
 
-  std::vector<at::Tensor> runWithInput(const at::ArrayRef<IValue>& inputs);
+  //! FusionExecutorCache API for running the segmented fusion with given global
+  //! inputs
+  std::vector<at::Tensor> runWithInput(
+      const at::ArrayRef<IValue>& inputs,
+      size_t input_id);
+
+  //! Cache Interface: Common utility for computing hash of scheduler entires
+  static HashType getHash(SegmentHeuristics* sh);
+
+  //! Cache Interface: trivially copied and easily compared
+  //!   descriptor for FusionSegmentRuntime
+  class EntryTag {
+   public:
+    //! Computes hash upon creation
+    explicit EntryTag(SegmentHeuristics*);
+
+    //! Tag equal abstracts the heuristics equivalence
+    bool operator==(const EntryTag& other) const;
+
+    //! Returns computed hash value
+    HashType hash() const {
+      return hash_;
+    }
+
+   private:
+    HashType hash_;
+    SegmentHeuristics* heuristics_;
+  };
+
+  class EntryTagHash {
+   public:
+    HashType operator()(const EntryTag& et) const {
+      return et.hash();
+    }
+  };
 
  private:
+  //! Run one segment of the segmented fusion, compiles if not done so
   std::vector<at::Tensor> runSegmentWithInput(
       SegmentedGroup* sg,
-      const at::ArrayRef<IValue>& inputs);
+      const at::ArrayRef<IValue>& inputs,
+      size_t input_id);
+
+  //! Accessor class for the internal schedulers maintained in this runtime
+  const std::vector<SchedulerEntryPtr>& schedulers();
 
  private:
-  // Entries indexed by groupID
+  friend class EntryTag;
+  //! Entries indexed by groupID:
+  //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
-  std::vector<LaunchParams> launch_params_;
-  std::vector<ReductionParams> schedule_heuristics_;
+
+  //! Heuristics object holding scheduler entries for all segments
+  std::unique_ptr<SegmentHeuristics> heuristics_;
 
   // States
-  SegmentedFusion* segmented_fusion_;
-  bool compiled_ = false;
   size_t cache_id_ = -1;
+  SegmentedFusion* segmented_fusion_;
+};
+
+//! Object holding cache entries for segmented fusion
+class TORCH_CUDA_API FusionSegmentRuntimeCache {
+ public:
+  explicit FusionSegmentRuntimeCache() = default;
+
+  //! Evict the cacheEntry by id.
+  //!  removes ID to RT lookup and corresponding
+  //!  input entries. Doesn't actually release any compiled
+  //!  kernel because compiling is expensive
+  void evictId(size_t input_id);
+
+  //! In case of cache hit by input id, return pointer to that entry,
+  //!  returns nullptr if input_id miss
+  FusionSegmentRuntime* getRTById(size_t input_id);
+
+  //! In case of input id miss, evaluate heuristics and find a hit by heuristics
+  //!   in case of heuristics miss, create a new entry
+  FusionSegmentRuntime* getRTByHeuristics(
+      const at::ArrayRef<IValue>& inputs,
+      size_t input_id);
+
+  //! Interface for registering segmented fusion for caching heuristics
+  void initCache(SegmentedFusion* sf);
+
+ private:
+  using EntryTag = FusionSegmentRuntime::EntryTag;
+  using EntryTagHash = FusionSegmentRuntime::EntryTagHash;
+  //! FusionSegmentRuntime cache based on EntryTag lookup
+  using SegRuntimePtr = std::unique_ptr<FusionSegmentRuntime>;
+  using SegRuntimeCache =
+      std::unordered_map<EntryTag, SegRuntimePtr, EntryTagHash>;
+  //! One cache per device id
+  using SegRuntimeCacheGroup =
+      std::unordered_map<int, std::unique_ptr<SegRuntimeCache>>;
+
+  //! internal maintenance functions
+  //!  Currently don't have releasing entry at this level since
+  //!  we would not release compiled kernels at this point
+  void insertEntry(int dev_id, EntryTag tag, SegRuntimePtr&& rt);
+  FusionSegmentRuntime* at(int dev_id, EntryTag tag);
+
+ private:
+  SegRuntimeCacheGroup seg_runtime_cache_group_;
+  //! Input_id to runtime shortcut
+  std::unordered_map<size_t, FusionSegmentRuntime*> id_to_rt_;
+
+  //! Reference to the segmented fusion held in FusionExecutorCache
+  SegmentedFusion* segmented_fusion_ = nullptr;
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry
@@ -202,13 +300,8 @@ class TORCH_CUDA_API FusionExecutorCache {
   void evictCache(size_t cache_id) {
     // Handling segmented fusion differently
     if (isSegmented()) {
-      auto iter = segment_executor_cache_.find(cache_id);
-      TORCH_INTERNAL_ASSERT(
-          iter != segment_executor_cache_.end(),
-          "evict cache failed to find an entry");
-
-      (iter->second)->evictCache(cache_id);
-      segment_executor_cache_.erase(iter);
+      fusion_segment_runtime_cache_.evictId(cache_id);
+      return;
     }
 
     auto iter = code_to_fe_lookup_.find(cache_id);
@@ -266,11 +359,8 @@ class TORCH_CUDA_API FusionExecutorCache {
   //! Multi-Kernel fusion segment caching
   std::unique_ptr<SegmentedFusion> fusion_segments_ = nullptr;
 
-  // TODO: hashing based on combined heuristics hash
-
-  //!
-  std::unordered_map<size_t, std::unique_ptr<FusionSegmentRuntime>>
-      segment_executor_cache_;
+  //! Caching for segmented fusions
+  FusionSegmentRuntimeCache fusion_segment_runtime_cache_;
 };
 
 class GraphCache {

@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/scheduler_registry.h>
+#include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 
 namespace torch {
@@ -6,12 +7,12 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-bool SchedulerEntry::operator==(const SchedulerEntry& other) {
-  if (has_param_ != other.has_param_) {
+bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
+  if (has_param_ != other->has_param_) {
     return false;
   }
   if (has_param_) {
-    return rparams_ == other.rparams_;
+    return rparams_ == other->rparams_;
   }
   return true;
 }
@@ -43,13 +44,10 @@ std::vector<ReductionOp*> findReductionOps(Fusion* fusion) {
 std::vector<TensorView*> findOutputsOfRed(Fusion* fusion, TensorView* red_tv) {
   TORCH_INTERNAL_ASSERT(fusion->inFusion(red_tv));
   auto output_set = DependencyCheck::getAllOutputsOf({red_tv});
-  std::vector<TensorView*> ret_vec;
-  std::transform(
-      output_set.begin(),
-      output_set.end(),
-      std::back_inserter(ret_vec),
-      [](Val* val) { return val->as<TensorView>(); });
-  return ret_vec;
+  auto tv_entries = ir_utils::filterByType<TensorView>(output_set);
+  std::vector<TensorView*> tv_outputs_of_reduction(
+      tv_entries.begin(), tv_entries.end());
+  return tv_outputs_of_reduction;
 }
 
 } // namespace
@@ -131,6 +129,26 @@ class PointWiseScheduler : public SchedulerEntry {
   }
 };
 
+namespace {
+
+// duplicated from Benchmark/utils.h
+static void analyzeFusion(
+    Fusion* fusion,
+    std::vector<TensorView*>& reduction_tv,
+    std::vector<TensorView*>& other_tv) {
+  auto all_values = DependencyCheck::getAllValsBetween(
+      {fusion->inputs().begin(), fusion->inputs().end()}, fusion->outputs());
+
+  for (auto tv : ir_utils::filterByType<TensorView>(all_values)) {
+    if (tv->hasReduction()) {
+      reduction_tv.push_back(tv);
+    } else if (!fusion->hasInput(tv)) {
+      other_tv.push_back(tv);
+    }
+  }
+}
+
+} // namespace
 class NormalizationScheduler : public SchedulerEntry {
  public:
   explicit NormalizationScheduler(Fusion* fusion, ExpressionEvaluator& ee)
@@ -139,7 +157,10 @@ class NormalizationScheduler : public SchedulerEntry {
   }
 
   void schedule(Fusion* fusion) override {
-    return;
+    std::vector<TensorView*> reduction_tensors;
+    std::vector<TensorView*> other_tensors;
+    analyzeFusion(fusion, reduction_tensors, other_tensors);
+    scheduleNormalization(fusion, rparams_, reduction_tensors, other_tensors);
   }
 
   static bool canSchedule(Fusion* fusion) {
@@ -151,7 +172,7 @@ class NormalizationScheduler : public SchedulerEntry {
     }
     // Before examining the reduction axes want to quickly
     //   check the reductions have the same axis width
-    //   to avoid building root domain in easier cases
+    //   to avoid building root domain map in easier cases
     int axis_count = -1;
     auto reduction_root = [](ReductionOp* rop) {
       return rop->out()->as<TensorView>()->getRootDomain();
@@ -227,9 +248,9 @@ bool canSchedule(ScheduleHeuristic sh, Fusion* fusion) {
     case ScheduleHeuristic::PointWise:
       return PointWiseScheduler::canSchedule(fusion);
     case ScheduleHeuristic::Reduction:
-      return false;
+      return SingleReductionScheduler::canSchedule(fusion);
     case ScheduleHeuristic::Normalization:
-      return false;
+      return NormalizationScheduler::canSchedule(fusion);
     default:
       TORCH_INTERNAL_ASSERT(false, "unreachable");
       return false;
@@ -251,19 +272,27 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
       return std::make_unique<NormalizationScheduler>(fusion, ee);
     default:
       TORCH_INTERNAL_ASSERT(false, "unreachable");
-      return std::make_unique<PointWiseScheduler>(fusion);
   }
   return nullptr;
 }
 
 // Simply loop through the list as baseline strategy
-c10::optional<ScheduleHeuristic> proposeHeuristics(Fusion* fusion) {
+c10::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
+    Fusion* fusion) {
   for (auto sh : all_heuristics()) {
     if (canSchedule(sh, fusion)) {
       return sh;
     }
   }
   return c10::nullopt;
+}
+
+size_t SchedulerEntryHash::operator()(const SchedulerEntry& se) const {
+  if (!se.hasParam()) {
+    return 1;
+  } else {
+    return ReductionParamsHash()(se.params());
+  }
 }
 
 } // namespace cuda

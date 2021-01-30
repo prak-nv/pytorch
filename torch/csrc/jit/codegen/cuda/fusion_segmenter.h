@@ -4,6 +4,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_base_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_cache.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler_registry.h>
 
 #include <deque>
 #include <list>
@@ -15,9 +16,6 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-// TODO: Review const model, and objects
-// TODO: Rename,
-//  segment -> fusion_segmenter.cpp/.h
 //  FusionSegmentFinder
 //    Responsible for going through DAG and proposing things we could try to
 //    fuse together, calls "canGenerateCode" on these proposed segments to see
@@ -184,6 +182,25 @@ class TORCH_CUDA_API SegmentedGroup {
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
 
+//! Auxiliary class for managing a list of heuristics instances for the
+//!  Segmented Groups
+class TORCH_CUDA_API SegmentHeuristics {
+  using SchedulerEntryPtr = std::unique_ptr<SchedulerEntry>;
+
+ public:
+  explicit SegmentHeuristics() = default;
+  void emplace_back(SchedulerEntryPtr&& pt) {
+    heuristics_.emplace_back(std::move(pt));
+  }
+
+  const std::vector<SchedulerEntryPtr>& heuristics() const {
+    return heuristics_;
+  }
+
+ private:
+  std::vector<SchedulerEntryPtr> heuristics_;
+};
+
 //! Exported Interface for representing segmented fusion graph
 //!   Owns the segmented groups
 class TORCH_CUDA_API SegmentedFusion {
@@ -219,6 +236,21 @@ class TORCH_CUDA_API SegmentedFusion {
 
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
+  std::unique_ptr<SchedulerEntry> makeSchedulerEntry(
+      SegmentedGroup* sg,
+      ExpressionEvaluator& ee);
+
+  std::unique_ptr<SegmentHeuristics> makeHeuristics(
+      const at::ArrayRef<IValue>& inputs);
+
+  ExpressionEvaluator getEvaluator(const at::ArrayRef<IValue>& inputs);
+
+  //! Evaluate heuristics for the segmented fusion
+
+  bool canSchedule(SegmentedGroup* sg) {
+    return false;
+  }
+
   void finalize();
 
   void print();
@@ -234,7 +266,6 @@ class TORCH_CUDA_API SegmentedFusion {
 
  protected:
   //! original full fusion
-  // TODO Try not to own any fusion copy
   Fusion fusion_;
 
   //! States representing segmentation

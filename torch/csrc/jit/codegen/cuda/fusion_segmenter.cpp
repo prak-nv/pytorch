@@ -911,6 +911,55 @@ void SegmentCandidateFinder::finalize() {
   segmented_fusion->finalize();
 }
 
+namespace {
+inline void copyValue(
+    Val* key,
+    ExpressionEvaluator& from,
+    ExpressionEvaluator& to) {
+  auto concrete_val = from.evaluate(key);
+  TORCH_INTERNAL_ASSERT(concrete_val.has_value());
+  to.bind(key, concrete_val.value());
+}
+
+inline void inferGroupInputs(
+    SegmentedGroup* sg,
+    ExpressionEvaluator& ee,
+    ExpressionEvaluator& local_ee) {
+  for (auto v : getAllInputs(sg)) {
+    if (auto tv = v->as<TensorView>()) {
+      for (auto id : tv->getRootDomain()) {
+        auto extent = id->extent();
+        copyValue(extent, ee, local_ee);
+      }
+    } else if (v->isAnInt()) {
+      copyValue(v, ee, local_ee);
+    } else {
+      TORCH_INTERNAL_ASSERT(false, "unreachable");
+    }
+  }
+}
+} // namespace
+
+FusionSegmentRuntime::SchedulerEntryPtr SegmentedFusion::makeSchedulerEntry(
+    SegmentedGroup* sg,
+    ExpressionEvaluator& ee) {
+  ExpressionEvaluator local_ee(&fusion_);
+  inferGroupInputs(sg, ee, local_ee);
+  FusionSegmentGuard fsg(&fusion_, getAllInputs(sg), getAllOutputs(sg));
+  return std::move(
+      SchedulerEntry::makeEntry(sg->heuristic(), &fusion_, local_ee));
+}
+
+std::unique_ptr<SegmentHeuristics> SegmentedFusion::makeHeuristics(
+    const at::ArrayRef<IValue>& inputs) {
+  auto ret = std::make_unique<SegmentHeuristics>();
+  auto evaluator = executor_utils::bindFusionInputs(inputs, &fusion_);
+  for (auto g : groups()) {
+    ret->emplace_back(std::move(makeSchedulerEntry(g, evaluator)));
+  }
+  return std::move(ret);
+}
+
 } // namespace cuda
 } // namespace fuser
 } // namespace jit
