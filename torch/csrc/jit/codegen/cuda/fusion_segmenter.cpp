@@ -47,32 +47,6 @@ std::vector<std::pair<SegmentedGroup*, SegmentedEdge*>> SegmentedGroup::
   std::vector<std::pair<SegmentedGroup*, SegmentedEdge*>> neighbors =
       getNeighborsPair();
 
-  // remove multi use edges: can relax this logic for better perf
-  // once we revisit multi-uses in a single group,
-  // disabling shared input, and multiple internall uses, but shouldn't be this
-  // strict
-  neighbors.erase(
-      std::remove_if(
-          neighbors.begin(),
-          neighbors.end(),
-          [this](auto& n) {
-            if (n.second->hasInternalUse()) {
-              return true;
-            }
-            for (auto e : n.first->producer_edges) {
-              if (hasUse(e->val_)) {
-                return true;
-              }
-            }
-            for (auto v : n.first->input_vals) {
-              if (hasUse(v)) {
-                return true;
-              }
-            }
-            return false;
-          }),
-      neighbors.end());
-
   // Can this node be merged with another? Check if neighbors are merged, if
   // so and merged neighbor is within 1 level or node merged with neighbor is
   // within 1 level, can't merge this node with anything else.
@@ -176,22 +150,6 @@ void SegmentedGroup::print() {
   std::cout << "}\n\n";
 }
 
-void SegmentedGroup::updateUse() {
-  // Move all the edgees to group input/output
-  for (auto e : exprs_) {
-    for (auto i : e->inputs()) {
-      if (i->isA<TensorView>()) {
-        internal_use.insert(i);
-      }
-    }
-  }
-}
-
-bool SegmentedGroup::hasUse(Val* v) {
-  // Move all the edgees to group input/output
-  return internal_use.count(v) != 0;
-}
-
 template <typename PREDICATE>
 void insertUniquePredicated(
     std::vector<Val*>& v,
@@ -239,10 +197,6 @@ void SegmentedEdge::print() {
   std::cout << "through: ";
   val_->print();
   std::cout << "}\\\\e\n\n";
-}
-
-bool SegmentedEdge::hasInternalUse() {
-  return from_->hasUse(this->val_);
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
@@ -313,7 +267,6 @@ SegmentedGroup* SegmentedFusion::newGroup() {
 SegmentedGroup* SegmentedFusion::newGroup(Expr* expr) {
   SegmentedGroup* g = impl_.makeGroup(expr);
   groups_.push_back(g);
-  g->updateUse();
   return g;
 }
 
@@ -651,7 +604,6 @@ void SegmentCandidateFinder::mergeNodes() {
     }
 
     joined_group->setHeuristic(deriveHeuristic(group1->merge_through));
-    joined_group->updateUse();
   }
 
   for (auto group : clean_up_groups) {
@@ -751,54 +703,33 @@ class FusionSegmentGuard {
   const std::vector<Val*> new_outputs;
 };
 
-} // namespace
-
-// Note:
-//  Below two methods should later be generalized once we start
-//  supporting more optimized schedules
-// Use heuristics based merging rule
-bool SegmentCandidateFinder::codeGenSupportedMerge(SegmentedEdge* edge) {
+c10::optional<ScheduleHeuristic> tryMerge(Fusion* fusion, SegmentedEdge* edge) {
   SegmentedGroup* producer = edge->from_;
   SegmentedGroup* consumer = edge->to_;
 
-  if (producer->heuristic() == ScheduleHeuristic::PointWise) {
-    return true;
-  }
+  FusionSegmentGuard fsg(
+      fusion,
+      getAllInputs(producer, consumer),
+      getAllOutputs(producer, consumer));
 
-  // TODO: Normalization rule was duplicated from kernel_cache.cpp,
-  // might need to be extended more for safety
-  if (producer->heuristic() == ScheduleHeuristic::Reduction) {
-    // Detect normalization creation
-    Val* val = edge->val_;
-    for (auto expr : consumer->exprs_) {
-      if (expr->isA<BroadcastOp>()) {
-        if (expr->input(0)->sameAs(val)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  // TODO: come up with a concise way to check root domain consistency
-  return consumer->heuristic() == ScheduleHeuristic::PointWise;
+  return SchedulerEntry::proposeHeuristics(fusion);
 }
 
-// Manual way of setting heuristics,
-//  assuming canMerge has already been checked
+} // namespace
+
+bool SegmentCandidateFinder::codeGenSupportedMerge(SegmentedEdge* edge) {
+  Fusion* fusion = &segmented_fusion->completeFusion();
+  auto h = tryMerge(fusion, edge);
+  return h.has_value();
+}
+
+// TODO: consider caching the heuristics value so tryMerge doesn't have to be
+//       called twice
 ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(SegmentedEdge* edge) {
-  SegmentedGroup* producer = edge->from_;
-  SegmentedGroup* consumer = edge->to_;
-
-  if (producer->heuristic() == ScheduleHeuristic::Normalization ||
-      producer->heuristic() == ScheduleHeuristic::Reduction) {
-    // Note:
-    // Assumption here is that we are not allowing fusion through
-    // reduction ops unless producing normalization
-    return ScheduleHeuristic::Normalization;
-  }
-
-  return consumer->heuristic();
+  Fusion* fusion = &segmented_fusion->completeFusion();
+  auto h = tryMerge(fusion, edge);
+  TORCH_INTERNAL_ASSERT(h.has_value());
+  return h.value();
 }
 
 SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion) {

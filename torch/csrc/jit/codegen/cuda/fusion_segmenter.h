@@ -44,7 +44,8 @@ namespace cuda {
 class SegmentedGroup;
 class SegmentCandidateFinder;
 
-// Wrapper for values values, edges between segmented groups which are made up
+// A directed edge on DAG,
+// Wrapper for values, edges between segmented groups which are made up
 // of Exprs. Multiple edges can exist between segmented groups.
 class SegmentedEdge {
  public:
@@ -55,7 +56,6 @@ class SegmentedEdge {
   Val* val_;
 
   void print();
-  bool hasInternalUse();
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
@@ -202,11 +202,12 @@ class TORCH_CUDA_API SegmentHeuristics {
 };
 
 //! Exported Interface for representing segmented fusion graph
-//!   Owns the segmented groups
+//!   this class owns the segmented groups
 class TORCH_CUDA_API SegmentedFusion {
  public:
   explicit SegmentedFusion(const Fusion* fusion);
 
+  // Is the fusion segmented?
   bool isSegmented() {
     return !groups_.empty();
   }
@@ -219,6 +220,7 @@ class TORCH_CUDA_API SegmentedFusion {
     return edges_;
   }
 
+  // Returns the original un-segmented fusion
   Fusion& completeFusion() {
     return fusion_;
   }
@@ -232,27 +234,17 @@ class TORCH_CUDA_API SegmentedFusion {
     return fusion_.outputs();
   }
 
-  std::string toString(int verbosity) const;
-
+  // Make a clone of the group and convert to fusion
   std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
 
-  std::unique_ptr<SchedulerEntry> makeSchedulerEntry(
-      SegmentedGroup* sg,
-      ExpressionEvaluator& ee);
-
+  // Make heuristics for all groups in this segmented fusion
   std::unique_ptr<SegmentHeuristics> makeHeuristics(
       const at::ArrayRef<IValue>& inputs);
 
-  ExpressionEvaluator getEvaluator(const at::ArrayRef<IValue>& inputs);
+  // Inline Debug print for segmented fusion
+  std::string toString(int verbosity) const;
 
-  //! Evaluate heuristics for the segmented fusion
-
-  bool canSchedule(SegmentedGroup* sg) {
-    return false;
-  }
-
-  void finalize();
-
+  // Debug print for segmented fusions
   void print();
 
   //! API for adding groups
@@ -291,12 +283,22 @@ class TORCH_CUDA_API SegmentedFusion {
     SegmentedFusion* owning_fusion_;
   };
   Impl impl_;
+
+ protected:
+  friend class SegmentCandidateFinder;
+  //! Make a heuristics entry for a group and parameters
+  std::unique_ptr<SchedulerEntry> makeSchedulerEntry(
+      SegmentedGroup* sg,
+      ExpressionEvaluator& ee);
+
+  //! Cleanup function to be call at the end of fusion
+  //!  segment pass
+  void finalize();
 };
 
 class TORCH_CUDA_API SegmentCandidateFinder {
  public:
-  // Take a copy of fusion to own, it will get reused and copies sent to
-  // schedulers.
+  // Take a copy of fusion to own
   SegmentCandidateFinder(const Fusion* fusion);
 
   static std::unique_ptr<SegmentedFusion> segment(const Fusion* fusion) {
@@ -337,14 +339,11 @@ class TORCH_CUDA_API SegmentCandidateFinder {
 
   void finalize();
 
-  // Node merging logic
+  // Return the resulting heuristic corresponding to the merged
+  //  group built by merging the two groups connected by edge
   ScheduleHeuristic deriveHeuristic(SegmentedEdge* edge);
 
  protected:
-  // Lifetime of the graph view of the fusion and segmentation
-  // std::list<SegmentedEdge> edges;
-  // std::list<SegmentedGroup> groups;
-
   std::deque<SegmentedGroup*> to_visit;
   std::vector<SegmentedGroup*> next_to_visit;
 
