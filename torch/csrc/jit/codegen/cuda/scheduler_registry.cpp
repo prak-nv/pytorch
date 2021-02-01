@@ -173,12 +173,14 @@ class NormalizationScheduler : public SchedulerEntry {
     // Before examining the reduction axes want to quickly
     //   check the reductions have the same axis width
     //   to avoid building root domain map in easier cases
-    int axis_count = -1;
+    bool valid_axis_count = false;
+    size_t axis_count = 0;
     auto reduction_root = [](ReductionOp* rop) {
       return rop->out()->as<TensorView>()->getRootDomain();
     };
     for (auto red : red_ops) {
-      if (axis_count == -1) {
+      if (!valid_axis_count) {
+        valid_axis_count = true;
         axis_count = reduction_root(red).size();
       } else {
         if (reduction_root(red).size() != axis_count) {
@@ -218,8 +220,8 @@ class NormalizationScheduler : public SchedulerEntry {
       const ComputeAtRootDomainMap& root_map) {
     const auto out_tv0 = op0->out()->as<TensorView>();
     const auto out_tv1 = op1->out()->as<TensorView>();
-    const auto out_root0 = out_tv0->getRootDomain();
-    const auto out_root1 = out_tv1->getRootDomain();
+    const auto& out_root0 = out_tv0->getRootDomain();
+    const auto& out_root1 = out_tv1->getRootDomain();
     const auto domain0 = out_tv0->domain();
     const auto domain1 = out_tv1->domain();
 

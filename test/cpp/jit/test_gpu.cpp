@@ -1529,8 +1529,8 @@ TEST(NVFuserTest, FusionAdvancedComputeAt1_CUDA) {
   auto t7 = t1.add(t4);
 
   std::vector<at::Tensor> aten_outputs = {t6, t7};
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options)};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -1860,8 +1860,8 @@ TEST(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
 
   std::vector<at::Tensor> aten_outputs = {t2, t3};
 
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options)};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -1931,10 +1931,9 @@ TEST(NVFuserTest, FusionComputeAtCommonConsumer1_CUDA) {
   auto t5 = t4 * 5.0;
 
   std::vector<at::Tensor> aten_outputs = {t3, t4, t5};
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options)};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -2118,8 +2117,8 @@ TEST(NVFuserTest, FusionComputeAtCommonConsumer3_CUDA) {
   auto t6 = t1.add({6.0});
 
   std::vector<at::Tensor> aten_outputs = {t5, t6};
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options), at::empty_like(aten_input, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options)};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -2190,11 +2189,10 @@ TEST(NVFuserTest, FusionComputeAtNoCommonConsumer_CUDA) {
   auto t6 = t1 * 6.0;
 
   std::vector<at::Tensor> aten_outputs = {t3, t4, t5, t6};
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options)};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -2797,13 +2795,12 @@ TEST(NVFuserTest, FusionScalarInputs_CUDA) {
 
   at::Scalar test(fl0);
 
-  std::vector<IValue> aten_inputs = {
-      t0,
-      t1,
-      at::Scalar(fl0),
-      at::Scalar(fl1),
-      at::Scalar(fl2),
-      at::Scalar(fl3)};
+  std::vector<IValue> aten_inputs = {t0,
+                                     t1,
+                                     at::Scalar(fl0),
+                                     at::Scalar(fl1),
+                                     at::Scalar(fl2),
+                                     at::Scalar(fl3)};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -3147,13 +3144,12 @@ TEST(NVFuserTest, FusionBinaryOps_CUDA) {
   using OpTuple = std::tuple<AtenFuncSig, BinaryOpType, std::string>;
 
   // see [Note: explicit tuple type for uniform initialization list]
-  std::vector<OpTuple> logic_ops{
-      OpTuple{at::eq, BinaryOpType::Eq, "eq"},
-      OpTuple{at::ge, BinaryOpType::GE, "ge"},
-      OpTuple{at::gt, BinaryOpType::GT, "gt"},
-      OpTuple{at::le, BinaryOpType::LE, "le"},
-      OpTuple{at::lt, BinaryOpType::LT, "lt"},
-      OpTuple{at::ne, BinaryOpType::NE, "ne"}};
+  std::vector<OpTuple> logic_ops{OpTuple{at::eq, BinaryOpType::Eq, "eq"},
+                                 OpTuple{at::ge, BinaryOpType::GE, "ge"},
+                                 OpTuple{at::gt, BinaryOpType::GT, "gt"},
+                                 OpTuple{at::le, BinaryOpType::LE, "le"},
+                                 OpTuple{at::lt, BinaryOpType::LT, "lt"},
+                                 OpTuple{at::ne, BinaryOpType::NE, "ne"}};
   std::vector<DataType> dtypes = {DataType::Double, DataType::Float};
 
   for (auto dtype : dtypes) {
@@ -5017,14 +5013,13 @@ TEST(NVFuserTest, FusionSoftmax1DNormalized_CUDA) {
   sub_tv3->computeAt(sum_exp_rf_tv9, -1);
   sub_tv3_copy->computeAt(output_tv7, -1);
 
-  TensorView* tensors_to_parallelize[] = {
-      max_val_tv1,
-      bcast_max_tv2,
-      sum_exp_tv5,
-      bcast_sum_tv6,
-      output_tv7,
-      max_val_rf_tv8,
-      sum_exp_rf_tv9};
+  TensorView* tensors_to_parallelize[] = {max_val_tv1,
+                                          bcast_max_tv2,
+                                          sum_exp_tv5,
+                                          bcast_sum_tv6,
+                                          output_tv7,
+                                          max_val_rf_tv8,
+                                          sum_exp_rf_tv9};
 
   for (auto tv : tensors_to_parallelize) {
     tv->axis(-1)->parallelize(ParallelType::TIDx);
@@ -5150,14 +5145,13 @@ TEST(NVFuserTest, FusionSoftmax3DNormalized_CUDA) {
   sub_tv3->computeAt(sum_exp_rf_tv9, -1);
   sub_tv3_copy->computeAt(output_tv7, -1);
 
-  TensorView* tensors_to_parallelize[] = {
-      max_val_tv1,
-      bcast_max_tv2,
-      sum_exp_tv5,
-      bcast_sum_tv6,
-      output_tv7,
-      max_val_rf_tv8,
-      sum_exp_rf_tv9};
+  TensorView* tensors_to_parallelize[] = {max_val_tv1,
+                                          bcast_max_tv2,
+                                          sum_exp_tv5,
+                                          bcast_sum_tv6,
+                                          output_tv7,
+                                          max_val_rf_tv8,
+                                          sum_exp_rf_tv9};
 
   for (auto tv : tensors_to_parallelize) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
@@ -5767,8 +5761,8 @@ TEST(NVFuserTest, FusionComputeAtExprOrder1_CUDA) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor aten_input = at::randn({100}, options);
-    std::vector<at::Tensor> aten_outputs = {
-        aten_input + 1, (aten_input + 1) * 2};
+    std::vector<at::Tensor> aten_outputs = {aten_input + 1,
+                                            (aten_input + 1) * 2};
 
     FusionExecutor fe;
     fe.compileFusion(&fusion);
@@ -7053,16 +7047,15 @@ TEST(NVFuserTest, FusionSmemDynamicPersistentSoftmax2D_CUDA) {
   cache_x->setMemoryType(MemoryType::Shared);
   exp->setMemoryType(MemoryType::Shared);
 
-  std::vector<TensorView*> all_tensors(
-      {x,
-       cache_x,
-       max_val,
-       bcast_max,
-       x_max_sub,
-       exp,
-       sum_exp,
-       bcast_sum,
-       softmax});
+  std::vector<TensorView*> all_tensors({x,
+                                        cache_x,
+                                        max_val,
+                                        bcast_max,
+                                        x_max_sub,
+                                        exp,
+                                        sum_exp,
+                                        bcast_sum,
+                                        softmax});
 
   auto tidx = new Int();
   fusion.addInput(tidx);
@@ -7348,16 +7341,15 @@ TEST(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
   fusion.addOutput(output);
 
   std::vector<TensorView*> reduction_tensors({x_sum, var_sum});
-  std::vector<TensorView*> other_tensors(
-      {x_mean,
-       x_sum_bcast,
-       x_mean_sub,
-       x_mean_sub_pow,
-       var_sum_bcast,
-       var,
-       var_eps,
-       rvar,
-       output});
+  std::vector<TensorView*> other_tensors({x_mean,
+                                          x_sum_bcast,
+                                          x_mean_sub,
+                                          x_mean_sub_pow,
+                                          var_sum_bcast,
+                                          var,
+                                          var_eps,
+                                          rvar,
+                                          output});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn(input_shape, options);
@@ -7454,20 +7446,19 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
   // fusion.addOutput(new_running_var);
 
   std::vector<TensorView*> reduction_tensors({x_sum, var_sum});
-  std::vector<TensorView*> other_tensors(
-      {x_mean,
-       x_sum_bcast,
-       x_mean_sub,
-       x_mean_sub_pow,
-       var_sum_bcast,
-       var,
-       var_eps,
-       rvar,
-       weight_bcast,
-       bias_bcast,
-       norm,
-       norm_gamma,
-       norm_gamma_bias});
+  std::vector<TensorView*> other_tensors({x_mean,
+                                          x_sum_bcast,
+                                          x_mean_sub,
+                                          x_mean_sub_pow,
+                                          var_sum_bcast,
+                                          var,
+                                          var_eps,
+                                          rvar,
+                                          weight_bcast,
+                                          bias_bcast,
+                                          norm,
+                                          norm_gamma,
+                                          norm_gamma_bias});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn(input_shape, options);
@@ -7723,27 +7714,25 @@ TEST(NVFuserTest, FusionPersistentNormLocalShared_CUDA) {
   std::vector<TensorView*> common_tensors(
       {x_sum, x_sum_bcast, x_mean, var_sum, var_sum_bcast, var, var_eps, rvar});
 
-  std::vector<TensorView*> static_tensors(
-      {sx,
-       sx_cache,
-       sx_sum,
-       sx_mean_sub,
-       sx_mean_sub_pow,
-       sx_var_sum,
-       sx_norm,
-       sx_norm_gamma,
-       sx_norm_gamma_beta});
+  std::vector<TensorView*> static_tensors({sx,
+                                           sx_cache,
+                                           sx_sum,
+                                           sx_mean_sub,
+                                           sx_mean_sub_pow,
+                                           sx_var_sum,
+                                           sx_norm,
+                                           sx_norm_gamma,
+                                           sx_norm_gamma_beta});
 
-  std::vector<TensorView*> dynamic_tensors(
-      {dx,
-       dx_cache,
-       dx_sum,
-       dx_mean_sub,
-       dx_mean_sub_pow,
-       dx_var_sum,
-       dx_norm,
-       dx_norm_gamma,
-       dx_norm_gamma_beta});
+  std::vector<TensorView*> dynamic_tensors({dx,
+                                            dx_cache,
+                                            dx_sum,
+                                            dx_mean_sub,
+                                            dx_mean_sub_pow,
+                                            dx_var_sum,
+                                            dx_norm,
+                                            dx_norm_gamma,
+                                            dx_norm_gamma_beta});
 
   std::vector<TensorView*> all_tensors;
   all_tensors.insert(
@@ -7875,21 +7864,20 @@ TEST(NVFuserTest, FusionSmemDynamicPersistentNorm_CUDA) {
   cache_x->setMemoryType(MemoryType::Shared);
   x_mean_sub->setMemoryType(MemoryType::Shared);
 
-  std::vector<TensorView*> all_tensors(
-      {x_sum,
-       x_mean,
-       cache_x,
-       x_sum_bcast,
-       x_mean_sub,
-       x_mean_sub_pow,
-       var_sum,
-       var_sum_bcast,
-       var,
-       var_eps,
-       rvar,
-       norm,
-       norm_gamma,
-       norm_gamma_beta});
+  std::vector<TensorView*> all_tensors({x_sum,
+                                        x_mean,
+                                        cache_x,
+                                        x_sum_bcast,
+                                        x_mean_sub,
+                                        x_mean_sub_pow,
+                                        var_sum,
+                                        var_sum_bcast,
+                                        var,
+                                        var_eps,
+                                        rvar,
+                                        norm,
+                                        norm_gamma,
+                                        norm_gamma_beta});
 
   auto tidx = new Int();
   fusion.addInput(tidx);
@@ -8511,10 +8499,9 @@ TEST(NVFuserTest, FusionTraversalOrder1_CUDA) {
 
   std::vector<at::Tensor> aten_outputs = {t2, t3, t4};
 
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options)};
 
   fe.runFusion({aten_input}, cg_outputs);
   testValidate(
@@ -8558,10 +8545,9 @@ TEST(NVFuserTest, FusionTraversalOrder2_CUDA) {
 
   std::vector<at::Tensor> aten_outputs = {t2, t4, t5};
 
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options)};
 
   fe.runFusion({aten_input}, cg_outputs);
 
@@ -8619,10 +8605,9 @@ TEST(NVFuserTest, FusionTraversalOrder3_CUDA) {
 
     std::vector<at::Tensor> aten_outputs = {t2, t4, t5};
 
-    std::vector<at::Tensor> cg_outputs = {
-        at::empty_like(aten_input, options),
-        at::empty_like(aten_input, options),
-        at::empty_like(aten_input, options)};
+    std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                          at::empty_like(aten_input, options),
+                                          at::empty_like(aten_input, options)};
 
     fe.runFusion({aten_input}, cg_outputs);
 
@@ -8669,11 +8654,10 @@ TEST(NVFuserTest, FusionTraversalOrder4_CUDA) {
 
   std::vector<at::Tensor> aten_outputs = {t2, t3, t6, t7};
   std::vector<IValue> aten_inputs = {t0, t4};
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(t0, options),
-      at::empty_like(t0, options),
-      at::empty_like(t0, options),
-      at::empty_like(t0, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(t0, options),
+                                        at::empty_like(t0, options),
+                                        at::empty_like(t0, options),
+                                        at::empty_like(t0, options)};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -8707,10 +8691,9 @@ TEST(NVFuserTest, FusionTraversalOrder5_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({100}, options);
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options),
-      at::empty_like(aten_input, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options),
+                                        at::empty_like(aten_input, options)};
 
   fe.runFusion({aten_input}, cg_outputs);
 
@@ -8864,8 +8847,8 @@ TEST(NVFuserTest, FusionThreadPredicate_CUDA) {
 
   std::vector<at::Tensor> aten_outputs = {t3, t2};
 
-  std::vector<at::Tensor> cg_outputs = {
-      at::empty_like(aten_input, options), at::empty({numel_x}, options)};
+  std::vector<at::Tensor> cg_outputs = {at::empty_like(aten_input, options),
+                                        at::empty({numel_x}, options)};
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);

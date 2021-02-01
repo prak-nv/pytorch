@@ -269,15 +269,15 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   return ret;
 }
 
-FusionExecutorCache::FusionExecutorCache(
-    std::unique_ptr<Fusion>&& fusion)
+FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
     : fusion_(std::move(fusion)) {
   FUSER_PERF_SCOPE("FusionExecutorCache::FusionExecutorCache");
 
   // case of segmented fusion
-  // TODO: might be worthwhile re-using the SchedulerEntry infrastructure for 
+  // TODO: might be worthwhile re-using the SchedulerEntry infrastructure for
   //       single-kernel fusion as well.
-  const bool can_schedule = SchedulerEntry::proposeHeuristics(fusion_.get()).has_value();
+  const bool can_schedule =
+      SchedulerEntry::proposeHeuristics(fusion_.get()).has_value();
   const bool segmented = !can_schedule;
 
   if (segmented) {
@@ -544,6 +544,7 @@ std::vector<at::Tensor> FusionSegmentRuntime::runWithInput(
 
       if (ready_to_run) {
         std::vector<IValue> group_runtime_inputs;
+        group_runtime_inputs.reserve(group_inputs.size());
 
         // Prepare input vector
         for (auto input : group_inputs) {
@@ -601,7 +602,9 @@ using HashType = FusionSegmentRuntime::HashType;
 // Use a slightly more nontrivial combine to avoid collision
 //  (from Boost)
 inline HashType combineHash(HashType a, HashType b) {
-  return a ^ (b + 0x9e3779b9 + (a << 6) + (a >> 2));
+  return a ^
+      (b + 0x9e3779b9 + (a << 6) +
+       (a >> 2)); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 }
 } // namespace
 

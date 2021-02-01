@@ -278,8 +278,7 @@ class TORCH_CUDA_API FusionExecutorCache {
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes;
   //! fusion executor is taking the ownership of `fusion`;
-  explicit FusionExecutorCache(
-      std::unique_ptr<Fusion>&& fusion);
+  explicit FusionExecutorCache(std::unique_ptr<Fusion>&& fusion);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed;
   std::vector<at::Tensor> runFusionWithInputs(
