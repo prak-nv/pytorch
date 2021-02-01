@@ -121,7 +121,7 @@ class ExprGroup {
   // Return neighbors of this proven to be safe nodes to merge with in regards
   // to maining an acyclic graph. This looks at, neighbors  if merged, neighbors
   // level, and merged neighbors of neighbors level. If fallback_mode_enabled
-  // will return the inverse set of ExprGroups that are not proven to be safe
+  // will return the inverse set of ExprGroups that are proven to be safe
   // merges.
   std::vector<ExprGroup*> getMergeCandidates(
       bool fallback_mode_enabled = false);
@@ -826,10 +826,6 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
 
   if (domain1.empty() || domain2.empty()) {
     return false;
-  }
-
-  if (GpuLower::current()->caLoopMap().areMapped(
-          domain1.back(), domain2.back())) {
   }
 
   return GpuLower::current()->caLoopMap().areMapped(
