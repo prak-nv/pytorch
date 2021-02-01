@@ -215,6 +215,10 @@ BroadcastOp::BroadcastOp(Val* out, Val* in, std::vector<bool> is_broadcast_dims)
       out_(out),
       in_(in),
       is_broadcast_dims_(std::move(is_broadcast_dims)) {
+  // clang-tidy complains about out_ that it may be null.
+  TORCH_INTERNAL_ASSERT(out_ != nullptr);
+  TORCH_INTERNAL_ASSERT(in_ != nullptr);
+
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
@@ -551,6 +555,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
 
 // TODO(kir): review if this is still needed in the Fusion IR
 Val* IterDomain::extent() const {
+  TORCH_INTERNAL_ASSERT(extent_ != nullptr);
   if (isThread()) {
     if (extent_->getValType() == ValType::Scalar)
       if (extent_->as<Int>()->isConst())
@@ -560,41 +565,6 @@ Val* IterDomain::extent() const {
   }
   return extent_;
 }
-
-namespace {
-
-class RejectMultipleGridReductions : public IterVisitor {
- public:
-  static void analyze(Fusion* fusion) {
-    RejectMultipleGridReductions multi_grid;
-    multi_grid.traverse(fusion);
-  }
-
- private:
-  void handle(ReductionOp* rop) override {
-    TensorView* out = dynamic_cast<TensorView*>(rop->out());
-    // Filter out non-related ReductionOp
-    if (out == nullptr) {
-      return;
-    }
-    if (!out->domain()->hasGridReduction()) {
-      return;
-    }
-    // rop is a grid reduction. It's an error if we have multiple grid
-    // reductions.
-    TORCH_CHECK(
-        grid_reduction_op_ == nullptr,
-        "Multiple grid reductions in a fusion is not supported:\n",
-        grid_reduction_op_,
-        rop);
-    grid_reduction_op_ = rop;
-  }
-
- private:
-  ReductionOp* grid_reduction_op_ = nullptr;
-};
-
-} // namespace
 
 void IterDomain::parallelize(ParallelType t) {
   parallel_type_ = t;
@@ -611,17 +581,13 @@ void IterDomain::parallelize(ParallelType t) {
         extent(),
         " .");
   }
-
-  if (isReduction() && isParallelTypeBlockDim(t)) {
-    RejectMultipleGridReductions::analyze(fusion_);
-  }
 }
 
 TensorDomain::TensorDomain(
-    std::vector<IterDomain*> domain,
+    std::vector<IterDomain*> root_domain,
     std::vector<bool> contiguity)
     : Val(ValType::TensorDomain),
-      root_domain_(std::move(domain)),
+      root_domain_(std::move(root_domain)),
       contiguity_(
           contiguity.empty() ? std::vector<bool>(root_domain_.size(), false)
                              : std::move(contiguity)) {

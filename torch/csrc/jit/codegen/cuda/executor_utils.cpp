@@ -18,6 +18,7 @@
 #include <nvfuser_resources/helpers.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
+#include <nvfuser_resources/welford.h>
 
 #include <fstream>
 
@@ -40,6 +41,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::block_reduction_cu;
   ss << nvfuser_resources::grid_reduction_cu;
   ss << nvfuser_resources::broadcast_cu;
+  ss << nvfuser_resources::welford_cu;
 
   return ss.str();
 }
@@ -96,6 +98,9 @@ bool validateKernelArgTensor(
     case at::ScalarType::Long:
       match = param_data_type == DataType::Int;
       break;
+    case at::ScalarType::Int:
+      match = param_data_type == DataType::Int32;
+      break;
     case at::ScalarType::Bool:
       match = param_data_type == DataType::Bool;
       break;
@@ -124,7 +129,7 @@ bool validateKernelArgScalar(
   bool match = false;
   switch (arg.toScalar().type()) {
     case c10::ScalarType::Long:
-      match = param_type == DataType::Int;
+      match = param_type == DataType::Int || param_type == DataType::Int32;
       break;
     case c10::ScalarType::Double:
       match = param_type == DataType::Double || param_type == DataType::Float ||
@@ -252,6 +257,7 @@ kir::ExpressionEvaluator bindKernelInputs(
           expr_eval.bind(extent, value);
         }
       }
+      // NOLINTNEXTLINE: https://bugs.llvm.org/show_bug.cgi?id=48525
     } else if (input->isScalar() && input->dtype() == DataType::Int) {
       TORCH_INTERNAL_ASSERT(
           aten_inputs[i].type()->kind() == c10::TypeKind::IntType);
@@ -358,7 +364,7 @@ NvrtcFunction nvrtcCompile(
   const std::string compute = "--gpu-architecture=compute_" +
       std::to_string(major) + std::to_string(minor);
   std::vector<const char*> args = {
-      "--std=c++14", compute.c_str(), "-default-device"};
+      "--std=c++14", "--use_fast_math", compute.c_str(), "-default-device"};
 #endif
 
   const char* disable_fma = getenv("PYTORCH_NVFUSER_DISABLE_FMA");

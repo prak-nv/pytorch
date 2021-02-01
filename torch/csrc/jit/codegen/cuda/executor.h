@@ -17,11 +17,11 @@ namespace fuser {
 namespace cuda {
 
 // TODO: Should this actually be in launch params?
-struct TORCH_CUDA_API CompileOptions {
+struct TORCH_CUDA_CU_API CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class TORCH_CUDA_API FusionExecutor : public NonCopyable {
+class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
  public:
   // Unsafe compilation that's useful for debugging kernels, iterating over
   // slight modifications of a generated kernel
@@ -97,6 +97,19 @@ class TORCH_CUDA_API FusionExecutor : public NonCopyable {
   float kernelTimeMs() const {
     return measure_kernel_time_ ? kernel_time_ms_ : 0;
   }
+
+  //! Internal tests only. Compiles CUDA code with NVRTC directly from
+  //! string. This util provides a path to test runtime code, i.e. the resource
+  //! strings.
+  void compileRtc(
+      const std::string& code,
+      const std::string& name,
+      bool structured = false);
+
+  //! Internal tests only. Runs the compiled CUDA kernel from compileRtc.
+  void runRtc(
+      const LaunchParams& launch_params,
+      const std::vector<at::Tensor>& args);
 
  private:
   struct GlobalBuffers {

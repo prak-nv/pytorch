@@ -12,7 +12,7 @@ TORCH_LIBRARY_IMPL(aten, Named, m) {
   m.impl("_bmm", CppFunction::makeFallthrough());
   m.impl("_bmm.out", CppFunction::makeFallthrough());
   m.impl("_cdist_forward", CppFunction::makeFallthrough());
-  m.impl("_fused_dropout", CppFunction::makeFallthrough());
+  m.impl("native_dropout", CppFunction::makeFallthrough());
   m.impl("_local_scalar_dense", CppFunction::makeFallthrough());
   m.impl("_sparse_log_softmax.Dimname", CppFunction::makeFallthrough());
   m.impl("_sparse_log_softmax.int", CppFunction::makeFallthrough());
@@ -462,6 +462,7 @@ TORCH_LIBRARY_IMPL(aten, Named, m) {
   m.impl("tanh_", CppFunction::makeFallthrough());
   m.impl("tensor_split.indices", CppFunction::makeFallthrough());
   m.impl("tensor_split.sections", CppFunction::makeFallthrough());
+  m.impl("tensor_split.tensor_indices_or_sections", CppFunction::makeFallthrough());
   m.impl("threshold", CppFunction::makeFallthrough());
   m.impl("threshold.out", CppFunction::makeFallthrough());
   m.impl("threshold_", CppFunction::makeFallthrough());
@@ -509,4 +510,5 @@ TORCH_LIBRARY_IMPL(aten, Named, m) {
   m.impl("_version", CppFunction::makeFallthrough());
   m.impl("requires_grad_", CppFunction::makeFallthrough());
   m.impl("retain_grad", CppFunction::makeFallthrough());
+  m.impl("_fw_primal", CppFunction::makeFallthrough());
 }

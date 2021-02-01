@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+
 #include <torch/csrc/jit/codegen/cuda/codegen.h>
 #include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
@@ -248,6 +249,25 @@ void Fusion::removeOutput(Val* output) {
   }
   output->setIsFusionOutput(false);
   resetTvUses();
+}
+
+void Fusion::replaceOutput(Val* output, Val* replacement) {
+  auto find_output = std::find(outputs_.begin(), outputs_.end(), output);
+  TORCH_CHECK(find_output != outputs_.end(), "Unable to find output in Fusion");
+
+  if (find_output != outputs_.end()) {
+    *find_output = replacement;
+
+    if (replacement->getValType().value() == ValType::TensorView) {
+      replacement->setIsFusionOutput(true);
+      replacement->as<TensorView>()->setMemoryType(MemoryType::Global);
+    }
+    if (output->getValType().value() == ValType::TensorView) {
+      output->setIsFusionOutput(false);
+      output->as<TensorView>()->setMemoryType(MemoryType::Local);
+    }
+    resetTvUses();
+  }
 }
 
 bool Fusion::inFusion(const Statement* stmt) const {

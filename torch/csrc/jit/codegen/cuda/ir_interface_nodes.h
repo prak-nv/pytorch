@@ -21,7 +21,7 @@ namespace cuda {
 //! This value can be a symbolic value (defined after the kernel
 //! is compiled) or a constant value (inlined into the kernel definition).
 //!
-class TORCH_CUDA_API Bool : public Val {
+class TORCH_CUDA_CU_API Bool : public Val {
  public:
   Bool() : Val(ValType::Scalar, DataType::Bool), maybe_value_{c10::nullopt} {}
 
@@ -49,7 +49,7 @@ class TORCH_CUDA_API Bool : public Val {
 //! A Float64 value. For now we don't have any other type besides
 //! Float64. This value can be a symbolic value (defined after the kernel
 //! is compiled) or a constant value (inlined into the kernel definition).
-class TORCH_CUDA_API Double : public Val {
+class TORCH_CUDA_CU_API Double : public Val {
  public:
   using ScalarType = double;
 
@@ -79,7 +79,7 @@ class TORCH_CUDA_API Double : public Val {
 
 //! An Int64 value. If used for indexing it's set as size_t. Otherwise it's an
 //! inlined literal in the kernel.
-class TORCH_CUDA_API Int : public Val {
+class TORCH_CUDA_CU_API Int : public Val {
  public:
   using ScalarType = int64_t;
 
@@ -139,7 +139,7 @@ class TVDomainGuard;
 //! getComputeAtAxis not being const because it can return a TV that some expect
 //! to be non-const is the biggest headache.
 //!
-class TORCH_CUDA_API TensorView : public Val {
+class TORCH_CUDA_CU_API TensorView : public Val {
  public:
   TensorView(
       TensorDomain* domain,
@@ -260,6 +260,17 @@ class TORCH_CUDA_API TensorView : public Val {
   // Reorder axes according to old2new[old_pos] = new_pos
   TensorView* reorder(const std::unordered_map<int, int>& old2new);
 
+  //! Swizzle indices to improve memory access efficiency.
+  //!
+  //! Swizzle::Transpose is a pattern commonly used to avoid bank
+  //! conflicts in shared memory. It takes two axes and shifts the
+  //! second axis by the first axis as ((axis1 + axis2) % extent). The
+  //! memory type must be Shared.
+  //!
+  //! \input type Swizzle pattern such as transpose.
+  //! \input axes Axes to swizzle
+  TensorView* swizzle(SwizzleType type, const std::vector<int>& axes);
+
   // WARNING: rFactor does not return this TensorView, ir returns a new
   //  tensorview consumed by this!
   //
@@ -295,16 +306,29 @@ class TORCH_CUDA_API TensorView : public Val {
   // read tensor into shared memory or registers. Analogous to TVM Cache_Read
   TensorView* cache_after();
 
+  // For a fusion output with other uses, we want to avoid writing to global
+  // memory and then reading the output again. We write to global memory
+  // separately after an operation. We replace this fusion output with the
+  // direct write TensorView.
+  TensorView* cache_fork();
+
   MemoryType getMemoryType() const {
     return memory_type_;
   }
 
   void setMemoryType(MemoryType mt);
 
-  friend TORCH_CUDA_API TransformReplay;
-  friend TORCH_CUDA_API OptOutMutator;
+  SwizzleType swizzleType() const {
+    return swizzle_type_;
+  }
+
+  const std::vector<IterDomain*>& axesToSwizzle() const {
+    return axes_to_swizzle_;
+  }
+
+  friend TORCH_CUDA_CU_API TransformReplay;
+  friend TORCH_CUDA_CU_API OptOutMutator;
   friend ComputeAt;
-  friend void IrFixComputeAt(Fusion*);
   friend void adjustMemoryTypes(Fusion* fusion);
   friend class ir_utils::TVDomainGuard;
 
@@ -347,6 +371,8 @@ class TORCH_CUDA_API TensorView : public Val {
   unsigned int relative_compute_at_axis_ = 0;
   unsigned int this_compute_at_axis_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
+  SwizzleType swizzle_type_ = SwizzleType::NoSwizzle;
+  std::vector<IterDomain*> axes_to_swizzle_;
 };
 
 //! A simple TensorView builder
@@ -359,7 +385,7 @@ class TORCH_CUDA_API TensorView : public Val {
 //!       .contiguity(contiguity)
 //!       .build();
 //!
-class TORCH_CUDA_API TensorViewBuilder {
+class TORCH_CUDA_CU_API TensorViewBuilder {
  public:
   //! Set the number of dimensions of the tensor (default 0, meaning scalar)
   TensorViewBuilder& ndims(size_t ndims);

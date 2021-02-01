@@ -1,8 +1,12 @@
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
+
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower_alias_memory.h>
+#include <torch/csrc/jit/codegen/cuda/lower_allocation.h>
+#include <torch/csrc/jit/codegen/cuda/lower_expr_sort.h>
 #include <torch/csrc/jit/codegen/cuda/lower_index.h>
 #include <torch/csrc/jit/codegen/cuda/lower_insert_syncs.h>
 #include <torch/csrc/jit/codegen/cuda/lower_loops.h>
@@ -105,24 +109,50 @@ void GpuLower::lower() {
   // Compute thread predicates
   ThreadPredicateMap preds(fusion_);
 
-  // Compute root-domain mappings
-  ComputeAtRootDomainMap ca_root_map;
-  ca_root_map.build();
+  // In the future we may directly use this map, but for now it will propagate
+  // and validate (to some extent) the parallelization strategy.
+  // This is the first time nodes will be lowered to kir nodes. Since for now we
+  // propagate the parallel strategy in some instances, we need to do it before
+  // lowering.
+  ca_parallel_map_ = ComputeAtMap(ComputeAtMap::MappingMode::PARALLEL);
+  ca_parallel_map_.build();
+
+  // Generate mappings to generate indices
+  ca_index_map_ = ComputeAtMap(ComputeAtMap::MappingMode::INDEX);
+  ca_index_map_.build();
+
+  // Generate mappings to generate and map to loop nests
+  ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
+  ca_loop_map_.build();
 
   // Set the kernel inputs & outputs
   for (auto input : fusion_->inputs()) {
     kernel_->addInput(GpuLower::lowerValue(input));
   }
+
   for (auto output : fusion_->outputs()) {
     kernel_->addOutput(GpuLower::lowerValue(output));
   }
 
-  // Run our passes keeping the lowered expressions and forwarding them
-  const auto lowered_exprs =
-      LoopNestGenerator::loweredExprs(fusion_, fusion_->exprs());
+  // Run our passes keeping the lowered expressions and forwarding
+  // them
+
+  // Reorder expressions for loop-nest generation respecting computeAt
+  // relationships
+  auto sorted_exprs = reorderExprsForComputeAt();
+
+  // Generate loop-nests and place each expression at its
+  // corresponding loop
+  const auto lowered_exprs = LoopNestGenerator::loweredExprs(sorted_exprs);
+
+  // Insert allocations
+  const auto alloced_exprs = insertAllocations(lowered_exprs);
+
+  // Insert read after write smem syncs
+  const auto raw_sync_exprs = insertRawThreadSynchronization(alloced_exprs);
 
   const auto unrolled_loops =
-      UnrollPass::runPass(fusion_, lowered_exprs, preds, ca_root_map);
+      UnrollPass::runPass(fusion_, raw_sync_exprs, preds);
 
   // Reuse memory locations if:
   // TensorView is dynamic shared memory
@@ -131,10 +161,10 @@ void GpuLower::lower() {
   const auto reuse_mem_exprs = reuseMemoryAllocations(unrolled_loops);
 
   // Insert SyncThreads at end of for-loop to avoid WAR race condition
-  const auto sync_exprs = insertThreadSynchronization(reuse_mem_exprs);
+  const auto war_sync_exprs = insertWarThreadSynchronization(reuse_mem_exprs);
 
   const auto indexed_loops =
-      IndexLowering::getIndexedExprs(sync_exprs, preds, ca_root_map);
+      IndexLowering::getIndexedExprs(war_sync_exprs, preds);
 
   // We now have the lowered expressions, finalize the kernel IR
   kernel_->finalize(indexed_loops, preds);

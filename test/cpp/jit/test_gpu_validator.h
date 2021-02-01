@@ -120,6 +120,8 @@ std::pair<double, double> getTolerance(
     }
     case DataType::Int:
       return {0.0, 0.0};
+    case DataType::Int32:
+      return {0.0, 0.0};
     case DataType::Bool:
       return {0.0, 0.0};
     default:
@@ -128,7 +130,7 @@ std::pair<double, double> getTolerance(
   }
 }
 
-class TORCH_CUDA_API ReductionSizeMapper : private IterVisitor {
+class ReductionSizeMapper : private IterVisitor {
  public:
   //! Runs through the fusion and determines how many reductions were performed
   //! to compute each tensorview.

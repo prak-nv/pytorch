@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/arith.h>
+
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
@@ -68,7 +69,7 @@ TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
         continue;
       if (dom[i]->isBroadcast())
         continue;
-      out_domain[i] = new IterDomain(dom[i]->start(), dom[i]->extent());
+      out_domain[i] = dom[i]->clone();
     }
   }
   for (size_t dim_i = 0; dim_i < out_domain.size(); dim_i++) {
@@ -228,19 +229,40 @@ TensorView* arithOpOverloads(
       ->template as<TensorView>();
 }
 
+namespace {
+enum class Category { Scalar, ZeroDimTensor, DimTensor };
+
+inline Category getCategory(const Val* v) {
+  if (v->isA<TensorView>()) {
+    if (v->as<TensorView>()->nDims() > 0) {
+      return Category::DimTensor;
+    } else {
+      return Category::ZeroDimTensor;
+    }
+  } else {
+    return Category::Scalar;
+  }
+}
+
+// replicated logic from Aten/native/TypeProperties.cpp, minus complex support
+DataType getCommonType(DataType higher, DataType lower) {
+  if (isFloatingPointType(higher)) {
+    return higher;
+  }
+  if (higher == DataType::Bool || isFloatingPointType(lower)) {
+    return promote_type(higher, lower);
+  }
+  if (higher != DataType::Null) {
+    return higher;
+  }
+  return lower;
+}
+} // namespace
+
 // Type promotion logic for binary operators
 DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
   DataType v1_dtype = v1->getDataType().value();
   DataType v2_dtype = v2->getDataType().value();
-
-  // If we have a tensor view in one argument but a scalar in the other, don't
-  // type promote, just use the tensorview type
-  if (v1->isA<TensorView>() && !v2->isA<TensorView>()) {
-    v2_dtype = v1_dtype;
-  }
-  if (v2->isA<TensorView>() && !v1->isA<TensorView>()) {
-    v1_dtype = v2_dtype;
-  }
 
   const bool floating_input =
       isFloatingPointType(v1_dtype) || isFloatingPointType(v2_dtype);
@@ -251,11 +273,33 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
   const bool all_integer_input =
       isIntegralType(v1_dtype) && isIntegralType(v2_dtype);
 
+  if (all_integer_input) {
+    TORCH_INTERNAL_ASSERT(
+        !(noFullIntegerSupport(op_type)) || (v1->isScalar() && v2->isScalar()),
+        "unsupported op with all integer tensor inputs");
+  }
+
+  // Combine categories
+  const auto v1_cat = getCategory(v1);
+  const auto v2_cat = getCategory(v2);
+  if (v1_cat != v2_cat) {
+    const DataType higher = v1_cat > v2_cat ? v1_dtype : v2_dtype;
+    const DataType lower = v1_cat > v2_cat ? v2_dtype : v1_dtype;
+    const DataType common_type = getCommonType(higher, lower);
+    v1_dtype = common_type;
+    v2_dtype = common_type;
+  }
+
   if (isIntegerOp(op_type) || (alsoBooleanOperator(op_type) && integer_input)) {
     // If integer op or maybe bool op with integer inputs meaning binary op
     if (integer_input && all_integer_input) {
       return promote_type(v1_dtype, v2_dtype);
     } else if (integer_input && !all_integer_input) {
+      TORCH_CHECK(
+          !floating_input,
+          "Operator ",
+          op_type,
+          " not supported with floating point inputs.");
       return isIntegralType(v1_dtype) ? v1_dtype : v2_dtype;
     } else {
       TORCH_INTERNAL_ASSERT(
@@ -264,7 +308,6 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
           "Inputs should be manually casted first.");
     }
   } else if (isLogicalOp(op_type)) {
-    // If boolean op
     return DataType::Bool;
   } else if (alsoBooleanOperator(op_type)) {
     // If boolean op that can't have floating inputs (& or |)
@@ -282,7 +325,7 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
 
 } // namespace
 
-TORCH_CUDA_API Val* binaryOp(BinaryOpType type, Val* v1, Val* v2) {
+TORCH_CUDA_CU_API Val* binaryOp(BinaryOpType type, Val* v1, Val* v2) {
   const auto out_dtype = getOutputType(type, v1, v2);
   const auto out_vtype =
       promote_type(v1->getValType().value(), v2->getValType().value());
@@ -424,12 +467,12 @@ TensorView* ceilDiv(TensorView* v1, TensorView* v2) {
 // andOp
 Val* andOp(Val* v1, Val* v2) {
   TORCH_CHECK(
-      v1->getDataType().value() == DataType::Bool,
-      "Input1 should be of type bool, not ",
+      !isFloatingPointType(v1->getDataType().value()),
+      "Input1 should not be a floating point type, but received: ",
       v1->getDataType().value());
   TORCH_CHECK(
-      v2->getDataType().value() == DataType::Bool,
-      "Input2 should be of type bool, not ",
+      !isFloatingPointType(v2->getDataType().value()),
+      "Input2 should not be a floating point type, but received: ",
       v2->getDataType().value());
   return binaryOp(BinaryOpType::And, v1, v2);
 }
@@ -646,6 +689,7 @@ TensorView* broadcast(
   }
 
   std::vector<IterDomain*> out_domain;
+  // Don't propagate reduction IDs through arith ops.
   auto inp_domain = TensorDomain::noReductions(inp->getRootDomain());
   size_t iinp = 0, ibdim = 0;
   while (ibdim < is_broadcast_dim.size()) {
@@ -656,8 +700,7 @@ TensorView* broadcast(
           ParallelType::Serial,
           IterType::BroadcastWithoutStride));
     } else {
-      // Don't propagate reduction IDs through arith ops.
-      out_domain.push_back(inp_domain[iinp]);
+      out_domain.push_back(inp_domain[iinp]->clone());
       iinp++;
     }
     ibdim++;
@@ -680,7 +723,7 @@ TensorView* transpose(
 
   for (size_t i = 0; i < out_domain.size(); ++i) {
     auto in_id = inp_domain[new2old[i]];
-    out_domain[i] = new IterDomain(in_id->start(), in_id->extent());
+    out_domain[i] = in_id->clone();
   }
 
   TensorView* out_tensor = new TensorView(
@@ -733,7 +776,7 @@ TensorView* sub_alpha(TensorView* v1, TensorView* v2, Val* v3) {
   return arithOpOverloads(sub_alpha, v1, v2, v3);
 }
 // lerp
-TORCH_CUDA_API Val* lerp(Val* start, Val* end, Val* weight) {
+TORCH_CUDA_CU_API Val* lerp(Val* start, Val* end, Val* weight) {
   auto vals = maybeBroadcast({start, end, weight});
   Val* intrm1 = binaryOp(BinaryOpType::Sub, vals[1], vals[0]);
   Val* intrm2 = binaryOp(BinaryOpType::Mul, vals[2], intrm1);
@@ -947,8 +990,54 @@ TensorView* sum_to(TensorView* in, const std::vector<Int*>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (int i = leading_dims; i < root.size(); i++) {
+  for (int i = leading_dims; i < int(root.size()); i++) {
     if (sum_to_size[i - leading_dims]->isOneInt() &&
+        !root[i]->rawExtent()->isOneInt()) {
+      inner_red_dims[i - leading_dims] = true;
+      reduce_dims.push_back(i);
+      reduction_within_shape = true;
+    }
+  }
+
+  // Reduction step
+  if (!reduce_dims.empty()) {
+    out = sum(in, reduce_dims);
+  }
+
+  // Broadcast back reduced dims within shape
+  if (reduction_within_shape) {
+    out = broadcast(out, inner_red_dims);
+  }
+
+  return out;
+}
+
+TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
+  const auto& root = TensorDomain::noReductions(in->getRootDomain());
+
+  TORCH_CHECK(
+      root.size() >= sum_to_size.size(),
+      "sum_to: Error trying to reduce",
+      in,
+      "into a shape of size",
+      sum_to_size.size());
+
+  // If no reduction is needed sum_to returns the input tv
+  TensorView* out = in;
+
+  const int64_t leading_dims = root.size() - sum_to_size.size();
+
+  // Generate reduction axes for leading dims
+  std::vector<int> reduce_dims(leading_dims);
+  std::iota(reduce_dims.begin(), reduce_dims.end(), 0);
+
+  // Generate reduction axes for dims within sum_to_size
+  std::vector<bool> inner_red_dims(sum_to_size.size(), false);
+  bool reduction_within_shape = false;
+
+  // Reduce rest of the dims with keep_dim
+  for (int i = leading_dims; i < int(root.size()); i++) {
+    if (sum_to_size[i - leading_dims] == 1 &&
         !root[i]->rawExtent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
       reduce_dims.push_back(i);

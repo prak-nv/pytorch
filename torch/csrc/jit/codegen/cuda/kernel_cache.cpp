@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_cache.h>
+
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/parser.h>
@@ -203,7 +204,7 @@ at::DimVector inversePermutation(
 
 void encodeBuffer(size_t value, std::string& buffer) {
   const char* v = reinterpret_cast<char*>(&value);
-  for (int i = 0; i < sizeof(size_t); i++) {
+  for (size_t i = 0; i < sizeof(size_t); i++) {
     buffer.push_back(*(v++));
   }
 }
@@ -219,7 +220,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   encoding_.clear();
   for (const auto& input : inputs) {
     if (input.isTensor()) {
-      auto input_tensor = input.toTensor();
+      auto& input_tensor = input.toTensor();
 
       for (auto size : input_tensor.sizes()) {
         encodeBuffer(size, encoding_);
