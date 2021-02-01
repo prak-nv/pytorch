@@ -603,7 +603,7 @@ using HashType = FusionSegmentRuntime::HashType;
 //  (from Boost)
 inline HashType combineHash(HashType a, HashType b) {
   return a ^
-      (b + 0x9e3779b9 + (a << 6) +
+      (b + 0x9e3779b9 + (a << 6) + // NOLINT(cppcoreguidelines-avoid-magic-numbers)
        (a >> 2)); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 }
 } // namespace
