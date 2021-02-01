@@ -51,14 +51,14 @@ std::vector<std::pair<SegmentedGroup*, SegmentedEdge*>> SegmentedGroup::
   // so and merged neighbor is within 1 level or node merged with neighbor is
   // within 1 level, can't merge this node with anything else.
   bool can_merge_this = true;
-  for (size_t i = 0; i < neighbors.size(); i++) {
-    if (!neighbors[i].first->merged) {
+  for (auto& neighbor : neighbors) {
+    if (!neighbor.first->merged) {
       continue;
     }
-    if (std::abs(neighbors[i].first->level - level) <= 1) {
+    if (std::abs(neighbor.first->level - level) <= 1) {
       can_merge_this = false;
     }
-    if (std::abs(neighbors[i].first->merge_with->level - level) <= 1) {
+    if (std::abs(neighbor.first->merge_with->level - level) <= 1) {
       can_merge_this = false;
     }
   }
@@ -326,7 +326,7 @@ std::vector<Val*> uniqueValConcat(
     const std::vector<std::vector<Val*>>& val_vecs) {
   std::vector<Val*> unique_vals;
   std::unordered_set<Val*> added;
-  for (auto vec : val_vecs) {
+  for (const auto& vec : val_vecs) {
     for (auto val : vec) {
       if (added.find(val) == added.end()) {
         unique_vals.push_back(val);
@@ -668,13 +668,13 @@ class FusionSegmentGuard {
 
   FusionSegmentGuard(
       Fusion* fusion,
-      const std::vector<Val*>& inputs,
-      const std::vector<Val*>& outputs)
+      std::vector<Val*> inputs,
+      std::vector<Val*> outputs)
       : fusion_(fusion),
         old_inputs(fusion->inputs()),
         old_outputs(fusion->outputs()),
-        new_inputs(inputs),
-        new_outputs(outputs) {
+        new_inputs(std::move(inputs)),
+        new_outputs(std::move(outputs)) {
     for (auto old_inp : old_inputs) {
       fusion_->removeInput(old_inp);
     }
@@ -882,7 +882,7 @@ inline void inferGroupInputs(
         auto extent = id->extent();
         copyValue(extent, ee, local_ee);
       }
-    } else if (v->isAnInt()) {
+    } else if (v != nullptr && v->isAnInt()) {
       copyValue(v, ee, local_ee);
     } else {
       TORCH_INTERNAL_ASSERT(false, "unreachable");
@@ -897,8 +897,7 @@ FusionSegmentRuntime::SchedulerEntryPtr SegmentedFusion::makeSchedulerEntry(
   ExpressionEvaluator local_ee(&fusion_);
   inferGroupInputs(sg, ee, local_ee);
   FusionSegmentGuard fsg(&fusion_, getAllInputs(sg), getAllOutputs(sg));
-  return std::move(
-      SchedulerEntry::makeEntry(sg->heuristic(), &fusion_, local_ee));
+  return SchedulerEntry::makeEntry(sg->heuristic(), &fusion_, local_ee);
 }
 
 std::unique_ptr<SegmentHeuristics> SegmentedFusion::makeHeuristics(
@@ -908,7 +907,7 @@ std::unique_ptr<SegmentHeuristics> SegmentedFusion::makeHeuristics(
   for (auto g : groups()) {
     ret->emplace_back(std::move(makeSchedulerEntry(g, evaluator)));
   }
-  return std::move(ret);
+  return ret;
 }
 
 } // namespace cuda
