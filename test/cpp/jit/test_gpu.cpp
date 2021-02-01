@@ -10900,186 +10900,94 @@ void checkRedMap(
 }
 } // namespace
 
-TEST(NVFuserTest, FusionMapBatchNorm_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  const float kMomentum = 0.1;
-  const float kEps = 1e-5;
-
-  std::vector<int64_t> input_shape{20, 100, 35, 45};
-  auto input = makeSymbolicTensor(input_shape.size());
-  auto input2 = makeSymbolicTensor(input_shape.size());
-
-  auto weight = makeSymbolicTensor(1);
-  auto bias = makeSymbolicTensor(1);
-  fusion.addInput(input);
-  fusion.addInput(input2);
-  fusion.addInput(weight);
-  fusion.addInput(bias);
-
-  auto nn2 = add(input2, new Int(10));
-  const int kNumberOfDims = input->nDims();
-  std::vector<int> reduction_axes;
-  std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  Val* num_features = new Double(1);
-  for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
-    if (axis != 1) {
-      reduction_axes.push_back(axis);
-      broadcast_mask[axis] = true;
-      num_features =
-          mul(num_features, input->domain()->domain()[axis]->extent());
-    }
-  }
-
-  auto x_sum = sum(input, reduction_axes);
-  auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
-  auto x_mean = div(x_sum_bcast, num_features);
-
-  auto x_mean_sub = sub(input, x_mean);
-  auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
-  auto var_sum = sum(x_mean_sub_pow, reduction_axes);
-  auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
-  auto var = div(var_sum_bcast, num_features);
-
-  auto var_eps = add(var, new Double(kEps));
-  auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
-  auto norm = mul(x_mean_sub, rvar);
-
-  auto weight_bcast = broadcast(weight, broadcast_mask);
-  auto bias_bcast = broadcast(bias, broadcast_mask);
-  auto norm_gamma = mul(norm, weight_bcast);
-  auto norm_gamma_bias = add(norm_gamma, bias_bcast);
-  fusion.addOutput(norm_gamma_bias);
-
-  checkRedMap(x_sum, x_sum->getRootDomain(), var_sum, var_sum->getRootDomain());
-  checkRedMap(x_sum, x_sum->getRootDomain(), nn2, nn2->getRootDomain(), false);
-  ASSERT_ANY_THROW(checkIdMapped(
-      x_sum, x_sum->getRootDomain(), var_sum, var_sum->getRootDomain()));
-}
-
-// TEST(NVFuserTest, FusionManualMultiKernel_CUDA) {
-//   Fusion fusion;
-//   FusionGuard fg(&fusion);
-
-//   constexpr int bid_x = 80;
-//   constexpr int tid_x = 4096;
-
-//   TensorView* tv0 = makeSymbolicTensor(2);
-//   fusion.addInput(tv0);
-
-//   TensorView* tv1 = sum(tv0, {0});
-
-//   TensorView* tv2 = add(tv1, tv0); // implicit bcast
-
-//   TensorView* tv3 = sum(tv2, {1});
-
-//   fusion.addOutput(tv3);
-
-//   const auto options =
-//       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-//   at::Tensor aten_input = at::randn({bid_x, tid_x}, options);
-//   auto aten_output =
-//       aten_input.to(at::kDouble).sum({0}).add(aten_input).sum({1});
-
-//   // Setup and run first fusion
-
-//   Fusion fusion0;
-//   auto clone0 = Fusion::copy(&fusion, &fusion0);
-
-//   fusion0.removeOutput(clone0.clone(tv3));
-//   fusion0.addOutput(clone0.clone(tv1));
-
-//   // Apply reduction heuristic
-//   auto reduction_params0 =
-//       getReductionHeuristics(&fusion0, {aten_input}, clone0.clone(tv1));
-//   TORCH_CHECK(reduction_params0, "Reduction schedule was not generated!");
-//   scheduleReduction(&fusion0, reduction_params0.value(), clone0.clone(tv1),
-//   {});
-
-//   auto lparams0 = reduction_params0.value().lparams;
-
-//   FusionExecutor fe0;
-//   fe0.compileFusion(&fusion0);
-//   auto cg_tv1 = fe0.runFusion({aten_input}, lparams0)[0];
-
-//   // Setup and run second fusion
-
-//   Fusion fusion1;
-//   auto clone1 = Fusion::copy(&fusion, &fusion1);
-//   fusion1.addInput(clone1.clone(tv1));
-
-//   // Apply reduction heuristic
-//   auto reduction_params1 =
-//       getReductionHeuristics(&fusion1, {aten_input, cg_tv1},
-//       clone1.clone(tv3));
-
-//   TORCH_CHECK(reduction_params1, "Reduction schedule was not generated!");
-//   scheduleReduction(&fusion1, reduction_params1.value(), clone1.clone(tv3),
-//   {});
-
-//   auto lparams = reduction_params1.value().lparams;
-
-//   FusionExecutor fe1;
-//   fe1.compileFusion(&fusion1);
-//   // no broadcasting needed, omitting the last optional argument;
-//   auto cg_outputs = fe1.runFusion({aten_input, cg_tv1}, lparams0);
-
-//   testValidate(
-//       &fusion,
-//       cg_outputs,
-//       {aten_input},
-//       {aten_output},
-//       __LINE__,
-//       __FILE__,
-//       "",
-//       lparams);
-// }
-
-TEST(NVFuserTest, FusionSegment_CUDA) {
+TEST(NVFuserTest, FusionSegmentReducePointwise_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(2);
   fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
-  TensorView* tv1 = add(tv0, new Double(0)); // level 0
+  TensorView* tv2 = add(tv0, new Double(1)); // Group 0
+  TensorView* tv3 =
+      max(tv2, {0}); // Group 0 (use max instead to avoid numerical issues)
+  TensorView* tv4 = add(tv3, tv1); //  Group 1 (Broadcast after reduce)
 
-  TensorView* tv2 = add(tv1, new Double(1)); // level 1
-  TensorView* tv3 = add(tv2, new Double(2)); // level 2
-  TensorView* tv4 = add(tv2, new Double(3)); // level 2
-  TensorView* tv5 = add(tv2, new Double(4)); // level 2
-  TensorView* tv6 = add(tv4, tv3); // level 3
-  TensorView* tv7 = add(tv6, tv5); // level 4
-  TensorView* tv8 = add(tv2, tv5); // level 3
-
-  TensorView* tv9 = sum(tv7, {0});
-  TensorView* tv10 = sum(tv8, {1});
-
-  fusion->addOutput(tv9);
-  fusion->addOutput(tv10);
+  fusion->addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({63, 65}, options);
+  at::Tensor t0 = at::randn({128, 65}, options);
+  at::Tensor t1 = at::randn({128, 65}, options);
 
-  auto t1 = t0.add(0.0);
-  auto t2 = t1.add(1.0);
-  auto t3 = t2.add(2.0);
-  auto t4 = t2.add(3.0);
-  auto t5 = t2.add(4.0);
-  auto t6 = t4.add(t3);
-  auto t7 = t6.add(t5);
-  auto t8 = t2.add(t5);
-
-  auto t9 = t7.sum(0);
-  auto t10 = t8.sum(1);
+  auto t2 = t0.add(1.0);
+  auto t3 = std::get<0>(at::max(t2, {0}));
+  auto t4 = t3.add(t1);
 
   FusionExecutorCache fec(std::move(fusion), /*segment=*/true);
-  auto outputs = fec.runFusionWithInputs({t0});
-  TORCH_CHECK(outputs.size() == 2);
-  TORCH_CHECK(t9.allclose(outputs[0]));
-  TORCH_CHECK(t10.allclose(outputs[1]));
+
+  auto outputs = fec.runFusionWithInputs({t0, t1});
+
+  testValidate(fec.fusion(), outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
+}
+
+namespace {
+// Stolen from cpp benchmark
+static TensorView* setupSoftmax(
+    Fusion* fusion,
+    TensorView* input,
+    const int kNumberOfDims,
+    const int kReductionAxis) {
+  FusionGuard fg(fusion);
+
+  std::vector<bool> broadcast_mask(kNumberOfDims, false);
+  broadcast_mask[kReductionAxis] = true;
+
+  auto max_val = max(input, {kReductionAxis});
+  auto bcast_max = broadcast(max_val, broadcast_mask);
+  auto x_max_sub = sub(input, bcast_max);
+  auto exp = unaryOp(UnaryOpType::Exp, x_max_sub);
+  auto sum_exp = sum(exp, {kReductionAxis});
+  auto bcast_sum = broadcast(sum_exp, broadcast_mask);
+  auto output = div(exp, bcast_sum);
+  return output;
+}
+
+} // namespace
+
+TEST(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> input_shape{32, 64, 8};
+  const int kReductionAxis = 1;
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(input_shape.size())
+                 .dtype(DataType::Double)
+                 .build();
+
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1.0));
+  auto tv2 = sum(tv1, {2}); // Group 0
+
+  auto output = setupSoftmax(
+      fusion.get(), tv2, input_shape.size() - 1, kReductionAxis); // Group 1
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+
+  FusionExecutorCache fec(std::move(fusion), /*segment=*/true);
+
+  auto outputs = fec.runFusionWithInputs({at_x});
+
+  auto t1 = at_x.add(1.0);
+  auto t2 = t1.sum({2});
+  auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
+
+  testValidate(fec.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
 }
 
 } // namespace jit

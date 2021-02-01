@@ -72,6 +72,9 @@ class TORCH_CUDA_API SchedulerEntryHash {
   size_t operator()(const SchedulerEntry& se) const;
 };
 
+//! Debug print function for heuristics
+std::string toString(ScheduleHeuristic sh);
+
 } // namespace cuda
 } // namespace fuser
 } // namespace jit

@@ -286,8 +286,17 @@ class TORCH_CUDA_API FusionExecutorCache {
   std::vector<at::Tensor> runFusionWithInputs(
       const at::ArrayRef<IValue>& inputs);
 
+  Fusion* fusion() {
+    return fusion_.get();
+  }
+
   void printFusion() {
     fusion_->printMath();
+  }
+
+  SegmentedFusion* fusionSegments() {
+    TORCH_INTERNAL_ASSERT(isSegmented());
+    return fusion_segments_.get();
   }
 
   bool isSegmented() {

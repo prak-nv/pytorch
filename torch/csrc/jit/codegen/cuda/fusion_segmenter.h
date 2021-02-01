@@ -68,9 +68,6 @@ class TORCH_CUDA_API SegmentedGroup {
 
   SegmentedGroup(Expr* expr) {
     exprs_.push_back(expr);
-    if (expr->isA<ReductionOp>()) {
-      heuristic_ = ScheduleHeuristic::Reduction;
-    }
   }
 
   void clearTraversalInfo();
@@ -260,6 +257,9 @@ class TORCH_CUDA_API SegmentedFusion {
   //! original full fusion
   Fusion fusion_;
 
+  //! Count total exprs
+  size_t total_expr_count_ = 0;
+
   //! States representing segmentation
   std::vector<SegmentedEdge*> edges_;
   std::vector<SegmentedGroup*> groups_;
@@ -341,7 +341,7 @@ class TORCH_CUDA_API SegmentCandidateFinder {
 
   // Return the resulting heuristic corresponding to the merged
   //  group built by merging the two groups connected by edge
-  ScheduleHeuristic deriveHeuristic(SegmentedEdge* edge);
+  ScheduleHeuristic deriveHeuristic(SegmentedGroup* edge);
 
  protected:
   std::deque<SegmentedGroup*> to_visit;

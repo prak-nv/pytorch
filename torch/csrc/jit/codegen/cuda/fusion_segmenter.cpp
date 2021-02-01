@@ -141,7 +141,8 @@ std::vector<Val*> SegmentedGroup::edgesToVals(
 }
 
 void SegmentedGroup::print() {
-  std::cout << "g{";
+  std::cout << "g{"
+            << "(" << toString(heuristic_) << ")\n";
   for (size_t i = 0; i < exprs_.size(); i++) {
     exprs_[i]->print();
     if (i + 1 != exprs_.size())
@@ -190,9 +191,9 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
 }
 
 void SegmentedEdge::print() {
-  std::cout << "e{ " << std::endl << "  ";
+  std::cout << "e{ \n  ";
   from_->print();
-  std::cout << " -> " << std::endl << "  ";
+  std::cout << " -> \n  ";
   to_->print();
   std::cout << "through: ";
   val_->print();
@@ -200,7 +201,10 @@ void SegmentedEdge::print() {
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
-  os << "e{ " << edge->from_ << " -> " << edge->to_ << " }" << std::endl;
+  os << "e{ " << edge->from_ << " -> " << edge->to_ << "(";
+  IrPrinter irp(os);
+  irp.handle(edge->val_);
+  os << ") }\n";
   return os;
 }
 
@@ -342,20 +346,31 @@ std::vector<SegmentedEdge*> getMergedProducerEdges(
       "This function doesn't handle trivial.");
 
   auto producer_edges = sg1->producer_edges;
+
   producer_edges.insert(
       producer_edges.end(),
       sg2->producer_edges.begin(),
       sg2->producer_edges.end());
 
+  // Register producers into sg2
+  std::unordered_set<Val*> sg2_vals;
+  for (auto se : sg2->producer_edges) {
+    sg2_vals.emplace(se->val_);
+  }
+
   producer_edges.erase(
       std::remove_if(
           producer_edges.begin(),
           producer_edges.end(),
-          [&sg1, &sg2](SegmentedEdge* se) {
+          [&sg1, &sg2, &sg2_vals](SegmentedEdge* se) {
+            // remove edges in between the groups and common uses
             return (se->to_ == sg1 && se->from_ == sg2) ||
-                (se->to_ == sg2 && se->from_ == sg1);
+                (se->to_ == sg2 && se->from_ == sg1) ||
+                (se->to_ == sg1 && sg2_vals.count(se->val_));
           }),
       producer_edges.end());
+
+  // Remove Duplicate Edges
 
   return producer_edges;
 }
@@ -603,7 +618,7 @@ void SegmentCandidateFinder::mergeNodes() {
       edge->to_->producer_edges.push_back(new_edge);
     }
 
-    joined_group->setHeuristic(deriveHeuristic(group1->merge_through));
+    joined_group->setHeuristic(deriveHeuristic(joined_group));
   }
 
   for (auto group : clean_up_groups) {
@@ -703,14 +718,11 @@ class FusionSegmentGuard {
   const std::vector<Val*> new_outputs;
 };
 
-c10::optional<ScheduleHeuristic> tryMerge(Fusion* fusion, SegmentedEdge* edge) {
-  SegmentedGroup* producer = edge->from_;
-  SegmentedGroup* consumer = edge->to_;
-
-  FusionSegmentGuard fsg(
-      fusion,
-      getAllInputs(producer, consumer),
-      getAllOutputs(producer, consumer));
+c10::optional<ScheduleHeuristic> tryMerge(
+    Fusion* fusion,
+    SegmentedGroup* a,
+    SegmentedGroup* b = nullptr) {
+  FusionSegmentGuard fsg(fusion, getAllInputs(a, b), getAllOutputs(a, b));
 
   return SchedulerEntry::proposeHeuristics(fusion);
 }
@@ -719,15 +731,16 @@ c10::optional<ScheduleHeuristic> tryMerge(Fusion* fusion, SegmentedEdge* edge) {
 
 bool SegmentCandidateFinder::codeGenSupportedMerge(SegmentedEdge* edge) {
   Fusion* fusion = &segmented_fusion->completeFusion();
-  auto h = tryMerge(fusion, edge);
+  auto h = tryMerge(fusion, edge->from_, edge->to_);
   return h.has_value();
 }
 
 // TODO: consider caching the heuristics value so tryMerge doesn't have to be
 //       called twice
-ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(SegmentedEdge* edge) {
+ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
+    SegmentedGroup* group) {
   Fusion* fusion = &segmented_fusion->completeFusion();
-  auto h = tryMerge(fusion, edge);
+  auto h = tryMerge(fusion, group);
   TORCH_INTERNAL_ASSERT(h.has_value());
   return h.value();
 }
@@ -744,10 +757,14 @@ void SegmentCandidateFinder::findSegments() {
   std::unordered_map<Expr*, SegmentedGroup*> expr2group;
 
   // Initialize DAG, convert each expr to a segment group
+  size_t total_exprs = 0;
   for (auto expr : completeFusion().exprs()) {
     auto new_group = segmented_fusion->newGroup(expr);
     expr2group.insert(std::make_pair(expr, new_group));
+    total_exprs++;
   }
+
+  segmented_fusion->total_expr_count_ = total_exprs;
 
   // Create edges between the Exprs. Mark inputs and outputs of the fusion.
   for (auto expr : completeFusion().exprs()) {
@@ -803,15 +820,15 @@ void SegmentCandidateFinder::findSegments() {
       }
 
       to_merge.emplace(group);
-      to_merge.emplace(candidates[0].first);
+      to_merge.emplace(candidate_it->first);
 
       group->merged = true;
-      group->merge_with = candidates[0].first;
-      group->merge_through = candidates[0].second;
+      group->merge_with = candidate_it->first;
+      group->merge_through = candidate_it->second;
 
-      candidates[0].first->merged = true;
-      candidates[0].first->merge_with = group;
-      candidates[0].first->merge_through = candidates[0].second;
+      candidate_it->first->merged = true;
+      candidate_it->first->merge_with = group;
+      candidate_it->first->merge_through = candidate_it->second;
     }
 
     if (to_merge.empty()) {
@@ -826,11 +843,14 @@ void SegmentCandidateFinder::findSegments() {
 
 void SegmentCandidateFinder::finalize() {
   // Remove unconnected groups
+  size_t total_expr = segmented_fusion->total_expr_count_;
   groups().erase(
       std::remove_if(
           groups().begin(),
           groups().end(),
-          [](SegmentedGroup* sg) { return !sg->isConnected(); }),
+          [total_expr](SegmentedGroup* sg) {
+            return !sg->isConnected() && sg->exprs_.size() != total_expr;
+          }),
       groups().end());
 
   // Add group labeling
@@ -857,7 +877,7 @@ inline void inferGroupInputs(
     ExpressionEvaluator& ee,
     ExpressionEvaluator& local_ee) {
   for (auto v : getAllInputs(sg)) {
-    if (auto tv = v->as<TensorView>()) {
+    if (auto tv = dynamic_cast<TensorView*>(v)) {
       for (auto id : tv->getRootDomain()) {
         auto extent = id->extent();
         copyValue(extent, ee, local_ee);

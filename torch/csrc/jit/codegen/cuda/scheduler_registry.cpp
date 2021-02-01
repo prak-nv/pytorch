@@ -32,7 +32,7 @@ inline bool isTrivialReduction(ReductionOp* red) {
 std::vector<ReductionOp*> findReductionOps(Fusion* fusion) {
   std::vector<ReductionOp*> red_ops;
   for (auto expr : fusion->exprs()) {
-    if (auto red = expr->as<ReductionOp>()) {
+    if (auto red = dynamic_cast<ReductionOp*>(expr)) {
       if (!isTrivialReduction(red)) {
         red_ops.push_back(red);
       }
@@ -103,7 +103,7 @@ class SingleReductionScheduler : public SchedulerEntry {
 
   TensorView* findReductionTV(Fusion* fusion) {
     for (auto expr : fusion->exprs()) {
-      if (auto red = expr->as<ReductionOp>()) {
+      if (auto red = dynamic_cast<ReductionOp*>(expr)) {
         if (!isTrivialReduction(red)) {
           return red->out()->as<TensorView>();
         }
@@ -140,7 +140,7 @@ static void analyzeFusion(
       {fusion->inputs().begin(), fusion->inputs().end()}, fusion->outputs());
 
   for (auto tv : ir_utils::filterByType<TensorView>(all_values)) {
-    if (tv->hasReduction()) {
+    if (tv->hasReduction() && !fusion->hasInput(tv)) {
       reduction_tv.push_back(tv);
     } else if (!fusion->hasInput(tv)) {
       other_tv.push_back(tv);
@@ -194,7 +194,7 @@ class NormalizationScheduler : public SchedulerEntry {
 
     // red_ops.size()>1 checked before
     for (size_t it = 1; it < red_ops.size(); it++) {
-      if (!checkEquivalence(red_ops[0], red_ops[1], root_map)) {
+      if (!checkEquivalence(red_ops[it - 1], red_ops[it], root_map)) {
         return false;
       }
     }
@@ -225,6 +225,9 @@ class NormalizationScheduler : public SchedulerEntry {
 
     TORCH_INTERNAL_ASSERT(out_root0.size() == out_root1.size());
     for (size_t it = 0; it < out_root0.size(); it++) {
+      if (out_root0[it]->isReduction() != out_root1[it]->isReduction()) {
+        return false;
+      }
       if (!root_map.canMap(domain0, out_root0[it], domain1, out_root1[it])) {
         return false;
       }
@@ -293,6 +296,20 @@ size_t SchedulerEntryHash::operator()(const SchedulerEntry& se) const {
   } else {
     return ReductionParamsHash()(se.params());
   }
+}
+
+std::string toString(ScheduleHeuristic sh) {
+  switch (sh) {
+    case ScheduleHeuristic::PointWise:
+      return "pointwise";
+    case ScheduleHeuristic::Reduction:
+      return "reduction";
+    case ScheduleHeuristic::Normalization:
+      return "normalization";
+    default:
+      TORCH_INTERNAL_ASSERT(false, "undefined schedule");
+  }
+  return "";
 }
 
 } // namespace cuda
