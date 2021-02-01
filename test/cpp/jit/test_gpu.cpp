@@ -11465,7 +11465,7 @@ TEST(NVFuserTest, FusionSegmentReducePointwise_CUDA) {
   auto t3 = std::get<0>(at::max(t2, {0}));
   auto t4 = t3.add(t1);
 
-  FusionExecutorCache fec(std::move(fusion), /*segment=*/true);
+  FusionExecutorCache fec(std::move(fusion));
 
   auto outputs = fec.runFusionWithInputs({t0, t1});
 
@@ -11520,7 +11520,7 @@ TEST(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn(input_shape, options);
 
-  FusionExecutorCache fec(std::move(fusion), /*segment=*/true);
+  FusionExecutorCache fec(std::move(fusion));
 
   auto outputs = fec.runFusionWithInputs({at_x});
 

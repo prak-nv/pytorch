@@ -270,12 +270,16 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
 }
 
 FusionExecutorCache::FusionExecutorCache(
-    std::unique_ptr<Fusion>&& fusion,
-    bool segmented)
+    std::unique_ptr<Fusion>&& fusion)
     : fusion_(std::move(fusion)) {
   FUSER_PERF_SCOPE("FusionExecutorCache::FusionExecutorCache");
 
   // case of segmented fusion
+  // TODO: might be worthwhile re-using the SchedulerEntry infrastructure for 
+  //       single-kernel fusion as well.
+  const bool can_schedule = SchedulerEntry::proposeHeuristics(fusion_.get()).has_value();
+  const bool segmented = !can_schedule;
+
   if (segmented) {
     fusion_segments_ = fusion_->segment();
     fusion_segment_runtime_cache_.initCache(fusion_segments_.get());
