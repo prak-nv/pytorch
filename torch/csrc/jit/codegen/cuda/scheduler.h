@@ -22,7 +22,7 @@ TORCH_CUDA_CU_API bool scheduleFusion(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue> inputs);
 
-TORCH_CUDA_API bool scheduleFusion(Fusion* fusion);
+TORCH_CUDA_CU_API bool scheduleFusion(Fusion* fusion);
 
 // Parameters the Reduction Heuristic Generates to describe the optimial
 // schedule. Warning: equal operator is intended for use in caching the kernel
