@@ -1283,9 +1283,9 @@ class IrParser {
 
             constexpr double kAlpha = M_2_SQRTPI * M_SQRT1_2 * 0.5;
 
-            auto cdf_1 = mul(self, new Double(M_SQRT1_2)); 
-            auto cdf_2 = unaryOp(UnaryOpType::Erf, cdf_1); 
-            auto cdf_3 = add(cdf_2, new Double(1.)); 
+            auto cdf_1 = mul(self, new Double(M_SQRT1_2));
+            auto cdf_2 = unaryOp(UnaryOpType::Erf, cdf_1);
+            auto cdf_3 = add(cdf_2, new Double(1.));
             auto cdf_4 = mul(cdf_3, new Double(0.5));
 
             auto pdf_1 = mul(self, self);
