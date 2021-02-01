@@ -11529,6 +11529,8 @@ TEST(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
 
   testValidate(fec.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
+}
+
 TEST(NVFuserTest, FusionSwizzle1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
