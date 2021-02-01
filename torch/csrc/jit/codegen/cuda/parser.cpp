@@ -1292,7 +1292,7 @@ class IrParser {
             auto pdf_2 = mul(pdf_1, new Double(-0.5));
             auto pdf_3 = unaryOp(UnaryOpType::Exp, pdf_2);
 
-            auto out_1 = addcmul(cdf_4, self, pdf_3, new Double(kAlpha)); 
+            auto out_1 = addcmul(cdf_4, self, pdf_3, new Double(kAlpha));
             auto out_2 = mul(out_1, grad);
 
             value_map.emplace(node->output()->unique(), out_2);
