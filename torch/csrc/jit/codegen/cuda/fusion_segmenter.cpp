@@ -905,7 +905,7 @@ std::unique_ptr<SegmentHeuristics> SegmentedFusion::makeHeuristics(
   auto ret = std::make_unique<SegmentHeuristics>();
   auto evaluator = executor_utils::bindFusionInputs(inputs, &fusion_);
   for (auto g : groups()) {
-    ret->emplace_back(std::move(makeSchedulerEntry(g, evaluator)));
+    ret->emplace_back(makeSchedulerEntry(g, evaluator));
   }
   return ret;
 }
