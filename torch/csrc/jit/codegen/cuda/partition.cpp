@@ -360,29 +360,6 @@ bool isFusibleCudaFusionGroup(const Node* node) {
 
 bool isFusibleCudaFusionGroup(const Node* fusion, const Node* node) {
   FUSER_PERF_SCOPE("isFusibleCudaFusionGroup");
-  /*
-    std::cout << "\n----\ttry fusing:\n\t\t" << *node << "\t\tinto:\n\t\t" <<
-    *fusion << std::endl;
-
-    if (isFusibleCudaFusionGroup(node)) {
-      auto p_no_pw = hasNonElementWiseOperation(node);
-      auto c_no_bc_pw = isNonBroadcastElementWise(fusion);
-      if (!p_no_pw || c_no_bc_pw) {
-        if (!createTrickyBroadcast(fusion, node)) {
-          std::cout << "-T- fused" << std::endl;
-          return true;
-        } else {
-          std::cout << "-F- createTrickyBroadcast" << std::endl;
-        }
-      } else {
-        std::cout << "-F- hasNonElementWiseOperation: " << p_no_pw << "
-    isNonBroadcastElementWise: " << c_no_bc_pw << std::endl;
-      }
-    } else {
-      std::cout << "-F- not fusible producer\n\t\t" << *node << std::endl;
-    }
-    return false;
-   */
 
   // TODO: lift the restriction of not fusing producer containing reduction when
   //       we have proper scheduling.
