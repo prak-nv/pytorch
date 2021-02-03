@@ -11730,6 +11730,47 @@ TEST(NVFuserTest, FusionIssue633_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionKirScoping_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = add(tv1, new Double(2));
+  fusion.addOutput(tv2);
+
+  tv2->merge(0);
+  tv2->split(0, 4);
+  tv0->computeAt(tv2, -1);
+
+  GpuLower gpulw(&fusion);
+
+  auto kir_tv1 = gpulw.lowerValue(tv1);
+  auto tv1_scope = kir_tv1->definition()->scope();
+  TORCH_CHECK(tv1_scope != nullptr);
+  TORCH_CHECK(tv1_scope->owner()->as<kir::IfThenElse>());
+
+  auto kir_tv2 = gpulw.lowerValue(tv2);
+  auto tv2_scope = kir_tv2->definition()->scope();
+  TORCH_CHECK(tv2_scope != nullptr);
+  TORCH_CHECK(tv2_scope->owner()->as<kir::IfThenElse>());
+
+  TORCH_CHECK(tv1_scope != tv2_scope);
+
+  // tv1 and tv2 should have the same inner-most ForLoop
+  auto parent_scope = tv1_scope->owner()->scope();
+  TORCH_CHECK(parent_scope == tv2_scope->owner()->scope());
+  TORCH_CHECK(parent_scope->owner()->as<kir::ForLoop>());
+  // There should be one more loop
+  parent_scope = parent_scope->owner()->scope();
+  TORCH_CHECK(parent_scope->owner()->as<kir::ForLoop>());
+
+  // scope() should return nullptr for top-level exprs
+  auto top_level_scope = parent_scope->owner()->scope();
+  TORCH_CHECK(top_level_scope == nullptr);
+}
+
 } // namespace jit
 } // namespace torch
 
