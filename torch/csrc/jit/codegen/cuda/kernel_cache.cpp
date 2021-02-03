@@ -346,11 +346,9 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   // Manage Segmented Fusion through FusionSegmentRuntimeCache
   if (isSegmented()) {
-    auto seg_runtime = fusion_segment_runtime_cache_.getRTById(unique_id);
-    if (seg_runtime == nullptr) {
-      seg_runtime =
-          fusion_segment_runtime_cache_.getRTByHeuristics(inputs, unique_id);
-    }
+    auto seg_runtime = fusion_segment_runtime_cache_.getRt(inputs,unique_id);
+    // Propagate the unique_id so the contained fusionExecutors in the runtime
+    //  entry will cache the buffer sizes and launch params based on this id.
     return seg_runtime->runWithInput(inputs, unique_id);
   }
 
@@ -384,10 +382,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         // computational graph intact for future compilation.
         Fusion fusion_clone = *fusion_;
         FusionGuard fg(&fusion_clone);
-        for (auto out : fusion_clone.outputs()) {
-          std::cout << out << std::endl;
-        }
-
+        
         // Separate the reduction TensorViews from the other TensorViews
         // Ignore input TensorViews
         // Heavy weight call
@@ -617,13 +612,13 @@ FusionSegmentRuntime::HashType FusionSegmentRuntime::getHash(
   return h;
 }
 
-FusionSegmentRuntime::EntryTag::EntryTag(SegmentHeuristics* sh) {
+FusionSegmentRuntime::HeuristicTag::HeuristicTag(SegmentHeuristics* sh) {
   heuristics_ = sh;
   hash_ = FusionSegmentRuntime::getHash(sh);
 }
 
-bool FusionSegmentRuntime::EntryTag::operator==(
-    const FusionSegmentRuntime::EntryTag& other) const {
+bool FusionSegmentRuntime::HeuristicTag::operator==(
+    const FusionSegmentRuntime::HeuristicTag& other) const {
   if (heuristics_->heuristics().size() !=
       other.heuristics_->heuristics().size()) {
     return false;
@@ -648,19 +643,33 @@ void FusionSegmentRuntimeCache::evictId(size_t input_id) {
   id_to_rt_.erase(input_id);
 }
 
-FusionSegmentRuntime* FusionSegmentRuntimeCache::getRTById(size_t input_id) {
+
+FusionSegmentRuntime* FusionSegmentRuntimeCache::getRt(
+    const at::ArrayRef<IValue>& inputs,
+    size_t input_id) {
+      // Look up by input_id first
+      auto seg_runtime = getRtById(input_id);
+      if (seg_runtime == nullptr) {
+        // if id misses, lookup by heuristics
+        //  this will create new entry if not found
+        seg_runtime =getRtByHeuristics(inputs, input_id);
+      }
+      return seg_runtime;
+    }
+
+FusionSegmentRuntime* FusionSegmentRuntimeCache::getRtById(size_t input_id) {
   if (id_to_rt_.count(input_id) == 0) {
     return nullptr;
   }
   return id_to_rt_.at(input_id);
 }
 
-FusionSegmentRuntime* FusionSegmentRuntimeCache::getRTByHeuristics(
+FusionSegmentRuntime* FusionSegmentRuntimeCache::getRtByHeuristics(
     const at::ArrayRef<IValue>& inputs,
     size_t input_id) {
   auto dev_id = getCommonDeviceCUDA(inputs);
   auto heuristics = segmented_fusion_->makeHeuristics(inputs);
-  EntryTag tag(heuristics.get());
+  HeuristicTag tag(heuristics.get());
   auto rt = at(dev_id, tag);
 
   // Heuristics miss
@@ -684,28 +693,44 @@ void FusionSegmentRuntimeCache::initCache(SegmentedFusion* sf) {
   segmented_fusion_ = sf;
 }
 
-FusionSegmentRuntime* FusionSegmentRuntimeCache::at(int dev_id, EntryTag tag) {
-  if (seg_runtime_cache_group_.count(dev_id) == 0) {
+FusionSegmentRuntime* FusionSegmentRuntimeCache::at(int dev_id, HeuristicTag tag) {
+
+  // Get cache for the device id
+  auto& run_time_cache_ptr = seg_runtime_cache_group_[dev_id];
+
+  // Check empty
+  if (!run_time_cache_ptr){
+    return nullptr;
+  }
+  
+  // Get entry from cache
+  auto& cache_entry_ptr = run_time_cache_ptr->operator[](tag);
+
+  // Check empty
+  if(!cache_entry_ptr){
     return nullptr;
   }
 
-  if (seg_runtime_cache_group_.at(dev_id)->count(tag) == 0) {
-    return nullptr;
-  }
-
-  return seg_runtime_cache_group_.at(dev_id)->at(tag).get();
+  // Return non-empty entry
+  return cache_entry_ptr.get();
 }
 
 void FusionSegmentRuntimeCache::insertEntry(
     int dev_id,
-    EntryTag tag,
+    HeuristicTag tag,
     SegRuntimePtr&& rt_pt) {
-  if (seg_runtime_cache_group_.count(dev_id) == 0) {
-    seg_runtime_cache_group_.emplace(
-        dev_id, std::make_unique<SegRuntimeCache>());
+
+  auto& run_time_cache_ptr = seg_runtime_cache_group_[dev_id];
+
+  if (!run_time_cache_ptr) {
+    // First time seeing this device
+    // run_time_cache_ptr is a reference so will be auto updated
+    // could have updated run_time_cache_ptr to save
+    // one hashing but too confusing to read
+    seg_runtime_cache_group_[dev_id] = std::make_unique<SegRuntimeCache>();
   }
 
-  seg_runtime_cache_group_.at(dev_id)->operator[](tag) = std::move(rt_pt);
+  run_time_cache_ptr->operator[](tag) = std::move(rt_pt);
 }
 
 bool GraphCache::requiresPermutation() {

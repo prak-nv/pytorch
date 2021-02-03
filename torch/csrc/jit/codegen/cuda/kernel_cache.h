@@ -52,13 +52,13 @@ class TORCH_CUDA_API FusionSegmentRuntime {
 
   //! Cache Interface: trivially copied and easily compared
   //!   descriptor for FusionSegmentRuntime
-  class EntryTag {
+  class HeuristicTag {
    public:
     //! Computes hash upon creation
-    explicit EntryTag(SegmentHeuristics*);
+    explicit HeuristicTag(SegmentHeuristics*);
 
     //! Tag equal abstracts the heuristics equivalence
-    bool operator==(const EntryTag& other) const;
+    bool operator==(const HeuristicTag& other) const;
 
     //! Returns computed hash value
     HashType hash() const {
@@ -70,9 +70,9 @@ class TORCH_CUDA_API FusionSegmentRuntime {
     SegmentHeuristics* heuristics_;
   };
 
-  class EntryTagHash {
+  class HeuristicTagHash {
    public:
-    HashType operator()(const EntryTag& et) const {
+    HashType operator()(const HeuristicTag& et) const {
       return et.hash();
     }
   };
@@ -88,7 +88,7 @@ class TORCH_CUDA_API FusionSegmentRuntime {
   const std::vector<SchedulerEntryPtr>& schedulers();
 
  private:
-  friend class EntryTag;
+  friend class HeuristicTag;
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
@@ -112,26 +112,23 @@ class TORCH_CUDA_API FusionSegmentRuntimeCache {
   //!  kernel because compiling is expensive
   void evictId(size_t input_id);
 
-  //! In case of cache hit by input id, return pointer to that entry,
-  //!  returns nullptr if input_id miss
-  FusionSegmentRuntime* getRTById(size_t input_id);
-
-  //! In case of input id miss, evaluate heuristics and find a hit by heuristics
-  //!   in case of heuristics miss, create a new entry
-  FusionSegmentRuntime* getRTByHeuristics(
-      const at::ArrayRef<IValue>& inputs,
-      size_t input_id);
-
   //! Interface for registering segmented fusion for caching heuristics
   void initCache(SegmentedFusion* sf);
 
+  //! API for collecting FusionSegmentRuntime entry from cache,
+  //!  contains a two level lookup, 
+  //!  if input_id is hit -> returns cached
+  //!  if input_id miss -> lookup with heuristics -> return cached if found
+  //!  if heuristics miss -> create a new entry and return created
+  FusionSegmentRuntime* getRt(const at::ArrayRef<IValue>& inputs,size_t input_id);
+
  private:
-  using EntryTag = FusionSegmentRuntime::EntryTag;
-  using EntryTagHash = FusionSegmentRuntime::EntryTagHash;
-  //! FusionSegmentRuntime cache based on EntryTag lookup
+  using HeuristicTag = FusionSegmentRuntime::HeuristicTag;
+  using HeuristicTagHash = FusionSegmentRuntime::HeuristicTagHash;
+  //! FusionSegmentRuntime cache based on HeuristicTag lookup
   using SegRuntimePtr = std::unique_ptr<FusionSegmentRuntime>;
   using SegRuntimeCache =
-      std::unordered_map<EntryTag, SegRuntimePtr, EntryTagHash>;
+      std::unordered_map<HeuristicTag, SegRuntimePtr, HeuristicTagHash>;
   //! One cache per device id
   using SegRuntimeCacheGroup =
       std::unordered_map<int, std::unique_ptr<SegRuntimeCache>>;
@@ -139,8 +136,8 @@ class TORCH_CUDA_API FusionSegmentRuntimeCache {
   //! internal maintenance functions
   //!  Currently don't have releasing entry at this level since
   //!  we would not release compiled kernels at this point
-  void insertEntry(int dev_id, EntryTag tag, SegRuntimePtr&& rt);
-  FusionSegmentRuntime* at(int dev_id, EntryTag tag);
+  void insertEntry(int dev_id, HeuristicTag tag, SegRuntimePtr&& rt);
+  FusionSegmentRuntime* at(int dev_id, HeuristicTag tag);
 
  private:
   SegRuntimeCacheGroup seg_runtime_cache_group_;
@@ -149,6 +146,17 @@ class TORCH_CUDA_API FusionSegmentRuntimeCache {
 
   //! Reference to the segmented fusion held in FusionExecutorCache
   SegmentedFusion* segmented_fusion_ = nullptr;
+
+  //! In case of cache hit by input id, return pointer to that entry,
+  //!  returns nullptr if input_id miss
+  FusionSegmentRuntime* getRtById(size_t input_id);
+
+  //! In case of input id miss, evaluate heuristics and find a hit by heuristics
+  //!   in case of heuristics miss, create a new entry
+  FusionSegmentRuntime* getRtByHeuristics(
+      const at::ArrayRef<IValue>& inputs,
+      size_t input_id);
+
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry

@@ -50,15 +50,11 @@ std::vector<TensorView*> findOutputsOfRed(Fusion* fusion, TensorView* red_tv) {
   return tv_outputs_of_reduction;
 }
 
-} // namespace
-
-namespace {
-
 class SingleReductionScheduler : public SchedulerEntry {
  public:
   explicit SingleReductionScheduler(Fusion* fusion, ExpressionEvaluator& ee)
       : SchedulerEntry(ScheduleHeuristic::Reduction, true) {
-    getHeuristics(fusion, ee);
+    computeHeuristics(fusion, ee);
   }
 
   //! Check if the reduction heuristics apply in given fusion
@@ -74,6 +70,8 @@ class SingleReductionScheduler : public SchedulerEntry {
     //  grid reduction. This is an overkill might want to consider
     //  trying to get the heuristics and check only if grid reduction is
     //  required.
+    //  TODO: We can actually allow broadcasts that doesn't get resolved
+    //        in the same fusion
     auto uses = DependencyCheck::getAllUseChains(red_tv);
     for (auto& chain : uses) {
       for (auto val : chain) {
@@ -88,20 +86,20 @@ class SingleReductionScheduler : public SchedulerEntry {
 
   void schedule(Fusion* fusion) override {
     // TODO find outputs of tv: what would we need to fill in?
-    auto red_tv = findReductionTV(fusion);
+    auto red_tv = getReductionTV(fusion);
     auto output_tv = findOutputsOfRed(fusion, red_tv);
     scheduleReduction(fusion, rparams_, red_tv, output_tv);
   }
 
  private:
-  void getHeuristics(Fusion* fusion, ExpressionEvaluator& ee) {
-    auto red_tv = findReductionTV(fusion);
+  void computeHeuristics(Fusion* fusion, ExpressionEvaluator& ee) {
+    auto red_tv = getReductionTV(fusion);
     auto param = getReductionHeuristics(fusion, ee, red_tv);
     TORCH_INTERNAL_ASSERT(param.has_value());
     rparams_ = param.value();
   }
 
-  TensorView* findReductionTV(Fusion* fusion) {
+  TensorView* getReductionTV(Fusion* fusion) {
     for (auto expr : fusion->exprs()) {
       if (auto red = dynamic_cast<ReductionOp*>(expr)) {
         if (!isTrivialReduction(red)) {
@@ -129,8 +127,6 @@ class PointWiseScheduler : public SchedulerEntry {
   }
 };
 
-namespace {
-
 // duplicated from Benchmark/utils.h
 static void analyzeFusion(
     Fusion* fusion,
@@ -148,12 +144,11 @@ static void analyzeFusion(
   }
 }
 
-} // namespace
 class NormalizationScheduler : public SchedulerEntry {
  public:
   explicit NormalizationScheduler(Fusion* fusion, ExpressionEvaluator& ee)
       : SchedulerEntry(ScheduleHeuristic::Normalization, true) {
-    getHeuristics(fusion, ee);
+    computeHeuristics(fusion, ee);
   }
 
   void schedule(Fusion* fusion) override {
@@ -204,7 +199,7 @@ class NormalizationScheduler : public SchedulerEntry {
   }
 
  private:
-  void getHeuristics(Fusion* fusion, ExpressionEvaluator& ee) {
+  void computeHeuristics(Fusion* fusion, ExpressionEvaluator& ee) {
     std::vector<TensorView*> red_tvs;
     for (auto red : findReductionOps(fusion)) {
       red_tvs.push_back(red->out()->as<TensorView>());
@@ -214,7 +209,7 @@ class NormalizationScheduler : public SchedulerEntry {
     rparams_ = rparams.value();
   }
 
-  static inline bool checkEquivalence(
+  static bool checkEquivalence(
       ReductionOp* op0,
       ReductionOp* op1,
       const ComputeAtRootDomainMap& root_map) {
@@ -239,7 +234,7 @@ class NormalizationScheduler : public SchedulerEntry {
 };
 
 // Schedule Table
-const static std::vector<ScheduleHeuristic>& all_heuristics() {
+const std::vector<ScheduleHeuristic>& all_heuristics() {
   static const std::vector<ScheduleHeuristic> hlist = {
       ScheduleHeuristic::Reduction,
       ScheduleHeuristic::PointWise,

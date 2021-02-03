@@ -206,6 +206,13 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
  public:
   //! Builds a mapping table by analyzing the current
   //! fusion. Overwrite a previous table if any.
+  //! 
+  //! \param map_through_reduction If set
+  //!   true, will disable UnmappableReductionDomains check.
+  //!   This is only for re-using logic in detecting 
+  //!   normalization fusions, which deviates slightly from
+  //!   intended use of this class. Should always be true
+  //!   in compute_at use cases.
   void build(bool map_through_reduction = false);
 
   //! Returns if key(td_a, id_a) and key(td_b, id_b) are mapped to eachother
