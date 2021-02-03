@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/arith.h>
+
 #include <c10/util/Exception.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
@@ -68,7 +69,7 @@ TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
         continue;
       if (dom[i]->isBroadcast())
         continue;
-      out_domain[i] = new IterDomain(dom[i]->start(), dom[i]->extent());
+      out_domain[i] = dom[i]->clone();
     }
   }
   for (size_t dim_i = 0; dim_i < out_domain.size(); dim_i++) {
@@ -324,7 +325,7 @@ DataType getOutputType(BinaryOpType op_type, Val* v1, Val* v2) {
 
 } // namespace
 
-TORCH_CUDA_API Val* binaryOp(BinaryOpType type, Val* v1, Val* v2) {
+TORCH_CUDA_CU_API Val* binaryOp(BinaryOpType type, Val* v1, Val* v2) {
   const auto out_dtype = getOutputType(type, v1, v2);
   const auto out_vtype =
       promote_type(v1->getValType().value(), v2->getValType().value());
@@ -688,6 +689,7 @@ TensorView* broadcast(
   }
 
   std::vector<IterDomain*> out_domain;
+  // Don't propagate reduction IDs through arith ops.
   auto inp_domain = TensorDomain::noReductions(inp->getRootDomain());
   size_t iinp = 0, ibdim = 0;
   while (ibdim < is_broadcast_dim.size()) {
@@ -698,8 +700,7 @@ TensorView* broadcast(
           ParallelType::Serial,
           IterType::BroadcastWithoutStride));
     } else {
-      // Don't propagate reduction IDs through arith ops.
-      out_domain.push_back(inp_domain[iinp]);
+      out_domain.push_back(inp_domain[iinp]->clone());
       iinp++;
     }
     ibdim++;
@@ -722,7 +723,7 @@ TensorView* transpose(
 
   for (size_t i = 0; i < out_domain.size(); ++i) {
     auto in_id = inp_domain[new2old[i]];
-    out_domain[i] = new IterDomain(in_id->start(), in_id->extent());
+    out_domain[i] = in_id->clone();
   }
 
   TensorView* out_tensor = new TensorView(
@@ -775,7 +776,7 @@ TensorView* sub_alpha(TensorView* v1, TensorView* v2, Val* v3) {
   return arithOpOverloads(sub_alpha, v1, v2, v3);
 }
 // lerp
-TORCH_CUDA_API Val* lerp(Val* start, Val* end, Val* weight) {
+TORCH_CUDA_CU_API Val* lerp(Val* start, Val* end, Val* weight) {
   auto vals = maybeBroadcast({start, end, weight});
   Val* intrm1 = binaryOp(BinaryOpType::Sub, vals[1], vals[0]);
   Val* intrm2 = binaryOp(BinaryOpType::Mul, vals[2], intrm1);

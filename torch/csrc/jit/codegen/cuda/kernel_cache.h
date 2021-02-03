@@ -27,10 +27,10 @@ namespace cuda {
 //! \note the uniqueness of the ide generated for a given input set is only
 //!   local to the instance of `InputsIdLookup`.
 //!
-class TORCH_CUDA_API InputsIdLookup : public NonCopyable {
+class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
  public:
   //! constructor where maximum cache size is fixed during init
-  explicit InputsIdLookup(size_t max_cache_size = 10)
+  explicit InputsIdLookup(size_t max_cache_size = 100)
       : max_cache_size_(max_cache_size){};
 
   //! struct to hold return value for lookupId.

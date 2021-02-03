@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/shape_inference.h>
+
 #include <c10/core/ScalarType.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/ir/constants.h>
@@ -82,6 +83,7 @@ class NaiveTypePropagator {
       case aten::threshold:
       case aten::clamp:
       case aten::gelu:
+      case aten::gelu_backward:
       case aten::tanh: {
         TORCH_CHECK(
             hasTypeAndDim(node->input(0)->type()->cast<TensorType>()),
@@ -169,6 +171,27 @@ class NaiveTypePropagator {
         promoted_type = binary_broadcast_type(
             promoted_type, node->input(0)->type()->cast<TensorType>());
         node->output()->setType(promoted_type);
+        break;
+      }
+      case aten::dropout: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+        node->output()->setType(out_type);
+        break;
+      }
+      case aten::native_dropout: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+        node->output(0)->setType(out_type);
+
+        auto mask_type = TensorType::create(
+            at::ScalarType::Bool, *out_type->device(), *out_type->dim(), false);
+
+        node->output(1)->setType(mask_type);
+
+        break;
+      }
+      case aten::native_dropout_backward: {
+        auto out_type = node->input(0)->type()->cast<TensorType>();
+        node->output()->setType(out_type);
         break;
       }
       case aten::batch_norm: {
