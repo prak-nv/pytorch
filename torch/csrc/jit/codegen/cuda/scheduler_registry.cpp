@@ -173,15 +173,21 @@ class NormalizationScheduler : public SchedulerEntry {
     //   to avoid building root domain map in easier cases
     bool valid_axis_count = false;
     size_t axis_count = 0;
-    auto reduction_root = [](ReductionOp* rop) {
-      return rop->out()->as<TensorView>()->getRootDomain();
+    auto reduction_root_size = [](ReductionOp* rop) {
+      size_t count = 0;
+      for (auto id : rop->out()->as<TensorView>()->getRootDomain()) {
+        if (!id->isBroadcast()) {
+          count++;
+        }
+      }
+      return count;
     };
     for (auto red : red_ops) {
       if (!valid_axis_count) {
         valid_axis_count = true;
-        axis_count = reduction_root(red).size();
+        axis_count = reduction_root_size(red);
       } else {
-        if (reduction_root(red).size() != axis_count) {
+        if (reduction_root_size(red) != axis_count) {
           return false;
         }
       }
