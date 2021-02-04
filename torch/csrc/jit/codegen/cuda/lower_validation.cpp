@@ -1,5 +1,6 @@
 #include <torch/csrc/jit/codegen/cuda/lower_validation.h>
 
+#include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
@@ -29,9 +30,9 @@ void validateIr(Fusion* fusion) {
   }
 
   fusion->validateInputs();
-
+  ExpressionEvaluator const_expr_eval(fusion);
   for (auto tv : used_tvs) {
-    for (decltype(tv->nDims()) i{0}; i < tv->nDims(); i++) {
+    for (size_t i = 0; i < tv->nDims(); i++) {
       IterDomain* id = tv->getComputeAtAxis(i).first;
 
       if (id->isBlockDim()) {
@@ -41,6 +42,39 @@ void validateIr(Fusion* fusion) {
             tv,
             ".");
       }
+
+      if (id->getParallelType() == ParallelType::Vectorize) {
+        // TODO: Would be nice to do this check when setting a dimension to
+        // vectorize, however that would require parallelization scheme to done
+        // on tensor view instead of iter domain.
+        if (i < tv->getThisComputeAtAxis()) {
+          id->parallelize(ParallelType::Serial);
+          TORCH_WARN(
+              "Parallel type from TensorView: ",
+              tv,
+              " had to be demoted from vectorized because it was placed to the left of compute at point.");
+        } else {
+          TORCH_INTERNAL_ASSERT(
+              id->rawExtent()->isConstScalar(),
+              "Vectorizing a domain requires a constant size.");
+
+          auto vector_size_optional = const_expr_eval.evaluate(id->rawExtent());
+
+          TORCH_INTERNAL_ASSERT(
+              vector_size_optional.has_value(),
+              "Could not evalualte constant value bound to vectorized dim.");
+
+          auto vector_size = dataTypeSize(tv->getDataType().value()) *
+              vector_size_optional.value();
+
+          TORCH_INTERNAL_ASSERT(
+              vector_size <= 16,
+              "Tried to vectorize a dim resulting in a word size of ",
+              vector_size,
+              " however, vector sizes only upto and including 16 bytes are supported.");
+        }
+      }
+
       if (tv->hasBroadcast() && tv->getMemoryType() != MemoryType::Global) {
         auto td = tv->domain()->domain();
         auto ca_inputs = ir_utils::iterDomainInputsOf(
