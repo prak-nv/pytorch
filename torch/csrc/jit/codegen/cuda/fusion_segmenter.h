@@ -22,13 +22,13 @@ class SegmentCandidateFinder;
 // A directed edge on DAG,
 // Wrapper for values, edges between segmented groups which are made up
 // of Exprs. Multiple edges can exist between segmented groups.
-class SegmentedEdge {
- public:
+struct SegmentedEdge {
   SegmentedEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val)
-      : from_(from), to_(to), val_(val) {}
-  SegmentedGroup* from_;
-  SegmentedGroup* to_;
-  Val* val_;
+      : from(from), to(to), val(val) {}
+
+  SegmentedGroup* from;
+  SegmentedGroup* to;
+  Val* val;
 
   void print();
 };

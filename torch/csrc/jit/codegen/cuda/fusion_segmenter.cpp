@@ -14,10 +14,10 @@ namespace cuda {
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
   std::vector<NeighborGroup> neighbors;
   for (auto inp : producer_edges) {
-    neighbors.emplace_back(inp->from_, inp);
+    neighbors.emplace_back(inp->from, inp);
   }
   for (auto out : consumer_edges) {
-    neighbors.emplace_back(out->to_, out);
+    neighbors.emplace_back(out->to, out);
   }
   return neighbors;
 }
@@ -132,7 +132,7 @@ std::vector<Val*> SegmentedGroup::edgesToVals(
       se_v.cbegin(),
       se_v.cend(),
       std::back_inserter(ret_v),
-      [](SegmentedEdge* se) { return se->val_; });
+      [](SegmentedEdge* se) { return se->val; });
   return ret_v;
 }
 
@@ -157,7 +157,7 @@ void insertUniquePredicated(
       e.cbegin(),
       e.cend(),
       std::inserter(to_add, to_add.end()),
-      [](SegmentedEdge* se) { return se->val_; });
+      [](SegmentedEdge* se) { return se->val; });
   std::copy_if(
       to_add.begin(), to_add.end(), std::back_inserter(v), [pred](Val* val) {
         return pred(val);
@@ -188,18 +188,18 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
 
 void SegmentedEdge::print() {
   std::cout << "e{ \n  ";
-  from_->print();
+  from->print();
   std::cout << " -> \n  ";
-  to_->print();
+  to->print();
   std::cout << "through: ";
-  val_->print();
+  val->print();
   std::cout << "}\\\\e\n\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
-  os << "e{ " << edge->from_ << " -> " << edge->to_ << "(";
+  os << "e{ " << edge->from << " -> " << edge->to << "(";
   IrPrinter irp(os);
-  irp.handle(edge->val_);
+  irp.handle(edge->val);
   os << ") }\n";
   return os;
 }
@@ -288,7 +288,7 @@ std::string SegmentedFusion::toString(int verbosity) const {
       if (group->producer_edges.size() > 0) {
         ss << "  produced by groups: { \n";
         for (auto producer_edge : group->producer_edges) {
-          ss << "    " << producer_edge->from_ << " via " << producer_edge->val_
+          ss << "    " << producer_edge->from << " via " << producer_edge->val
              << "\n";
         }
         ss << "  }"
@@ -299,7 +299,7 @@ std::string SegmentedFusion::toString(int verbosity) const {
       if (group->consumer_edges.size() > 0) {
         ss << "  Consumed by groups: { \n";
         for (auto consumer_edge : group->consumer_edges) {
-          ss << "    " << consumer_edge->to_ << "\n";
+          ss << "    " << consumer_edge->to << "\n";
         }
         ss << "  }"
            << "\n";
@@ -351,7 +351,7 @@ std::vector<SegmentedEdge*> getMergedProducerEdges(
   // Register producers into sg2
   std::unordered_set<Val*> sg2_vals;
   for (auto se : sg2->producer_edges) {
-    sg2_vals.emplace(se->val_);
+    sg2_vals.emplace(se->val);
   }
 
   producer_edges.erase(
@@ -360,9 +360,9 @@ std::vector<SegmentedEdge*> getMergedProducerEdges(
           producer_edges.end(),
           [&sg1, &sg2, &sg2_vals](SegmentedEdge* se) {
             // remove edges in between the groups and common uses
-            return (se->to_ == sg1 && se->from_ == sg2) ||
-                (se->to_ == sg2 && se->from_ == sg1) ||
-                (se->to_ == sg1 && sg2_vals.count(se->val_));
+            return (se->to == sg1 && se->from == sg2) ||
+                (se->to == sg2 && se->from == sg1) ||
+                (se->to == sg1 && sg2_vals.count(se->val));
           }),
       producer_edges.end());
 
@@ -390,8 +390,8 @@ std::vector<SegmentedEdge*> getMergedConsumerEdges(
           consumer_edges.begin(),
           consumer_edges.end(),
           [&sg1, &sg2](SegmentedEdge* se) {
-            return (se->to_ == sg1 && se->from_ == sg2) ||
-                (se->to_ == sg2 && se->from_ == sg1);
+            return (se->to == sg1 && se->from == sg2) ||
+                (se->to == sg2 && se->from == sg1);
           }),
       consumer_edges.end());
 
@@ -419,7 +419,7 @@ std::vector<Val*> getAllInputs(
       merged_producer_edges.begin(),
       merged_producer_edges.end(),
       std::back_inserter(producer_edge_vals),
-      [](SegmentedEdge* se) { return se->val_; });
+      [](SegmentedEdge* se) { return se->val; });
 
   return uniqueValConcat(
       {sg1 == nullptr ? std::vector<Val*>() : sg1->input_vals,
@@ -448,7 +448,7 @@ std::vector<Val*> getAllOutputs(
       merged_consumer_edges.begin(),
       merged_consumer_edges.end(),
       std::back_inserter(consumer_edge_vals),
-      [](SegmentedEdge* se) { return se->val_; });
+      [](SegmentedEdge* se) { return se->val; });
 
   auto output_vals =
       uniqueValConcat({sg1 == nullptr ? std::vector<Val*>() : sg1->output_vals,
@@ -509,7 +509,7 @@ void SegmentCandidateFinder::resetLevels() {
       ready = std::all_of(
           visit->producer_edges.begin(),
           visit->producer_edges.end(),
-          [&](SegmentedEdge* dep) { return dep->from_->visited; });
+          [&](SegmentedEdge* dep) { return dep->from->visited; });
     }
 
     if (!ready) {
@@ -526,12 +526,12 @@ void SegmentCandidateFinder::resetLevels() {
     next_to_visit_.clear();
 
     for (auto out : visit->consumer_edges) {
-      to_visit_.push_back(out->to_);
+      to_visit_.push_back(out->to);
     }
 
     visit->level = 0;
     for (auto inp : visit->producer_edges) {
-      visit->level = std::max(visit->level, inp->from_->level + 1);
+      visit->level = std::max(visit->level, inp->from->level + 1);
     }
   }
   TORCH_INTERNAL_ASSERT(
@@ -545,7 +545,7 @@ std::unordered_set<SegmentedEdge*> SegmentCandidateFinder::disconnectGroup(
       group->producer_edges.begin(), group->producer_edges.end());
 
   for (auto edge : group->producer_edges) {
-    auto from = edge->from_;
+    auto from = edge->from;
     auto& from_edges = from->consumer_edges;
     auto from_edge_it = std::find(from_edges.begin(), from_edges.end(), edge);
     TORCH_INTERNAL_ASSERT(
@@ -555,7 +555,7 @@ std::unordered_set<SegmentedEdge*> SegmentCandidateFinder::disconnectGroup(
 
   for (auto edge : group->consumer_edges) {
     removed_edges.insert(edge);
-    auto to = edge->to_;
+    auto to = edge->to;
     auto& to_edges = to->producer_edges;
     auto to_edge_it = std::find(to_edges.begin(), to_edges.end(), edge);
     TORCH_INTERNAL_ASSERT(
@@ -597,8 +597,8 @@ void SegmentCandidateFinder::mergeNodes() {
     auto producer_edges = getMergedProducerEdges(group1, group2);
     // Connect joined group to resulting neighbors
     for (auto edge : producer_edges) {
-      auto from = edge->from_;
-      auto val = edge->val_;
+      auto from = edge->from;
+      auto val = edge->val;
 
       auto new_edge = segmented_fusion_->newEdge(from, joined_group, val);
       joined_group->producer_edges.push_back(new_edge);
@@ -608,12 +608,12 @@ void SegmentCandidateFinder::mergeNodes() {
     auto consumer_edges = getMergedConsumerEdges(group1, group2);
 
     for (auto edge : consumer_edges) {
-      auto to = edge->to_;
-      auto val = edge->val_;
+      auto to = edge->to;
+      auto val = edge->val;
 
       auto new_edge = segmented_fusion_->newEdge(joined_group, to, val);
       joined_group->consumer_edges.push_back(new_edge);
-      edge->to_->producer_edges.push_back(new_edge);
+      edge->to->producer_edges.push_back(new_edge);
     }
 
     joined_group->setHeuristic(deriveHeuristic(joined_group));
@@ -731,7 +731,7 @@ c10::optional<ScheduleHeuristic> tryMerge(
 
 bool SegmentCandidateFinder::codeGenSupportedMerge(SegmentedEdge* edge) {
   Fusion* fusion = &segmented_fusion_->completeFusion();
-  auto h = tryMerge(fusion, edge->from_, edge->to_);
+  auto h = tryMerge(fusion, edge->from, edge->to);
   return h.has_value();
 }
 
