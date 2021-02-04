@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/scheduler_registry.h>
+#include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 
@@ -85,7 +86,7 @@ class SingleReductionScheduler : public SchedulerEntry {
   }
 
   void schedule(Fusion* fusion) override {
-    // TODO find outputs of tv: what would we need to fill in?
+    FUSER_PERF_SCOPE("Schedule Single Reduction");
     auto red_tv = getReductionTV(fusion);
     auto output_tv = findOutputsOfRed(fusion, red_tv);
     scheduleReduction(fusion, rparams_, red_tv, output_tv);
@@ -123,6 +124,7 @@ class PointWiseScheduler : public SchedulerEntry {
   }
 
   void schedule(Fusion* fusion) override {
+    FUSER_PERF_SCOPE("Schedule PointWise Fusion");
     scheduleFusion(fusion);
   }
 };
@@ -159,6 +161,7 @@ class NormalizationScheduler : public SchedulerEntry {
   }
 
   static bool canSchedule(Fusion* fusion) {
+    FUSER_PERF_SCOPE("Schedule Normalization Fusion");
     auto red_ops = findReductionOps(fusion);
 
     if (red_ops.size() < 2) {

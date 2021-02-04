@@ -206,10 +206,10 @@ class TORCH_CUDA_API ComputeAtRootDomainMap : public RootDomainMap {
  public:
   //! Builds a mapping table by analyzing the current
   //! fusion. Overwrite a previous table if any.
-  //! 
+  //!
   //! \param map_through_reduction If set
   //!   true, will disable UnmappableReductionDomains check.
-  //!   This is only for re-using logic in detecting 
+  //!   This is only for re-using logic in detecting
   //!   normalization fusions, which deviates slightly from
   //!   intended use of this class. Should always be true
   //!   in compute_at use cases.
@@ -321,7 +321,7 @@ std::string toString(const ComputeAtRootDomainMap& root_map);
 //! DisjointSet.
 class TORCH_CUDA_API ComputeAtRootDomainMapBuilder : private BackwardVisitor {
  public:
-  ComputeAtRootDomainMapBuilder(
+  explicit ComputeAtRootDomainMapBuilder(
       ComputeAtRootDomainMap& root_map,
       bool map_through_reduction = false);
 
@@ -388,8 +388,9 @@ class TORCH_CUDA_API ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   std::unordered_set<Expr*> visited_;
   UnmappableReductionDomains incompatible_domains_;
 
-  // additional parameters
-  bool map_through_reduction_;
+  //! Disable UnmappableReductions check, should
+  //!  always be false for compute_at use cases
+  bool map_through_reduction_ = false;
 };
 
 } // namespace cuda

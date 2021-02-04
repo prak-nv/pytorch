@@ -71,6 +71,7 @@ Fusion::Fusion(const Fusion& other) {
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment() {
+  FUSER_PERF_SCOPE("Segment Fusion");
   return SegmentCandidateFinder::segment(this);
 }
 

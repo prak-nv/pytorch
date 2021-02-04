@@ -116,11 +116,13 @@ class TORCH_CUDA_API FusionSegmentRuntimeCache {
   void initCache(SegmentedFusion* sf);
 
   //! API for collecting FusionSegmentRuntime entry from cache,
-  //!  contains a two level lookup, 
+  //!  contains a two level lookup,
   //!  if input_id is hit -> returns cached
   //!  if input_id miss -> lookup with heuristics -> return cached if found
   //!  if heuristics miss -> create a new entry and return created
-  FusionSegmentRuntime* getRt(const at::ArrayRef<IValue>& inputs,size_t input_id);
+  FusionSegmentRuntime* getRt(
+      const at::ArrayRef<IValue>& inputs,
+      size_t input_id);
 
  private:
   using HeuristicTag = FusionSegmentRuntime::HeuristicTag;
@@ -156,7 +158,6 @@ class TORCH_CUDA_API FusionSegmentRuntimeCache {
   FusionSegmentRuntime* getRtByHeuristics(
       const at::ArrayRef<IValue>& inputs,
       size_t input_id);
-
 };
 
 //! Encoding an input set to unique id, which is used to short-cut cache entry

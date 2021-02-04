@@ -11448,14 +11448,16 @@ TEST(NVFuserTest, FusionSegmentReducePointwise_CUDA) {
   auto t3 = std::get<0>(at::max(t2, {0}));
   auto t4 = t3.add(t1);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = fec.runFusionWithInputs({t0, t1});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  testValidate(fec.fusion(), outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
 }
 
 namespace {
+
 // Stolen from cpp benchmark
 static TensorView* setupSoftmax(
     Fusion* fusion,
@@ -11503,15 +11505,16 @@ TEST(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn(input_shape, options);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = fec.runFusionWithInputs({at_x});
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
 
   auto t1 = at_x.add(1.0);
   auto t2 = t1.sum({2});
   auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
 
-  testValidate(fec.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
 }
 
 TEST(NVFuserTest, FusionSwizzle1_CUDA) {

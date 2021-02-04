@@ -33,11 +33,6 @@ class TORCH_CUDA_API SchedulerEntry {
   virtual void schedule(Fusion* fusion) = 0;
 
   //! Heuristic comparison
-  bool operator==(const SchedulerEntry& other) {
-    return sameAs(&other);
-  }
-
-  //! Heuristic comparison
   bool sameAs(const SchedulerEntry* other);
 
   bool hasParam() const {
