@@ -164,7 +164,7 @@ class NormalizationScheduler : public SchedulerEntry {
     FUSER_PERF_SCOPE("Schedule Normalization Fusion");
     auto red_ops = findReductionOps(fusion);
 
-    if (red_ops.size() < 2) {
+    if (red_ops.size() == 0) {
       // Use single reduction or pointwise logic
       return false;
     }
@@ -223,16 +223,32 @@ class NormalizationScheduler : public SchedulerEntry {
     const auto domain0 = out_tv0->domain();
     const auto domain1 = out_tv1->domain();
 
-    TORCH_INTERNAL_ASSERT(out_root0.size() == out_root1.size());
-    for (size_t it = 0; it < out_root0.size(); it++) {
-      if (out_root0[it]->isReduction() != out_root1[it]->isReduction()) {
+    auto it0 = out_root0.begin();
+    auto it1 = out_root1.begin();
+
+    auto skip_broadcast = [&]() {
+      while (it0 != out_root0.end() && (*it0)->isBroadcast()) {
+        it0++;
+      }
+      while (it1 != out_root1.end() && (*it1)->isBroadcast()) {
+        it1++;
+      }
+    };
+
+    skip_broadcast();
+    while (it0 != out_root0.end() && it1 != out_root1.end()) {
+      if ((*it0)->isReduction() != (*it1)->isReduction()) {
         return false;
       }
-      if (!root_map.canMap(domain0, out_root0[it], domain1, out_root1[it])) {
+      if (!root_map.canMap(domain0, (*it0), domain1, (*it1))) {
         return false;
       }
+      it0++;
+      it1++;
+      skip_broadcast();
     }
-    return true;
+
+    return it0 == out_root0.end() && it1 == out_root1.end();
   }
 };
 
