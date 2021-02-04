@@ -197,7 +197,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
 
   if (is_vectorize) {
     auto vectorize_pred =
-        VectorizePredicate::get(for_loops_, fl, p2c_root_map_, ca_root_map_);
+        VectorizePredicate::get(for_loops_, fl, p2c_root_map_);
     auto pred = ir_builder.andExpr(unroll_pred, vectorize_pred);
     unroll_pred = pred->as<kir::Bool>();
   }

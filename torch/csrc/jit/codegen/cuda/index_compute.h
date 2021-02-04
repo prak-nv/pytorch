@@ -136,8 +136,8 @@ class IndexCompute : public BackwardVisitor {
   IndexCompute updateIndexCompute(
       const TensorDomain* new_td,
       const std::unordered_map<IterDomain*, IterDomain*>& id_map,
-      std::unordered_set<kir::IterDomain*> _vectorized_domain,
-      const std::vector<bool>& _root_contiguity);
+      const std::vector<bool>& _root_contiguity,
+      std::unordered_set<kir::IterDomain*> _vectorized_domain);
 
   virtual void run();
 
@@ -231,14 +231,12 @@ class Index {
       const kir::TensorView* producer_tv,
       const kir::TensorView* consumer_tv,
       const std::vector<kir::ForLoop*>& loops,
-      const std::vector<bool>& root_contiguity,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const std::vector<bool>& root_contiguity);
 
   static std::vector<kir::Val*> getConsumerRootVectIndices(
       const kir::TensorView* consumer_tv,
       const std::vector<kir::ForLoop*>& loops,
-      const std::vector<bool>& root_contiguity,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const std::vector<bool>& root_contiguity);
 };
 
 } // namespace cuda

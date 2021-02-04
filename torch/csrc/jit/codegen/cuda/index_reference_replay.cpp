@@ -313,6 +313,7 @@ IndexCompute getReferenceIndexing(
       // in this function
       {},
       std::unordered_set<kir::IterDomain*>(),
+      {},
       reference_tensor->contiguity(),
       kir_preferred_path);
 

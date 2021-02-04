@@ -302,14 +302,17 @@ UnswitchPredicate::UnswitchPredicate(
 kir::Bool* VectorizePredicate::get(
     const std::vector<kir::ForLoop*>& outer_loops,
     kir::ForLoop* vectorized_loop,
-    const IterDomainMap& p2c_root_map,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    const IterDomainMap& p2c_root_map
+    // , const ComputeAtRootDomainMap& ca_root_map
+) {
   FUSER_PERF_SCOPE("VectorizePredicate::get");
 
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
   VectorizePredicate up(
-      outer_loops, vectorized_loop, p2c_root_map, ca_root_map);
+      outer_loops, vectorized_loop, p2c_root_map
+      // , ca_root_map
+  );
   return up.vectorize_pred_;
 }
 
@@ -338,8 +341,7 @@ void VectorizePredicate::predicateOn(kir::Expr* tv_expr) {
         continue;
       } else {
         pred_contiguity = IndexCompute::contiguityAnd(
-            pred_contiguity,
-            IndexCompute::contiguityPasC(inp_tv->domain(), out_tv->domain()));
+            pred_contiguity, IndexCompute::contiguityPasC(inp_tv, out_tv));
       }
     }
   }
@@ -349,9 +351,13 @@ void VectorizePredicate::predicateOn(kir::Expr* tv_expr) {
 
   auto pred_inds = (isVectorizedRead)
       ? Index::getProducerRootVectIndices(
-            in_tv, out_tv, for_loops_, pred_contiguity, ca_root_map_)
+            in_tv, out_tv, for_loops_, pred_contiguity
+            // , ca_root_map_
+            )
       : Index::getConsumerRootVectIndices(
-            out_tv, for_loops_, pred_contiguity, ca_root_map_);
+            out_tv, for_loops_, pred_contiguity
+            // , ca_root_map_
+        );
 
   const auto gpu_lower = GpuLower::current();
   kir::IrBuilder ir_builder(gpu_lower->kernel());
@@ -390,11 +396,13 @@ void VectorizePredicate::openLoop(kir::ForLoop* fl) {
 VectorizePredicate::VectorizePredicate(
     std::vector<kir::ForLoop*> outer_loops,
     kir::ForLoop* vectorized_loop,
-    const IterDomainMap& _p2c_root_map,
-    const ComputeAtRootDomainMap& ca_root_map)
+    const IterDomainMap& _p2c_root_map
+    // , const ComputeAtRootDomainMap& ca_root_map
+    )
     : for_loops_(std::move(outer_loops)),
-      p2c_root_map_(_p2c_root_map),
-      ca_root_map_(ca_root_map) {
+      p2c_root_map_(_p2c_root_map)
+// , ca_root_map_(ca_root_map)
+{
   openLoop(vectorized_loop);
 }
 

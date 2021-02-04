@@ -78,15 +78,17 @@ class TORCH_CUDA_API VectorizePredicate {
   static kir::Bool* get(
       const std::vector<kir::ForLoop*>& outer_loops,
       kir::ForLoop* vectorized_loop,
-      const IterDomainMap& p2c_root_map,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const IterDomainMap& p2c_root_map
+      //   , const ComputeAtRootDomainMap& ca_root_map
+  );
 
  private:
   VectorizePredicate(
       std::vector<kir::ForLoop*> outer_loops,
       kir::ForLoop* vectorized_loop,
-      const IterDomainMap& _p2c_root_map,
-      const ComputeAtRootDomainMap& ca_root_map);
+      const IterDomainMap& _p2c_root_map
+      //   , const ComputeAtRootDomainMap& ca_root_map
+  );
 
   void predicateOn(kir::Expr*);
 
@@ -97,7 +99,7 @@ class TORCH_CUDA_API VectorizePredicate {
   std::vector<kir::ForLoop*> for_loops_;
 
   const IterDomainMap& p2c_root_map_;
-  const ComputeAtRootDomainMap& ca_root_map_;
+  //   const ComputeAtRootDomainMap& ca_root_map_;
 };
 
 } // namespace cuda
