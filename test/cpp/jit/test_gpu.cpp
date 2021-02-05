@@ -10354,19 +10354,19 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   const bool perf_measure = std::getenv("PERF_MEASURE");
 
   int M = 154, K = 45, N = 1524;
-  //M = K = N = 4096;
-  //M = K = N = 256;
+  // M = K = N = 4096;
+  // M = K = N = 256;
 
   // Each thread block computes a M_BLOCK x N_BLOCK elements
-  //const int M_BLOCK = 64;
-  //const int N_BLOCK = 64;
+  // const int M_BLOCK = 64;
+  // const int N_BLOCK = 64;
   const int M_BLOCK = 128;
   const int N_BLOCK = 128;
   const int K_BLOCK = 8;
 
   // Each thread computes a block of M_THREAD x N_THREAD elements
-  //const int M_THREAD = 4;
-  //const int N_THREAD = 4;
+  // const int M_THREAD = 4;
+  // const int N_THREAD = 4;
   const int M_THREAD = 8;
   const int N_THREAD = 8;
 
@@ -10383,7 +10383,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     std::stringstream buffer;
     buffer << cuda_src.rdbuf();
     std::string cuda_src_str = buffer.str();
-    //std::cerr << "Compiling " << cuda_src_str << std::endl;
+    // std::cerr << "Compiling " << cuda_src_str << std::endl;
     fe.compileRtc(cuda_src_str, "CudaCodeGen::kernel1", true);
   } else {
     // Algorithm
@@ -10470,7 +10470,7 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
         // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
         if (tv == tv9) {
           // TODO: This seems broken. Validation fails.
-          //tv->swizzle(SwizzleType::Transpose, {-4, -1});
+          // tv->swizzle(SwizzleType::Transpose, {-4, -1});
         }
         tv->merge(-4, -3);
         // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
@@ -10572,7 +10572,9 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     cudaEventElapsedTime(&elapsed_ms, ev_start, ev_end);
     elapsed_ms /= num_iterations;
     std::cout << "Elapsed time (ms): " << elapsed_ms << "\n"
-              << "TFLOPS: " << (float(M) * float(K) * float(N) * 2 / elapsed_ms * 0.001 * 0.001 * 0.001)
+              << "TFLOPS: "
+              << (float(M) * float(K) * float(N) * 2 / elapsed_ms * 0.001 *
+                  0.001 * 0.001)
               << std::endl;
     return;
   }
@@ -10590,7 +10592,6 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
     testValidate(
         &fusion, {out}, aten_inputs, {aten_output}, __LINE__, __FILE__);
   }
-
 }
 
 TEST(NVFuserTest, FusionLoopUnswitch_CUDA) {
