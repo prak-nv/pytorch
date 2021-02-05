@@ -218,12 +218,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return compute_at_view_->getComputeAtPos(getComputeAtRelPos(pos));
   }
 
-  std::pair<IterDomain*, const TensorView*> getComputeAtAxis(int pos) const {
-    const auto computeAtPos = getComputeAtPos(pos);
-    return std::make_pair(
-        computeAtPos.second->axis(computeAtPos.first), computeAtPos.second);
-  }
-
   // Compute this TensorView relative to another tensor at axis
   TensorView* computeAt(TensorView* consumer, int axis);
 
