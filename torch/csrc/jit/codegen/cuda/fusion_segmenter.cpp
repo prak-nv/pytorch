@@ -727,7 +727,9 @@ class FusionSegmentGuard : public NonCopyable {
   }
 
   ~FusionSegmentGuard() {
-    TORCH_INTERNAL_ASSERT(fusion_ != nullptr);
+    if (fusion_ == nullptr) {
+      return;
+    }
     for (auto new_inp : new_inputs_) {
       fusion_->removeInput(new_inp);
     }
