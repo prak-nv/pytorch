@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/codegen/cuda/predicate_compute.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
+#include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/index_compute.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
@@ -110,17 +111,19 @@ namespace {
 
 //! Analyze whether IterDomain can be statically determined to be safe
 //! without bounds-checking predicates.
-class IterationDomainAnalysis : private IterVisitor {
+class IterationDomainAnalysis : private ExpressionEvaluator {
  public:
   //! Return true if the expression defining tv can be safely run
   //! without a predicate
   static bool canOmitPredicate(const kir::TensorView* tv) {
+    const auto gpu_lower = GpuLower::current();
     auto fuser_tv = tv->fuserTv();
     for (size_t i = 0; i < fuser_tv->nDims(); ++i) {
-      IterDomain* id = fuser_tv->getComputeAtAxis(i).first;
+      IterDomain* id =
+          gpu_lower->caLoopMap().getConcreteMappedID(fuser_tv->axis(i));
+      IterationDomainAnalysis id_analysis(id->fusion());
       auto extent = id->rawExtent();
-      IterationDomainAnalysis id_analysis;
-      id_analysis.traverseFrom(id->fusion(), {extent});
+      id_analysis.evaluate(extent);
       if (!id_analysis.isExact(extent)) {
         return false;
       }
@@ -129,31 +132,15 @@ class IterationDomainAnalysis : private IterVisitor {
   }
 
  private:
-  using IterVisitor::handle;
+  IterationDomainAnalysis(Fusion* fusion) : ExpressionEvaluator(fusion) {}
 
-  //! Check if the value of val is statically known
-  bool isConst(const Val* val) const {
-    return const_vals_.find(val) != const_vals_.end();
-  }
-
-  //! Return the actual value of val, which must be known to be
-  //! constant
-  int getConst(const Val* val) const {
-    TORCH_INTERNAL_ASSERT(isConst(val));
-    return const_vals_.at(val);
-  }
-
-  //! Record val has a static value of const_val
-  void setConst(const Val* val, int const_val) {
-    TORCH_INTERNAL_ASSERT(const_val > 0);
-    const_vals_[val] = const_val;
-    setExact(val);
-  }
+  using ExpressionEvaluator::handle;
 
   //! Check if val has nothing that prevents a loop using val as its
   //! extent to omit a bounds-checking predicate
-  bool isExact(const Val* val) const {
-    return exact_vals_.find(val) != exact_vals_.end();
+  bool isExact(const Val* val) {
+    return val->definition() == nullptr ||
+        exact_vals_.find(val) != exact_vals_.end();
   }
 
   //! Record val does not need a predicate.
@@ -161,16 +148,9 @@ class IterationDomainAnalysis : private IterVisitor {
     exact_vals_.insert(val);
   }
 
-  void handle(Int* val) override {
-    if (val->isConst()) {
-      setConst(val, *(val->value()));
-    } else if (val->definition() == nullptr) {
-      // Undefined symbolic values
-      setExact(val);
-    }
-  }
-
   void handle(BinaryOp* bop) override {
+    ExpressionEvaluator::handle(bop);
+
     const auto lhs = bop->lhs();
     const auto rhs = bop->rhs();
 
@@ -181,34 +161,24 @@ class IterationDomainAnalysis : private IterVisitor {
     if (bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
       // CeilDiv is the only expression that can make an extent val
       // larger than the actual. Need to know the exact values.
-      if (!(isConst(lhs) && isConst(rhs))) {
-        return;
-      }
-      const auto lhs_const = getConst(lhs);
-      const auto rhs_const = getConst(rhs);
-      if (lhs_const % rhs_const == 0) {
-        setConst(bop->out(), lhs_const / rhs_const);
-      }
-    } else if (bop->getBinaryOpType() == BinaryOpType::Mul) {
-      if (isConst(lhs) && isConst(rhs)) {
-        // Both operand values are statically known. Remember its
-        // actual value.
-        const auto lhs_const = getConst(lhs);
-        const auto rhs_const = getConst(rhs);
-        setConst(bop->out(), lhs_const * rhs_const);
-      } else {
-        // The actual value is unknown at the compile time, but it
-        // does not yet require a predicate.
+      const auto lhs_value = getValue(lhs);
+      const auto rhs_value = getValue(rhs);
+      if (lhs_value.has_value() && rhs_value.has_value() &&
+          (lhs_value.value() % rhs_value.value()) == 0) {
         setExact(bop->out());
       }
+    } else if (bop->getBinaryOpType() == BinaryOpType::Mul) {
+      setExact(bop->out());
     } else {
+      // Expr on extent should be either CeilDiv or Mul, which are
+      // derived from split and merge, respectively.
       TORCH_INTERNAL_ASSERT("Unexpected BinaryOpType: ", bop);
     }
   }
 
  private:
+  //! Vals that are known to need no predicate if used as IterDomain extent
   std::unordered_set<const Val*> exact_vals_;
-  std::unordered_map<const Val*, int> const_vals_;
 };
 
 } // namespace
