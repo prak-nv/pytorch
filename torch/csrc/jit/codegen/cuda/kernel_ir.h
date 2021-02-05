@@ -1092,6 +1092,7 @@ class TORCH_CUDA_CU_API Scope {
 
  private:
   std::vector<Expr*> exprs_;
+
   //! Owner exprssion of this scope, e.g., IfThenElse
   Expr* owner_ = nullptr;
 };
