@@ -315,12 +315,9 @@ class TORCH_CUDA_CU_API Expr : public Node {
     return scope_;
   }
 
+  //! Set the current scope
   void setScope(Scope* scope) {
     scope_ = scope;
-  }
-
-  void removeScope() {
-    scope_ = nullptr;
   }
 
   Expr* parentScope() const;

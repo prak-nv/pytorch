@@ -351,7 +351,7 @@ void Scope::erase(std::vector<Expr*>::const_iterator pos) {
       expr->scope() == this,
       "Inconsistent scoping of expression detected: ",
       kir::toString(expr));
-  expr->removeScope();
+  expr->setScope(nullptr);
   exprs_.erase(pos);
 }
 
