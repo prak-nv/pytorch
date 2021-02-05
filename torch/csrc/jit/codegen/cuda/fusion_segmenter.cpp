@@ -465,10 +465,15 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
 
   auto complete_to_segment_map = Fusion::copy(&fusion_, fusion_segment.get());
 
-  for (auto inp : fusion_segment->inputs()) {
+  std::vector<Val*> input_list(
+      fusion_segment->inputs().begin(), fusion_segment->inputs().end());
+  for (auto inp : input_list) {
     fusion_segment->removeInput(inp);
   }
-  for (auto out : fusion_segment->outputs()) {
+
+  std::vector<Val*> output_list(
+      fusion_segment->outputs().begin(), fusion_segment->outputs().end());
+  for (auto out : output_list) {
     fusion_segment->removeOutput(out);
   }
 

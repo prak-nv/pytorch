@@ -11429,31 +11429,43 @@ TEST(NVFuserTest, FusionSegmentReducePointwise_CUDA) {
   FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeSymbolicTensor(2);
-  TensorView* tv1 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(1);
+  TensorView* tv2 = makeSymbolicTensor(2);
+
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
-  TensorView* tv2 = add(tv0, new Double(1)); // Group 0
-  TensorView* tv3 =
-      max(tv2, {0}); // Group 0 (use max instead to avoid numerical issues)
-  TensorView* tv4 = add(tv3, tv1); //  Group 1 (Broadcast after reduce)
+  TensorView* tv3 = add(tv0, new Double(1)); // Group 0
+  TensorView* tv4 =
+      max(tv3, {0}); // Group 0 (use max instead to avoid numerical issues)
+  TensorView* tv5 = add(tv4, tv1); //  Group 0 (Non Broadcast after reduce,
+                                   //  keeps normalization scheduler away)
+  TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
 
-  fusion->addOutput(tv4);
+  fusion->addOutput(tv6);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({128, 65}, options);
-  at::Tensor t1 = at::randn({128, 65}, options);
+  at::Tensor t1 = at::randn({65}, options);
+  at::Tensor t2 = at::randn({128, 65}, options);
 
-  auto t2 = t0.add(1.0);
-  auto t3 = std::get<0>(at::max(t2, {0}));
-  auto t4 = t3.add(t1);
+  auto t3 = t0.add(1.0);
+  auto t4 = std::get<0>(at::max(t3, {0}));
+  auto t5 = t4.add(t1);
+  auto t6 = t5.add(t2);
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  TORCH_CHECK(executor_cache.isSegmented(), "segmentation didn't happen");
+  TORCH_CHECK(
+      executor_cache.fusionSegments()->groups().size() == 2,
+      "segmentation didn't happen as expected");
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   testValidate(
-      executor_cache.fusion(), outputs, {t0, t1}, {t4}, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, {t0, t1, t2}, {t6}, __LINE__, __FILE__);
 }
 
 namespace {
@@ -11512,6 +11524,11 @@ TEST(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   auto t1 = at_x.add(1.0);
   auto t2 = t1.sum({2});
   auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
+
+  TORCH_CHECK(executor_cache.isSegmented(), "segmentation didn't happen");
+  TORCH_CHECK(
+      executor_cache.fusionSegments()->groups().size() == 2,
+      "segmentation didn't happen as expected");
 
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);

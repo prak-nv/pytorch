@@ -72,13 +72,12 @@ class SingleReductionScheduler : public SchedulerEntry {
     //  trying to get the heuristics and check only if grid reduction is
     //  required.
     //  TODO: We can actually allow broadcasts that doesn't get resolved
-    //        in the same fusion
-    auto uses = DependencyCheck::getAllUseChains(red_tv);
-    for (auto& chain : uses) {
-      for (auto val : chain) {
-        if (val->definition()->isA<BroadcastOp>()) {
-          return false;
-        }
+    //        in the same fusion, temporarily use a simplified detection
+    //        where broadcast is allowed if it's at output and has no use
+    auto dependent_vals = DependencyCheck::getAllDependentVals({red_tv});
+    for (auto val : dependent_vals) {
+      if (val->definition()->isA<BroadcastOp>() && !val->uses().empty()) {
+        return false;
       }
     }
 
@@ -154,6 +153,7 @@ class NormalizationScheduler : public SchedulerEntry {
   }
 
   void schedule(Fusion* fusion) override {
+    FUSER_PERF_SCOPE("Schedule Normalization Fusion");
     std::vector<TensorView*> reduction_tensors;
     std::vector<TensorView*> other_tensors;
     analyzeFusion(fusion, reduction_tensors, other_tensors);
@@ -161,33 +161,54 @@ class NormalizationScheduler : public SchedulerEntry {
   }
 
   static bool canSchedule(Fusion* fusion) {
-    FUSER_PERF_SCOPE("Schedule Normalization Fusion");
-    auto red_ops = findReductionOps(fusion);
+    std::vector<TensorView*> reduction_tv;
+    std::vector<TensorView*> other_tv;
 
-    if (red_ops.size() == 0) {
+    analyzeFusion(fusion, reduction_tv, other_tv);
+
+    if (reduction_tv.size() == 0) {
       // Use single reduction or pointwise logic
       return false;
     }
+
     // Before examining the reduction axes want to quickly
     //   check the reductions have the same axis width
     //   to avoid building root domain map in easier cases
     bool valid_axis_count = false;
     size_t axis_count = 0;
-    auto reduction_root_size = [](ReductionOp* rop) {
+    auto reduction_root_size = [](TensorView* red_tv) {
       size_t count = 0;
-      for (auto id : rop->out()->as<TensorView>()->getRootDomain()) {
+      for (auto id : red_tv->getRootDomain()) {
         if (!id->isBroadcast()) {
           count++;
         }
       }
       return count;
     };
-    for (auto red : red_ops) {
+
+    for (auto red : reduction_tv) {
       if (!valid_axis_count) {
         valid_axis_count = true;
         axis_count = reduction_root_size(red);
       } else {
         if (reduction_root_size(red) != axis_count) {
+          return false;
+        }
+      }
+    }
+
+    // Another contraint normalization scheduler has is
+    //  that all other TVs must have the same root domain width
+    //  can consider relaxing later
+    valid_axis_count = false;
+    axis_count = 0;
+
+    for (auto tv : other_tv) {
+      if (!valid_axis_count) {
+        axis_count = tv->getRootDomain().size();
+        valid_axis_count = true;
+      } else {
+        if (axis_count != tv->getRootDomain().size()) {
           return false;
         }
       }
@@ -199,8 +220,8 @@ class NormalizationScheduler : public SchedulerEntry {
     root_map.build(true);
 
     // red_ops.size()>1 checked before
-    for (size_t it = 1; it < red_ops.size(); it++) {
-      if (!checkEquivalence(red_ops[it - 1], red_ops[it], root_map)) {
+    for (size_t it = 1; it < reduction_tv.size(); it++) {
+      if (!checkEquivalence(reduction_tv[it - 1], reduction_tv[it], root_map)) {
         return false;
       }
     }
@@ -219,11 +240,9 @@ class NormalizationScheduler : public SchedulerEntry {
   }
 
   static bool checkEquivalence(
-      ReductionOp* op0,
-      ReductionOp* op1,
+      TensorView* out_tv0,
+      TensorView* out_tv1,
       const ComputeAtRootDomainMap& root_map) {
-    const auto out_tv0 = op0->out()->as<TensorView>();
-    const auto out_tv1 = op1->out()->as<TensorView>();
     const auto& out_root0 = out_tv0->getRootDomain();
     const auto& out_root1 = out_tv1->getRootDomain();
     const auto domain0 = out_tv0->domain();
