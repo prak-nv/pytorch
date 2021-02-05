@@ -347,9 +347,11 @@ void Scope::insert(size_t pos, Expr* expr) {
 void Scope::erase(std::vector<Expr*>::const_iterator pos) {
   // Remove the scope of the expr if this is the scope
   auto expr = *pos;
-  if (expr->scope() == this) {
-    expr->removeScope();
-  }
+  TORCH_INTERNAL_ASSERT(
+      expr->scope() == this,
+      "Inconsistent scoping of expression detected: ",
+      kir::toString(expr));
+  expr->removeScope();
   exprs_.erase(pos);
 }
 

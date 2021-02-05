@@ -89,7 +89,6 @@ void UnrollPass::handle(kir::Expr* expr) {
     if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
       non_trivial_pred_found_ = true;
       kir::IfThenElse* inline_ite = ir_builder.create<kir::IfThenElse>(pred);
-      inline_ite->thenBody().push_back(expr);
       if (for_loops_.empty()) {
         // Special handling for top level output expressions that still
         // need predicates. One motivating example is a reduction op that
@@ -99,6 +98,7 @@ void UnrollPass::handle(kir::Expr* expr) {
         for_loops_.back()->body().insert_before(expr, inline_ite);
         for_loops_.back()->body().erase(expr);
       }
+      inline_ite->thenBody().push_back(expr);
     }
   } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
     handle(for_loop);
