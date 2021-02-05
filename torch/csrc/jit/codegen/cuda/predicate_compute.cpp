@@ -111,7 +111,7 @@ namespace {
 
 //! Analyze whether IterDomain can be statically determined to be safe
 //! without bounds-checking predicates.
-class IterationDomainAnalysis : private ExpressionEvaluator {
+class IterationDomainAnalysis : private OptOutDispatch {
  public:
   //! Return true if the expression defining tv can be safely run
   //! without a predicate
@@ -123,7 +123,7 @@ class IterationDomainAnalysis : private ExpressionEvaluator {
           gpu_lower->caLoopMap().getConcreteMappedID(fuser_tv->axis(i));
       IterationDomainAnalysis id_analysis(id->fusion());
       auto extent = id->rawExtent();
-      id_analysis.evaluate(extent);
+      id_analysis.handle(extent);
       if (!id_analysis.isExact(extent)) {
         return false;
       }
@@ -132,15 +132,14 @@ class IterationDomainAnalysis : private ExpressionEvaluator {
   }
 
  private:
-  IterationDomainAnalysis(Fusion* fusion) : ExpressionEvaluator(fusion) {}
+  IterationDomainAnalysis(Fusion* fusion) : fusion_(fusion) {}
 
-  using ExpressionEvaluator::handle;
+  using OptOutDispatch::handle;
 
   //! Check if val has nothing that prevents a loop using val as its
   //! extent to omit a bounds-checking predicate
   bool isExact(const Val* val) {
-    return val->definition() == nullptr ||
-        exact_vals_.find(val) != exact_vals_.end();
+    return exact_vals_.find(val) != exact_vals_.end();
   }
 
   //! Record val does not need a predicate.
@@ -148,11 +147,20 @@ class IterationDomainAnalysis : private ExpressionEvaluator {
     exact_vals_.insert(val);
   }
 
-  void handle(BinaryOp* bop) override {
-    ExpressionEvaluator::handle(bop);
+  void handle(Val* val) override {
+    if (val->definition() != nullptr) {
+      handle(val->definition());
+    } else {
+      setExact(val);
+    }
+  }
 
+  void handle(BinaryOp* bop) override {
     const auto lhs = bop->lhs();
     const auto rhs = bop->rhs();
+
+    handle(lhs);
+    handle(rhs);
 
     if (!(isExact(lhs) && isExact(rhs))) {
       return;
@@ -161,8 +169,9 @@ class IterationDomainAnalysis : private ExpressionEvaluator {
     if (bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
       // CeilDiv is the only expression that can make an extent val
       // larger than the actual. Need to know the exact values.
-      const auto lhs_value = getValue(lhs);
-      const auto rhs_value = getValue(rhs);
+      ExpressionEvaluator ee(fusion_);
+      const auto lhs_value = ee.evaluate(lhs);
+      const auto rhs_value = ee.evaluate(rhs);
       if (lhs_value.has_value() && rhs_value.has_value() &&
           (lhs_value.value() % rhs_value.value()) == 0) {
         setExact(bop->out());
@@ -177,6 +186,7 @@ class IterationDomainAnalysis : private ExpressionEvaluator {
   }
 
  private:
+  Fusion* fusion_ = nullptr;
   //! Vals that are known to need no predicate if used as IterDomain extent
   std::unordered_set<const Val*> exact_vals_;
 };
