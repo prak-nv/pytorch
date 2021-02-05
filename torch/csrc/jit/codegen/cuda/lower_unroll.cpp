@@ -62,7 +62,8 @@ kir::Bool* UnrollPass::getThreadPredicate(const kir::TensorView* tv) {
     TORCH_INTERNAL_ASSERT(bop->out()->isA<kir::TensorView>());
     const auto out = bop->out()->as<kir::TensorView>()->fuserTv();
     if (ir_utils::getParallelBroadcastDomains(out, thread_predicates_).any()) {
-      return nullptr;
+      return kir::IrBuilder(GpuLower::current()->kernel())
+          .create<kir::Bool>(true);
     }
   }
   return thread_predicates_.getExpr(tv->fuserTv());
@@ -84,6 +85,8 @@ void UnrollPass::handle(kir::Expr* expr) {
         : getThreadPredicate(out_tv);
     const auto pred =
         PredicateCompute::getInlinePredicate(expr, for_loops_, thread_pred);
+
+    TORCH_INTERNAL_ASSERT(pred != nullptr);
 
     // If we need a predicate, put expr inside an if then else
     if (!pred->isConst() || !(pred->isConst() && pred->value().value())) {
