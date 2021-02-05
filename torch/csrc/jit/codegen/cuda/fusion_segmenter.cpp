@@ -1,5 +1,6 @@
 #include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+#include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
@@ -37,7 +38,7 @@ std::vector<SegmentedGroup*> SegmentedGroup::getNeighbors() {
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
     getMergeCandidates() {
   // Don't look for candidates if already merged
-  if (merged) {
+  if (merged_) {
     return {};
   }
 
@@ -48,13 +49,13 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
   // within 1 level, can't merge this node with anything else.
   bool can_merge_this = true;
   for (auto& neighbor : neighbors) {
-    if (!neighbor.group->merged) {
+    if (!neighbor.group->merged_) {
       continue;
     }
-    if (std::abs(neighbor.group->level - level) <= 1) {
+    if (std::abs(neighbor.group->level_ - level_) <= 1) {
       can_merge_this = false;
     }
-    if (std::abs(neighbor.group->merge_with->level - level) <= 1) {
+    if (std::abs(neighbor.group->merge_with_->level_ - level_) <= 1) {
       can_merge_this = false;
     }
   }
@@ -66,7 +67,7 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
 
   // Find neighbors with a level that is only 1 differant than this groups level
   for (size_t i = 0; i < neighbors.size(); i++) {
-    if (std::abs(neighbors[i].group->level - level) > 1) {
+    if (std::abs(neighbors[i].group->level_ - level_) > 1) {
       can_merge[i] = false;
     }
   }
@@ -84,23 +85,23 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
       if (neighbor_neighbor == neighbors[i].group) {
         continue;
       }
-      if (neighbor_neighbor->merged) {
+      if (neighbor_neighbor->merged_) {
         // check neighbor_neighbor level
-        if (std::abs(neighbor_neighbor->level - level) <= 1) {
+        if (std::abs(neighbor_neighbor->level_ - level_) <= 1) {
           can_merge[i] = false;
         }
-        if (std::abs(neighbor_neighbor->level - neighbors[i].group->level) <=
+        if (std::abs(neighbor_neighbor->level_ - neighbors[i].group->level_) <=
             1) {
           can_merge[i] = false;
         }
 
-        // check neighbor_neighber->merged->level
-        if (std::abs(neighbor_neighbor->merge_with->level - level) <= 1) {
+        // check neighbor_neighber->merged_->level_
+        if (std::abs(neighbor_neighbor->merge_with_->level_ - level_) <= 1) {
           can_merge[i] = false;
         }
         if (std::abs(
-                neighbor_neighbor->merge_with->level -
-                neighbors[i].group->level) <= 1) {
+                neighbor_neighbor->merge_with_->level_ -
+                neighbors[i].group->level_) <= 1) {
           can_merge[i] = false;
         }
       }
@@ -117,10 +118,11 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
 }
 
 void SegmentedGroup::clearTraversalInfo() {
-  level = -1;
-  visited = false;
-  merge_with = nullptr;
-  merged = false;
+  level_ = -1;
+  visited_ = false;
+  merge_with_ = nullptr;
+  merge_through_ = nullptr;
+  merged_ = false;
 }
 
 std::vector<Val*> SegmentedGroup::edgesToVals(
@@ -134,17 +136,6 @@ std::vector<Val*> SegmentedGroup::edgesToVals(
       std::back_inserter(ret_v),
       [](SegmentedEdge* se) { return se->val; });
   return ret_v;
-}
-
-void SegmentedGroup::print() {
-  std::cout << "g{"
-            << "(" << toString(heuristic_) << ")\n";
-  for (size_t i = 0; i < exprs_.size(); i++) {
-    exprs_[i]->print();
-    if (i + 1 != exprs_.size())
-      std::cout << ", ";
-  }
-  std::cout << "}\n\n";
 }
 
 template <typename PREDICATE>
@@ -186,14 +177,14 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   return os;
 }
 
-void SegmentedEdge::print() {
-  std::cout << "e{ \n  ";
-  from->print();
-  std::cout << " -> \n  ";
-  to->print();
-  std::cout << "through: ";
-  val->print();
-  std::cout << "}\\\\e\n\n";
+void SegmentedGroup::print() const {
+  std::cout << this << "\n";
+}
+
+std::string toString(const SegmentedGroup* group) {
+  std::stringstream ss;
+  ss << group;
+  return ss.str();
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
@@ -204,19 +195,62 @@ std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge) {
   return os;
 }
 
+void SegmentedEdge::print() const {
+  std::cout << this << "\n";
+}
+
+std::string toString(const SegmentedEdge* edge) {
+  std::stringstream ss;
+  ss << edge;
+  return ss.str();
+}
+
 SegmentedFusion::SegmentedFusion(const Fusion* fusion)
     : fusion_(*fusion), impl_(this) {}
 
-void SegmentedFusion::print() {
-  std::cout << "Segmented_Fusion{ \n";
-  for (auto g : groups()) {
-    g->print();
-  }
+namespace {
 
-  for (auto e : edges()) {
-    std::cout << e << std::endl;
+// Utility function to list all expressions in a group
+void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
+  IrPrinter irp(os);
+  os << "g{"
+     << "(" << toString(group->heuristic()) << ")\n";
+  for (size_t i = 0; i < group->exprs().size(); i++) {
+    irp.handle(group->exprs()[i]);
+    if (i + 1 != group->exprs().size())
+      os << " , ";
   }
-  std::cout << "} //Segmented_Fusion\n";
+  os << "}\n\n";
+}
+
+} // namespace
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const SegmentedFusion* segmented_fusion) {
+  os << "Segmented_Fusion{ \n";
+  for (const auto g : segmented_fusion->cgroups()) {
+    os << g << "\n";
+  }
+  for (const auto e : segmented_fusion->cedges()) {
+    os << e << "\n";
+  }
+  os << "group details:\n\n";
+  for (const auto g : segmented_fusion->cgroups()) {
+    detailGroupPrint(os, g);
+  }
+  os << "} //Segmented_Fusion\n";
+  return os;
+}
+
+void SegmentedFusion::print() const {
+  std::cout << this << "\n";
+}
+
+std::string toString(SegmentedFusion* segmented_fusion) {
+  std::stringstream ss;
+  ss << segmented_fusion;
+  return ss.str();
 }
 
 SegmentedGroup* SegmentedFusion::Impl::makeGroup() {
@@ -488,18 +522,14 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   return fusion_segment;
 }
 
-std::ostream& operator<<(std::ostream& os, const SegmentedFusion* scf) {
-  return os << scf->toString(0);
-}
-
 void SegmentCandidateFinder::resetTraversal() {
   for (auto group : groups()) {
     // Start traversal at input groups
     if (group->producer_edges.empty()) {
       to_visit_.push_back(group);
     }
-    group->visited = false;
-    group->level = 0;
+    group->visited_ = false;
+    group->level_ = 0;
   }
 }
 
@@ -514,7 +544,7 @@ void SegmentCandidateFinder::resetLevels() {
       ready = std::all_of(
           visit->producer_edges.begin(),
           visit->producer_edges.end(),
-          [&](SegmentedEdge* dep) { return dep->from->visited; });
+          [&](SegmentedEdge* dep) { return dep->from->visited_; });
     }
 
     if (!ready) {
@@ -524,7 +554,7 @@ void SegmentCandidateFinder::resetLevels() {
       continue;
     }
 
-    visit->visited = true;
+    visit->visited_ = true;
 
     to_visit_.insert(
         to_visit_.end(), next_to_visit_.begin(), next_to_visit_.end());
@@ -534,9 +564,9 @@ void SegmentCandidateFinder::resetLevels() {
       to_visit_.push_back(out->to);
     }
 
-    visit->level = 0;
+    visit->level_ = 0;
     for (auto inp : visit->producer_edges) {
-      visit->level = std::max(visit->level, inp->from->level + 1);
+      visit->level_ = std::max(visit->level_, inp->from->level_ + 1);
     }
   }
   TORCH_INTERNAL_ASSERT(
@@ -577,7 +607,7 @@ std::unordered_set<SegmentedEdge*> SegmentCandidateFinder::disconnectGroup(
 void SegmentCandidateFinder::mergeNodes() {
   while (!to_merge_.empty()) {
     auto group1 = *to_merge_.begin();
-    auto group2 = group1->merge_with;
+    auto group2 = group1->merge_with_;
     to_merge_.erase(group1);
     to_merge_.erase(group2);
 
@@ -665,62 +695,60 @@ namespace {
 // Guard to temporarily change the inputs and outputs of a fusion. On
 // destruction will return fusion to original state.
 // Not used temporarily but will be useful when adding more mergin heuristics
-class FusionSegmentGuard {
+class FusionSegmentGuard : public NonCopyable {
  public:
   FusionSegmentGuard() = delete;
-  FusionSegmentGuard(FusionSegmentGuard const&) = delete;
-  FusionSegmentGuard& operator=(FusionSegmentGuard const&) = delete;
 
   FusionSegmentGuard(
       Fusion* fusion,
       std::vector<Val*> inputs,
       std::vector<Val*> outputs)
       : fusion_(fusion),
-        old_inputs(fusion->inputs()),
-        old_outputs(fusion->outputs()),
-        new_inputs(std::move(inputs)),
-        new_outputs(std::move(outputs)) {
-    for (auto old_inp : old_inputs) {
+        old_inputs_(fusion->inputs()),
+        old_outputs_(fusion->outputs()),
+        new_inputs_(std::move(inputs)),
+        new_outputs_(std::move(outputs)) {
+    for (auto old_inp : old_inputs_) {
       fusion_->removeInput(old_inp);
     }
 
-    for (auto old_out : old_outputs) {
+    for (auto old_out : old_outputs_) {
       fusion_->removeOutput(old_out);
     }
 
-    for (auto new_inp : new_inputs) {
+    for (auto new_inp : new_inputs_) {
       fusion_->addInput(new_inp);
     }
 
-    for (auto new_out : new_outputs) {
+    for (auto new_out : new_outputs_) {
       fusion_->addOutput(new_out);
     }
   }
 
   ~FusionSegmentGuard() {
-    for (auto new_inp : new_inputs) {
+    for (auto new_inp : new_inputs_) {
       fusion_->removeInput(new_inp);
     }
 
-    for (auto new_out : new_outputs) {
+    for (auto new_out : new_outputs_) {
       fusion_->removeOutput(new_out);
     }
 
-    for (auto old_inp : old_inputs) {
+    for (auto old_inp : old_inputs_) {
       fusion_->addInput(old_inp);
     }
 
-    for (auto old_out : old_outputs) {
+    for (auto old_out : old_outputs_) {
       fusion_->addOutput(old_out);
     }
   }
 
  private:
-  Fusion* const fusion_;
-  const std::vector<Val*> old_inputs;
-  const std::vector<Val*> old_outputs;
-  const std::vector<Val*> new_inputs;
-  const std::vector<Val*> new_outputs;
+  Fusion* const fusion_ = nullptr;
+  const std::vector<Val*> old_inputs_;
+  const std::vector<Val*> old_outputs_;
+  const std::vector<Val*> new_inputs_;
+  const std::vector<Val*> new_outputs_;
 };
 
 c10::optional<ScheduleHeuristic> tryMerge(
@@ -756,6 +784,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion) {
 }
 
 void SegmentCandidateFinder::findSegments() {
+  FUSER_PERF_SCOPE("Finding valid fusion segment solutions");
   // TODO: Make traversal items local to this function.
 
   // Need this for initialization of the DAG that is process
@@ -808,7 +837,7 @@ void SegmentCandidateFinder::findSegments() {
     resetLevels();
 
     for (auto& group : groups()) {
-      if (group->merged) {
+      if (group->merged_) {
         continue;
       }
       auto candidates = group->getMergeCandidates();
@@ -828,13 +857,13 @@ void SegmentCandidateFinder::findSegments() {
       to_merge_.emplace(group);
       to_merge_.emplace(candidate_it->group);
 
-      group->merged = true;
-      group->merge_with = candidate_it->group;
-      group->merge_through = candidate_it->edge;
+      group->merged_ = true;
+      group->merge_with_ = candidate_it->group;
+      group->merge_through_ = candidate_it->edge;
 
-      candidate_it->group->merged = true;
-      candidate_it->group->merge_with = group;
-      candidate_it->group->merge_through = candidate_it->edge;
+      candidate_it->group->merged_ = true;
+      candidate_it->group->merge_with_ = group;
+      candidate_it->group->merge_through_ = candidate_it->edge;
     }
 
     if (to_merge_.empty()) {

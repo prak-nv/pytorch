@@ -30,7 +30,7 @@ struct SegmentedEdge {
   SegmentedGroup* to;
   Val* val;
 
-  void print();
+  void print() const;
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
@@ -71,7 +71,7 @@ class TORCH_CUDA_API SegmentedGroup {
   }
 
   //! Returns the schedule heuristic associated with this group
-  ScheduleHeuristic heuristic() {
+  ScheduleHeuristic heuristic() const {
     return heuristic_;
   }
 
@@ -81,7 +81,7 @@ class TORCH_CUDA_API SegmentedGroup {
   }
 
   //! Debug print function
-  void print();
+  void print() const;
 
  public:
   //! "Ancestor nodes", towards inputs of segmentedDAG
@@ -112,19 +112,19 @@ class TORCH_CUDA_API SegmentedGroup {
 
   //! Maximum path distance from an input segmented group required for
   //! Theorem 4.2
-  int level = -1;
+  int level_ = -1;
 
   //! traversal marker, has this node already been processed
-  bool visited = false;
+  bool visited_ = false;
 
   //! Did we select another group to merge with
-  SegmentedGroup* merge_with = nullptr;
+  SegmentedGroup* merge_with_ = nullptr;
 
   //! if we selected another group to merge, which edge is to be contracted
-  SegmentedEdge* merge_through = nullptr;
+  SegmentedEdge* merge_through_ = nullptr;
 
   //! Has this node been merged?
-  bool merged = false;
+  bool merged_ = false;
 
  private:
   //! Utility to convert edge vector to value vector
@@ -211,6 +211,14 @@ class TORCH_CUDA_API SegmentedFusion {
     return edges_;
   }
 
+  const std::vector<SegmentedGroup*>& cgroups() const {
+    return groups_;
+  }
+
+  const std::vector<SegmentedEdge*>& cedges() const {
+    return edges_;
+  }
+
   //! Returns the original un-segmented fusion
   Fusion& completeFusion() {
     return fusion_;
@@ -235,7 +243,7 @@ class TORCH_CUDA_API SegmentedFusion {
   std::string toString(int verbosity) const;
 
   //! Debug print for segmented fusions
-  void print();
+  void print() const;
 
   //! API for adding groups
   SegmentedGroup* newGroup();
@@ -370,9 +378,9 @@ class TORCH_CUDA_API SegmentCandidateFinder {
   std::unique_ptr<SegmentedFusion> segmented_fusion_;
 };
 
-TORCH_CUDA_API std::ostream& operator<<(
-    std::ostream& os,
-    const SegmentedFusion* segmented_fusion);
+TORCH_CUDA_API std::string toString(const SegmentedGroup* group);
+TORCH_CUDA_API std::string toString(const SegmentedEdge* edge);
+TORCH_CUDA_API std::string toString(const SegmentedFusion* segmented_fusion);
 
 } // namespace cuda
 } // namespace fuser
