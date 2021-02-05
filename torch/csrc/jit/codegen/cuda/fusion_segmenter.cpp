@@ -1,5 +1,5 @@
-#include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+#include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
@@ -484,10 +484,10 @@ std::vector<Val*> getAllOutputs(
       std::back_inserter(consumer_edge_vals),
       [](SegmentedEdge* se) { return se->val; });
 
-  auto output_vals =
-      uniqueValConcat({sg1 == nullptr ? std::vector<Val*>() : sg1->output_vals,
-                       sg2 == nullptr ? std::vector<Val*>() : sg2->output_vals,
-                       consumer_edge_vals});
+  auto output_vals = uniqueValConcat(
+      {sg1 == nullptr ? std::vector<Val*>() : sg1->output_vals,
+       sg2 == nullptr ? std::vector<Val*>() : sg2->output_vals,
+       consumer_edge_vals});
 
   return output_vals;
 }
