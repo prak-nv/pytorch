@@ -20,6 +20,7 @@ from typing import List
 
 os.environ['PYTORCH_NVFUSER_DISABLE_FALLBACK'] = '1'
 os.environ['PYTORCH_NVFUSER_DISABLE_FMA'] = '1'
+os.environ['PYTORCH_NVFUSER_DISABLE_FASTMATH'] = '1'
 os.environ['PYTORCH_NVFUSER_JIT_OPT_LEVEL'] = '0'
 
 if GRAPH_EXECUTOR == ProfilingMode.PROFILING:
@@ -120,6 +121,11 @@ class TestCudaFuser(JitTestCase):
         self.assertEqual(o, jit_o)
         self.assertEqual(g, jit_g)
         self.assertGraphContainsExactly(jit_op.graph_for(*args), FUSION_GUARD, 1, consider_subgraphs=True)
+        bwd_graph = list(
+            list(jit_op.get_debug_state().execution_plans.values())[
+                0].code.grad_executor_states()[0].execution_plans.values()
+        )[0].graph
+        self.assertGraphContainsExactly(bwd_graph, FUSION_GUARD, 1, consider_subgraphs=True)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
@@ -1735,7 +1741,7 @@ class TestCudaFuser(JitTestCase):
 
         def t(x: torch.Tensor, p: float, train: bool):
             o = torch.nn.functional.dropout(x, p, training=train)
-            o = o + 1.0
+            o = o * 1.0
             return o
 
         t_jit = torch.jit.script(t)
@@ -1743,6 +1749,24 @@ class TestCudaFuser(JitTestCase):
         # The drop probability needs to be set to zero given that the order of picking random
         # numbers between eager mode and the jit is different
         self._run_training_helper(t_jit, t, grads, x, 0.0, True)
+
+    @unittest.skipIf(not RUN_CUDA, "requires CUDA")
+    @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
+                     "Requires fusion optimization pass to be effective")
+    def test_gelu(self):
+        dtype = torch.float
+        device = "cuda"
+        x = torch.randn([1024, 1024], dtype=dtype, device=device, requires_grad=True)
+        grads = torch.randn([1024, 1024], dtype=dtype, device=device, requires_grad=False)
+
+        def t(x: torch.Tensor):
+            o = torch.nn.functional.gelu(x)
+            o = o * 1.0
+            return o
+
+        t_jit = torch.jit.script(t)
+
+        self._run_training_helper(t_jit, t, grads, x)
 
     @unittest.skipIf(not RUN_CUDA, "requires CUDA")
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.PROFILING,
