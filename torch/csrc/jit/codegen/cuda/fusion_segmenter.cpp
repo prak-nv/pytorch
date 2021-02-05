@@ -313,36 +313,6 @@ SegmentedEdge* SegmentedFusion::newEdge(
   return e;
 }
 
-std::string SegmentedFusion::toString(int verbosity) const {
-  std::stringstream ss;
-  for (auto& group : groups_) {
-    ss << "group " << group->groupId() << "\n";
-
-    if (verbosity > 1) {
-      if (group->producer_edges.size() > 0) {
-        ss << "  produced by groups: { \n";
-        for (auto producer_edge : group->producer_edges) {
-          ss << "    " << producer_edge->from << " via " << producer_edge->val
-             << "\n";
-        }
-        ss << "  }"
-           << "\n";
-      }
-    }
-    if (verbosity > 0) {
-      if (group->consumer_edges.size() > 0) {
-        ss << "  Consumed by groups: { \n";
-        for (auto consumer_edge : group->consumer_edges) {
-          ss << "    " << consumer_edge->to << "\n";
-        }
-        ss << "  }"
-           << "\n";
-      }
-    }
-  }
-  return ss.str();
-}
-
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
   for (auto g : groups_) {
