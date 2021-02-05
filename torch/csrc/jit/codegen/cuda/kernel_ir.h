@@ -77,7 +77,7 @@ class Passkey {
 };
 
 //! Kernel IR visitor interface
-class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
+class TORCH_CUDA_CU_API IrVisitor : public PolymorphicBase {
  public:
   // TODO(kir): use Node* instead of void*
   virtual void unhandled(const void* node) {}
@@ -143,8 +143,75 @@ class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
   }
 };
 
+//! Kernel IR visitor interface
+class TORCH_CUDA_CU_API MutableIrVisitor : public PolymorphicBase {
+ public:
+  // TODO(kir): use Node* instead of void*
+  virtual void unhandled(const void*) {}
+
+  // Values
+  virtual void visit(NamedScalar* named_scalar) {
+    unhandled(named_scalar);
+  }
+  virtual void visit(Bool* value) {
+    unhandled(value);
+  }
+  virtual void visit(Double* value) {
+    unhandled(value);
+  }
+  virtual void visit(Int* value) {
+    unhandled(value);
+  }
+  virtual void visit(IterDomain* iter_domain) {
+    unhandled(iter_domain);
+  }
+  virtual void visit(TensorDomain* tensor_domain) {
+    unhandled(tensor_domain);
+  }
+  virtual void visit(TensorView* tensor_view) {
+    unhandled(tensor_view);
+  }
+  virtual void visit(TensorIndex* tensor_index) {
+    unhandled(tensor_index);
+  }
+
+  // Expressions
+  virtual void visit(UnaryOp* node) {
+    unhandled(node);
+  }
+  virtual void visit(BinaryOp* node) {
+    unhandled(node);
+  }
+  virtual void visit(TernaryOp* node) {
+    unhandled(node);
+  }
+  virtual void visit(ReductionOp* node) {
+    unhandled(node);
+  }
+  virtual void visit(BroadcastOp* node) {
+    unhandled(node);
+  }
+
+  // Statements
+  virtual void visit(Allocate* node) {
+    unhandled(node);
+  }
+  virtual void visit(Sync* node) {
+    unhandled(node);
+  }
+  virtual void visit(ForLoop* node) {
+    unhandled(node);
+  }
+  virtual void visit(IfThenElse* node) {
+    unhandled(node);
+  }
+  virtual void visit(GridReduction* node) {
+    unhandled(node);
+  }
+};
+
 //! Base class for Kernel IR nodes
-class TORCH_CUDA_API Node : public NonCopyable, public PolymorphicBase {
+class TORCH_CUDA_CU_API Node : public NonCopyable, public PolymorphicBase {
  public:
   explicit Node(Passkey) {}
 
@@ -152,12 +219,15 @@ class TORCH_CUDA_API Node : public NonCopyable, public PolymorphicBase {
   //! (https://en.wikipedia.org/wiki/Visitor_pattern)
   virtual void accept(IrVisitor* visitor) const = 0;
 
+  //! Non constant IR Visitor
+  virtual void accept(MutableIrVisitor* visitor) = 0;
+
   //! Debug helper, prints the textual representation of an IR node
   void print() const;
 };
 
 //! Generic value (scalar or tensor)
-class TORCH_CUDA_API Val : public Node {
+class TORCH_CUDA_CU_API Val : public Node {
  public:
   Val(Passkey passkey, DataType dtype);
 
@@ -226,7 +296,7 @@ class TORCH_CUDA_API Val : public Node {
 //!
 //! TODO(kir): split the expressions, assignments and statements?
 //!
-class TORCH_CUDA_API Expr : public Node {
+class TORCH_CUDA_CU_API Expr : public Node {
  public:
   explicit Expr(Passkey passkey) : Node(passkey) {}
 
@@ -274,7 +344,7 @@ class TORCH_CUDA_API Expr : public Node {
   Bool* predicate_ = nullptr;
 };
 
-class TORCH_CUDA_API NamedScalar final : public Val {
+class TORCH_CUDA_CU_API NamedScalar final : public Val {
  public:
   NamedScalar(Passkey passkey, std::string name, DataType dtype)
       : Val(passkey, dtype), name_(name) {}
@@ -285,6 +355,10 @@ class TORCH_CUDA_API NamedScalar final : public Val {
   }
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -315,7 +389,7 @@ class TORCH_CUDA_API NamedScalar final : public Val {
   std::string name_;
 };
 
-class TORCH_CUDA_API Bool final : public Val {
+class TORCH_CUDA_CU_API Bool final : public Val {
  public:
   explicit Bool(Passkey passkey, const c10::optional<bool>& value)
       : Val(passkey, DataType::Bool), maybe_value_(value) {}
@@ -326,6 +400,10 @@ class TORCH_CUDA_API Bool final : public Val {
   }
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -345,7 +423,7 @@ class TORCH_CUDA_API Bool final : public Val {
   const c10::optional<bool> maybe_value_;
 };
 
-class TORCH_CUDA_API Double final : public Val {
+class TORCH_CUDA_CU_API Double final : public Val {
  public:
   using ScalarType = double;
 
@@ -358,6 +436,10 @@ class TORCH_CUDA_API Double final : public Val {
   }
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -377,7 +459,7 @@ class TORCH_CUDA_API Double final : public Val {
   const c10::optional<ScalarType> maybe_value_;
 };
 
-class TORCH_CUDA_API Int final : public Val {
+class TORCH_CUDA_CU_API Int final : public Val {
  public:
   using ScalarType = int64_t;
 
@@ -393,6 +475,10 @@ class TORCH_CUDA_API Int final : public Val {
   }
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -420,13 +506,17 @@ class TORCH_CUDA_API Int final : public Val {
   const c10::optional<ScalarType> maybe_value_;
 };
 
-class TORCH_CUDA_API IterDomain final : public Val {
+class TORCH_CUDA_CU_API IterDomain final : public Val {
  public:
   IterDomain(Passkey passkey, Val* start, Val* extent);
 
   explicit IterDomain(Passkey, const fuser::cuda::IterDomain* iter_domain);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -504,7 +594,7 @@ class TORCH_CUDA_API IterDomain final : public Val {
 };
 
 // TODO(kir): is this really a value?
-class TORCH_CUDA_API TensorDomain final : public Val {
+class TORCH_CUDA_CU_API TensorDomain final : public Val {
  public:
   explicit TensorDomain(Passkey, std::vector<IterDomain*> domain);
 
@@ -513,6 +603,10 @@ class TORCH_CUDA_API TensorDomain final : public Val {
       const fuser::cuda::TensorDomain* tensor_domain);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -580,7 +674,7 @@ class TORCH_CUDA_API TensorDomain final : public Val {
   const std::vector<bool> contiguity_;
 };
 
-class TORCH_CUDA_API TensorView final : public Val {
+class TORCH_CUDA_CU_API TensorView final : public Val {
  public:
   explicit TensorView(Passkey, const fuser::cuda::TensorView* tv);
 
@@ -595,6 +689,10 @@ class TORCH_CUDA_API TensorView final : public Val {
   }
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -616,11 +714,15 @@ class TORCH_CUDA_API TensorView final : public Val {
   const fuser::cuda::TensorView* fuser_tv_ = nullptr;
 };
 
-class TORCH_CUDA_API UnaryOp final : public Expr {
+class TORCH_CUDA_CU_API UnaryOp final : public Expr {
  public:
   UnaryOp(Passkey passkey, UnaryOpType operation, Val* out, Val* in);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -642,7 +744,7 @@ class TORCH_CUDA_API UnaryOp final : public Expr {
   Val* const in_ = nullptr;
 };
 
-class TORCH_CUDA_API BinaryOp final : public Expr {
+class TORCH_CUDA_CU_API BinaryOp final : public Expr {
  public:
   BinaryOp(
       Passkey passkey,
@@ -652,6 +754,10 @@ class TORCH_CUDA_API BinaryOp final : public Expr {
       Val* rhs);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -678,7 +784,7 @@ class TORCH_CUDA_API BinaryOp final : public Expr {
   Val* const rhs_ = nullptr;
 };
 
-class TORCH_CUDA_API TernaryOp final : public Expr {
+class TORCH_CUDA_CU_API TernaryOp final : public Expr {
  public:
   TernaryOp(
       Passkey passkey,
@@ -689,6 +795,10 @@ class TORCH_CUDA_API TernaryOp final : public Expr {
       Val* in3);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -720,7 +830,7 @@ class TORCH_CUDA_API TernaryOp final : public Expr {
   Val* const in3_ = nullptr;
 };
 
-class TORCH_CUDA_API ReductionOp final : public Expr {
+class TORCH_CUDA_CU_API ReductionOp final : public Expr {
  public:
   ReductionOp(
       Passkey passkey,
@@ -730,6 +840,10 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
       Val* in);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -762,7 +876,7 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
   Val* const in_ = nullptr;
 };
 
-class TORCH_CUDA_API TensorIndex final : public Val {
+class TORCH_CUDA_CU_API TensorIndex final : public Val {
  public:
   TensorIndex(
       Passkey,
@@ -770,6 +884,10 @@ class TORCH_CUDA_API TensorIndex final : public Val {
       std::vector<Val*> indices);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -792,11 +910,15 @@ class TORCH_CUDA_API TensorIndex final : public Val {
   std::vector<Val*> indices_;
 };
 
-class TORCH_CUDA_API BroadcastOp final : public Expr {
+class TORCH_CUDA_CU_API BroadcastOp final : public Expr {
  public:
   BroadcastOp(Passkey passkey, Val* out, Val* in);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -821,7 +943,7 @@ class TORCH_CUDA_API BroadcastOp final : public Expr {
 //! TODO(kir): The components of Allocate like Type and Name could be separated
 //!   from the the assocated TensorView.  Perhaps that is more appropriate?
 //!
-class TORCH_CUDA_API Allocate final : public Expr {
+class TORCH_CUDA_CU_API Allocate final : public Expr {
  public:
   explicit Allocate(
       Passkey passkey,
@@ -831,6 +953,10 @@ class TORCH_CUDA_API Allocate final : public Expr {
       bool zero_init = false);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -875,11 +1001,15 @@ class TORCH_CUDA_API Allocate final : public Expr {
 //
 // TODO(kir): change name to SyncThreads as we could have other barriers.
 //
-class TORCH_CUDA_API Sync final : public Expr {
+class TORCH_CUDA_CU_API Sync final : public Expr {
  public:
   explicit Sync(Passkey passkey, bool war_sync = false);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -893,7 +1023,7 @@ class TORCH_CUDA_API Sync final : public Expr {
 };
 
 // TODO(kir): promote to IR node
-class TORCH_CUDA_API Scope {
+class TORCH_CUDA_CU_API Scope {
  public:
   Scope() = default;
 
@@ -952,7 +1082,7 @@ class TORCH_CUDA_API Scope {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class TORCH_CUDA_API ForLoop final : public Expr {
+class TORCH_CUDA_CU_API ForLoop final : public Expr {
  public:
   ForLoop(
       Passkey passkey,
@@ -961,6 +1091,10 @@ class TORCH_CUDA_API ForLoop final : public Expr {
       Expr* parent_scope);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -993,11 +1127,15 @@ class TORCH_CUDA_API ForLoop final : public Expr {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class TORCH_CUDA_API IfThenElse final : public Expr {
+class TORCH_CUDA_CU_API IfThenElse final : public Expr {
  public:
   explicit IfThenElse(Passkey passkey, Bool* cond, Expr* parent_scope);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 
@@ -1037,11 +1175,15 @@ class TORCH_CUDA_API IfThenElse final : public Expr {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! reduction and sync buffers.
-class TORCH_CUDA_API GridReduction final : public Expr {
+class TORCH_CUDA_CU_API GridReduction final : public Expr {
  public:
   explicit GridReduction(Passkey passkey, ReductionOp* reduction_op);
 
   void accept(IrVisitor* visitor) const override {
+    visitor->visit(this);
+  }
+
+  void accept(MutableIrVisitor* visitor) override {
     visitor->visit(this);
   }
 

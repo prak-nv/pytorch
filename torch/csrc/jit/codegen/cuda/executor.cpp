@@ -155,6 +155,14 @@ void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
       !kernel_summary.has_dynamic_local_memory_allocations,
       "Allocations must be based on constant integers for local memory.");
 
+  TORCH_CHECK(
+      kernel_summary.number_of_grid_reductions <= 1,
+      "Multiple grid reductions in a fusion is not supported");
+
+  TORCH_CHECK(
+      !kernel_summary.has_grid_reduction_in_loop,
+      "Grid reduction must not be placed inside a loop.");
+
   compiled_kernel_ = executor_utils::nvrtcCompile(
       structured_code,
       (kernelNamespace() + "::" + kernelName()).c_str(),
@@ -279,15 +287,14 @@ LaunchParams FusionExecutor::computeLaunchParams(
           auto inferred_val = expr_eval.evaluate(extent);
           if (inferred_val.has_value()) {
             // This value could have been inferred, make sure it was set right.
-            TORCH_CHECK(
+            bool valid =
                 inferred_val.value() == launch_constraints.getDim(p_type) ||
-                    launch_constraints.getRawVal(p_type) == -1,
-                "inferred that ",
-                p_type,
-                " should be set to ",
-                inferred_val.value(),
-                " but launch constraints specified ",
-                launch_constraints.getDim(p_type));
+                launch_constraints.getRawVal(p_type) == -1;
+            if (!useFallback() && !valid) {
+              TORCH_WARN_ONCE(
+                  "Cannot validate parallelization scheme, "
+                  "this may be due to mixed broadcast axes that are parallelized.");
+            }
           } else {
             // Bind the launch constraint into our evaluation context
             expr_eval.bind(extent, launch_constraints.getDim(p_type));
@@ -302,6 +309,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
   for (auto& entry : parallel_iter_extents) {
     auto p_type = entry.first;
     auto parallel_extents = entry.second;
+    // Select the maxmimum value out of all the parallel extents
+    int64_t maximum_value = std::numeric_limits<int64_t>::min();
     for (auto extent : parallel_extents) {
       const auto val = expr_eval.evaluate(extent);
       TORCH_INTERNAL_ASSERT(
@@ -309,8 +318,9 @@ LaunchParams FusionExecutor::computeLaunchParams(
           "Tried to evaluate the extent of ",
           p_type,
           " to set launch bounds but could not.");
-      launch_params.bind(*val, p_type);
+      maximum_value = std::max(maximum_value, *val);
     }
+    launch_params.bind(maximum_value, p_type);
   }
 
   const auto kernel = lowered_.kernel();
@@ -320,7 +330,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
   // Add workspace for reduction and broadcast
   uint64_t reduction_broadcast_workspace = 0;
   const bool has_workspace = kernel_summary.has_block_reductions ||
-      kernel_summary.has_grid_reductions || kernel_summary.has_block_broadcasts;
+      kernel_summary.number_of_grid_reductions > 0 ||
+      kernel_summary.has_block_broadcasts;
   if (has_workspace &&
       kernel_summary.largest_smem_data_type != DataType::Null) {
     // Not using nThreads here since it does not handle uninitialized value
