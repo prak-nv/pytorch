@@ -32,12 +32,11 @@ class TORCH_CUDA_CU_API ExpressionEvaluator : private OptOutDispatch {
   //! Debugging helper, prints all the currently known values
   void print() const;
 
- protected:
+ private:
   c10::optional<Int::ScalarType> getValue(Val* value);
 
-  using OptOutDispatch::handle;
-  void handle(UnaryOp*) override;
-  void handle(BinaryOp*) override;
+  void handle(UnaryOp*) override final;
+  void handle(BinaryOp*) override final;
 
  private:
   std::unordered_map<const Val*, Int::ScalarType> known_values_;
