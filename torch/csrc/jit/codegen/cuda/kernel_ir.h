@@ -1033,7 +1033,7 @@ class TORCH_CUDA_CU_API Sync final : public Expr {
 // TODO(kir): promote to IR node
 class TORCH_CUDA_CU_API Scope {
  public:
-  Scope(Expr* owner) : owner_(owner) {}
+  explicit Scope(Expr* owner) : owner_(owner) {}
 
   const std::vector<Expr*>& exprs() const {
     return exprs_;
