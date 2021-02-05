@@ -69,7 +69,7 @@ void IrPrinter::handle(const TensorView* tv) {
     if (tv->getComputeAtView() != nullptr) {
       os_ << " compute_at( ";
       os_ << "T" << tv->getComputeAtView()->name();
-      os_ << ", " << tv->getRelativeComputeAtAxis() << " )";
+      os_ << " )";
     }
   }
 }

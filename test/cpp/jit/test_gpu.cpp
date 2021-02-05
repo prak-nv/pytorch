@@ -5737,7 +5737,7 @@ TEST(NVFuserTest, FusionReductionMultiConsumer_CUDA) {
 
   TORCH_CHECK(
       (tv1->getComputeAtView() == tv2 || tv1->getComputeAtView() == tv3) &&
-      tv1->getThisComputeAtAxis() == 2 && tv1->getRelativeComputeAtAxis() == 2);
+      tv1->getThisComputeAtAxis() == 2);
 }
 
 TEST(NVFuserTest, FusionComputeAtExprOrder1_CUDA) {
@@ -10166,7 +10166,6 @@ TEST(NVFuserTest, FusionIssue477_CUDA) {
   tv0->computeAt(tv4, -3);
 
   TORCH_CHECK(tv1->getThisComputeAtAxis() == 1);
-  TORCH_CHECK(tv1->getRelativeComputeAtAxis() == 2);
 }
 
 TEST(NVFuserTest, FusionIssue484_CUDA) {

@@ -236,7 +236,7 @@ unsigned int ComputeAt::backwardComputeAt_impl(
     producer->setDomain(new_domain);
     root_map_.setAlias(current_domain, new_domain);
     producer->setComputeAt(
-        consumer, (int)replay.second, (int)consumer_compute_at_axis);
+        consumer, (int)replay.second);
     producer_entry.setComputeAtDomain(producer->domain());
   }
 
@@ -267,7 +267,7 @@ unsigned int ComputeAt::forwardComputeAt_impl(
     if (producer_this_pos > producer_rel_pos) {
       producer_this_pos = producer_rel_pos;
     }
-    producer->setComputeAt(consumer, producer_this_pos, producer_rel_pos);
+    producer->setComputeAt(consumer, producer_this_pos);
   }
 
   consumer_entry.setPassPosition(replay.second);

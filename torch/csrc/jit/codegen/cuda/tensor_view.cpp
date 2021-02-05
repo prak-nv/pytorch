@@ -98,7 +98,6 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       domain_(ir_cloner->clone(src->domain_)),
       compute_at_view_(ir_cloner->clone(src->compute_at_view_)),
-      relative_compute_at_axis_(src->relative_compute_at_axis_),
       this_compute_at_axis_(src->this_compute_at_axis_),
       memory_type_(src->memory_type_),
       swizzle_type_(src->swizzle_type_) {
@@ -171,8 +170,7 @@ IterDomain* TensorView::axis(int pos) const {
 
 void TensorView::setComputeAt(
     TensorView* computeAtView,
-    int thisPos,
-    int relPos) {
+    int thisPos) {
   TORCH_INTERNAL_ASSERT(
       thisPos > 0 && (unsigned)thisPos <= nDims(),
       "Invalid this computeAt position for T",
@@ -191,15 +189,7 @@ void TensorView::setComputeAt(
       name(),
       " reduction domain inside computeAt axis.");
 
-  TORCH_INTERNAL_ASSERT(
-      relPos > 0 && (unsigned)relPos <= computeAtView->nDims(),
-      "Invalid relative computeAt position for T",
-      name(),
-      ": ",
-      relPos);
-
   compute_at_view_ = computeAtView;
-  relative_compute_at_axis_ = relPos;
   this_compute_at_axis_ = thisPos;
 }
 
@@ -211,7 +201,6 @@ void TensorView::setComputeAt(int thisPos) {
       ": ",
       thisPos);
   compute_at_view_ = nullptr;
-  relative_compute_at_axis_ = 0;
   this_compute_at_axis_ = thisPos;
 }
 
@@ -514,11 +503,10 @@ std::vector<TensorView*> TensorView::duplicate() {
 
       // Set ComputeAt position for this duplicate TV
       if (hasComputeAt()) {
-        auto rel_ca_pos = getRelativeComputeAtAxis();
         auto this_ca_pos = getThisComputeAtAxis();
         auto expr = *fusion()->unordered_uses(producer).begin();
         auto this_ca_view = expr->output(0)->as<TensorView>();
-        producer->setComputeAt(this_ca_view, this_ca_pos, rel_ca_pos);
+        producer->setComputeAt(this_ca_view, this_ca_pos);
       }
 
       duplicates.push_back(producer);
@@ -621,7 +609,7 @@ TensorView* TensorView::cache_before() {
       cache_replayed = true;
     }
     producer->setComputeAt(
-        consumer, (int)getThisComputeAtAxis(), (int)getThisComputeAtAxis());
+        consumer, (int)getThisComputeAtAxis());
   }
 
   // If the consumer was the target of computeAt by producer's inputs,
@@ -639,11 +627,11 @@ TensorView* TensorView::cache_before() {
         TransformReplay::replayPasC(producer, consumer, -1);
         cache_replayed = true;
       }
-      auto definition_rel_ca_pos = definition_input->getRelativeComputeAtAxis();
+      // TODO
+      unsigned definition_rel_ca_pos = 0;
       definition_input->setComputeAt(
           producer,
-          (int)definition_input->getThisComputeAtAxis(),
-          definition_rel_ca_pos);
+          (int)definition_input->getThisComputeAtAxis());
       producer_this_pos = std::max(producer_this_pos, definition_rel_ca_pos);
     }
   }
@@ -669,9 +657,12 @@ TensorView* TensorView::cache_before() {
         break;
       }
     }
+    // TODO
+#if 0
     if (rel_pos > producer->getRelativeComputeAtAxis()) {
-      producer->setComputeAt(consumer, rel_pos, rel_pos);
+      producer->setComputeAt(consumer, rel_pos);
     }
+#endif
   }
 
   return producer;
@@ -765,12 +756,11 @@ TensorView* TensorView::cache_after() {
   if (hasComputeAt()) {
     TransformReplay::replayCasP(consumer, producer, -1);
 
-    auto rel_ca_pos = getRelativeComputeAtAxis();
     auto this_ca_pos = getThisComputeAtAxis();
     auto this_ca_view = getComputeAtView();
 
-    setComputeAt(consumer, this_ca_pos, this_ca_pos);
-    consumer->setComputeAt(this_ca_view, this_ca_pos, rel_ca_pos);
+    setComputeAt(consumer, this_ca_pos);
+    consumer->setComputeAt(this_ca_view, this_ca_pos);
   } else if (kIsFusionInput) {
     bool cache_replayed = false;
     // Check users of this TV for computeAt for cache_after on inputs
@@ -787,7 +777,7 @@ TensorView* TensorView::cache_after() {
           auto this_pos =
               TransformReplay::replayPasC(consumer, output, output_ca_pos)
                   .second;
-          consumer->setComputeAt(output, this_pos, output_ca_pos);
+          consumer->setComputeAt(output, this_pos);
         }
       }
     }

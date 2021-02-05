@@ -199,11 +199,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return this_compute_at_axis_;
   }
 
-  // Return compute at axis relative to compute at view
-  unsigned int getRelativeComputeAtAxis() const {
-    return relative_compute_at_axis_;
-  }
-
   // Return position in compute_at_view that lines up with this->axis(pos)?
   int getComputeAtRelPos(int pos) const;
 
@@ -212,7 +207,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   void clearComputeAt() {
     this_compute_at_axis_ = 0;
-    relative_compute_at_axis_ = 0;
     compute_at_view_ = nullptr;
   }
 
@@ -322,7 +316,9 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // Set all computeAt members without checking any correctness. Useful for
   // computeAt with outputs relative to eachother
-  void setComputeAt(TensorView* computeAtView, int thisPos, int relPos);
+  //void setComputeAt(TensorView* computeAtView, int thisPos, int relPos);
+
+  void setComputeAt(TensorView* computeAtView, int thisPos);
 
   void setComputeAt(int thisPos);
 
@@ -352,8 +348,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
  private:
   TensorDomain* domain_ = nullptr;
   TensorView* compute_at_view_ = nullptr;
-  // compute at axis in compute at view
-  unsigned int relative_compute_at_axis_ = 0;
   unsigned int this_compute_at_axis_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
   SwizzleType swizzle_type_ = SwizzleType::NoSwizzle;
