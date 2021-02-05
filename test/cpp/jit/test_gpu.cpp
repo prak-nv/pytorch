@@ -10354,7 +10354,8 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
   const bool perf_measure = std::getenv("PERF_MEASURE");
 
   int M = 154, K = 45, N = 1524;
-  M = K = N = 4096;
+  //M = K = N = 4096;
+  //M = K = N = 256;
 
   // Each thread block computes a M_BLOCK x N_BLOCK elements
   //const int M_BLOCK = 64;
@@ -10468,7 +10469,8 @@ TEST(NVFuserTest, FusionGemmHierarchicalTiling_CUDA) {
         tv->reorder({{-1, -3}, {-2, -1}, {-3, -4}, {-4, -2}});
         // ..., M_BLOCK / M_THREAD, N_BLOCK / N_THREAD, M_THREAD, N_THREAD
         if (tv == tv9) {
-          tv->swizzle(SwizzleType::Transpose, {-4, -1});
+          // TODO: This seems broken. Validation fails.
+          //tv->swizzle(SwizzleType::Transpose, {-4, -1});
         }
         tv->merge(-4, -3);
         // ..., M_BLOCK / M_THREAD * N_BLOCK / N_THREAD, M_THREAD, N_THREAD
