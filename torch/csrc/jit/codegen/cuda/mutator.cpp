@@ -55,9 +55,7 @@ Statement* OptOutMutator::mutate(TensorView* tv) {
       (tv->hasComputeAt() && !tv->getComputeAtView()->sameAs(computeAtView))) {
     TensorView* mutated_tv = new TensorView(td, tv->getDataType().value());
     if (tv->hasComputeAt()) {
-      mutated_tv->setComputeAt(
-          computeAtView,
-          (int)tv->getThisComputeAtAxis());
+      mutated_tv->setComputeAt(computeAtView, (int)tv->getThisComputeAtAxis());
     }
     registerMutation(tv, mutated_tv);
     return mutated_tv;

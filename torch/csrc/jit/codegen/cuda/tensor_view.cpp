@@ -168,9 +168,7 @@ IterDomain* TensorView::axis(int pos) const {
   return domain()->axis(pos);
 }
 
-void TensorView::setComputeAt(
-    TensorView* computeAtView,
-    int thisPos) {
+void TensorView::setComputeAt(TensorView* computeAtView, int thisPos) {
   TORCH_INTERNAL_ASSERT(
       thisPos > 0 && (unsigned)thisPos <= nDims(),
       "Invalid this computeAt position for T",
@@ -608,8 +606,7 @@ TensorView* TensorView::cache_before() {
       TransformReplay::replayPasC(producer, consumer, -1);
       cache_replayed = true;
     }
-    producer->setComputeAt(
-        consumer, (int)getThisComputeAtAxis());
+    producer->setComputeAt(consumer, (int)getThisComputeAtAxis());
   }
 
   // If the consumer was the target of computeAt by producer's inputs,
@@ -618,21 +615,44 @@ TensorView* TensorView::cache_before() {
   // Before: Prev TV -> This TV
   // After:  Prev TV -> New TV (CB) -> This TV
   // Iterate over definition expression inputs for cache_before on outputs
-  auto producer_this_pos = producer->getThisComputeAtAxis();
-  for (TensorView* definition_input :
+  size_t producer_this_pos = producer->getThisComputeAtAxis();
+  for (TensorView* producer_of_producer :
        ir_utils::filterByType<TensorView>(expr_inputs)) {
-    if (definition_input->hasComputeAt() &&
-        definition_input->getComputeAtView() == this) {
+    if (producer_of_producer->hasComputeAt() &&
+        producer_of_producer->getComputeAtView() == this) {
       if (!cache_replayed) {
         TransformReplay::replayPasC(producer, consumer, -1);
         cache_replayed = true;
       }
-      // TODO
-      unsigned definition_rel_ca_pos = 0;
-      definition_input->setComputeAt(
-          producer,
-          (int)definition_input->getThisComputeAtAxis());
-      producer_this_pos = std::max(producer_this_pos, definition_rel_ca_pos);
+      auto c2p_root_map =
+          PairwiseRootDomainMap(producer_of_producer, producer)
+              .mapConsumerToProducer(
+                  producer->domain(), producer_of_producer->domain());
+      producer_of_producer->setComputeAt(
+          producer, (int)producer_of_producer->getThisComputeAtAxis());
+      auto replay = BestEffortReplay(
+                        producer_of_producer->domain()->domain(),
+                        producer->domain()->domain(),
+                        c2p_root_map,
+                        true)
+                        .getReplay();
+      TORCH_INTERNAL_ASSERT(producer_of_producer->getThisComputeAtAxis() > 0);
+      auto producer_of_producer_ca_axis = producer_of_producer->axis(
+          producer_of_producer->getThisComputeAtAxis() - 1);
+      IterDomain* producer_ca_axis = nullptr;
+      for (const auto& m : replay) {
+        if (m.second == producer_of_producer_ca_axis) {
+          producer_ca_axis = m.first;
+        }
+      }
+      TORCH_INTERNAL_ASSERT(producer_ca_axis != nullptr);
+      size_t ca_axis_idx = std::distance(
+          producer->domain()->domain().begin(),
+          std::find(
+              producer->domain()->domain().begin(),
+              producer->domain()->domain().end(),
+              producer_ca_axis));
+      producer_this_pos = std::max(producer_this_pos, ca_axis_idx + 1);
     }
   }
 
@@ -647,22 +667,18 @@ TensorView* TensorView::cache_before() {
   if (producer_this_pos > producer->getThisComputeAtAxis()) {
     // The relative position at the consumer must not include the
     // reduction domains.
-    auto rel_pos = producer_this_pos;
     for (size_t i = 0; i < producer_this_pos; ++i) {
       if (i < producer->getThisComputeAtAxis()) {
         // No CA axes can be reduction.
         TORCH_INTERNAL_ASSERT(!producer->axis(i)->isReduction());
       } else if (producer->axis(i)->isReduction()) {
-        rel_pos = i;
+        producer_this_pos = i;
         break;
       }
     }
-    // TODO
-#if 0
-    if (rel_pos > producer->getRelativeComputeAtAxis()) {
-      producer->setComputeAt(consumer, rel_pos);
+    if (producer_this_pos > producer->getThisComputeAtAxis()) {
+      producer->setComputeAt(consumer, producer_this_pos);
     }
-#endif
   }
 
   return producer;

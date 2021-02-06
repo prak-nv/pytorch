@@ -235,8 +235,7 @@ unsigned int ComputeAt::backwardComputeAt_impl(
     TensorDomain* new_domain = replay.first;
     producer->setDomain(new_domain);
     root_map_.setAlias(current_domain, new_domain);
-    producer->setComputeAt(
-        consumer, (int)replay.second);
+    producer->setComputeAt(consumer, (int)replay.second);
     producer_entry.setComputeAtDomain(producer->domain());
   }
 
