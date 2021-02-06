@@ -260,40 +260,6 @@ std::set<int> getDimsToSkip(
 
 } // namespace
 
-// Where in compute_at_view does this->axis(pos) match up?
-// TODO: This doesn't seem like the safest function as a fusion output can ref
-// another fusion output,  we may want to check that there is a direct
-// consumer/producer relationship between this and compute_at view before using
-// this function, and creating another pass to handle relative outputs.
-int TensorView::getComputeAtRelPos(int pos) const {
-  TORCH_INTERNAL_ASSERT(
-      hasComputeAt(), "Tensor does not have a computeAt tensor.");
-  // Note: pos is actually an axis index.
-  TORCH_INTERNAL_ASSERT(
-      pos < (int)getThisComputeAtAxis(), "Not a computeAt axis: ", pos);
-
-  if (!compute_at_view_->hasBroadcast()) {
-    return pos;
-  }
-
-  auto dims_to_skip = getDimsToSkip(this, compute_at_view_, pos);
-
-  int pos_cav = 0;
-  for (int i = 0; i <= pos; ++i) {
-    while (dims_to_skip.find(pos_cav) != dims_to_skip.end()) {
-      ++pos_cav;
-    }
-    if (i < pos) {
-      ++pos_cav;
-    }
-  }
-
-  TORCH_INTERNAL_ASSERT(
-      pos_cav < (int)compute_at_view_->nDims(),
-      "Error computing relative position in computeAt.");
-  return pos_cav;
-}
-
 TensorView* TensorView::computeAt(TensorView* consumer, int axis) {
   // Make sure this and consumer are not the same tensor, that's illegal
   TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");

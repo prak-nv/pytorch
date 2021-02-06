@@ -199,9 +199,6 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return this_compute_at_axis_;
   }
 
-  // Return position in compute_at_view that lines up with this->axis(pos)?
-  int getComputeAtRelPos(int pos) const;
-
   // Compute this TensorView relative to another tensor at axis
   TensorView* computeAt(TensorView* consumer, int axis);
 
