@@ -7101,7 +7101,7 @@ TEST(NVFuserTest, FusionSmemDynamicPersistentSoftmax2D_CUDA) {
       __FILE__);
 }
 
-TEST(NVFuserTest, FusionVectorization1_CUDA) {
+TEST(NVFuserTest, FusionVectorizationExplicit_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -7128,15 +7128,15 @@ TEST(NVFuserTest, FusionVectorization1_CUDA) {
 
   tv0->setVectorSize(new Int(4));
   c0->setVectorSize(new Int(4));
-  c0->axis(-1)->parallelize(ParallelType::Vectorize);
+  c0->axis(-1)->parallelize(ParallelType::ExplicitVectorize);
 
   tv1->setVectorSize(new Int(4));
   c1->setVectorSize(new Int(4));
-  c1->axis(-1)->parallelize(ParallelType::Vectorize);
+  c1->axis(-1)->parallelize(ParallelType::ExplicitVectorize);
 
   c2->setVectorSize(new Int(4));
   tv2->setVectorSize(new Int(4));
-  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv2->axis(-1)->parallelize(ParallelType::ExplicitVectorize);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 128;
@@ -7154,7 +7154,7 @@ TEST(NVFuserTest, FusionVectorization1_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionVectorization2_CUDA) {
+TEST(NVFuserTest, FusionVectorizationMisaligned_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -7166,24 +7166,28 @@ TEST(NVFuserTest, FusionVectorization2_CUDA) {
   auto tv2 = add(tv0, tv1);
   fusion.addOutput(tv2);
 
-  tv2->split(1, 16);
-  tv2->split(1, 64);
+  tv2->split(-1, 64, false);
+  tv2->split(-1, 4);
 
   tv2->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(2)->parallelize(ParallelType::TIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
 
   auto c0 = tv0->cache_after();
-  c0->computeAt(tv2, -2);
+  c0->computeAt(tv2, -1);
 
+  /*
   tv0->setVectorSize(new Int(4));
   c0->setVectorSize(new Int(4));
   c0->axis(-1)->parallelize(ParallelType::Vectorize);
+  */
+
+  fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 100;
   const int by = 450;
-  at::Tensor t0 = at::randn({bx, by}, options);
-  at::Tensor t1 = at::randn({bx, by}, options);
+  at::Tensor t0 = at::ones({bx, by}, options);
+  at::Tensor t1 = at::ones({bx, by}, options);
   std::vector<IValue> aten_inputs = {t0, t1};
 
   FusionExecutor fe;

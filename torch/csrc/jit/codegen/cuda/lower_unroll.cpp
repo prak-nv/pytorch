@@ -39,9 +39,9 @@ kir::ForLoop* cloneLoopNest(
   return new_loop;
 }
 
-kir::ForLoop* cloneExplicitVectorizeLoopNest(
-    const kir::ForLoop* for_loop,
-    kir::Expr* parent_scope) {
+void cloneExplicitVectorizeLoopNest(
+    kir::ForLoop* for_loop,
+    kir::IfThenElse* vectorized_ite) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   TORCH_CHECK(for_loop->body().exprs().size() == 1);
 
@@ -61,31 +61,29 @@ kir::ForLoop* cloneExplicitVectorizeLoopNest(
   const auto vector_size = output->vectorSize();
   TORCH_INTERNAL_ASSERT(vector_size != nullptr);
 
-  const auto new_loop = ir_builder.create<kir::ForLoop>(
+  const auto vectorized_loop = ir_builder.create<kir::ForLoop>(
       for_loop->index(),
       for_loop->initial(),
       for_loop->extent(),
       vector_size,
       for_loop->iter_domain(),
-      parent_scope);
+      vectorized_ite);
 
   if (isVectorizedRead) {
     auto vectorize_read = ir_builder.create<kir::UnaryOp>(
         UnaryOpType::VectorizeRead, output, input);
-    new_loop->body().push_back(vectorize_read);
+    vectorized_loop->body().push_back(vectorize_read);
   } else {
     auto vectorize_write = ir_builder.create<kir::UnaryOp>(
         UnaryOpType::VectorizeWrite, output, input);
-    new_loop->body().push_back(vectorize_write);
+    vectorized_loop->body().push_back(vectorize_write);
   }
-
-  return new_loop;
+  vectorized_ite->thenBody().push_back(vectorized_loop);
 }
 
 kir::Val* generateIndex(
     kir::Expr* expr,
-    std::vector<kir::ForLoop*> for_loops,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    std::vector<kir::ForLoop*> for_loops) {
   auto unaryOp = expr->as<kir::UnaryOp>();
   auto input = unaryOp->in()->as<kir::TensorView>();
   auto output = unaryOp->out()->as<kir::TensorView>();
@@ -93,31 +91,14 @@ kir::Val* generateIndex(
   bool isVectorizedRead = output->memoryType() == MemoryType::Local &&
       input->memoryType() == MemoryType::Global;
 
-  auto pred_contiguity = output->domain()->contiguity();
-
-  for (auto inp : expr->inputs()) {
-    if (auto inp_tv = dynamic_cast<kir::TensorView*>(inp)) {
-      if (inp_tv->domain()->hasRFactor() ||
-          inp_tv->memoryType() == MemoryType::Shared ||
-          inp_tv->memoryType() == MemoryType::Local) {
-        continue;
-      } else {
-        pred_contiguity = IndexCompute::contiguityAnd(
-            pred_contiguity,
-            IndexCompute::contiguityPasC(inp_tv->domain(), output->domain()));
-      }
-    }
-  }
-
-  auto pred_inds = (isVectorizedRead)
-      ? Index::getProducerRootVectIndices(
-            input, output, for_loops, pred_contiguity, ca_root_map)
-      : Index::getConsumerRootVectIndices(
-            output, for_loops, pred_contiguity, ca_root_map);
+  auto tensor_index = (isVectorizedRead)
+      ? Index::getProducerIndex(
+            input->fuserTv(), output->fuserTv(), for_loops)
+      : Index::getConsumerIndex(input->fuserTv(), for_loops);
 
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   kir::Val* index = nullptr;
-  for (auto idx : pred_inds) {
+  for (auto idx : tensor_index->indices()) {
     index = (index == nullptr) ? idx : ir_builder.addExpr(index, idx);
   }
   return index;
@@ -126,8 +107,7 @@ kir::Val* generateIndex(
 void cloneVectorizeLoopNest(
     kir::ForLoop* for_loop,
     std::vector<kir::ForLoop*> outer_loops,
-    kir::IfThenElse* vectorized_ite,
-    const ComputeAtRootDomainMap& ca_root_map) {
+    kir::IfThenElse* vectorized_ite) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
 
   TORCH_CHECK(for_loop->body().exprs().size() == 1);
@@ -148,7 +128,7 @@ void cloneVectorizeLoopNest(
 
   outer_loops.push_back(for_loop);
 
-  auto base_index = generateIndex(expr, outer_loops, ca_root_map);
+  auto base_index = generateIndex(expr, outer_loops);
   auto start_shift = ir_builder.modExpr(base_index, vector_size);
 
   auto extent_start = ir_builder.subExpr(for_loop->extent(), start_shift);
@@ -291,6 +271,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
       fl->iter_domain()->parallelType() == ParallelType::Unswitch;
 
   const bool is_vectorize =
+      fl->iter_domain()->parallelType() == ParallelType::ExplicitVectorize ||
       fl->iter_domain()->parallelType() == ParallelType::Vectorize;
 
   // If we're not looking for an unroll loop, or didn't find one, process as
@@ -343,7 +324,11 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     kir::IfThenElse* vectorized_ite =
         ir_builder.create<kir::IfThenElse>(vectorize_pred, parent_scope);
 
-    cloneVectorizeLoopNest(fl, for_loops_, vectorized_ite, ca_root_map_);
+    if (fl->iter_domain()->parallelType() == ParallelType::ExplicitVectorize) {
+      cloneExplicitVectorizeLoopNest(fl, vectorized_ite);
+    } else {
+      cloneVectorizeLoopNest(fl, for_loops_, vectorized_ite);
+    }
 
     loop_replacement_map_.insert({fl, vectorized_ite});
   }

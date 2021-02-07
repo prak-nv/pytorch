@@ -137,7 +137,52 @@ void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
     kernel->print();
   }
 
-  const auto kernel_code = codegen::generateCudaKernel(kernel, kernelName());
+  //const auto kernel_code = codegen::generateCudaKernel(kernel, kernelName());
+
+  const auto kernel_code = R"(
+__global__ void kernel1(Tensor<float, 2> T0, Tensor<float, 2> T1, Tensor<float, 2> T2) {
+  size_t extent = (ceilDiv(T0.size[1], 64));
+  size_t base = (blockIdx.x * T0.stride[0]) + ((threadIdx.x * (ceilDiv(T0.size[1], 64))) * T0.stride[1]);
+  size_t shift = base % 4;
+  size_t remainder = (extent - shift) % 4;
+  size_t extent_remainder = extent - remainder;
+
+  float T3[4];
+  for(size_t ki41 = 0; ki41 < shift; ki41 += 1) {
+    if ((((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41) < T0.size[1])) {
+      T3[ki41]
+         = T0[(blockIdx.x * T0.stride[0]) + (((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41) * T0.stride[1])];
+      T2[(blockIdx.x * T2.stride[0]) + ((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41)]
+        = T3[ki41]
+        + T1[(blockIdx.x * T1.stride[0]) + (((threadIdx.x * (ceilDiv(T1.size[1], 64))) + ki41) * T1.stride[1])];
+    }
+  }
+
+  for(size_t ki41 = shift; ki41 < extent_remainder; ki41 += 4) {
+    if ((((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41) < T0.size[1])) {
+      *reinterpret_cast<Array<float, 4>*>(&T3[0])
+         = *reinterpret_cast<Array<float, 4>*>(&T0[(blockIdx.x * T0.stride[0]) + (((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41) * T0.stride[1])]);
+
+      for(size_t ki55 = 0; ki55 < 4; ki55 += 1) {
+        T2[(blockIdx.x * T2.stride[0]) + ((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41 + ki55)]
+          = T3[ki55]
+          + T1[(blockIdx.x * T1.stride[0]) + (((threadIdx.x * (ceilDiv(T1.size[1], 64))) + ki41 + ki55) * T1.stride[1])];
+      }
+    }
+  }
+
+  for(size_t ki41 = extent_remainder; ki41 < extent; ki41 += 1) {
+    if ((((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41) < T0.size[1])) {
+      T3[ki41]
+         = T0[(blockIdx.x * T0.stride[0]) + (((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41) * T0.stride[1])];
+      T2[(blockIdx.x * T2.stride[0]) + ((threadIdx.x * (ceilDiv(T0.size[1], 64))) + ki41)]
+        = T3[ki41]
+        + T1[(blockIdx.x * T1.stride[0]) + (((threadIdx.x * (ceilDiv(T1.size[1], 64))) + ki41) * T1.stride[1])];
+    }
+  }
+}
+)";
+
   const auto structured_code = getStructuredCode(kernel_code);
 
   const auto& kernel_summary = kernel->summary();

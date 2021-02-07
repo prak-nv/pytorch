@@ -158,6 +158,7 @@ enum class ParallelType {
   TIDz,
   TIDy,
   TIDx,
+  ExplicitVectorize,
   Vectorize,
   Unroll,
   Unswitch,
