@@ -8,11 +8,13 @@
 #include <torch/csrc/jit/codegen/cuda/executor_launch_params.h>
 #include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+#include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_graphviz.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
+#include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_cache.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
@@ -1502,7 +1504,9 @@ TEST(NVFuserTest, FusionAdvancedComputeAt1_CUDA) {
   TORCH_CHECK(tv3->getComputeAtView() == tv5 && tv3->nDims() == 3);
   TORCH_CHECK(tv4->hasComputeAt() && tv4->nDims() == 3);
   TORCH_CHECK(tv5->getComputeAtView() == tv6 && tv5->nDims() == 3);
-  TORCH_CHECK(tv6->getComputeAtView() == tv7 && tv6->nDims() == 3);
+  TORCH_CHECK(
+      !tv6->hasComputeAt() && tv6->getThisComputeAtAxis() == 1 &&
+      tv6->nDims() == 3);
   TORCH_CHECK(!tv7->hasComputeAt());
 
   for (Val* val : fusion.vals()) {
@@ -1840,7 +1844,7 @@ TEST(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
 
   // Note that tv2 is also computed at tv3.
   TORCH_CHECK(tv1->getComputeAtView() == computeAtTarget);
-  TORCH_CHECK(tv2->getComputeAtView() == tv3);
+  TORCH_CHECK(!tv2->hasComputeAt() && tv2->getThisComputeAtAxis() == 1);
   TORCH_CHECK(!tv3->hasComputeAt());
 
   computeAtTarget->axis(0)->parallelize(ParallelType::BIDx);
@@ -2089,10 +2093,8 @@ TEST(NVFuserTest, FusionComputeAtCommonConsumer3_CUDA) {
   TORCH_CHECK(tv3->getComputeAtView() == tv5);
   TORCH_CHECK(tv4->getComputeAtView() == tv5);
 
-  // tv5 should be computed at tv6 since tv5 is added as an output
-  // before tv6. If we call fusion.addOutput(tv6) first, tv6 should be
-  // computed at tv5.
-  TORCH_CHECK(tv5->getComputeAtView() == tv6);
+  // Output tensors should not have computeAt
+  TORCH_CHECK(!tv5->hasComputeAt() && tv5->getThisComputeAtAxis() == 1);
   TORCH_CHECK(!tv6->hasComputeAt());
 
   for (Val* val : fusion.vals()) {
@@ -2167,7 +2169,7 @@ TEST(NVFuserTest, FusionComputeAtNoCommonConsumer_CUDA) {
   TORCH_CHECK(tv2->getComputeAtView() == tv4);
   TORCH_CHECK(tv3->getComputeAtView() == tv4);
   TORCH_CHECK(tv4->getComputeAtView() == tv5);
-  TORCH_CHECK(tv5->getComputeAtView() == tv6);
+  TORCH_CHECK(!tv5->hasComputeAt() && tv5->getThisComputeAtAxis() == 1);
   TORCH_CHECK(!tv6->hasComputeAt());
 
   computeAtTarget->axis(0)->parallelize(ParallelType::BIDx);
@@ -10926,6 +10928,7 @@ TEST(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
   FusionGuard fg(&fusion);
 
   // Set up your input tensor views
+
   TensorView* tv0 = makeSymbolicTensor(2); // K, M
   TensorView* tv1 = makeSymbolicTensor(2); // N, K
   fusion.addInput(tv0);
@@ -11110,7 +11113,9 @@ TEST(NVFuserTest, FusionAdvancedComputeAtTransposed1_CUDA) {
   TORCH_CHECK(tv3->getComputeAtView() == tv5 && tv3->nDims() == 3);
   TORCH_CHECK(tv4->hasComputeAt() && tv4->nDims() == 3);
   TORCH_CHECK(tv5->getComputeAtView() == tv6 && tv5->nDims() == 3);
-  TORCH_CHECK(tv6->getComputeAtView() == tv7 && tv6->nDims() == 3);
+  TORCH_CHECK(
+      !tv6->hasComputeAt() && tv6->getThisComputeAtAxis() == 1 &&
+      tv6->nDims() == 3);
   TORCH_CHECK(!tv7->hasComputeAt());
 
   for (Val* val : fusion.vals()) {
@@ -11440,6 +11445,116 @@ TEST(NVFuserTest, FusionAdvancedComputeAtTransposed6_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionSegmentReducePointwise_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2);
+  TensorView* tv1 = makeSymbolicTensor(1);
+  TensorView* tv2 = makeSymbolicTensor(2);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  TensorView* tv3 = add(tv0, new Double(1)); // Group 0
+  TensorView* tv4 =
+      max(tv3, {0}); // Group 0 (use max instead to avoid numerical issues)
+  TensorView* tv5 = add(tv4, tv1); //  Group 0 (Non Broadcast after reduce,
+                                   //  keeps normalization scheduler away)
+  TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
+
+  fusion->addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({128, 65}, options);
+  at::Tensor t1 = at::randn({65}, options);
+  at::Tensor t2 = at::randn({128, 65}, options);
+
+  auto t3 = t0.add(1.0);
+  auto t4 = std::get<0>(at::max(t3, 0));
+  auto t5 = t4.add(t1);
+  auto t6 = t5.add(t2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  TORCH_CHECK(executor_cache.isSegmented(), "segmentation didn't happen");
+  TORCH_CHECK(
+      executor_cache.fusionSegments()->groups().size() == 2,
+      "segmentation didn't happen as expected");
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1, t2}, {t6}, __LINE__, __FILE__);
+}
+
+namespace {
+
+// Stolen from cpp benchmark
+static TensorView* setupSoftmax(
+    Fusion* fusion,
+    TensorView* input,
+    const int kNumberOfDims,
+    const int kReductionAxis) {
+  FusionGuard fg(fusion);
+
+  std::vector<bool> broadcast_mask(kNumberOfDims, false);
+  broadcast_mask[kReductionAxis] = true;
+
+  auto max_val = max(input, {kReductionAxis});
+  auto bcast_max = broadcast(max_val, broadcast_mask);
+  auto x_max_sub = sub(input, bcast_max);
+  auto exp = unaryOp(UnaryOpType::Exp, x_max_sub);
+  auto sum_exp = sum(exp, {kReductionAxis});
+  auto bcast_sum = broadcast(sum_exp, broadcast_mask);
+  auto output = div(exp, bcast_sum);
+  return output;
+}
+
+} // namespace
+
+TEST(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> input_shape{32, 64, 8};
+  const int kReductionAxis = 1;
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(input_shape.size())
+                 .dtype(DataType::Double)
+                 .build();
+
+  fusion->addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1.0));
+  auto tv2 = sum(tv1, {2}); // Group 0
+
+  auto output = setupSoftmax(
+      fusion.get(), tv2, input_shape.size() - 1, kReductionAxis); // Group 1
+  fusion->addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto outputs = executor_cache.runFusionWithInputs({at_x});
+
+  auto t1 = at_x.add(1.0);
+  auto t2 = t1.sum({2});
+  auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
+
+  TORCH_CHECK(executor_cache.isSegmented(), "segmentation didn't happen");
+  TORCH_CHECK(
+      executor_cache.fusionSegments()->groups().size() == 2,
+      "segmentation didn't happen as expected");
+
+  testValidate(
+      executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
+}
+
 TEST(NVFuserTest, FusionSwizzle1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -11730,7 +11845,183 @@ TEST(NVFuserTest, FusionIssue633_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionKirScoping_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = add(tv1, new Double(2));
+  fusion.addOutput(tv2);
+
+  tv2->merge(0);
+  tv2->split(0, 4);
+  tv0->computeAt(tv2, -1);
+
+  GpuLower gpulw(&fusion);
+
+  auto kir_tv1 = gpulw.lowerValue(tv1);
+  auto tv1_scope = kir_tv1->definition()->scope();
+  TORCH_CHECK(tv1_scope != nullptr);
+  TORCH_CHECK(tv1_scope->owner()->as<kir::IfThenElse>());
+
+  auto kir_tv2 = gpulw.lowerValue(tv2);
+  auto tv2_scope = kir_tv2->definition()->scope();
+  TORCH_CHECK(tv2_scope != nullptr);
+  TORCH_CHECK(tv2_scope->owner()->as<kir::IfThenElse>());
+
+  TORCH_CHECK(tv1_scope != tv2_scope);
+
+  // tv1 and tv2 should have the same inner-most ForLoop
+  auto parent_scope = tv1_scope->owner()->scope();
+  TORCH_CHECK(parent_scope == tv2_scope->owner()->scope());
+  TORCH_CHECK(parent_scope->owner()->as<kir::ForLoop>());
+  // There should be one more loop
+  parent_scope = parent_scope->owner()->scope();
+  TORCH_CHECK(parent_scope->owner()->as<kir::ForLoop>());
+
+  // scope() should return nullptr for top-level exprs
+  auto top_level_scope = parent_scope->owner()->scope();
+  TORCH_CHECK(top_level_scope == nullptr);
+}
+
+TEST(NVFuserTest, FusionOmitPredicate1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int x = 128;
+
+  auto tv0 = makeConcreteTensor({x});
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(3);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, new Double(1));
+  auto tv3 = add(tv2, new Double(1));
+  auto tv4 = add(tv3, new Double(1));
+  auto tv5 = add(tv4, new Double(1));
+  auto tv6 = add(tv5, new Double(1));
+  auto tv7 = add(tv6, new Double(1));
+  fusion.addOutput(tv7);
+
+  auto tv8 = add(tv1, new Double(1));
+  auto tv9 = add(tv8, new Double(1));
+  fusion.addOutput(tv9);
+
+  tv8->setMemoryType(MemoryType::Global);
+
+  // No predicate needed with evenly divisible split
+  tv3->split(0, 32);
+  // Predicate needed with non-divisible split
+  tv4->split(0, 31);
+  // All split ops are divisible, so no predicate needed
+  tv5->split(0, 32);
+  tv5->split(0, 2);
+  tv5->split(-1, 16);
+  // Merge does not prevent predicate omission
+  tv6->split(0, 32);
+  tv6->merge(0);
+  // If any of split is not divisible, predicate needed
+  tv7->split(0, 32);
+  tv7->split(0, 8);
+
+  // Predicate needed with split of dynamic sizes
+  tv8->split(0, 32);
+
+  // Predicate is not needed with no split of dynamic sizes
+  tv9->merge(0)->merge(0);
+
+  GpuLower gpulw(&fusion);
+
+  auto is_predicated = [&](TensorView* tv) {
+    return gpulw.lowerValue(tv)
+        ->definition()
+        ->parentScope()
+        ->isA<kir::IfThenElse>();
+  };
+
+  TORCH_CHECK(!is_predicated(tv2));
+  TORCH_CHECK(!is_predicated(tv3));
+  TORCH_CHECK(is_predicated(tv4));
+  TORCH_CHECK(!is_predicated(tv5));
+  TORCH_CHECK(!is_predicated(tv6));
+  TORCH_CHECK(is_predicated(tv7));
+  TORCH_CHECK(is_predicated(tv8));
+  TORCH_CHECK(!is_predicated(tv9));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({x}, options);
+  at::Tensor t1 = at::randn({x, x, x}, options);
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto t7 = t0 + 6;
+  auto t9 = t1 + 2;
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {t7, t9}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionOmitPredicate2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false});
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  auto tv4 = broadcast(tv0, {true, false});
+  auto tv5 = add(tv4, tv1);
+  fusion.addOutput(tv5);
+
+  // Both tv2 and tv3 should not need predicate
+  tv3->merge(0);
+  tv2->computeAt(tv3, -1);
+
+  // Both tv4 and tv5 should need predicate as we don't know whether
+  // split by 4 is divisible
+  tv5->merge(0);
+  tv5->split(0, 4);
+  tv4->computeAt(tv5, -1);
+
+  GpuLower gpulw(&fusion);
+
+  auto is_predicated = [&](TensorView* tv) {
+    return gpulw.lowerValue(tv)
+        ->definition()
+        ->parentScope()
+        ->isA<kir::IfThenElse>();
+  };
+
+  TORCH_CHECK(!is_predicated(tv2));
+  TORCH_CHECK(!is_predicated(tv3));
+  TORCH_CHECK(is_predicated(tv4));
+  TORCH_CHECK(is_predicated(tv5));
+
+  const int x = 10;
+  const int y = 20;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({x}, options);
+  at::Tensor t1 = at::randn({y, x}, options);
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto t3 = t0 + t1;
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {t3, t3}, __LINE__, __FILE__);
+}
+
 } // namespace jit
 } // namespace torch
-
 #endif // #if defined(USE_CUDA)
