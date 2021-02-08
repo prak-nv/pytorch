@@ -56,6 +56,7 @@ class TORCH_CUDA_API IrBuilder {
   Val* andExpr(Val* lhs, Val* rhs);
   Val* eqExpr(Val* lhs, Val* rhs);
   Val* ltExpr(Val* lhs, Val* rhs);
+  Val* gtExpr(Val* lhs, Val* rhs);
   Val* addExpr(Val* lhs, Val* rhs);
   Val* subExpr(Val* lhs, Val* rhs);
   Val* mulExpr(Val* lhs, Val* rhs);

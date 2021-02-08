@@ -50,6 +50,10 @@ Val* IrBuilder::ltExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::LT, lhs, rhs);
 }
 
+Val* IrBuilder::gtExpr(Val* lhs, Val* rhs) {
+  return newLogicExpr(BinaryOpType::GT, lhs, rhs);
+}
+
 Val* IrBuilder::addExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Add, lhs, rhs);
 }

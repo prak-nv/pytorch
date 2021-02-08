@@ -43,7 +43,7 @@ void validateIr(Fusion* fusion) {
             ".");
       }
 
-      if (id->getParallelType() == ParallelType::Vectorize) {
+      if (id->getParallelType() == ParallelType::Vectorize || id->getParallelType() == ParallelType::VectorizeMisaligned) {
         // TODO: Would be nice to do this check when setting a dimension to
         // vectorize, however that would require parallelization scheme to done
         // on tensor view instead of iter domain.

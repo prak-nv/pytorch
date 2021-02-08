@@ -283,7 +283,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
       if (node->out()->isA<kir::TensorIndex>()) {
         auto ti = node->out()->as<kir::TensorIndex>();
         for (auto id : ti->view()->fuserTv()->domain()->domain()) {
-          if (id->getParallelType() != ParallelType::Vectorize) {
+          if (id->getParallelType() != ParallelType::Vectorize && id->getParallelType() != ParallelType::VectorizeMisaligned) {
             continue;
           }
 

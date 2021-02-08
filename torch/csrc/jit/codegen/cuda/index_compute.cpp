@@ -241,8 +241,8 @@ void IndexCompute::handle(Split* split) {
   const bool outer_bcast = outer_id->isBroadcast();
   const bool inner_bcast = inner_id->isBroadcast();
 
-  const bool outer_vect = outer_id->parallelType() == ParallelType::Vectorize;
-  const bool inner_vect = inner_id->parallelType() == ParallelType::Vectorize;
+  const bool outer_vect = outer_id->parallelType() == ParallelType::Vectorize || outer_id->parallelType() == ParallelType::VectorizeMisaligned;
+  const bool inner_vect = inner_id->parallelType() == ParallelType::Vectorize || inner_id->parallelType() == ParallelType::VectorizeMisaligned;
 
   // We want to mark as zero merged in if we're working with shared or local
   // memory, and the dimension we're working with is not part of the allocation,
@@ -779,6 +779,9 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
     if (ref_id->getParallelType() == ParallelType::Vectorize) {
       p_id->parallelize(ParallelType::Vectorize);
     }
+    if (ref_id->getParallelType() == ParallelType::VectorizeMisaligned) {
+      p_id->parallelize(ParallelType::VectorizeMisaligned);
+    }
   }
 
   // Index into producer using reference indexing
@@ -879,7 +882,7 @@ std::unordered_map<kir::ForLoop*, kir::Val*> indexMapFromTV(
         (loop->iter_domain()->isBlockDim() && is_shared) ||
         (loop->iter_domain()->isThread() && is_local)) {
       idx = zero;
-    } else if (loop->iter_domain()->parallelType() == ParallelType::Vectorize) {
+    } else if (loop->iter_domain()->parallelType() == ParallelType::Vectorize || loop->iter_domain()->parallelType() == ParallelType::VectorizeMisaligned) {
       idx = zero;
     } else {
       idx = loop->index();
@@ -1016,6 +1019,9 @@ kir::TensorIndex* Index::getProducerIndex_impl(
     auto p_id = entry.second;
     if (ref_id->getParallelType() == ParallelType::Vectorize) {
       p_id->parallelize(ParallelType::Vectorize);
+    }
+    if (ref_id->getParallelType() == ParallelType::VectorizeMisaligned) {
+      p_id->parallelize(ParallelType::VectorizeMisaligned);
     }
   }
 
@@ -1448,7 +1454,8 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     for (auto loop : loops) {
       if (loop->iter_domain()->parallelType() == ParallelType::Unroll ||
           loop->iter_domain()->parallelType() == ParallelType::Unswitch ||
-          loop->iter_domain()->parallelType() == ParallelType::Vectorize) {
+          loop->iter_domain()->parallelType() == ParallelType::Vectorize ||
+          loop->iter_domain()->parallelType() == ParallelType::VectorizeMisaligned) {
         within_unswitch = true;
       }
 

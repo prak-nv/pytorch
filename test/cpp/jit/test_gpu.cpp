@@ -11777,6 +11777,54 @@ TEST(NVFuserTest, FusionVectorizationAligned_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionVectorizationMisaligned_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(-1, 64);
+  tv2->split(-1, 4);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto c0 = tv0->cache_after();
+  //auto c2 = tv2->cache_before();
+  c0->computeAt(tv2, -1);
+
+  std::vector<TensorView*> vectorized_tvs = {c0};
+  for (auto tv : vectorized_tvs) {
+    tv->split(-1, 4);
+    tv->axis(-1)->parallelize(ParallelType::VectorizeMisaligned);
+  }
+
+  fusion.printKernel();
+
+/*
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 100;
+  const int by = 450;
+  at::Tensor t0 = at::ones({bx, by}, options);
+  at::Tensor t1 = at::ones({bx, by}, options);
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0 + t1;
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+*/
+}
+
 } // namespace jit
 } // namespace torch
 
