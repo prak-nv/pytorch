@@ -1362,12 +1362,16 @@ void decomposeLinearOps(Block* block) {
 // being profiled
 void markMissingType(Block* block) {
   std::vector<Node*> linear_nodes;
+  static auto native_dropout_schema =
+      getOperatorForLiteral(
+          "aten::native_dropout(Tensor input, float p, float scale, bool train) -> (Tensor, Tensor)")
+          ->schema();
   for (Node* n : block->nodes()) {
     for (Block* b : n->blocks()) {
       markMissingType(b);
     }
     // fill in the tensor type for mask output in `aten::native_dropout`
-    if (n->kind() == aten::native_dropout) {
+    if (n->matches(native_dropout_schema)) {
       n->outputs()[1]->setType(
           n->outputs()[0]->type()->cast<c10::TensorType>()->withScalarType(
               at::ScalarType::Bool));

@@ -149,7 +149,7 @@ bool isNonBroadcastElementWise(const Node* n) {
   }
 
   for (const auto output : n->outputs()) {
-    auto n_output_type = output->type()->cast<TensorType>();
+    const auto& n_output_type = output->type()->cast<TensorType>();
 
     // TODO: we need to stay on safer side instead of "default to return true
     // when shape information is not available.", Change that when we enable
