@@ -155,7 +155,7 @@ bool isNonBroadcastElementWise(const Node* n) {
     // when shape information is not available.", Change that when we enable
     // profiling on autodiff FW execution.
     if (n_output_type != nullptr && n_output_type->sizes().sizes()) {
-      std::vector<c10::optional<int64_t>> n_output_shape =
+      const std::vector<c10::optional<int64_t>>& n_output_shape =
           n_output_type->sizes().sizes().value();
 
       for (auto input : n->inputs()) {
