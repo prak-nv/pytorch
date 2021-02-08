@@ -44,11 +44,17 @@ kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
     ss << id->getParallelType();
     new_scope = ir_builder.create<kir::ForLoop>(
         ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
+        kir_id->start(),
+        kir_id->extent(),
         kir_id,
         scope);
   } else {
     new_scope = ir_builder.create<kir::ForLoop>(
-        ir_builder.create<kir::Int>(c10::nullopt), kir_id, scope);
+        ir_builder.create<kir::Int>(c10::nullopt),
+        kir_id->start(),
+        kir_id->extent(),
+        kir_id,
+        scope);
   }
   if (scope != nullptr) {
     scope->body().insert(0, new_scope);

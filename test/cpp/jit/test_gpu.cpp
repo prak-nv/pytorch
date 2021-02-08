@@ -1148,25 +1148,25 @@ TEST(NVFuserTest, FusionParser_CUDA) {
 __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Tensor<float, 1> T3) {
   float T2[1];
   if ((((((blockIdx.x * 1) + (1 - 1)) * 128) + threadIdx.x) < T0.size[0])) {
-    for(size_t ki38 = 0; ki38 < 1; ++ki38) {
-      T2[ki38]
-        = T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
-        * T1[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
-      T3[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
-        = T2[ki38]
-        * T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
+    for(size_t ki39 = 0; ki39 < 1; ++ki39) {
+      T2[ki39]
+        = T0[((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x)]
+        * T1[((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x)];
+      T3[((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x)]
+        = T2[ki39]
+        * T0[((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x)];
     }
   } else {
-    for(size_t ki38 = 0; ki38 < 1; ++ki38) {
-      if ((((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x) < T0.size[0])) {
-        T2[ki38]
-          = T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
-          * T1[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
+    for(size_t ki39 = 0; ki39 < 1; ++ki39) {
+      if ((((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x) < T0.size[0])) {
+        T2[ki39]
+          = T0[((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x)]
+          * T1[((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x)];
       }
-      if ((((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x) < T0.size[0])) {
-        T3[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
-          = T2[ki38]
-          * T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
+      if ((((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x) < T0.size[0])) {
+        T3[((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x)]
+          = T2[ki39]
+          * T0[((((blockIdx.x * 1) + ki39) * 128) + threadIdx.x)];
       }
     }
   }
@@ -11730,7 +11730,7 @@ TEST(NVFuserTest, FusionIssue633_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionVectorization1_CUDA) {
+TEST(NVFuserTest, FusionVectorizationAligned_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

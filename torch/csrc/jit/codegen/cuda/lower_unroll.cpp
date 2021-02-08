@@ -24,7 +24,11 @@ kir::ForLoop* cloneLoopNest(
     kir::Expr* parent_scope) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   const auto new_loop = ir_builder.create<kir::ForLoop>(
-      for_loop->index(), for_loop->iter_domain(), parent_scope);
+      for_loop->index(),
+      for_loop->start(),
+      for_loop->extent(),
+      for_loop->iter_domain(),
+      parent_scope);
   for (auto expr : for_loop->body().exprs()) {
     if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       expr = cloneLoopNest(nested_for_loop, new_loop);
@@ -36,12 +40,17 @@ kir::ForLoop* cloneLoopNest(
 
 // Provide a new for loop matching the one provided, sets parent_scope as
 // parent_scope, but does not insert into parent scope.
+// Replace Set operations with VectorizeSet
 kir::ForLoop* cloneLoopNestVectorize(
     const kir::ForLoop* for_loop,
     kir::Expr* parent_scope) {
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   const auto new_loop = ir_builder.create<kir::ForLoop>(
-      for_loop->index(), for_loop->iter_domain(), parent_scope);
+      for_loop->index(),
+      for_loop->start(),
+      for_loop->extent(),
+      for_loop->iter_domain(),
+      parent_scope);
   for (auto expr : for_loop->body().exprs()) {
     if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       expr = cloneLoopNest(nested_for_loop, new_loop);
@@ -51,7 +60,8 @@ kir::ForLoop* cloneLoopNestVectorize(
       auto unaryOp = expr->as<kir::UnaryOp>();
       auto input = unaryOp->in()->as<kir::TensorView>();
       auto output = unaryOp->out()->as<kir::TensorView>();
-      expr = ir_builder.create<kir::UnaryOp>(UnaryOpType::VectorizeSet, output, input);
+      expr = ir_builder.create<kir::UnaryOp>(
+          UnaryOpType::VectorizeSet, output, input);
     }
     new_loop->body().push_back(expr);
   }
