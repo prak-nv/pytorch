@@ -279,34 +279,32 @@ class CudaKernelGenerator : private kir::IrVisitor {
     bool is_vector_op = false;
     size_t vector_word_size = 1;
 
-    if (node->out()->isA<kir::TensorIndex>()) {
-      auto ti = node->out()->as<kir::TensorIndex>();
-      for (auto id : ti->view()->fuserTv()->domain()->domain()) {
-        if (id->getParallelType() != ParallelType::Vectorize) {
-          continue;
+    if (node->operation() == UnaryOpType::VectorizeSet) {
+      if (node->out()->isA<kir::TensorIndex>()) {
+        auto ti = node->out()->as<kir::TensorIndex>();
+        for (auto id : ti->view()->fuserTv()->domain()->domain()) {
+          if (id->getParallelType() != ParallelType::Vectorize) {
+            continue;
+          }
+
+          ExpressionEvaluator expr_eval(id->fusion());
+          auto vector_size_optional = expr_eval.evaluate(id->rawExtent());
+
+          TORCH_INTERNAL_ASSERT(
+              vector_size_optional.has_value(),
+              "Could not evalualte constant value bound to vectorized dim.");
+
+          vector_word_size = vector_size_optional.value();
+
+          is_vector_op = true;
+          break;
         }
 
-        ExpressionEvaluator expr_eval(id->fusion());
-        auto vector_size_optional = expr_eval.evaluate(id->rawExtent());
-
-        TORCH_INTERNAL_ASSERT(
-            vector_size_optional.has_value(),
-            "Could not evalualte constant value bound to vectorized dim.");
-
-        vector_word_size = vector_size_optional.value();
-
-        is_vector_op = true;
-        break;
-      }
-
-      if (is_vector_op) {
-        TORCH_INTERNAL_ASSERT(
-            node->operation() == UnaryOpType::Set,
-            "Cannot vectorize operations that are not sets. ",
-            "Use cache_before and cache_after to store/load with vectorized reads into buffers.");
-        TORCH_INTERNAL_ASSERT(
-            node->out()->dtype() == node->in()->dtype(),
-            "Vectorized store/load requires input and output datatypes match.");
+        if (is_vector_op) {
+          TORCH_INTERNAL_ASSERT(
+              node->out()->dtype() == node->in()->dtype(),
+              "Vectorized store/load requires input and output datatypes match.");
+        }
       }
     }
 

@@ -34,6 +34,30 @@ kir::ForLoop* cloneLoopNest(
   return new_loop;
 }
 
+// Provide a new for loop matching the one provided, sets parent_scope as
+// parent_scope, but does not insert into parent scope.
+kir::ForLoop* cloneLoopNestVectorize(
+    const kir::ForLoop* for_loop,
+    kir::Expr* parent_scope) {
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+  const auto new_loop = ir_builder.create<kir::ForLoop>(
+      for_loop->index(), for_loop->iter_domain(), parent_scope);
+  for (auto expr : for_loop->body().exprs()) {
+    if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      expr = cloneLoopNest(nested_for_loop, new_loop);
+    } else if (
+        expr->isA<kir::UnaryOp>() &&
+        expr->as<kir::UnaryOp>()->operation() == UnaryOpType::Set) {
+      auto unaryOp = expr->as<kir::UnaryOp>();
+      auto input = unaryOp->in()->as<kir::TensorView>();
+      auto output = unaryOp->out()->as<kir::TensorView>();
+      expr = ir_builder.create<kir::UnaryOp>(UnaryOpType::VectorizeSet, output, input);
+    }
+    new_loop->body().push_back(expr);
+  }
+  return new_loop;
+}
+
 // Returns true if expr is an expression that initializes a reduction
 // buffer.
 bool isReductionInitExpr(const kir::Expr* expr) {
@@ -144,12 +168,14 @@ void UnrollPass::handle(kir::ForLoop* fl) {
       ir_builder.create<kir::IfThenElse>(unroll_pred, parent_scope);
 
   // Get the loop nest for the unrolled path
-  kir::ForLoop* unrolled_loop_nest = cloneLoopNest(fl, unroll_ite);
-
-  unroll_ite->thenBody().push_back(unrolled_loop_nest);
   if (fl->iter_domain()->parallelType() == ParallelType::Vectorize) {
+    kir::ForLoop* unrolled_loop_nest = cloneLoopNestVectorize(fl, unroll_ite);
+    unroll_ite->thenBody().push_back(unrolled_loop_nest);
     loop_replacement_map_.insert({fl, unroll_ite});
     return;
+  } else {
+    kir::ForLoop* unrolled_loop_nest = cloneLoopNest(fl, unroll_ite);
+    unroll_ite->thenBody().push_back(unrolled_loop_nest);
   }
 
   // Loop nest for inlined path

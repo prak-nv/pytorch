@@ -86,6 +86,7 @@ enum class UnaryOpType {
   Tan,
   Tanh,
   Trunc,
+  VectorizeSet,
 
   // Might be a bitwise operator or boolean operator.
   Not
