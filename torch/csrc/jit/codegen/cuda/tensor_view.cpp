@@ -167,14 +167,14 @@ IterDomain* TensorView::axis(int pos) const {
   return domain()->axis(pos);
 }
 
-void TensorView::setComputeAt(unsigned int thisPos) {
+void TensorView::setComputeAt(unsigned int this_pos) {
   TORCH_INTERNAL_ASSERT(
-      thisPos > 0 && (unsigned)thisPos <= nDims(),
+      this_pos > 0 && (unsigned)this_pos <= nDims(),
       "Invalid this computeAt position for T",
       name(),
       ": ",
-      thisPos);
-  this_compute_at_axis_ = thisPos;
+      this_pos);
+  this_compute_at_axis_ = this_pos;
 }
 
 TensorView* TensorView::computeAt(TensorView* consumer, int axis) {

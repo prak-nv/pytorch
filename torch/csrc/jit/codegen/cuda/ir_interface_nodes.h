@@ -305,7 +305,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     domain_ = td;
   }
 
-  void setComputeAt(unsigned int thisPos);
+  void setComputeAt(unsigned int this_pos);
 
  private:
   int normalizeAxisPos(int pos) const {
