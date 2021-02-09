@@ -7811,9 +7811,11 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
 
   const float kMomentum = 0.1;
   const float kEps = 1e-5;
-  std::vector<int64_t> input_shape{20, 100, 35, 45};
+  const bool kTraining = true;
+  std::vector<int64_t> shape{20, 100, 35, 45};
+  std::vector<int64_t> norm_shape{shape[1]};
 
-  auto input = makeSymbolicTensor(input_shape.size());
+  auto input = makeSymbolicTensor(shape.size());
   auto weight = makeSymbolicTensor(1);
   auto bias = makeSymbolicTensor(1);
   fusion.addInput(input);
@@ -7870,51 +7872,49 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
   // fusion.addOutput(new_running_mean);
   // fusion.addOutput(new_running_var);
 
-  std::vector<TensorView*> reduction_tensors({x_sum, var_sum});
-  std::vector<TensorView*> other_tensors(
-      {x_mean,
-       x_sum_bcast,
-       x_mean_sub,
-       x_mean_sub_pow,
-       var_sum_bcast,
-       var,
-       var_eps,
-       rvar,
-       weight_bcast,
-       bias_bcast,
-       norm,
-       norm_gamma,
-       norm_gamma_bias});
+  std::vector<TensorView*> reduction_tensors;
+  std::vector<TensorView*> other_tensors;
+
+  auto all_values = DependencyCheck::getAllValsBetween(
+      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+
+  for (auto tensor : ir_utils::filterByType<TensorView>(all_values)) {
+    if (tensor->hasReduction()) {
+      reduction_tensors.push_back(tensor);
+    } else if (!fusion.hasInput(tensor)) {
+      other_tensors.push_back(tensor);
+    }
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(input_shape, options);
-  at::Tensor tweight = at::ones({input_shape[1]}, options);
-  at::Tensor tbias = at::zeros({input_shape[1]}, options);
-  at::Tensor tmean = at::zeros({input_shape[1]}, options);
-  at::Tensor tvar = at::ones({input_shape[1]}, options);
+  at::Tensor at_input = at::randn(shape, options);
+  auto at_weight = c10::optional<at::Tensor>(at::ones(norm_shape, options));
+  auto at_bias = c10::optional<at::Tensor>(at::zeros(norm_shape, options));
+  auto at_running_mean =
+      c10::optional<at::Tensor>(at::zeros(norm_shape, options));
+  auto at_running_var =
+      c10::optional<at::Tensor>(at::ones(norm_shape, options));
 
-  auto at_weight = c10::optional<at::Tensor>(tweight.to(at::kDouble));
-  auto at_bias = c10::optional<at::Tensor>(tbias.to(at::kDouble));
-  auto at_running_mean = c10::optional<at::Tensor>(tmean.to(at::kDouble));
-  auto at_running_var = c10::optional<at::Tensor>(tvar.to(at::kDouble));
-
-  auto aten_output = at::batch_norm(
-      t0.to(at::kDouble),
+  auto at_results = at::native_batch_norm(
+      at_input,
       at_weight,
       at_bias,
       at_running_mean,
       at_running_var,
-      true,
+      kTraining,
       kMomentum,
-      kEps,
-      false);
+      kEps);
+  auto at_output = std::get<0>(at_results);
+  auto at_mean = std::get<1>(at_results);
+  auto at_rstd = std::get<2>(at_results);
 
-  std::vector<IValue> aten_inputs = {t0, tweight, tbias};
+  std::vector<IValue> at_inputs = {
+      at_input, at_weight.value(), at_bias.value()};
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
   auto reduction_params =
-      getNormalizationHeuristics(&fusion, aten_inputs, reduction_tensors);
+      getNormalizationHeuristics(&fusion, at_inputs, reduction_tensors);
 
   TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
 
@@ -7924,13 +7924,152 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
 
   torch::jit::fuser::cuda::FusionExecutor fe;
   fe.compileFusion(&fusion);
-  auto cg_outputs = fe.runFusion(aten_inputs, lparams);
+  auto cg_outputs = fe.runFusion(at_inputs, lparams);
 
   testValidate(
       &fusion,
       cg_outputs,
-      aten_inputs,
-      {aten_output},
+      at_inputs,
+      {at_output},
+      __LINE__,
+      __FILE__,
+      "",
+      lparams);
+}
+
+TEST(NVFuserTest, FusionMagicSchedulerBatchNormalizationBackward_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const float kMomentum = 0.1;
+  const float kEps = 1e-5;
+  const bool kTraining = true;
+  std::vector<int64_t> shape{3, 3, 2, 2};
+  std::vector<int64_t> norm_shape{shape[1]};
+
+  auto grad_out = makeSymbolicTensor(shape.size());
+  auto input = makeSymbolicTensor(shape.size());
+  auto weight = makeSymbolicTensor(1);
+  auto running_mean = makeSymbolicTensor(1);
+  auto running_var = makeSymbolicTensor(1);
+  auto mean = makeSymbolicTensor(1);
+  auto rstd = makeSymbolicTensor(1);
+
+  fusion.addInput(grad_out);
+  fusion.addInput(input);
+  fusion.addInput(weight);
+  fusion.addInput(running_mean);
+  fusion.addInput(running_var);
+  fusion.addInput(mean);
+  fusion.addInput(rstd);
+
+  const int kNumberOfDims = input->nDims();
+  std::vector<int> outer_reduction_axes;
+  std::vector<bool> outer_broadcast_mask(kNumberOfDims, false);
+  Val* num_features = new Double(1);
+  for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
+    if (axis != 1) {
+      outer_reduction_axes.push_back(axis);
+      outer_broadcast_mask[axis] = true;
+      num_features =
+          mul(num_features, input->domain()->domain()[axis]->extent());
+    }
+  }
+
+  std::vector<int> inner_reduction_axes;
+  std::vector<bool> inner_broadcast_mask(input->nDims(), false);
+  inner_reduction_axes.push_back(1);
+  inner_broadcast_mask[1] = true;
+
+  auto bcast_mean = broadcast(mean, outer_broadcast_mask);
+  auto bcast_rstd = broadcast(rstd, outer_broadcast_mask);
+  auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+  auto grad_weight = sum(mul(grad_out, x_hat), outer_reduction_axes);
+  fusion.addOutput(grad_weight);
+
+  auto grad_bias = sum(grad_out, outer_reduction_axes);
+  fusion.addOutput(grad_bias);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_grad_out = at::randn(shape, options);
+  at::Tensor at_input = at::randn(shape, options);
+  auto at_weight = c10::optional<at::Tensor>(at::randn(norm_shape, options));
+  auto at_bias = c10::optional<at::Tensor>(at::randn(norm_shape, options));
+  auto at_running_mean =
+      c10::optional<at::Tensor>(at::randn(norm_shape, options));
+  auto at_running_var =
+      c10::optional<at::Tensor>(at::randn(norm_shape, options));
+
+  auto at_results = at::native_batch_norm(
+      at_input,
+      at_weight,
+      at_bias,
+      at_running_mean,
+      at_running_var,
+      kTraining,
+      kMomentum,
+      kEps);
+  auto at_output = std::get<0>(at_results);
+  auto at_mean = std::get<1>(at_results);
+  auto at_rstd = std::get<2>(at_results);
+
+  auto at_gradients = at::native_batch_norm_backward(
+      at_grad_out,
+      at_input,
+      at_weight,
+      at_running_mean,
+      at_running_var,
+      c10::optional<at::Tensor>(at_mean),
+      c10::optional<at::Tensor>(at_rstd),
+      kTraining,
+      kEps,
+      {true, true, true});
+  auto at_grad_in = std::get<0>(at_gradients);
+  auto at_grad_weight = std::get<1>(at_gradients);
+  auto at_grad_bias = std::get<2>(at_gradients);
+
+  std::vector<IValue> at_inputs = {
+      at_grad_out,
+      at_input,
+      at_weight.value(),
+      at_running_mean.value(),
+      at_running_var.value(),
+      at_mean,
+      at_rstd};
+
+  std::vector<TensorView*> reduction_tensors;
+  std::vector<TensorView*> other_tensors;
+
+  auto all_values = DependencyCheck::getAllValsBetween(
+      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+
+  for (auto tensor : ir_utils::filterByType<TensorView>(all_values)) {
+    if (tensor->hasReduction()) {
+      reduction_tensors.push_back(tensor);
+    } else if (!fusion.hasInput(tensor)) {
+      other_tensors.push_back(tensor);
+    }
+  }
+
+  // Check reduction axis is same for all reductions
+  // Generate Launch Parameters
+  auto reduction_params =
+      getNormalizationHeuristics(&fusion, at_inputs, reduction_tensors);
+  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+
+  scheduleNormalization(
+      &fusion, reduction_params.value(), reduction_tensors, other_tensors);
+  auto lparams = reduction_params.value().lparams;
+
+  torch::jit::fuser::cuda::FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(at_inputs, lparams);
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      at_inputs,
+      {at_grad_weight, at_grad_bias},
       __LINE__,
       __FILE__,
       "",
