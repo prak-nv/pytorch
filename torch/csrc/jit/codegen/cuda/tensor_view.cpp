@@ -409,7 +409,7 @@ int getMappedConsumerAxis(
                     c2p_root_map,
                     true)
                     .getReplay();
-  auto producer_id = producer_tv->axis(producer_axis);
+  auto producer_id = producer_tv->axis(int(producer_axis));
   IterDomain* consumer_id = nullptr;
   for (const auto& m : replay) {
     if (m.second == producer_id) {
