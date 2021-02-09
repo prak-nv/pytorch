@@ -1499,11 +1499,14 @@ TEST(NVFuserTest, FusionAdvancedComputeAt1_CUDA) {
 
   tv0->computeAt(tv7, 1);
 
+  GpuLower gpulw(&fusion);
+
   // The this-position of the last tensor should be zero.
   TORCH_CHECK(tv7->nDims() == 3 && tv7->getThisComputeAtAxis() == 0);
   // The position of every other tensor should be 1.
   for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
     TORCH_CHECK(tv->nDims() == 3 && tv->getThisComputeAtAxis() == 1);
+    TORCH_CHECK(gpulw.caLoopMap().areMapped(tv7->axis(0), tv->axis(0)));
   }
 
   for (Val* val : fusion.vals()) {
@@ -1839,9 +1842,15 @@ TEST(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
     TORCH_CHECK(tv->nDims() == computeAtTarget->nDims());
   }
 
+  GpuLower gpulw(&fusion);
+
   // Note that tv2 is also computed at tv3.
-  TORCH_CHECK(tv1->getThisComputeAtAxis() == 1);
-  TORCH_CHECK(tv2->getThisComputeAtAxis() == 1);
+  for (auto tv : {tv1, tv2}) {
+    TORCH_CHECK(tv->getThisComputeAtAxis() == 1);
+    TORCH_CHECK(
+        gpulw.caLoopMap().areMapped(tv->axis(0), computeAtTarget->axis(0)));
+  }
+
   TORCH_CHECK(tv3->getThisComputeAtAxis() == 0);
 
   computeAtTarget->axis(0)->parallelize(ParallelType::BIDx);
