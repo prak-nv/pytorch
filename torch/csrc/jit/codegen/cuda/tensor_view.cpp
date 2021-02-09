@@ -177,64 +177,6 @@ void TensorView::setComputeAt(int thisPos) {
   this_compute_at_axis_ = thisPos;
 }
 
-namespace {
-
-std::set<int> getDimsToSkip(
-    const TensorView* tv,
-    const TensorView* ca_tv,
-    size_t pos) {
-  std::set<int> dims_to_skip;
-  if (tv->isConsumerOf(ca_tv)) {
-    if (BroadcastOp* bop = dynamic_cast<BroadcastOp*>(ca_tv->definition())) {
-      const auto& bcast_flags = bop->getBroadcastDimFlags();
-      std::unordered_set<IterDomain*> root_dims_to_skip;
-      for (size_t i = 0; i < ca_tv->getRootDomain().size(); ++i) {
-        if (bcast_flags[i]) {
-          root_dims_to_skip.insert(ca_tv->getRootDomain()[i]);
-        }
-      }
-      for (size_t i = 0; i < ca_tv->domain()->domain().size(); ++i) {
-        IterDomain* id = ca_tv->domain()->domain()[i];
-        std::vector<Val*> id_vec({id});
-        std::unordered_set<Val*> root_vals = IterVisitor::getInputsTo(id_vec);
-        if (std::all_of(
-                ir_utils::filterByType<IterDomain>(root_vals).begin(),
-                ir_utils::filterByType<IterDomain>(root_vals).end(),
-                [&root_dims_to_skip](IterDomain* root_id) {
-                  return root_dims_to_skip.find(root_id) !=
-                      root_dims_to_skip.end();
-                })) {
-          dims_to_skip.insert(i);
-        }
-      }
-    }
-  } else {
-    // tv and ca_tv are both output tensors.
-    size_t pos_cav = 0, pos_this = 0;
-
-    while (pos_this <= pos) {
-      TORCH_INTERNAL_ASSERT(
-          pos_cav < ca_tv->nDims(),
-          "Error computing relative position in computeAt.");
-
-      if (ca_tv->axis(pos_cav)->isBroadcast() &&
-          !(tv->axis(pos_this)->isBroadcast())) {
-        dims_to_skip.insert(pos_cav);
-        pos_cav++;
-      } else if (pos_this == pos) {
-        break;
-      } else {
-        pos_cav++;
-        pos_this++;
-      }
-    }
-  }
-
-  return dims_to_skip;
-}
-
-} // namespace
-
 TensorView* TensorView::computeAt(TensorView* consumer, int axis) {
   // Make sure this and consumer are not the same tensor, that's illegal
   TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
