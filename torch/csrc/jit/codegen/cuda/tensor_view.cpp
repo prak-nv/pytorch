@@ -396,18 +396,19 @@ namespace {
 
 // Note: This may be included as an independent member function
 // TensorView if it's determined to be useful more generally.
-int getMappedConsumerAxis(TensorView* producer_tv, int producer_axis,
-                             TensorView* consumer_tv) {
+int getMappedConsumerAxis(
+    TensorView* producer_tv,
+    int producer_axis,
+    TensorView* consumer_tv) {
   auto c2p_root_map =
       PairwiseRootDomainMap(producer_tv, consumer_tv)
-      .mapConsumerToProducer(
-          consumer_tv->domain(), producer_tv->domain());
+          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
   auto replay = BestEffortReplay(
-      producer_tv->domain()->domain(),
-      consumer_tv->domain()->domain(),
-      c2p_root_map,
-      true)
-      .getReplay();
+                    producer_tv->domain()->domain(),
+                    consumer_tv->domain()->domain(),
+                    c2p_root_map,
+                    true)
+                    .getReplay();
   auto producer_id = producer_tv->axis(producer_axis);
   IterDomain* consumer_id = nullptr;
   for (const auto& m : replay) {
@@ -415,8 +416,8 @@ int getMappedConsumerAxis(TensorView* producer_tv, int producer_axis,
       consumer_id = m.first;
     }
   }
-  TORCH_INTERNAL_ASSERT(consumer_id != nullptr,
-                        "Mapped consumer IterDomain not found");
+  TORCH_INTERNAL_ASSERT(
+      consumer_id != nullptr, "Mapped consumer IterDomain not found");
   auto consumer_axis = std::distance(
       consumer_tv->domain()->domain().begin(),
       std::find(
@@ -538,10 +539,12 @@ TensorView* TensorView::cache_before() {
         cache_replayed = true;
       }
       TORCH_INTERNAL_ASSERT(producer_of_producer->getThisComputeAtAxis() > 0);
-      size_t producer_pos = getMappedConsumerAxis(
-          producer_of_producer,
-          producer_of_producer->getThisComputeAtAxis() - 1,
-          producer) + 1;
+      size_t producer_pos =
+          getMappedConsumerAxis(
+              producer_of_producer,
+              producer_of_producer->getThisComputeAtAxis() - 1,
+              producer) +
+          1;
       producer_this_pos = std::max(producer_this_pos, producer_pos);
     }
   }
