@@ -450,6 +450,42 @@ std::vector<TensorView*> TensorView::duplicate() {
   return duplicates;
 }
 
+namespace {
+
+// Note: This may be included as an independent member function
+// TensorView if it's determined to be useful more generally.
+int getMappedConsumerAxis(TensorView* producer_tv, int producer_axis,
+                             TensorView* consumer_tv) {
+  auto c2p_root_map =
+      PairwiseRootDomainMap(producer_tv, consumer_tv)
+      .mapConsumerToProducer(
+          consumer_tv->domain(), producer_tv->domain());
+  auto replay = BestEffortReplay(
+      producer_tv->domain()->domain(),
+      consumer_tv->domain()->domain(),
+      c2p_root_map,
+      true)
+      .getReplay();
+  auto producer_id = producer_tv->axis(producer_axis);
+  IterDomain* consumer_id = nullptr;
+  for (const auto& m : replay) {
+    if (m.second == producer_id) {
+      consumer_id = m.first;
+    }
+  }
+  TORCH_INTERNAL_ASSERT(consumer_id != nullptr,
+                        "Mapped consumer IterDomain not found");
+  auto consumer_axis = std::distance(
+      consumer_tv->domain()->domain().begin(),
+      std::find(
+          consumer_tv->domain()->domain().begin(),
+          consumer_tv->domain()->domain().end(),
+          consumer_id));
+  return consumer_axis;
+}
+
+} // namespace
+
 TensorView* TensorView::cache_before() {
   FusionGuard fg(fusion());
 
@@ -559,33 +595,12 @@ TensorView* TensorView::cache_before() {
         TransformReplay::replayPasC(producer, consumer, -1);
         cache_replayed = true;
       }
-      auto c2p_root_map =
-          PairwiseRootDomainMap(producer_of_producer, producer)
-              .mapConsumerToProducer(
-                  producer->domain(), producer_of_producer->domain());
-      auto replay = BestEffortReplay(
-                        producer_of_producer->domain()->domain(),
-                        producer->domain()->domain(),
-                        c2p_root_map,
-                        true)
-                        .getReplay();
       TORCH_INTERNAL_ASSERT(producer_of_producer->getThisComputeAtAxis() > 0);
-      auto producer_of_producer_ca_axis = producer_of_producer->axis(
-          producer_of_producer->getThisComputeAtAxis() - 1);
-      IterDomain* producer_ca_axis = nullptr;
-      for (const auto& m : replay) {
-        if (m.second == producer_of_producer_ca_axis) {
-          producer_ca_axis = m.first;
-        }
-      }
-      TORCH_INTERNAL_ASSERT(producer_ca_axis != nullptr);
-      size_t ca_axis_idx = std::distance(
-          producer->domain()->domain().begin(),
-          std::find(
-              producer->domain()->domain().begin(),
-              producer->domain()->domain().end(),
-              producer_ca_axis));
-      producer_this_pos = std::max(producer_this_pos, ca_axis_idx + 1);
+      size_t producer_pos = getMappedConsumerAxis(
+          producer_of_producer,
+          producer_of_producer->getThisComputeAtAxis() - 1,
+          producer) + 1;
+      producer_this_pos = std::max(producer_this_pos, producer_pos);
     }
   }
 
