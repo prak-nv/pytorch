@@ -398,7 +398,7 @@ namespace {
 // TensorView if it's determined to be useful more generally.
 int getMappedConsumerAxis(
     TensorView* producer_tv,
-    int producer_axis,
+    unsigned int producer_axis,
     TensorView* consumer_tv) {
   auto c2p_root_map =
       PairwiseRootDomainMap(producer_tv, consumer_tv)
@@ -542,7 +542,7 @@ TensorView* TensorView::cache_before() {
       size_t producer_pos =
           getMappedConsumerAxis(
               producer_of_producer,
-              producer_of_producer->getThisComputeAtAxis() - 1,
+              int(producer_of_producer->getThisComputeAtAxis()) - 1,
               producer) +
           1;
       producer_this_pos = std::max(producer_this_pos, producer_pos);
