@@ -7945,7 +7945,7 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
 
   const float kMomentum = 0.1;
   const float kEps = 1e-5;
-  const bool kTraining = false;
+  const bool kTraining = true;
   std::vector<int64_t> shape{10, 100, 10, 10};
   std::vector<int64_t> norm_shape{shape[1]};
 
@@ -7977,10 +7977,17 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
     }
   }
 
+  bool kHasWeight = true;
+  Val* bcast_weight = nullptr;
+  if (kHasWeight) {
+    bcast_weight = broadcast(weight, outer_broadcast_mask);
+  } else {
+    bcast_weight = new Double(1);
+  }
+
   if (kTraining) {
     auto bcast_rstd = broadcast(rstd, outer_broadcast_mask);
     auto bcast_mean = broadcast(mean, outer_broadcast_mask);
-    auto bcast_weight = broadcast(weight, outer_broadcast_mask);
     auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
     auto grad_x_hat = mul(grad_out, bcast_weight);
 
@@ -8007,7 +8014,6 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
     auto var_eps = add(bcast_var, new Double(kEps));
     auto bcast_rstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
     auto bcast_mean = broadcast(running_mean, outer_broadcast_mask);
-    auto bcast_weight = broadcast(weight, outer_broadcast_mask);
 
     auto grad_in = mul(mul(grad_out, bcast_rstd), bcast_weight);
     fusion.addOutput(grad_in);
@@ -8023,8 +8029,8 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_grad_out = at::randn(shape, options);
   at::Tensor at_input = at::randn(shape, options);
-  auto at_weight = c10::optional<at::Tensor>(at::randn(norm_shape, options));
-  auto at_bias = c10::optional<at::Tensor>(at::randn(norm_shape, options));
+  auto at_weight = c10::optional<at::Tensor>(at::ones(norm_shape, options));
+  auto at_bias = c10::optional<at::Tensor>(at::zeros(norm_shape, options));
   auto at_running_mean =
       c10::optional<at::Tensor>(at::zeros(norm_shape, options));
   auto at_running_var =
