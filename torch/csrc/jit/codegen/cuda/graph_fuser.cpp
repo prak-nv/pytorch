@@ -832,6 +832,16 @@ struct CudaGraphFuser {
         shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
         continue;
       }
+      // TODO: output(1) & output(2) should also be marked
+      if (n->kind() == aten::native_batch_norm) {
+        shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
+        continue;
+      }
+      // TODO: output(1) & output(2) should also be marked
+      if (n->kind() == aten::native_batch_norm_backward) {
+        shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
+        continue;
+      }
       auto tensor_inputs = filter(n->inputs(), [](Value* v) {
         return v->type()->isSubtypeOf(TensorType::get());
       });
