@@ -1013,7 +1013,7 @@ const std::vector<std::string> functions = {
             return result, backward
     )",
     R"(
-        def batch_norm_disabled(input : Tensor,
+        def batch_norm(input : Tensor,
                        weight : Optional[Tensor],
                        bias : Optional[Tensor],
                        running_mean : Optional[Tensor],
@@ -1023,17 +1023,12 @@ const std::vector<std::string> functions = {
                        eps : float,
                        cudnn_enabled : bool):
 
-            output, save1, save2, reserve, impl_idx = torch._batch_norm_impl_index(
-                input, weight, bias, running_mean, running_var, training,
-                momentum, eps, cudnn_enabled)
-            has_weight = weight is not None
-            has_bias = bias is not None
+            output, mean, rstd = torch.native_batch_norm(input, weight, bias, running_mean, running_var, training, momentum, eps)
 
             def backward(grad_output):
-                dinput, dweight, dbias = torch._batch_norm_impl_index_backward(
-                    impl_idx, input, grad_output, weight, running_mean, running_var,
-                    save1, save2, training, eps, [True, has_weight, has_bias], reserve)
-                return dinput, dweight, dbias, None, None, None, None, None, None
+                output_mask = [True, True, True]
+                grad_input, grad_weight, grad_bias = torch.native_batch_norm_backward(grad_output, input, weight, running_mean, running_var, mean, rstd, training, eps, output_mask)
+                return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
 
             return output, backward
 
