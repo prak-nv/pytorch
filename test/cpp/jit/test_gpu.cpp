@@ -7586,8 +7586,8 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
 
   const float kMomentum = 0.1;
   const float kEps = 1e-5;
-  const bool kTraining = true;
-  std::vector<int64_t> shape{20, 100, 35, 67};
+  const bool kTraining = false;
+  std::vector<int64_t> shape{10, 100, 10, 10};
   std::vector<int64_t> norm_shape{shape[1]};
 
   auto grad_out = makeSymbolicTensor(shape.size());
@@ -7618,30 +7618,45 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
     }
   }
 
-  auto bcast_weight = broadcast(weight, outer_broadcast_mask);
-  auto bcast_mean = broadcast(mean, outer_broadcast_mask);
-  auto bcast_rstd = broadcast(rstd, outer_broadcast_mask);
-  auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
-  auto grad_x_hat = mul(grad_out, bcast_weight);
+  if (kTraining) {
+    auto bcast_rstd = broadcast(rstd, outer_broadcast_mask);
+    auto bcast_mean = broadcast(mean, outer_broadcast_mask);
+    auto bcast_weight = broadcast(weight, outer_broadcast_mask);
+    auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+    auto grad_x_hat = mul(grad_out, bcast_weight);
 
-  auto a = mul(N, grad_x_hat);
+    auto a = mul(N, grad_x_hat);
 
-  auto b = sum(grad_x_hat, outer_reduction_axes);
-  auto bcast_b = broadcast(b, outer_broadcast_mask);
+    auto b = sum(grad_x_hat, outer_reduction_axes);
+    auto bcast_b = broadcast(b, outer_broadcast_mask);
 
-  auto c1 = mul(grad_x_hat, x_hat);
-  auto c2 = sum(c1, outer_reduction_axes);
-  auto bcast_c2 = broadcast(c2, outer_broadcast_mask);
-  auto c3 = mul(x_hat, bcast_c2);
+    auto c1 = mul(grad_x_hat, x_hat);
+    auto c2 = sum(c1, outer_reduction_axes);
+    auto bcast_c2 = broadcast(c2, outer_broadcast_mask);
+    auto c3 = mul(x_hat, bcast_c2);
 
-  auto inner = sub(sub(a, bcast_b), c3);
+    auto inner = sub(sub(a, bcast_b), c3);
 
-  auto reciprocal_size = unaryOp(UnaryOpType::Reciprocal, N);
-  auto grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
-  fusion.addOutput(grad_in);
+    auto reciprocal_size = unaryOp(UnaryOpType::Reciprocal, N);
+    auto grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
+    fusion.addOutput(grad_in);
 
-  auto grad_weight = sum(mul(grad_out, x_hat), outer_reduction_axes);
-  fusion.addOutput(grad_weight);
+    auto grad_weight = sum(mul(grad_out, x_hat), outer_reduction_axes);
+    fusion.addOutput(grad_weight);
+  } else {
+    auto bcast_var = broadcast(running_var, outer_broadcast_mask);
+    auto var_eps = add(bcast_var, new Double(kEps));
+    auto bcast_rstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
+    auto bcast_mean = broadcast(running_mean, outer_broadcast_mask);
+    auto bcast_weight = broadcast(weight, outer_broadcast_mask);
+
+    auto grad_in = mul(mul(grad_out, bcast_rstd), bcast_weight);
+    fusion.addOutput(grad_in);
+
+    auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+    auto grad_weight = sum(mul(grad_out, x_hat), outer_reduction_axes);
+    fusion.addOutput(grad_weight);
+  }
 
   auto grad_bias = sum(grad_out, outer_reduction_axes);
   fusion.addOutput(grad_bias);
@@ -7652,9 +7667,9 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
   auto at_weight = c10::optional<at::Tensor>(at::randn(norm_shape, options));
   auto at_bias = c10::optional<at::Tensor>(at::randn(norm_shape, options));
   auto at_running_mean =
-      c10::optional<at::Tensor>(at::randn(norm_shape, options));
+      c10::optional<at::Tensor>(at::zeros(norm_shape, options));
   auto at_running_var =
-      c10::optional<at::Tensor>(at::randn(norm_shape, options));
+      c10::optional<at::Tensor>(at::ones(norm_shape, options));
 
   auto at_results = at::native_batch_norm(
       at_input,
