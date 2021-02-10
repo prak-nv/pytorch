@@ -12211,9 +12211,7 @@ TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
   tv3->split(-1, 128 * 4);
   tv3->split(-1, 4);
   // Reduce outer dim first
-  auto tv4 = tv3->rFactor({-3});
-  // Reduce vector dim second
-  auto tv5 = tv3->rFactor({-1});
+  auto tv4 = tv3->rFactor({-3, -1});
   // Tv3 will reduce threads
 
   tv0->computeAt(tv3, 1);
@@ -12231,7 +12229,6 @@ TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
   tv7->axis(-1)->parallelize(ParallelType::Vectorize);
 
   tv4->axis(-2)->parallelize(ParallelType::TIDx);
-  tv5->axis(1)->parallelize(ParallelType::TIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
