@@ -96,18 +96,16 @@ class VectorizeValidator : public OptInDispatch {
         "Could not evalualte constant value bound to vectorized dim.");
 
     auto vector_size =
-        dataTypeSize(tv->getDataType().value()) * vector_size_optional.value();
+        ((int64_t) dataTypeSize(tv->getDataType().value()) ) * vector_size_optional.value();
 
     // Allow half2, float2, float4 and same sized vtypes.
-    std::array<int64_t, 3> allowed_vector_sizes = {4, 8, 16}; // NOLint64_t
+    std::array<int64_t, 3> allowed_vector_sizes = {4, 8, 16}; // NOLint
 
     TORCH_CHECK(
-        std::any_of(
+        std::find(
             allowed_vector_sizes.begin(),
             allowed_vector_sizes.end(),
-            [&vector_size](int64_t allowed_size) {
-              return vector_size == allowed_size;
-            }),
+            vector_size) != allowed_vector_sizes.end(),
         "Tried to vectorize a dim resulting in a word size of ",
         vector_size,
         " however, vector sizes only upto and including 16 bytes are supported.");

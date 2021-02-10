@@ -219,7 +219,7 @@ bool canVectorize(const IValue& aten_val, int word_size) {
     return false;
   }
 
-  auto aten_tensor = aten_val.toTensor();
+  const auto& aten_tensor = aten_val.toTensor();
 
   if (reinterpret_cast<size_t>(aten_tensor.data_ptr()) %
           (word_size * aten_tensor.dtype().itemsize()) !=
@@ -283,6 +283,7 @@ bool canVectorize(
 void validateVectorizedTensors(
     Fusion* fusion,
     const at::ArrayRef<IValue>& inputs,
+    const std::vector<at::Tensor>& outputs,
     GpuLower& lower,
     kir::ExpressionEvaluator& expr_eval) {
   std::unordered_map<TensorView*, int> tv_to_vector_word_size;
@@ -320,8 +321,7 @@ void validateVectorizedTensors(
   for (auto entry : tv_to_vector_word_size) {
     auto tv = entry.first;
     auto word_size = entry.second;
-    bool is_input = tv->isFusionInput();
-    if (is_input) {
+    if (tv->isFusionInput()) {
       auto inp_it =
           std::find(fusion->inputs().begin(), fusion->inputs().end(), tv);
       TORCH_INTERNAL_ASSERT(
@@ -337,6 +337,23 @@ void validateVectorizedTensors(
           "Error vectorizing, ",
           tv,
           " as input provided does not allowed vectorization by word size, ",
+          word_size);
+    } else if (tv->isFusionOutput() && outputs.size() > 0) {
+      auto out_it =
+          std::find(fusion->outputs().begin(), fusion->outputs().end(), tv);
+      TORCH_INTERNAL_ASSERT(
+          out_it != fusion->outputs().end(),
+          "Could not find ",
+          tv,
+          " in provided fusion outputs.");
+      auto out_pos = std::distance(fusion->outputs().begin(), out_it);
+
+      auto aten_out = outputs[out_pos];
+      TORCH_INTERNAL_ASSERT(
+          canVectorize(aten_out, word_size),
+          "Error vectorizing, ",
+          tv,
+          " as output provided does not allowed vectorization by word size, ",
           word_size);
     } else {
       TORCH_INTERNAL_ASSERT(

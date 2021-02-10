@@ -54,6 +54,7 @@ bool canVectorize(
 void validateVectorizedTensors(
     Fusion* fusion,
     const at::ArrayRef<IValue>& inputs,
+    const std::vector<at::Tensor>& outputs,
     GpuLower& lower,
     kir::ExpressionEvaluator& expr_eval);
 
