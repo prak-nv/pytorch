@@ -253,8 +253,8 @@ bool canVectorize(
     kir::ExpressionEvaluator& expr_eval) {
   IterDomain* last_root_dim = nullptr;
   // TODO: Should this be rfactor instead of root??
-  for (size_t i = fusion_tv->getMaybeRFactorDomain().size(); i > 0; i--) {
-    auto r_id = fusion_tv->getMaybeRFactorDomain()[i - 1];
+  for (size_t i = fusion_tv->getRootDomain().size(); i > 0; i--) {
+    auto r_id = fusion_tv->getRootDomain()[i - 1];
     if (r_id->isReduction() || r_id->isBroadcast()) {
       continue;
     }
