@@ -47,7 +47,11 @@ class VectorizeValidator : public OptInDispatch {
   }
 
   void handle(Merge* m) {
-    vectorized_id = m->inner();
+    if (m->inner()->isBroadcast() && !m->outer()->isBroadcast()) {
+      vectorized_id = m->outer();
+    } else {
+      vectorized_id = m->inner();
+    }
   }
 
  private:
@@ -91,8 +95,16 @@ class VectorizeValidator : public OptInDispatch {
     auto vector_size =
         dataTypeSize(tv->getDataType().value()) * vector_size_optional.value();
 
+    // Allow half2, float2, float4 and same sized vtypes.
+    std::array<int, 3> allowed_vector_sizes = {4, 8, 16};
+
     TORCH_CHECK(
-        vector_size <= 16,
+        std::any_of(
+            allowed_vector_sizes.begin(),
+            allowed_vector_sizes.end(),
+            [&vector_size](int allowed_size) {
+              return vector_size == allowed_size;
+            }),
         "Tried to vectorize a dim resulting in a word size of ",
         vector_size,
         " however, vector sizes only upto and including 16 bytes are supported.");
@@ -171,9 +183,12 @@ void validateVectorize(Fusion* fusion) {
           GpuLower::current()->caParallelMap().getConcreteMappedID(id);
 
       if (concrete_id->getParallelType() == ParallelType::Vectorize) {
-        // TODO: Would be nice to do this check when setting a dimension to
-        // vectorize, however that would require parallelization scheme to done
-        // on tensor view instead of iter domain.
+        // If we want to do this check up front we would have to do 2 things:
+        // (1) Check that the tensor view with vectorize being set on it is
+        // getting it set outside the local compute at position
+        // (2) Check any producers of the tensor view with vectorize being set
+        // on it to make sure their compute at position isn't to the right of
+        // the vectorize dim.
         TORCH_INTERNAL_ASSERT(
             i >= tv->getThisComputeAtAxis(),
             "IterDomains to the left of the compute at point cannot be vectorized.");

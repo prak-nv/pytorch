@@ -474,6 +474,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
     launch_params = computeLaunchParams(launch_constraints, expr_eval);
 
+    executor_utils::validateVectorizedTensors(
+        &fusion_, inputs, lowered_, expr_eval);
+
     if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
       allocated_outputs = allocOutputs(expr_eval);
     } else {

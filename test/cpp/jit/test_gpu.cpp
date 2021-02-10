@@ -43,6 +43,7 @@ namespace torch {
 namespace jit {
 
 using namespace torch::jit::fuser::cuda;
+using namespace at::indexing;
 
 namespace {
 
@@ -12131,6 +12132,64 @@ TEST(NVFuserTest, FusionVectorization2_CUDA) {
   FusionExecutor fe;
   // Make sure compilation fails
   ASSERT_ANY_THROW(fe.compileFusion(&fusion));
+}
+
+TEST(NVFuserTest, FusionVectorization3_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(1, 16);
+  tv2->split(1, 64);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
+  auto c2 = tv2->cache_before();
+
+  c0->computeAt(tv2, -2);
+  c1->computeAt(tv2, -2);
+
+  std::vector<TensorView*> vectorized_tvs = {c0, c1, tv2};
+  for (auto tv : vectorized_tvs) {
+    tv->split(-1, 4);
+    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 128;
+  const int by = 2049;
+  at::Tensor t0 = at::randn({bx, by}, options);
+  at::Tensor t1 = at::randn({bx, by}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  std::vector<IValue> aten_inputs = {t0, t1};
+  ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
+
+  aten_inputs[0] = t0.index({"...", Slice(1)});
+  aten_inputs[1] = t1.index({"...", Slice(1)});
+  ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
+
+  t0 = at::randn({bx, 2048}, options).index({"...", Slice(4)});
+  t1 = at::randn({bx, 2048}, options).index({"...", Slice(4)});
+  aten_inputs = {t0, t1};
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0 + t1;
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
 } // namespace jit
