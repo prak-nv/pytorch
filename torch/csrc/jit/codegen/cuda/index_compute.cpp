@@ -877,9 +877,8 @@ std::unordered_map<kir::ForLoop*, kir::Val*> indexMapFromTV(
       }
     } else if (
         (loop->iter_domain()->isBlockDim() && is_shared) ||
-        (loop->iter_domain()->isThread() && is_local)) {
-      idx = zero;
-    } else if (loop->iter_domain()->parallelType() == ParallelType::Vectorize) {
+        (loop->iter_domain()->isThread() && is_local) ||
+        (loop->iter_domain()->parallelType() == ParallelType::Vectorize)) {
       idx = zero;
     } else {
       idx = loop->index();

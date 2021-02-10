@@ -36,26 +36,29 @@ namespace {
 
 class VectorizeValidator : public OptInDispatch {
  private:
+  VectorizeValidator(IterDomain* vectorized_id)
+      : vectorized_id_(vectorized_id) {}
+
   using OptInDispatch::handle;
 
-  void handle(Split* s) {
-    if (s->outer() == vectorized_id) {
+  void handle(Split* s) final {
+    if (s->outer() == vectorized_id_) {
       is_valid = false;
-    } else if (s->inner() == vectorized_id) {
-      vectorized_id = s->in();
+    } else if (s->inner() == vectorized_id_) {
+      vectorized_id_ = s->in();
     }
   }
 
-  void handle(Merge* m) {
+  void handle(Merge* m) final {
     if (m->inner()->isBroadcast() && !m->outer()->isBroadcast()) {
-      vectorized_id = m->outer();
+      vectorized_id_ = m->outer();
     } else {
-      vectorized_id = m->inner();
+      vectorized_id_ = m->inner();
     }
   }
 
  private:
-  IterDomain* vectorized_id;
+  IterDomain* vectorized_id_ = nullptr;
   bool is_valid = true;
 
  public:
@@ -96,13 +99,13 @@ class VectorizeValidator : public OptInDispatch {
         dataTypeSize(tv->getDataType().value()) * vector_size_optional.value();
 
     // Allow half2, float2, float4 and same sized vtypes.
-    std::array<int, 3> allowed_vector_sizes = {4, 8, 16};
+    std::array<int64_t, 3> allowed_vector_sizes = {4, 8, 16}; // NOLint64_t
 
     TORCH_CHECK(
         std::any_of(
             allowed_vector_sizes.begin(),
             allowed_vector_sizes.end(),
-            [&vector_size](int allowed_size) {
+            [&vector_size](int64_t allowed_size) {
               return vector_size == allowed_size;
             }),
         "Tried to vectorize a dim resulting in a word size of ",
@@ -111,9 +114,8 @@ class VectorizeValidator : public OptInDispatch {
 
     auto replay_exprs = ExprSort::getExprs(fusion, {v_id});
 
-    VectorizeValidator validator;
+    VectorizeValidator validator(v_id);
 
-    validator.vectorized_id = v_id;
     for (auto expr_it = replay_exprs.rbegin(); expr_it != replay_exprs.rend();
          ++expr_it) {
       auto expr = *expr_it;
@@ -126,8 +128,7 @@ class VectorizeValidator : public OptInDispatch {
         "Issue found in, ",
         tv);
 
-    TORCH_INTERNAL_ASSERT(validator.vectorized_id != nullptr);
-    auto root_dim = validator.vectorized_id;
+    TORCH_INTERNAL_ASSERT(validator.vectorized_id_ != nullptr);
 
     // TODO: Contiguity is based on root domain not rfactor. Seems this
     // generally doesn't cause problems, though contiguity should be on rfactor
@@ -140,7 +141,7 @@ class VectorizeValidator : public OptInDispatch {
         continue;
       }
       last_root_dim = r_id;
-      last_root_dim_pos = i - 1;
+      last_root_dim_pos = (int)i - 1;
       break;
     }
 
@@ -151,7 +152,7 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     TORCH_CHECK(
-        last_root_dim == validator.vectorized_id &&
+        last_root_dim == validator.vectorized_id_ &&
             tv->domain()->contiguity()[last_root_dim_pos],
         "Vectorized dim has to be from a contiguous inner most position.");
   }

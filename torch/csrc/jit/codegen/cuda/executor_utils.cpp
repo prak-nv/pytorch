@@ -322,7 +322,6 @@ void validateVectorizedTensors(
     auto word_size = entry.second;
     bool is_input = tv->isFusionInput();
     if (is_input) {
-      int input_pos = -1;
       auto inp_it =
           std::find(fusion->inputs().begin(), fusion->inputs().end(), tv);
       TORCH_INTERNAL_ASSERT(
