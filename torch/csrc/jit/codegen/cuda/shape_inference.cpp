@@ -201,7 +201,7 @@ class NaiveTypePropagator {
       }
       case aten::native_batch_norm: {
         auto out_type = node->input(0)->type()->cast<TensorType>();
-        node->output()->setType(out_type);
+        node->output(0)->setType(out_type);
 
         auto mean_rstd_type = TensorType::create(
             *out_type->scalarType(),
@@ -225,8 +225,8 @@ class NaiveTypePropagator {
         }
 
         if (output_mask[0]) {
-          auto out_type = node->input(0)->type()->cast<TensorType>();
-          node->output(0)->setType(out_type);
+          auto in_type = node->input(1)->type()->cast<TensorType>();
+          node->output(0)->setType(in_type);
         }
 
         if (output_mask[1]) {
@@ -235,8 +235,13 @@ class NaiveTypePropagator {
         }
 
         if (output_mask[2]) {
-          auto out_type = node->input(0)->type()->cast<TensorType>();
-          node->output(2)->setType(out_type);
+          auto weight_type = node->input(2)->type()->cast<TensorType>();
+          auto bias_type = TensorType::create(
+              *weight_type->scalarType(),
+              *weight_type->device(),
+              *weight_type->dim(),
+              output_mask[2]);
+          node->output(2)->setType(bias_type);
         }
         break;
       }
