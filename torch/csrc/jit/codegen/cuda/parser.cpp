@@ -686,8 +686,8 @@ class IrParser {
               // current_var_hat);
 
               auto var_eps = add(var, new Double(kEps));
-              auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
-              auto output = mul(x_mean_sub, rvar);
+              auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
+              auto output = mul(x_mean_sub, invstd);
 
               // Optional: norm * weight
               if (weight) {
@@ -703,8 +703,12 @@ class IrParser {
               if (node->kind() ==
                   c10::Symbol::fromQualString("aten::native_batch_norm")) {
                 value_map.emplace(node->output(0)->unique(), output);
-                value_map.emplace(node->output(1)->unique(), x_mean);
-                value_map.emplace(node->output(2)->unique(), rvar);
+
+                auto save_mean = sum(x_mean, reduction_axes);
+                value_map.emplace(node->output(1)->unique(), save_mean);
+
+                auto save_invstd = sum(invstd, reduction_axes);
+                value_map.emplace(node->output(2)->unique(), save_invstd);
               } else if (
                   node->kind() ==
                   c10::Symbol::fromQualString("aten::batch_norm")) {

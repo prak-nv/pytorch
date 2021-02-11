@@ -7844,6 +7844,7 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNorm_CUDA) {
   auto x_sum = sum(input, reduction_axes);
   auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
   auto x_mean = div(x_sum_bcast, num_features);
+  auto save_mean = sum(x_mean, reduction_axes);
 
   // auto current_mean_hat = mul(x_mean, new Double(kMomentum));
   // auto rmean_bcast = broadcast(running_mean, broadcast_mask);
@@ -7862,8 +7863,9 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNorm_CUDA) {
   // auto new_running_var = add(rvar_hat, current_var_hat);
 
   auto var_eps = add(var, new Double(kEps));
-  auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
-  auto norm = mul(x_mean_sub, rvar);
+  auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
+  auto save_rvar = sum(invstd, reduction_axes);
+  auto norm = mul(x_mean_sub, invstd);
 
   auto weight_bcast = broadcast(weight, broadcast_mask);
   auto bias_bcast = broadcast(bias, broadcast_mask);
@@ -7871,6 +7873,8 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNorm_CUDA) {
   auto norm_gamma_bias = add(norm_gamma, bias_bcast);
 
   fusion.addOutput(norm_gamma_bias);
+  fusion.addOutput(save_mean);
+  fusion.addOutput(save_rvar);
   // fusion.addOutput(new_running_mean);
   // fusion.addOutput(new_running_var);
 
@@ -7908,7 +7912,7 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNorm_CUDA) {
       kEps);
   auto at_output = std::get<0>(at_results);
   auto at_mean = std::get<1>(at_results);
-  auto at_rstd = std::get<2>(at_results);
+  auto at_invstd = std::get<2>(at_results);
 
   std::vector<IValue> at_inputs = {
       at_input, at_weight.value(), at_bias.value()};
@@ -7932,7 +7936,7 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNorm_CUDA) {
       &fusion,
       cg_outputs,
       at_inputs,
-      {at_output},
+      {at_output, at_mean, at_invstd},
       __LINE__,
       __FILE__,
       "",
@@ -8047,7 +8051,7 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
       kEps);
   auto at_output = std::get<0>(at_results);
   auto at_mean = std::get<1>(at_results);
-  auto at_rstd = std::get<2>(at_results);
+  auto at_invstd = std::get<2>(at_results);
 
   auto at_gradients = at::native_batch_norm_backward(
       at_grad_out,
@@ -8056,7 +8060,7 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
       at_running_mean,
       at_running_var,
       c10::optional<at::Tensor>(at_mean),
-      c10::optional<at::Tensor>(at_rstd),
+      c10::optional<at::Tensor>(at_invstd),
       kTraining,
       kEps,
       {true, true, true});
@@ -8071,7 +8075,7 @@ TEST(NVFuserTest, FusionMagicSchedulerBatchNormBackward_CUDA) {
       at_running_mean.value(),
       at_running_var.value(),
       at_mean,
-      at_rstd};
+      at_invstd};
 
   std::vector<TensorView*> reduction_tensors;
   std::vector<TensorView*> other_tensors;

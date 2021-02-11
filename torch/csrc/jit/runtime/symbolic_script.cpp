@@ -1026,7 +1026,7 @@ const std::vector<std::string> functions = {
             output, mean, rstd = torch.native_batch_norm(input, weight, bias, running_mean, running_var, training, momentum, eps)
 
             def backward(grad_output):
-                output_mask = [True, True, True]
+                output_mask = [True, weight is not None, bias is not None]
                 grad_input, grad_weight, grad_bias = torch.native_batch_norm_backward(grad_output, input, weight, running_mean, running_var, mean, rstd, training, eps, output_mask)
                 return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
 
