@@ -57,6 +57,9 @@ class IfThenElse;
 class GridReduction;
 class GridWelford;
 
+// Expr container
+class Scope;
+
 using ValueId = int32_t;
 
 //! Token used to restrict the access to Kernel IR creation
@@ -79,7 +82,7 @@ class Passkey {
 };
 
 //! Kernel IR visitor interface
-class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
+class TORCH_CUDA_CU_API IrVisitor : public PolymorphicBase {
  public:
   // TODO(kir): use Node* instead of void*
   virtual void unhandled(const void* node) {}
@@ -152,7 +155,7 @@ class TORCH_CUDA_API IrVisitor : public PolymorphicBase {
 };
 
 //! Kernel IR visitor interface
-class TORCH_CUDA_API MutableIrVisitor : public PolymorphicBase {
+class TORCH_CUDA_CU_API MutableIrVisitor : public PolymorphicBase {
  public:
   // TODO(kir): use Node* instead of void*
   virtual void unhandled(const void*) {}
@@ -227,7 +230,7 @@ class TORCH_CUDA_API MutableIrVisitor : public PolymorphicBase {
 };
 
 //! Base class for Kernel IR nodes
-class TORCH_CUDA_API Node : public NonCopyable, public PolymorphicBase {
+class TORCH_CUDA_CU_API Node : public NonCopyable, public PolymorphicBase {
  public:
   explicit Node(Passkey) {}
 
@@ -243,7 +246,7 @@ class TORCH_CUDA_API Node : public NonCopyable, public PolymorphicBase {
 };
 
 //! Generic value (scalar or tensor)
-class TORCH_CUDA_API Val : public Node {
+class TORCH_CUDA_CU_API Val : public Node {
  public:
   Val(Passkey passkey, DataType dtype);
 
@@ -312,7 +315,7 @@ class TORCH_CUDA_API Val : public Node {
 //!
 //! TODO(kir): split the expressions, assignments and statements?
 //!
-class TORCH_CUDA_API Expr : public Node {
+class TORCH_CUDA_CU_API Expr : public Node {
  public:
   explicit Expr(Passkey passkey) : Node(passkey) {}
 
@@ -324,11 +327,16 @@ class TORCH_CUDA_API Expr : public Node {
     return outputs_;
   }
 
-  Expr* parentScope() const {
-    return parent_scope_;
+  Scope* scope() const {
+    return scope_;
   }
 
-  void setParentScope(Expr* scope);
+  //! Set the current scope
+  void setScope(Scope* scope) {
+    scope_ = scope;
+  }
+
+  Expr* parentScope() const;
 
   Bool* predicate() const {
     return predicate_;
@@ -355,12 +363,12 @@ class TORCH_CUDA_API Expr : public Node {
   std::vector<Val*> outputs_;
 
   // TODO(kir): revisit scope/nesting data structures
-  Expr* parent_scope_ = nullptr;
+  Scope* scope_ = nullptr;
 
   Bool* predicate_ = nullptr;
 };
 
-class TORCH_CUDA_API NamedScalar final : public Val {
+class TORCH_CUDA_CU_API NamedScalar final : public Val {
  public:
   NamedScalar(Passkey passkey, std::string name, DataType dtype)
       : Val(passkey, dtype), name_(name) {}
@@ -405,7 +413,7 @@ class TORCH_CUDA_API NamedScalar final : public Val {
   std::string name_;
 };
 
-class TORCH_CUDA_API Bool final : public Val {
+class TORCH_CUDA_CU_API Bool final : public Val {
  public:
   explicit Bool(Passkey passkey, const c10::optional<bool>& value)
       : Val(passkey, DataType::Bool), maybe_value_(value) {}
@@ -439,7 +447,7 @@ class TORCH_CUDA_API Bool final : public Val {
   const c10::optional<bool> maybe_value_;
 };
 
-class TORCH_CUDA_API Double final : public Val {
+class TORCH_CUDA_CU_API Double final : public Val {
  public:
   using ScalarType = double;
 
@@ -475,7 +483,7 @@ class TORCH_CUDA_API Double final : public Val {
   const c10::optional<ScalarType> maybe_value_;
 };
 
-class TORCH_CUDA_API Int final : public Val {
+class TORCH_CUDA_CU_API Int final : public Val {
  public:
   using ScalarType = int64_t;
 
@@ -522,7 +530,7 @@ class TORCH_CUDA_API Int final : public Val {
   const c10::optional<ScalarType> maybe_value_;
 };
 
-class TORCH_CUDA_API IterDomain final : public Val {
+class TORCH_CUDA_CU_API IterDomain final : public Val {
  public:
   IterDomain(Passkey passkey, Val* start, Val* extent);
 
@@ -610,7 +618,7 @@ class TORCH_CUDA_API IterDomain final : public Val {
 };
 
 // TODO(kir): is this really a value?
-class TORCH_CUDA_API TensorDomain final : public Val {
+class TORCH_CUDA_CU_API TensorDomain final : public Val {
  public:
   explicit TensorDomain(Passkey, std::vector<IterDomain*> domain);
 
@@ -690,7 +698,7 @@ class TORCH_CUDA_API TensorDomain final : public Val {
   const std::vector<bool> contiguity_;
 };
 
-class TORCH_CUDA_API TensorView final : public Val {
+class TORCH_CUDA_CU_API TensorView final : public Val {
  public:
   explicit TensorView(Passkey, const fuser::cuda::TensorView* tv);
 
@@ -730,7 +738,7 @@ class TORCH_CUDA_API TensorView final : public Val {
   const fuser::cuda::TensorView* fuser_tv_ = nullptr;
 };
 
-class TORCH_CUDA_API UnaryOp final : public Expr {
+class TORCH_CUDA_CU_API UnaryOp final : public Expr {
  public:
   UnaryOp(Passkey passkey, UnaryOpType operation, Val* out, Val* in);
 
@@ -760,7 +768,7 @@ class TORCH_CUDA_API UnaryOp final : public Expr {
   Val* const in_ = nullptr;
 };
 
-class TORCH_CUDA_API BinaryOp final : public Expr {
+class TORCH_CUDA_CU_API BinaryOp final : public Expr {
  public:
   BinaryOp(
       Passkey passkey,
@@ -800,7 +808,7 @@ class TORCH_CUDA_API BinaryOp final : public Expr {
   Val* const rhs_ = nullptr;
 };
 
-class TORCH_CUDA_API TernaryOp final : public Expr {
+class TORCH_CUDA_CU_API TernaryOp final : public Expr {
  public:
   TernaryOp(
       Passkey passkey,
@@ -846,7 +854,7 @@ class TORCH_CUDA_API TernaryOp final : public Expr {
   Val* const in3_ = nullptr;
 };
 
-class TORCH_CUDA_API ReductionOp final : public Expr {
+class TORCH_CUDA_CU_API ReductionOp final : public Expr {
  public:
   ReductionOp(
       Passkey passkey,
@@ -892,7 +900,7 @@ class TORCH_CUDA_API ReductionOp final : public Expr {
   Val* const in_ = nullptr;
 };
 
-class TORCH_CUDA_API WelfordOp final : public Expr {
+class TORCH_CUDA_CU_API WelfordOp final : public Expr {
  public:
   WelfordOp(
       Passkey passkey,
@@ -978,7 +986,7 @@ class TORCH_CUDA_API WelfordOp final : public Expr {
   Val* const in_N_;
 };
 
-class TORCH_CUDA_API TensorIndex final : public Val {
+class TORCH_CUDA_CU_API TensorIndex final : public Val {
  public:
   TensorIndex(
       Passkey,
@@ -1012,7 +1020,7 @@ class TORCH_CUDA_API TensorIndex final : public Val {
   std::vector<Val*> indices_;
 };
 
-class TORCH_CUDA_API BroadcastOp final : public Expr {
+class TORCH_CUDA_CU_API BroadcastOp final : public Expr {
  public:
   BroadcastOp(Passkey passkey, Val* out, Val* in);
 
@@ -1045,7 +1053,7 @@ class TORCH_CUDA_API BroadcastOp final : public Expr {
 //! TODO(kir): The components of Allocate like Type and Name could be separated
 //!   from the the assocated TensorView.  Perhaps that is more appropriate?
 //!
-class TORCH_CUDA_API Allocate final : public Expr {
+class TORCH_CUDA_CU_API Allocate final : public Expr {
  public:
   explicit Allocate(
       Passkey passkey,
@@ -1103,7 +1111,7 @@ class TORCH_CUDA_API Allocate final : public Expr {
 //
 // TODO(kir): change name to SyncThreads as we could have other barriers.
 //
-class TORCH_CUDA_API Sync final : public Expr {
+class TORCH_CUDA_CU_API Sync final : public Expr {
  public:
   explicit Sync(Passkey passkey, bool war_sync = false);
 
@@ -1125,24 +1133,12 @@ class TORCH_CUDA_API Sync final : public Expr {
 };
 
 // TODO(kir): promote to IR node
-class TORCH_CUDA_API Scope {
+class TORCH_CUDA_CU_API Scope {
  public:
-  Scope() = default;
+  explicit Scope(Expr* owner) : owner_(owner) {}
 
   const std::vector<Expr*>& exprs() const {
     return exprs_;
-  }
-
-  void push_back(Expr* e) {
-    exprs_.push_back(e);
-  }
-
-  void insert(size_t pos, Expr* expr) {
-    exprs_.insert(exprs_.begin() + pos, expr);
-  }
-
-  void erase(size_t pos) {
-    exprs_.erase(exprs_.begin() + pos);
   }
 
   bool empty() const {
@@ -1161,20 +1157,46 @@ class TORCH_CUDA_API Scope {
     return exprs_[i];
   }
 
+  // Insert expr before expression at pos
+  void insert(size_t pos, Expr* expr);
+
   // Insert expr before ref
   void insert_before(Expr* ref, Expr* expr);
 
   // Insert expr after ref
   void insert_after(Expr* ref, Expr* expr);
 
-  bool contains(Expr* expr) const;
+  void push_back(Expr* e) {
+    exprs_.push_back(e);
+    e->setScope(this);
+  }
 
+  // Erase expr at pos
+  void erase(size_t pos);
+
+  // Erase expr ref
   void erase(Expr* ref);
+
+  bool contains(Expr* expr) const;
 
   void clear();
 
+  Expr* owner() const {
+    return owner_;
+  }
+
+ private:
+  // Insert expr before pos
+  void insert(std::vector<Expr*>::const_iterator pos, Expr* expr);
+
+  // Erase expr at pos
+  void erase(std::vector<Expr*>::const_iterator pos);
+
  private:
   std::vector<Expr*> exprs_;
+
+  //! Owner exprssion of this scope, e.g., IfThenElse
+  Expr* owner_ = nullptr;
 };
 
 //! ForLoop provides scoping around an int iterator from 0 to range. Exprs
@@ -1184,13 +1206,9 @@ class TORCH_CUDA_API Scope {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class TORCH_CUDA_API ForLoop final : public Expr {
+class TORCH_CUDA_CU_API ForLoop final : public Expr {
  public:
-  ForLoop(
-      Passkey passkey,
-      Val* index,
-      IterDomain* iter_domain,
-      Expr* parent_scope);
+  ForLoop(Passkey passkey, Val* index, IterDomain* iter_domain);
 
   void accept(IrVisitor* visitor) const override {
     visitor->visit(this);
@@ -1229,9 +1247,9 @@ class TORCH_CUDA_API ForLoop final : public Expr {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class TORCH_CUDA_API IfThenElse final : public Expr {
+class TORCH_CUDA_CU_API IfThenElse final : public Expr {
  public:
-  explicit IfThenElse(Passkey passkey, Bool* cond, Expr* parent_scope);
+  explicit IfThenElse(Passkey passkey, Bool* cond);
 
   void accept(IrVisitor* visitor) const override {
     visitor->visit(this);
@@ -1277,7 +1295,7 @@ class TORCH_CUDA_API IfThenElse final : public Expr {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! reduction and sync buffers.
-class TORCH_CUDA_API GridReduction final : public Expr {
+class TORCH_CUDA_CU_API GridReduction final : public Expr {
  public:
   explicit GridReduction(Passkey passkey, ReductionOp* reduction_op);
 

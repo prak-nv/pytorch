@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
+
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
@@ -53,8 +54,8 @@ std::vector<Statement*> IterVisitor::next(Val* v) {
 
 std::vector<Statement*> IterVisitor::next(Expr* expr) {
   FusionGuard::getCurFusion()->assertInFusion(expr, "Cannot traverse expr, ");
-  std::vector<Statement*> next_stmts{expr->inputs().begin(),
-                                     expr->inputs().end()};
+  std::vector<Statement*> next_stmts{
+      expr->inputs().begin(), expr->inputs().end()};
   return next_stmts;
 }
 
@@ -307,7 +308,8 @@ void BackwardVisitor::traverseFrom(
     for (auto out : traversal_pair.first->outputs()) {
       TORCH_INTERNAL_ASSERT(
           vals.find(out) != vals.end(),
-          "Invalid backward traversal found. Some output paths were not provided.");
+          "Invalid backward traversal found. Some output paths were not provided:",
+          out);
     }
   }
 
@@ -425,6 +427,66 @@ struct FindOutputs : public IterVisitor {
 
     FindOutputs finder(of);
     return finder.outs_;
+  }
+};
+
+// Looks for and returns all values that depends on `of`.
+class DependentVals : public IterVisitor {
+ private:
+  // Which nodes to find dependencies of
+  const std::unordered_set<Val*>& of_;
+
+  // Dependencies we have so far
+  std::unordered_set<Val*> outs_;
+
+  // Boundary where we want to stop searching beyond
+  std::unordered_set<Val*> boundary_;
+
+  std::vector<Statement*> next(Val* v) override {
+    if (boundary_.find(v) != boundary_.end())
+      return std::vector<Statement*>();
+    return IterVisitor::next(v);
+  }
+
+  void handle(Val* val) override {
+    if (val->isFusionInput() || val->definition() == nullptr ||
+        of_.count(val) || outs_.count(val)) {
+      return;
+    }
+
+    for (auto v : val->definition()->inputs()) {
+      if (of_.count(v) || outs_.count(v)) {
+        outs_.emplace(val);
+        return;
+      }
+    }
+  }
+
+  // optimization to limit search path
+  void createBoundary() {
+    for (auto v_of : of_) {
+      for (auto v_expr : v_of->uses()) {
+        for (auto v_in : v_expr->inputs()) {
+          boundary_.emplace(v_in);
+        }
+      }
+    }
+  }
+
+  DependentVals(const std::unordered_set<Val*>& _of) : of_(_of) {
+    createBoundary();
+    auto fusion = (*of_.begin())->fusion();
+    traverseFrom(fusion, fusion->outputs(), false);
+  };
+
+ public:
+  static std::unordered_set<Val*> getAllDependentVals(
+      const std::unordered_set<Val*>& of) {
+    if (of.empty()) {
+      return std::unordered_set<Val*>();
+    }
+    DependentVals dependencies(of);
+    return dependencies.outs_;
   }
 };
 
@@ -551,6 +613,15 @@ std::unordered_set<Val*> DependencyCheck::getAllOutputsOf(
   return FindOutputs::getAllOutputsOf(of);
 }
 
+std::unordered_set<Val*> DependencyCheck::getAllDependentVals(
+    const std::unordered_set<Val*>& of) {
+  if (of.empty()) {
+    return std::unordered_set<Val*>();
+  }
+  FusionGuard fg((*of.begin())->fusion());
+  return DependentVals::getAllDependentVals(of);
+}
+
 void ExprSort::handle(Expr* expr) {
   exprs.push_back(expr);
 }
@@ -576,8 +647,14 @@ void InputsOf::handle(Val* v) {
 }
 
 std::unordered_set<Val*> InputsOf::output(Fusion* fusion, Val* output_) {
+  return outputs(fusion, {output_});
+}
+
+std::unordered_set<Val*> InputsOf::outputs(
+    Fusion* fusion,
+    const std::vector<Val*>& outputs_) {
   InputsOf io;
-  io.traverseFrom(FusionGuard::getCurFusion(), {output_}, false);
+  io.traverseFrom(fusion, outputs_, false);
   return io.inputs;
 }
 

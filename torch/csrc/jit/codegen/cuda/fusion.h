@@ -49,9 +49,12 @@ class Fusion;
 class TensorView;
 class WelfordResult;
 
+class SegmentCandidateFinder;
+class SegmentedFusion;
+
 //! Fusion Guard is our "context manager". It holds the actrive fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
-class TORCH_CUDA_API FusionGuard {
+class TORCH_CUDA_CU_API FusionGuard {
  public:
   Fusion* prev_fusion;
 
@@ -71,7 +74,7 @@ class TORCH_CUDA_API FusionGuard {
 //!
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
-class TORCH_CUDA_API Fusion final {
+class TORCH_CUDA_CU_API Fusion final {
  public:
   Fusion() = default;
 
@@ -83,7 +86,7 @@ class TORCH_CUDA_API Fusion final {
 
   ~Fusion();
 
-  friend void swap(Fusion& a, Fusion& b) noexcept;
+  TORCH_CUDA_CU_API friend void swap(Fusion& a, Fusion& b) noexcept;
 
   void clear() noexcept;
 
@@ -114,6 +117,12 @@ class TORCH_CUDA_API Fusion final {
   //! Deregister output as an output of the fusion
   // TODO: Rename to register
   void removeOutput(Val* output);
+
+  //! Replace output with another value
+  void replaceOutput(Val* output, Val* replacement);
+
+  //! Lookup the value node with the specified type and name
+  Val* lookupValue(ValType vtype, StmtNameType name) const;
 
   //! Clear Expr's from TV uses that are not required to produce outputs from
   //! inputs
@@ -180,6 +189,9 @@ class TORCH_CUDA_API Fusion final {
   //! Indicate that the fusion contains reduction operations
   bool hasReduction();
 
+  //! Run fusion segmentation algorithm to create a segmented fusion
+  std::unique_ptr<SegmentedFusion> segment();
+
   const auto& inputs() const {
     return inputs_;
   }
@@ -193,6 +205,12 @@ class TORCH_CUDA_API Fusion final {
   bool hasInput(const Val* val) const;
   bool hasOutput(const Val* val) const;
 
+ protected:
+  friend SegmentCandidateFinder;
+  friend SegmentedFusion;
+
+  static IrCloner copy(const Fusion* from, Fusion* to);
+
  private:
   // Return an int that monotonically increases for each val/expr, some are
   // explicitly incremented by type.
@@ -205,6 +223,10 @@ class TORCH_CUDA_API Fusion final {
   std::unordered_set<Val*> val_set_;
   std::deque<Val*> val_deque_;
   std::unordered_set<Expr*> expr_set_;
+
+  // name-to-node lookup indexes
+  std::unordered_map<ValType, std::unordered_map<StmtNameType, Val*>>
+      lookup_index_;
 
   // Values names counters
   std::unordered_map<ValType, StmtNameType, TypeHash> val_type_name_map_;

@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/interface.h>
+
 #include <ATen/core/dispatch/OperatorOptions.h>
 #include <torch/csrc/jit/runtime/custom_operator.h>
 #include <torch/csrc/jit/runtime/register_ops_utils.h>
@@ -284,6 +285,24 @@ RegisterOperators reg_guard({
             // naively return true;
             push(stack, IValue(true));
             return;
+          };
+        },
+        aliasAnalysisFromSchema()),
+});
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+RegisterOperators reg_add_optional({
+    Operator(
+        "prim::add_optional(Tensor(a) input, Tensor? bias) -> Tensor(a)",
+        [](const Node* node) -> Operation {
+          return [](Stack* stack) {
+            IValue input, bias;
+            pop(stack, input, bias);
+            if (bias.isNone()) {
+              push(stack, std::move(input));
+            } else {
+              push(stack, at::add(input.toTensor(), bias.toTensor(), 1.0));
+            }
           };
         },
         aliasAnalysisFromSchema()),

@@ -1,6 +1,6 @@
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
-#include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/codegen.h>
+#include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
@@ -31,7 +31,7 @@ Fusion* FusionGuard::getCurFusion() {
   return ACTIVE_FUSION;
 }
 
-void swap(Fusion& a, Fusion& b) noexcept {
+TORCH_CUDA_CU_API void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
   using std::swap;
@@ -40,6 +40,8 @@ void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.val_set_, b.val_set_);
   swap(a.expr_set_, b.expr_set_);
   swap(a.val_deque_, b.val_deque_);
+
+  swap(a.lookup_index_, b.lookup_index_);
 
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
@@ -66,32 +68,49 @@ void swap(Fusion& a, Fusion& b) noexcept {
 
 Fusion::Fusion(const Fusion& other) {
   FUSER_PERF_SCOPE("Fusion copy");
+  Fusion::copy(&other, this);
+}
 
-  IrCloner ir_cloner(this);
+std::unique_ptr<SegmentedFusion> Fusion::segment() {
+  FUSER_PERF_SCOPE("Segment Fusion");
+  return SegmentCandidateFinder::segment(this);
+}
 
-  for (auto val : other.val_set_) {
-    val_set_.insert(ir_cloner.clone(val));
+IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
+  to->clear();
+  IrCloner ir_cloner(to);
+
+  for (auto val : from->val_set_) {
+    to->val_set_.insert(ir_cloner.clone(val));
   }
 
-  for (auto expr : other.expr_set_) {
-    expr_set_.insert(ir_cloner.clone(expr));
+  for (auto expr : from->expr_set_) {
+    to->expr_set_.insert(ir_cloner.clone(expr));
   }
 
-  for (auto val : other.val_deque_) {
-    val_deque_.push_back(ir_cloner.clone(val));
+  for (auto val : from->val_deque_) {
+    to->val_deque_.push_back(ir_cloner.clone(val));
   }
 
-  // Fixup potentially cyclic pointers
-  for (auto val : val_set_) {
-    val->definition_ = ir_cloner.clone(val->definition_);
-    val->uses_ = ir_cloner.clone(val->uses_);
+  for (auto val : from->val_set_) {
+    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
+    ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
 
-  val_type_name_map_ = other.val_type_name_map_;
-  expr_name_counter_ = other.expr_name_counter_;
+  to->lookup_index_ = from->lookup_index_;
+  for (auto& index_kv : to->lookup_index_) {
+    for (auto& kv : index_kv.second) {
+      kv.second = ir_cloner.clone(kv.second);
+    }
+  }
 
-  inputs_ = ir_cloner.clone(other.inputs_);
-  outputs_ = ir_cloner.clone(other.outputs_);
+  to->val_type_name_map_ = from->val_type_name_map_;
+  to->expr_name_counter_ = from->expr_name_counter_;
+
+  to->inputs_ = ir_cloner.clone(from->inputs_);
+  to->outputs_ = ir_cloner.clone(from->outputs_);
+
+  return ir_cloner;
 }
 
 Fusion::Fusion(Fusion&& other) noexcept {
@@ -134,6 +153,8 @@ void Fusion::clear() noexcept {
   val_set_.clear();
   val_deque_.clear();
   expr_set_.clear();
+
+  lookup_index_.clear();
 
   for (auto& kv : val_type_name_map_) {
     kv.second = 0;
@@ -250,6 +271,25 @@ void Fusion::removeOutput(Val* output) {
   resetTvUses();
 }
 
+void Fusion::replaceOutput(Val* output, Val* replacement) {
+  auto find_output = std::find(outputs_.begin(), outputs_.end(), output);
+  TORCH_CHECK(find_output != outputs_.end(), "Unable to find output in Fusion");
+
+  if (find_output != outputs_.end()) {
+    *find_output = replacement;
+
+    if (replacement->getValType().value() == ValType::TensorView) {
+      replacement->setIsFusionOutput(true);
+      replacement->as<TensorView>()->setMemoryType(MemoryType::Global);
+    }
+    if (output->getValType().value() == ValType::TensorView) {
+      output->setIsFusionOutput(false);
+      output->as<TensorView>()->setMemoryType(MemoryType::Local);
+    }
+    resetTvUses();
+  }
+}
+
 bool Fusion::inFusion(const Statement* stmt) const {
   bool in_fusion = stmt->fusion() == this;
   Statement* nonconst_stmt = const_cast<Statement*>(stmt); // NOLINT
@@ -357,7 +397,10 @@ StmtNameType Fusion::registerVal(Val* val) {
 
   val_set_.emplace(val);
   val_deque_.push_back(val);
-  return getValName(*(val->getValType()));
+  const auto vtype = *val->getValType();
+  const auto name = getValName(vtype);
+  TORCH_INTERNAL_ASSERT(lookup_index_[vtype].insert({name, val}).second);
+  return name;
 }
 
 StmtNameType Fusion::registerExpr(Expr* expr) {
@@ -408,6 +451,12 @@ StmtNameType Fusion::registerStatement(Statement* stmt) {
       false,
       "Could not register statement as Fusion could not recognize its type.");
   return kInvalidStmName;
+}
+
+Val* Fusion::lookupValue(ValType vtype, StmtNameType name) const {
+  const auto& index = lookup_index_.at(vtype);
+  const auto it = index.find(name);
+  return it != index.end() ? it->second : nullptr;
 }
 
 void Fusion::resetTvUses() {
@@ -496,8 +545,6 @@ bool Fusion::hasReduction() {
 
 std::vector<Val*> Fusion::getTerminatingOutputs() {
   FUSER_PERF_SCOPE("getTerminatingOutputs");
-
-  FusionGuard fg(this);
 
   std::unordered_set<Val*> used_vals;
 

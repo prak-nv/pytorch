@@ -13,12 +13,9 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-IndexLowering::IndexLowering(
-    const ThreadPredicateMap& thread_predicates,
-    const ComputeAtRootDomainMap& ca_root_map)
+IndexLowering::IndexLowering(const ThreadPredicateMap& thread_predicates)
     : ir_builder_(GpuLower::current()->kernel()),
-      thread_predicates_(thread_predicates),
-      ca_root_map_(ca_root_map) {}
+      thread_predicates_(thread_predicates) {}
 
 kir::Val* IndexLowering::lowerSrcIndex(kir::Val* val, kir::Val* dst) const {
   if (auto tv = dynamic_cast<kir::TensorView*>(val)) {
@@ -26,8 +23,7 @@ kir::Val* IndexLowering::lowerSrcIndex(kir::Val* val, kir::Val* dst) const {
     return Index::getProducerIndex(
         tv->fuserTv(),
         dst->as<kir::TensorView>()->fuserTv(),
-        scope_utils::getLoops(active_scope_expr_),
-        ca_root_map_);
+        scope_utils::getLoops(active_scope_expr_));
   } else {
     return val;
   }
@@ -36,7 +32,7 @@ kir::Val* IndexLowering::lowerSrcIndex(kir::Val* val, kir::Val* dst) const {
 kir::Val* IndexLowering::lowerDstIndex(kir::Val* dst) const {
   if (auto tv = dynamic_cast<kir::TensorView*>(dst)) {
     return Index::getConsumerIndex(
-        tv->fuserTv(), scope_utils::getLoops(active_scope_expr_), ca_root_map_);
+        tv->fuserTv(), scope_utils::getLoops(active_scope_expr_));
   } else {
     return dst;
   }
@@ -55,8 +51,7 @@ void IndexLowering::visit(const kir::IfThenElse* ite) {
   const auto prev_scope = active_scope_;
 
   // TODO(kir): try to avoid recreating new nodes and leaving old ones around
-  auto new_ite =
-      ir_builder_.create<kir::IfThenElse>(ite->cond(), prev_scope_expr);
+  auto new_ite = ir_builder_.create<kir::IfThenElse>(ite->cond());
   pushBack(new_ite);
 
   active_scope_expr_ = new_ite;
@@ -81,7 +76,7 @@ void IndexLowering::visit(const kir::ForLoop* for_loop) {
   const auto prev_scope = active_scope_;
 
   auto new_for_loop = ir_builder_.create<kir::ForLoop>(
-      for_loop->index(), for_loop->iter_domain(), prev_scope_expr);
+      for_loop->index(), for_loop->iter_domain());
   pushBack(new_for_loop);
 
   active_scope_expr_ = new_for_loop;
@@ -181,7 +176,6 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
         rop,
         scope_utils::getLoops(active_scope_expr_),
         thread_predicates_.getExpr(out_tv->fuserTv()),
-        ca_root_map_,
         false);
     block_reduction_op->setPredicate(pred);
     pushBack(block_reduction_op);
@@ -262,11 +256,7 @@ void IndexLowering::visit(const kir::ReductionOp* rop) {
         grid_reduction_op, reduce_buffer, sync_buffer);
     grid_reduction->setThreadPredicate(thread_pred);
     const auto pred = PredicateCompute::getInlinePredicate(
-        rop,
-        scope_utils::getLoops(active_scope_expr_),
-        nullptr,
-        ca_root_map_,
-        false);
+        rop, scope_utils::getLoops(active_scope_expr_), nullptr, false);
     grid_reduction->setPredicate(pred);
 
     pushBack(reduce_buffer);

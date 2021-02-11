@@ -14,7 +14,7 @@ namespace fuser {
 namespace cuda {
 
 //! Calculate Fusion IR expressions
-class TORCH_CUDA_API ExpressionEvaluator : private OptOutDispatch {
+class TORCH_CUDA_CU_API ExpressionEvaluator : private OptOutDispatch {
  public:
   explicit ExpressionEvaluator(Fusion* fusion) : fusion_(fusion) {}
 
@@ -35,8 +35,8 @@ class TORCH_CUDA_API ExpressionEvaluator : private OptOutDispatch {
  private:
   c10::optional<Int::ScalarType> getValue(Val* value);
 
-  void handle(UnaryOp*) final;
-  void handle(BinaryOp*) final;
+  void handle(UnaryOp*) override final;
+  void handle(BinaryOp*) override final;
 
  private:
   std::unordered_map<const Val*, Int::ScalarType> known_values_;

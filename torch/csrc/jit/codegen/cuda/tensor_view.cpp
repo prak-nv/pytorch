@@ -97,8 +97,6 @@ TensorView::TensorView(const std::shared_ptr<c10::TensorType>& tensor_type)
 TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       domain_(ir_cloner->clone(src->domain_)),
-      compute_at_view_(ir_cloner->clone(src->compute_at_view_)),
-      relative_compute_at_axis_(src->relative_compute_at_axis_),
       this_compute_at_axis_(src->this_compute_at_axis_),
       memory_type_(src->memory_type_),
       swizzle_type_(src->swizzle_type_) {
@@ -169,157 +167,14 @@ IterDomain* TensorView::axis(int pos) const {
   return domain()->axis(pos);
 }
 
-void TensorView::setComputeAt(
-    TensorView* computeAtView,
-    int thisPos,
-    int relPos) {
+void TensorView::setComputeAt(unsigned int this_pos) {
   TORCH_INTERNAL_ASSERT(
-      thisPos > 0 && (unsigned)thisPos <= nDims(),
+      this_pos > 0 && (unsigned)this_pos <= nDims(),
       "Invalid this computeAt position for T",
       name(),
       ": ",
-      thisPos);
-  // When computeAtView is a consumer, the CA axes must not include
-  // reductions. Note that an output tensor may be set as computed at
-  // another output tensor even if they are not a producer and a
-  // consumer.
-  if (isConsumerOf(computeAtView)) {
-    TORCH_INTERNAL_ASSERT(
-        std::none_of(
-            domain()->domain().begin(),
-            domain()->domain().begin() + thisPos,
-            [](IterDomain* id) { return id->isReduction(); }),
-        "Invalid computeAt for T",
-        name(),
-        " reduction domain inside computeAt axis.");
-  } else {
-    // Make sure both this and computeAtView are terminating
-    // outputs. Otherwise, setting computeAt at tensor computeAtView
-    // is invalid.
-    const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
-    TORCH_INTERNAL_ASSERT(
-        std::find(outputs.begin(), outputs.end(), this) != outputs.end(),
-        "Invalid computeAt of T",
-        name(),
-        " at T",
-        computeAtView->name(),
-        ". They are not a producer-consumer pair, and T",
-        name(),
-        " is not a terminating output.");
-    TORCH_INTERNAL_ASSERT(
-        std::find(outputs.begin(), outputs.end(), computeAtView) !=
-            outputs.end(),
-        "Invalid computeAt of T",
-        name(),
-        " at T",
-        computeAtView->name(),
-        ". They are not a producer-consumer pair, and T",
-        computeAtView->name(),
-        " is not a terminating output.");
-  }
-
-  TORCH_INTERNAL_ASSERT(
-      relPos > 0 && (unsigned)relPos <= computeAtView->nDims(),
-      "Invalid relative computeAt position for T",
-      name(),
-      ": ",
-      relPos);
-
-  compute_at_view_ = computeAtView;
-  relative_compute_at_axis_ = relPos;
-  this_compute_at_axis_ = thisPos;
-}
-
-namespace {
-
-std::set<int> getDimsToSkip(
-    const TensorView* tv,
-    const TensorView* ca_tv,
-    size_t pos) {
-  std::set<int> dims_to_skip;
-  if (tv->isConsumerOf(ca_tv)) {
-    if (BroadcastOp* bop = dynamic_cast<BroadcastOp*>(ca_tv->definition())) {
-      const auto& bcast_flags = bop->getBroadcastDimFlags();
-      std::unordered_set<IterDomain*> root_dims_to_skip;
-      for (size_t i = 0; i < ca_tv->getRootDomain().size(); ++i) {
-        if (bcast_flags[i]) {
-          root_dims_to_skip.insert(ca_tv->getRootDomain()[i]);
-        }
-      }
-      for (size_t i = 0; i < ca_tv->domain()->domain().size(); ++i) {
-        IterDomain* id = ca_tv->domain()->domain()[i];
-        std::vector<Val*> id_vec({id});
-        std::unordered_set<Val*> root_vals = IterVisitor::getInputsTo(id_vec);
-        if (std::all_of(
-                ir_utils::filterByType<IterDomain>(root_vals).begin(),
-                ir_utils::filterByType<IterDomain>(root_vals).end(),
-                [&root_dims_to_skip](IterDomain* root_id) {
-                  return root_dims_to_skip.find(root_id) !=
-                      root_dims_to_skip.end();
-                })) {
-          dims_to_skip.insert(i);
-        }
-      }
-    }
-  } else {
-    // tv and ca_tv are both output tensors.
-    size_t pos_cav = 0, pos_this = 0;
-
-    while (pos_this <= pos) {
-      TORCH_INTERNAL_ASSERT(
-          pos_cav < ca_tv->nDims(),
-          "Error computing relative position in computeAt.");
-
-      if (ca_tv->axis(pos_cav)->isBroadcast() &&
-          !(tv->axis(pos_this)->isBroadcast())) {
-        dims_to_skip.insert(pos_cav);
-        pos_cav++;
-      } else if (pos_this == pos) {
-        break;
-      } else {
-        pos_cav++;
-        pos_this++;
-      }
-    }
-  }
-
-  return dims_to_skip;
-}
-
-} // namespace
-
-// Where in compute_at_view does this->axis(pos) match up?
-// TODO: This doesn't seem like the safest function as a fusion output can ref
-// another fusion output,  we may want to check that there is a direct
-// consumer/producer relationship between this and compute_at view before using
-// this function, and creating another pass to handle relative outputs.
-int TensorView::getComputeAtRelPos(int pos) const {
-  TORCH_INTERNAL_ASSERT(
-      hasComputeAt(), "Tensor does not have a computeAt tensor.");
-  // Note: pos is actually an axis index.
-  TORCH_INTERNAL_ASSERT(
-      pos < (int)getThisComputeAtAxis(), "Not a computeAt axis: ", pos);
-
-  if (!compute_at_view_->hasBroadcast()) {
-    return pos;
-  }
-
-  auto dims_to_skip = getDimsToSkip(this, compute_at_view_, pos);
-
-  int pos_cav = 0;
-  for (int i = 0; i <= pos; ++i) {
-    while (dims_to_skip.find(pos_cav) != dims_to_skip.end()) {
-      ++pos_cav;
-    }
-    if (i < pos) {
-      ++pos_cav;
-    }
-  }
-
-  TORCH_INTERNAL_ASSERT(
-      pos_cav < (int)compute_at_view_->nDims(),
-      "Error computing relative position in computeAt.");
-  return pos_cav;
+      this_pos);
+  this_compute_at_axis_ = this_pos;
 }
 
 TensorView* TensorView::computeAt(TensorView* consumer, int axis) {
@@ -348,14 +203,12 @@ TensorView* TensorView::split(int axis, Val* factor, bool inner_split) {
   if (axis < 0)
     axis += domain()->nDims();
 
-  if (getComputeAtView() != nullptr)
-    if (axis < (int)getThisComputeAtAxis())
-      TORCH_CHECK(
-          false,
-          "Cannot split axis within compute at range. Axis = ",
-          axis,
-          " thisComputeAtAxis = ",
-          getThisComputeAtAxis());
+  TORCH_CHECK(
+      !(hasComputeAt() && (axis < (int)getThisComputeAtAxis())),
+      "Cannot split axis within compute at range. Axis = ",
+      axis,
+      " thisComputeAtAxis = ",
+      getThisComputeAtAxis());
 
   domain()->split(axis, factor, inner_split);
   return this;
@@ -375,9 +228,9 @@ TensorView* TensorView::merge(int axis_o, int axis_i) {
   if (axis_i < 0)
     axis_i += domain()->nDims();
 
-  if (getComputeAtView() != nullptr)
+  if (hasComputeAt()) {
     if (axis_o + 1 < (int)getThisComputeAtAxis() ||
-        axis_i + 1 < (int)getThisComputeAtAxis())
+        axis_i + 1 < (int)getThisComputeAtAxis()) {
       TORCH_CHECK(
           false,
           "Cannot merge axis within compute at range. Either axis ",
@@ -386,6 +239,8 @@ TensorView* TensorView::merge(int axis_o, int axis_i) {
           axis_i,
           " are within thisComputeAtAxis = ",
           getThisComputeAtAxis());
+    }
+  }
 
   domain()->merge(axis_o, axis_i);
   return this;
@@ -657,13 +512,7 @@ std::vector<TensorView*> TensorView::duplicate() {
       createExprProducer(expr, this, producer);
 
       // Set ComputeAt position for this duplicate TV
-      if (hasComputeAt()) {
-        auto rel_ca_pos = getRelativeComputeAtAxis();
-        auto this_ca_pos = getThisComputeAtAxis();
-        auto expr = *fusion()->unordered_uses(producer).begin();
-        auto this_ca_view = expr->output(0)->as<TensorView>();
-        producer->setComputeAt(this_ca_view, this_ca_pos, rel_ca_pos);
-      }
+      producer->setComputeAt(getThisComputeAtAxis());
 
       duplicates.push_back(producer);
     }
@@ -671,6 +520,43 @@ std::vector<TensorView*> TensorView::duplicate() {
   }
   return duplicates;
 }
+
+namespace {
+
+// Note: This may be included as an independent member function
+// TensorView if it's determined to be useful more generally.
+int getMappedConsumerAxis(
+    TensorView* producer_tv,
+    unsigned int producer_axis,
+    TensorView* consumer_tv) {
+  auto c2p_root_map =
+      PairwiseRootDomainMap(producer_tv, consumer_tv)
+          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
+  auto replay = BestEffortReplay(
+                    producer_tv->domain()->domain(),
+                    consumer_tv->domain()->domain(),
+                    c2p_root_map,
+                    true)
+                    .getReplay();
+  auto producer_id = producer_tv->axis(int(producer_axis));
+  IterDomain* consumer_id = nullptr;
+  for (const auto& m : replay) {
+    if (m.second == producer_id) {
+      consumer_id = m.first;
+    }
+  }
+  TORCH_INTERNAL_ASSERT(
+      consumer_id != nullptr, "Mapped consumer IterDomain not found");
+  auto consumer_axis = std::distance(
+      consumer_tv->domain()->domain().begin(),
+      std::find(
+          consumer_tv->domain()->domain().begin(),
+          consumer_tv->domain()->domain().end(),
+          consumer_id));
+  return consumer_axis;
+}
+
+} // namespace
 
 TensorView* TensorView::cache_before() {
   FusionGuard fg(fusion());
@@ -764,8 +650,7 @@ TensorView* TensorView::cache_before() {
       TransformReplay::replayPasC(producer, consumer, -1);
       cache_replayed = true;
     }
-    producer->setComputeAt(
-        consumer, (int)getThisComputeAtAxis(), (int)getThisComputeAtAxis());
+    producer->setComputeAt(getThisComputeAtAxis());
   }
 
   // If the consumer was the target of computeAt by producer's inputs,
@@ -774,21 +659,22 @@ TensorView* TensorView::cache_before() {
   // Before: Prev TV -> This TV
   // After:  Prev TV -> New TV (CB) -> This TV
   // Iterate over definition expression inputs for cache_before on outputs
-  auto producer_this_pos = producer->getThisComputeAtAxis();
-  for (TensorView* definition_input :
+  size_t producer_this_pos = producer->getThisComputeAtAxis();
+  for (TensorView* producer_of_producer :
        ir_utils::filterByType<TensorView>(expr_inputs)) {
-    if (definition_input->hasComputeAt() &&
-        definition_input->getComputeAtView() == this) {
+    if (producer_of_producer->hasComputeAt()) {
       if (!cache_replayed) {
         TransformReplay::replayPasC(producer, consumer, -1);
         cache_replayed = true;
       }
-      auto definition_rel_ca_pos = definition_input->getRelativeComputeAtAxis();
-      definition_input->setComputeAt(
-          producer,
-          (int)definition_input->getThisComputeAtAxis(),
-          definition_rel_ca_pos);
-      producer_this_pos = std::max(producer_this_pos, definition_rel_ca_pos);
+      TORCH_INTERNAL_ASSERT(producer_of_producer->getThisComputeAtAxis() > 0);
+      size_t producer_pos =
+          getMappedConsumerAxis(
+              producer_of_producer,
+              int(producer_of_producer->getThisComputeAtAxis()) - 1,
+              producer) +
+          1;
+      producer_this_pos = std::max(producer_this_pos, producer_pos);
     }
   }
 
@@ -803,22 +689,61 @@ TensorView* TensorView::cache_before() {
   if (producer_this_pos > producer->getThisComputeAtAxis()) {
     // The relative position at the consumer must not include the
     // reduction domains.
-    auto rel_pos = producer_this_pos;
     for (size_t i = 0; i < producer_this_pos; ++i) {
       if (i < producer->getThisComputeAtAxis()) {
         // No CA axes can be reduction.
         TORCH_INTERNAL_ASSERT(!producer->axis(i)->isReduction());
       } else if (producer->axis(i)->isReduction()) {
-        rel_pos = i;
+        producer_this_pos = i;
         break;
       }
     }
-    if (rel_pos > producer->getRelativeComputeAtAxis()) {
-      producer->setComputeAt(consumer, rel_pos, rel_pos);
+    if (producer_this_pos > producer->getThisComputeAtAxis()) {
+      producer->setComputeAt(producer_this_pos);
     }
   }
 
   return producer;
+}
+
+TensorView* TensorView::cache_fork() {
+  FusionGuard fg(fusion());
+
+  // Before: [Expr] -> This TV (Global Output) -> [Usage Expr]
+  // After:  [Expr] -> This TV (Local) -> [Usage Expr] > Next TV
+  //                            (Fork) -> [Set Expr]   -> New TV (Global Output)
+
+  TORCH_CHECK(
+      fusion()->hasOutput(this) && !this->uses().empty(),
+      "Error adding cache_fork ",
+      this,
+      " this TensorView must be an output with subsequent uses");
+
+  // This domain will be the producer, so create the consumer
+  auto root_domain = getRootDomain();
+  TensorView* new_output = new TensorView(
+      new TensorDomain(
+          root_domain, std::vector<bool>(root_domain.size(), true)),
+      getDataType().value());
+
+  // Create write operation from this TV to new output
+  new UnaryOp(UnaryOpType::Set, new_output, this);
+
+  // The new TV becomes an output.
+  // New TV has global memory type.
+  // This TV has local memory type.
+  fusion()->replaceOutput(this, new_output);
+
+  // Transform new output according to this TV
+  TransformReplay::replayCasP(new_output, this, -1);
+
+  // Set the computeAt for this forked TensorView. It is a terminating
+  // output, so set only this position.
+  if (hasComputeAt()) {
+    auto this_ca_pos = getThisComputeAtAxis();
+    new_output->setComputeAt(this_ca_pos);
+  }
+  return new_output;
 }
 
 TensorView* TensorView::cache_after() {
@@ -868,13 +793,7 @@ TensorView* TensorView::cache_after() {
   // After:  This TV -> New TV (After) -> Next TV
   if (hasComputeAt()) {
     TransformReplay::replayCasP(consumer, producer, -1);
-
-    auto rel_ca_pos = getRelativeComputeAtAxis();
-    auto this_ca_pos = getThisComputeAtAxis();
-    auto this_ca_view = getComputeAtView();
-
-    setComputeAt(consumer, this_ca_pos, this_ca_pos);
-    consumer->setComputeAt(this_ca_view, this_ca_pos, rel_ca_pos);
+    consumer->setComputeAt(getThisComputeAtAxis());
   } else if (kIsFusionInput) {
     bool cache_replayed = false;
     // Check users of this TV for computeAt for cache_after on inputs
@@ -891,7 +810,7 @@ TensorView* TensorView::cache_after() {
           auto this_pos =
               TransformReplay::replayPasC(consumer, output, output_ca_pos)
                   .second;
-          consumer->setComputeAt(output, this_pos, output_ca_pos);
+          consumer->setComputeAt(this_pos);
         }
       }
     }

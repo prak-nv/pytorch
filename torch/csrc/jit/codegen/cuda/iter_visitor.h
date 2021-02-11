@@ -31,7 +31,7 @@ class Val;
  * TODO: We may want to have ordering of outputs to inputs. I'm not sure why we
  * would want this, but seems like it would be a reasonable request.
  */
-class TORCH_CUDA_API IterVisitor : public OptOutDispatch {
+class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
  public:
   virtual ~IterVisitor() = default;
 
@@ -120,7 +120,7 @@ class TORCH_CUDA_API IterVisitor : public OptOutDispatch {
  * outputs to guarentee that we will traverse all outputs of all exprs during
  * the backward traversal.
  */
-class TORCH_CUDA_API BackwardVisitor : public OptOutDispatch {
+class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
  protected:
   virtual ~BackwardVisitor() = default;
 
@@ -176,7 +176,7 @@ class TORCH_CUDA_API BackwardVisitor : public OptOutDispatch {
       bool traverseAllPaths = false);
 };
 
-class TORCH_CUDA_API DependencyCheck {
+class TORCH_CUDA_CU_API DependencyCheck {
  public:
   // Returns if "dependency" is a dependency of "of".
   static bool isDependencyOf(Val* dependency, Val* of);
@@ -205,6 +205,10 @@ class TORCH_CUDA_API DependencyCheck {
   // Return registered outputs of the fusion that are a dependency of any val of
   static std::unordered_set<Val*> getAllOutputsOf(
       const std::unordered_set<Val*>& of);
+
+  // Return all Vals that depend on the given Vals
+  static std::unordered_set<Val*> getAllDependentVals(
+      const std::unordered_set<Val*>& of);
 };
 
 // Expr sort will take a fusion and return a topologically sorted list of
@@ -231,6 +235,9 @@ class InputsOf : public IterVisitor {
 
  public:
   static std::unordered_set<Val*> output(Fusion* fusion, Val* output_);
+  static std::unordered_set<Val*> outputs(
+      Fusion* fusion,
+      const std::vector<Val*>& outputs_);
 };
 
 } // namespace cuda

@@ -23,7 +23,7 @@ struct WelfordResult;
 //! This value can be a symbolic value (defined after the kernel
 //! is compiled) or a constant value (inlined into the kernel definition).
 //!
-class TORCH_CUDA_API Bool : public Val {
+class TORCH_CUDA_CU_API Bool : public Val {
  public:
   Bool() : Val(ValType::Scalar, DataType::Bool), maybe_value_{c10::nullopt} {}
 
@@ -51,7 +51,7 @@ class TORCH_CUDA_API Bool : public Val {
 //! A Float64 value. For now we don't have any other type besides
 //! Float64. This value can be a symbolic value (defined after the kernel
 //! is compiled) or a constant value (inlined into the kernel definition).
-class TORCH_CUDA_API Double : public Val {
+class TORCH_CUDA_CU_API Double : public Val {
  public:
   using ScalarType = double;
 
@@ -81,7 +81,7 @@ class TORCH_CUDA_API Double : public Val {
 
 //! An Int64 value. If used for indexing it's set as size_t. Otherwise it's an
 //! inlined literal in the kernel.
-class TORCH_CUDA_API Int : public Val {
+class TORCH_CUDA_CU_API Int : public Val {
  public:
   using ScalarType = int64_t;
 
@@ -141,7 +141,7 @@ class TVDomainGuard;
 //! getComputeAtAxis not being const because it can return a TV that some expect
 //! to be non-const is the biggest headache.
 //!
-class TORCH_CUDA_API TensorView : public Val {
+class TORCH_CUDA_CU_API TensorView : public Val {
  public:
   TensorView(
       TensorDomain* domain,
@@ -184,14 +184,9 @@ class TORCH_CUDA_API TensorView : public Val {
 
   IterDomain* axis(int pos) const;
 
-  // Is there an active computeAt TensorView/Axis
+  // Does it share outer axes with other tensors?
   bool hasComputeAt() const {
-    return compute_at_view_ != nullptr;
-  }
-
-  // Return the TensorView we're computing at
-  TensorView* getComputeAtView() const {
-    return compute_at_view_;
+    return this_compute_at_axis_ > 0;
   }
 
   size_t nDims() const;
@@ -201,38 +196,11 @@ class TORCH_CUDA_API TensorView : public Val {
     return this_compute_at_axis_;
   }
 
-  // Return compute at axis relative to compute at view
-  unsigned int getRelativeComputeAtAxis() const {
-    return relative_compute_at_axis_;
-  }
-
-  // Return position in compute_at_view that lines up with this->axis(pos)?
-  int getComputeAtRelPos(int pos) const;
-
-  // Will check if an axis is inside computeAtAxis and will fetch the reference
-  // to be used in code generation.
-  std::pair<int, const TensorView*> getComputeAtPos(int pos) const {
-    pos = normalizeAxisPos(pos);
-    TORCH_INTERNAL_ASSERT(
-        nDims() > 0, "Tried to access a computeAt axis in a 0-dim TensorView");
-    if (!hasComputeAt() || getThisComputeAtAxis() <= (unsigned int)pos)
-      return std::make_pair(pos, this);
-    return compute_at_view_->getComputeAtPos(getComputeAtRelPos(pos));
-  }
-
-  std::pair<IterDomain*, const TensorView*> getComputeAtAxis(int pos) const {
-    const auto computeAtPos = getComputeAtPos(pos);
-    return std::make_pair(
-        computeAtPos.second->axis(computeAtPos.first), computeAtPos.second);
-  }
-
   // Compute this TensorView relative to another tensor at axis
   TensorView* computeAt(TensorView* consumer, int axis);
 
   void clearComputeAt() {
     this_compute_at_axis_ = 0;
-    relative_compute_at_axis_ = 0;
-    compute_at_view_ = nullptr;
   }
 
   // Split "axis" into 2 axes
@@ -317,6 +285,12 @@ class TORCH_CUDA_API TensorView : public Val {
   // read tensor into shared memory or registers. Analogous to TVM Cache_Read
   TensorView* cache_after();
 
+  // For a fusion output with other uses, we want to avoid writing to global
+  // memory and then reading the output again. We write to global memory
+  // separately after an operation. We replace this fusion output with the
+  // direct write TensorView.
+  TensorView* cache_fork();
+
   MemoryType getMemoryType() const {
     return memory_type_;
   }
@@ -331,8 +305,8 @@ class TORCH_CUDA_API TensorView : public Val {
     return axes_to_swizzle_;
   }
 
-  friend TORCH_CUDA_API TransformReplay;
-  friend TORCH_CUDA_API OptOutMutator;
+  friend TORCH_CUDA_CU_API TransformReplay;
+  friend TORCH_CUDA_CU_API OptOutMutator;
   friend ComputeAt;
   friend void adjustMemoryTypes(Fusion* fusion);
   friend class ir_utils::TVDomainGuard;
@@ -342,9 +316,7 @@ class TORCH_CUDA_API TensorView : public Val {
     domain_ = td;
   }
 
-  // Set all computeAt members without checking any correctness. Useful for
-  // computeAt with outputs relative to eachother
-  void setComputeAt(TensorView* computeAtView, int thisPos, int relPos);
+  void setComputeAt(unsigned int this_pos);
 
  private:
   int normalizeAxisPos(int pos) const {
@@ -377,9 +349,6 @@ class TORCH_CUDA_API TensorView : public Val {
 
  private:
   TensorDomain* domain_ = nullptr;
-  TensorView* compute_at_view_ = nullptr;
-  // compute at axis in compute at view
-  unsigned int relative_compute_at_axis_ = 0;
   unsigned int this_compute_at_axis_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
   SwizzleType swizzle_type_ = SwizzleType::NoSwizzle;
@@ -396,7 +365,7 @@ class TORCH_CUDA_API TensorView : public Val {
 //!       .contiguity(contiguity)
 //!       .build();
 //!
-class TORCH_CUDA_API TensorViewBuilder {
+class TORCH_CUDA_CU_API TensorViewBuilder {
  public:
   //! Set the number of dimensions of the tensor (default 0, meaning scalar)
   TensorViewBuilder& ndims(size_t ndims);

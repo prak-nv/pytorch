@@ -6,6 +6,16 @@ try:
 except ModuleNotFoundError:
     np = None
 from torch._six import container_abcs, string_classes
+from typing import Any
+
+
+def autocast_decorator(autocast_instance, func):
+    @functools.wraps(func)
+    def decorate_autocast(*args, **kwargs):
+        with autocast_instance:
+            return func(*args, **kwargs)
+    decorate_autocast.__script_unsupported = '@autocast() decorator is not supported in script mode'
+    return decorate_autocast
 
 
 class autocast(object):
@@ -109,22 +119,29 @@ class autocast(object):
     :class:`torch.nn.parallel.DistributedDataParallel` when used with more than one GPU per process
     (see :ref:`Working with Multiple GPUs<amp-multigpu>`).
 
-    Arguments:
+    Args:
         enabled(bool, optional, default=True):  Whether autocasting should be enabled in the region.
     """
-    def __init__(self, enabled=True):
-        if enabled and not torch.cuda.is_available():
+
+    def __init__(self, enabled: bool = True):
+        if torch._jit_internal.is_scripting():
+            self._enabled = enabled
+        elif enabled and not torch.cuda.is_available():
             warnings.warn("torch.cuda.amp.autocast only affects CUDA ops, but CUDA is not available.  Disabling.")
             self._enabled = False
         else:
             self._enabled = enabled
 
     def __enter__(self):
+        if torch._jit_internal.is_scripting():
+            return
         self.prev = torch.is_autocast_enabled()
         torch.set_autocast_enabled(self._enabled)
         torch.autocast_increment_nesting()
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any):
+        if torch._jit_internal.is_scripting():
+            return
         # Drop the cache when we exit to a nesting level that's outside any instance of autocast.
         if torch.autocast_decrement_nesting() == 0:
             torch.clear_autocast_cache()
@@ -132,11 +149,10 @@ class autocast(object):
         return False
 
     def __call__(self, func):
-        @functools.wraps(func)
-        def decorate_autocast(*args, **kwargs):
-            with self:
-                return func(*args, **kwargs)
-        return decorate_autocast
+        if torch._jit_internal.is_scripting():
+            return func
+        else:
+            return autocast_decorator(self, func)
 
 
 # Casts Tensors and containers of Tensors.  Special-cases passthroughs for strings and np.ndarrays, which
@@ -176,7 +192,7 @@ def custom_fwd(fwd=None, **kwargs):
     Helper decorator for ``forward`` methods of custom autograd functions (subclasses of
     :class:`torch.autograd.Function`).  See the :ref:`example page<amp-custom-examples>` for more detail.
 
-    Arguments:
+    Args:
         cast_inputs (:class:`torch.dtype` or None, optional, default=None):  If not ``None``,
             when ``forward`` runs in an autocast-enabled region, casts incoming
             floating-point CUDA Tensors to the target dtype (non-floating-point Tensors are not affected),

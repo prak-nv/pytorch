@@ -1,5 +1,6 @@
 #include <torch/csrc/jit/runtime/graph_executor.h>
 
+#include <ATen/autocast_mode.h>
 #include <ATen/core/ivalue.h>
 #include <c10/util/Exception.h>
 #include <torch/csrc/autograd/grad_mode.h>
@@ -275,6 +276,7 @@ struct DifferentiableGraphBackward : public autograd::Node {
       } else if (v.isTensor()) {
         produceOutput(output_index++, std::move(v).toTensor(), outputs);
       } else {
+        TORCH_INTERNAL_ASSERT_DEBUG_ONLY(v.isNone());
         output_index++;
         // Input grad can also be None even if it requires grad
         // Example: `other` in expand_as(self, other)
@@ -299,13 +301,11 @@ struct DifferentiableGraphBackward : public autograd::Node {
       for (const at::Tensor tensor : value.toTensorList()) {
         addOutputForTensor(tensor);
       }
+    } else if (value.isTensor()) {
+      addOutputForTensor(value.toTensor());
     } else {
-      if (value.isTensor()) {
-        addOutputForTensor(value.toTensor());
-      } else {
-        // TODO: we should assert on type = Optional[Tensor] here.
-        add_next_edge(autograd::Edge{});
-      }
+      // We could have None passed here via `Optional[Tensor]`
+      add_next_edge(autograd::Edge{});
     }
   }
 
@@ -515,6 +515,18 @@ void GraphExecutorImplBase::run(Stack& stack) {
   C10_LOG_API_USAGE_ONCE("torch.graph_executor.run");
   logging::getLogger()->addStatValue(
       logging::runtime_counters::GRAPH_EXECUTOR_INVOCATIONS, 1.0);
+
+  // Autocast must be disabled when we're executing TorchScript
+  // (the Autocast side-effects are transparent to the TorchScript
+  //  interpreter, which means we'd get incorrect type information, leading
+  //  to unpredictable behavior)
+  //
+  // TODO: a better alternative would be to specialize the graph to match
+  //  the current Autocast state
+  //
+  if (at::autocast::is_enabled()) {
+    AT_ERROR("Running TorchScript with Autocast enabled is not supported");
+  }
 
   const ExecutionPlan& plan =
       getPlanFor(stack, GraphExecutor::getDefaultNumBailOuts());

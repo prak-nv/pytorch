@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
+
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
@@ -65,10 +66,10 @@ void IrPrinter::handle(const TensorView* tv) {
     os_ << "T" << tv->name();
     handle(tv->domain());
 
-    if (tv->getComputeAtView() != nullptr) {
+    if (tv->hasComputeAt()) {
       os_ << " compute_at( ";
-      os_ << "T" << tv->getComputeAtView()->name();
-      os_ << ", " << tv->getRelativeComputeAtAxis() << " )";
+      os_ << tv->getThisComputeAtAxis();
+      os_ << " )";
     }
   }
 }
@@ -82,7 +83,7 @@ void IrPrinter::handle(const IterDomain* id) {
     print_inline(id->start());
     os_ << " : ";
   }
-  print_inline(id->extent());
+  print_inline(id->rawExtent());
   os_ << "}";
   if (id->isRFactorProduct())
     os_ << "rf";

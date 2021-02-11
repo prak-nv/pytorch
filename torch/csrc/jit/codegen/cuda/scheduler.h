@@ -10,10 +10,20 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+enum class TORCH_CUDA_API ScheduleHeuristic {
+  PointWise,
+  Reduction,
+  Normalization
+};
+
+class ExpressionEvaluator;
+
 // return true or false on whether given fusion could be scheduled;
-TORCH_CUDA_API bool scheduleFusion(
+TORCH_CUDA_CU_API bool scheduleFusion(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue> inputs);
+
+TORCH_CUDA_CU_API bool scheduleFusion(Fusion* fusion);
 
 // Parameters the Reduction Heuristic Generates to describe the optimial
 // schedule. Warning: equal operator is intended for use in caching the kernel
@@ -68,12 +78,17 @@ class ReductionParamsHash {
   }
 };
 
-TORCH_CUDA_API c10::optional<ReductionParams> getReductionHeuristics(
+TORCH_CUDA_CU_API c10::optional<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& fusion_inputs,
     TensorView* red_tv);
 
-TORCH_CUDA_API void scheduleReduction(
+TORCH_CUDA_CU_API c10::optional<ReductionParams> getReductionHeuristics(
+    Fusion* fusion,
+    ExpressionEvaluator& evaluator,
+    TensorView* red_tv);
+
+TORCH_CUDA_CU_API void scheduleReduction(
     Fusion* fusion,
     const ReductionParams& rparams,
     TensorView* red_tv,
@@ -82,6 +97,11 @@ TORCH_CUDA_API void scheduleReduction(
 TORCH_CUDA_API c10::optional<ReductionParams> getNormalizationHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& fusion_inputs,
+    const std::vector<TensorView*>& reduction_tv);
+
+TORCH_CUDA_API c10::optional<ReductionParams> getNormalizationHeuristics(
+    Fusion* fusion,
+    ExpressionEvaluator& evaluator,
     const std::vector<TensorView*>& reduction_tv);
 
 TORCH_CUDA_API void scheduleNormalization(
