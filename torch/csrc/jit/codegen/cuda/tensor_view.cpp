@@ -452,6 +452,7 @@ TensorView* TensorView::swizzle(
 
 TensorView* TensorView::rFactor(const std::vector<int>& axes) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
+  TORCH_INTERNAL_ASSERT(definition()->isA<ReductionOp>());
   FusionGuard fg(fusion());
   TORCH_CHECK(
       definition() != nullptr &&
@@ -551,7 +552,7 @@ TensorView* TensorView::welfordRfactorHelper(
   return producer;
 }
 
-WelfordResult TensorView::rfactor(
+WelfordResult TensorView::rFactor(
     const std::vector<int>& axes,
     TensorView* var,
     TensorView* avg,

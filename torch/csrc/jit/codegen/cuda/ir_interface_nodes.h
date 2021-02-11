@@ -296,7 +296,7 @@ class TORCH_CUDA_API TensorView : public Val {
   //! Welford Version of rFactor, semantically similar with
   //!  the reduction version except that the rfactor is done
   //!  in a multi-output scan pattern
-  WelfordResult rfactor(
+  WelfordResult rFactor(
       const std::vector<int>& axes,
       TensorView* var,
       TensorView* avg,

@@ -596,6 +596,25 @@ void scheduleReductionComputeAt(
   }
 }
 
+TensorView* rfactorHelper(
+  TensorView* red_tv,
+  const std::vector<int>& axes){
+    const bool is_welford = red_tv->definition()->isA<WelfordOp>();
+    if(!is_welford){
+      return red_tv->rFactor(axes);
+    }
+    auto welford = red_tv->definition()->as<WelfordOp>();
+    auto w_var = welford->outVar()->as<TensorView>();
+    auto w_avg = welford->outAvg()->as<TensorView>();
+    auto w_n = welford->outN()->as<TensorView>();
+
+    auto rtvs = red_tv->rFactor(axes,w_var,w_avg,w_n);
+
+    //TODO: this can be more generic, using avg because
+    //      WelfordOp::out() returns the avg
+    return rtvs.avg;
+  }
+
 } // namespace
 
 // fusion is the input IR that will be modified by this function
@@ -664,8 +683,8 @@ void scheduleReduction(
         }
       }
 
-      auto red_tv_rf = red_tv->rFactor({-3, -1});
-
+      auto red_tv_rf = rfactorHelper(red_tv,{-3,-1});
+      
       scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
       red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
@@ -705,8 +724,7 @@ void scheduleReduction(
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::BIDy));
 
-        auto red_tv_rf = red_tv->rFactor(
-            {-5, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+        auto red_tv_rf = rfactorHelper(red_tv,{-5, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
         scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
@@ -740,7 +758,7 @@ void scheduleReduction(
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
 
-        auto red_tv_rf = red_tv->rFactor({-4, -1});
+        auto red_tv_rf = rfactorHelper(red_tv,{-4, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
         scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
@@ -796,7 +814,7 @@ void scheduleReduction(
           iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
         }
 
-        auto red_tv_rf = red_tv->rFactor({-4, -1});
+        auto red_tv_rf = rfactorHelper(red_tv,{-4, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
         scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
@@ -847,7 +865,7 @@ void scheduleReduction(
           iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
         }
 
-        auto red_tv_rf = red_tv->rFactor({-3, -1});
+        auto red_tv_rf = rfactorHelper(red_tv,{-3, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
         scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
