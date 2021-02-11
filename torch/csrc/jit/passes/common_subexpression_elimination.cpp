@@ -28,6 +28,10 @@ void EliminateCommonSubexpression(
       GRAPH_DEBUG("Node was skipped due to its non determinism:\n", *node);
       continue;
     }
+    if (node->notExecutedOp()) {
+      GRAPH_DEBUG("Node was skipped due to it is not executed:\n", *node);
+      continue;
+    }
     if (aliasDb.hasWriters(node)) {
       GRAPH_DEBUG("Node was skipped due to alias analysis result:\n", *node);
       // Do NOT have enough information to do CSE on these nodes.
