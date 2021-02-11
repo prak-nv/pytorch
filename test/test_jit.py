@@ -10699,6 +10699,93 @@ dedent """
                 if with_bias:
                     self.assertEqual(b.grad, b_ref.grad)
 
+    def test_batch_norm_grad_training(self):
+        with enable_profiling_mode_for_profiling_tests():
+            class MyBatchNorm(torch.nn.Module):
+                def __init__(self, num_features):
+                    super(MyBatchNorm, self).__init__()
+                    self.running_mean = torch.nn.Parameter(torch.Tensor(num_features), requires_grad=False)
+                    self.running_var = torch.nn.Parameter(torch.Tensor(num_features), requires_grad=False)
+                    self.running_mean.fill_(0)
+                    self.running_var.fill_(1)
+
+                def forward(self, x: torch.Tensor, w: Optional[torch.Tensor], b: Optional[torch.Tensor]):
+                    o = torch.nn.functional.relu(x)
+                    o = torch.nn.functional.batch_norm(o, self.running_mean, self.running_var, w, b, training=True)
+                    return o
+
+            # Initialize param and input values
+            x_init = torch.randn(4, 2, 3, 3)
+            norm_shape = [2]
+            w_init = torch.randn(norm_shape)
+            b_init = torch.randn(norm_shape)
+            grad = torch.randn(4, 2, 3, 3)
+            r_mean_ref = torch.zeros(norm_shape)
+            r_var_ref = torch.ones(norm_shape)
+
+            batch_norm = torch.jit.script(MyBatchNorm(num_features=2))
+
+            # [False, True] is not working
+            scenarios = [[False, False], [True, False], [True, True]]
+            for with_weight, with_bias in scenarios:
+                x = x_init.detach().clone()
+                x.requires_grad_()
+
+                # Clone trainable params
+                if with_weight:
+                    w = w_init.detach().clone()
+                    w.requires_grad_()
+                else:
+                    w = None
+
+                if with_bias:
+                    b = b_init.detach().clone()
+                    b.requires_grad_()
+                else:
+                    b = None
+
+                # Test symbolic differentiation
+                # Run Forward and Backward twice to trigger autodiff graph
+                y = batch_norm(x, w, b)
+                y.backward(grad)
+                y = batch_norm(x, w, b)
+                y.backward(grad)
+                x.grad.zero_()
+                if with_weight:
+                    w.grad.zero_()
+                if with_bias:
+                    b.grad.zero_()
+                y = batch_norm(x, w, b)
+                y.backward(grad)
+
+                # clone params for autograd reference
+                x_ref = x_init.detach().clone()
+                x_ref.requires_grad_()
+
+                if with_weight:
+                    w_ref = w_init.detach().clone()
+                    w_ref.requires_grad_()
+                else:
+                    w_ref = None
+
+                if with_bias:
+                    b_ref = b_init.detach().clone()
+                    b_ref.requires_grad_()
+                else:
+                    b_ref = None
+
+                # reference computation
+                o_ref = torch.nn.functional.relu(x_ref)
+                y_ref = torch.nn.functional.batch_norm(o_ref, r_mean_ref, r_var_ref, w_ref, b_ref, training=True)
+                y_ref.backward(grad)
+
+                self.assertEqual(y_ref, y)
+                self.assertEqual(x.grad, x_ref.grad)
+                if with_weight:
+                    self.assertEqual(w.grad, w_ref.grad)
+                if with_bias:
+                    self.assertEqual(b.grad, b_ref.grad)
+
     def test_zeros(self):
         class M(torch.jit.ScriptModule):
             __constants__ = ['d']
