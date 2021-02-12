@@ -403,15 +403,19 @@ inline bool sameOptionalVal(Val* a, Val* b) {
 }
 } // namespace
 
-bool WelfordOp::sameAs(const WelfordOp* other) const {
+bool WelfordOp::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
   }
-  return sameOptionalVal(in_var_, other->in_var_) &&
-      in_avg_->sameAs(other->in_avg_) && in_N_->sameAs(other->in_N_) &&
-      sameOptionalVal(init_var_, other->init_var_) &&
-      sameOptionalVal(init_avg_, other->init_avg_) &&
-      init_N_->sameAs(other->init_N_);
+  if (auto other_wop = dynamic_cast<const WelfordOp*>(other)) {
+    return sameOptionalVal(in_var_, other_wop->in_var_) &&
+        in_avg_->sameAs(other_wop->in_avg_) &&
+        in_N_->sameAs(other_wop->in_N_) &&
+        sameOptionalVal(init_var_, other_wop->init_var_) &&
+        sameOptionalVal(init_avg_, other_wop->init_avg_) &&
+        init_N_->sameAs(other_wop->init_N_);
+  }
+  return false;
 }
 
 ReductionOp::ReductionOp(const ReductionOp* src, IrCloner* ir_cloner)

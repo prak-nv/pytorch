@@ -54,7 +54,8 @@ TORCH_CUDA_CU_API TensorView* reductionOp(
 
 //! Auxiliary Struct holding result of
 //! a single welford op in ternsorview
-struct TORCH_CUDA_API WelfordResult {
+class TORCH_CUDA_CU_API WelfordResult {
+ public:
   TensorView* var;
   TensorView* avg;
   TensorView* n;

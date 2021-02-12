@@ -10872,7 +10872,7 @@ TEST(NVFuserTest, FusionWelfordOp_CUDA) {
   tv_avg->split(1, 32);
   tv_avg->split(0, 32);
   tv_avg->split(0, 4);
-  tv_avg->reorder({{-1,-3},{-3,-1}});
+  tv_avg->reorder({{-1, -3}, {-3, -1}});
   tv1->computeAt(tv_avg, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -11097,7 +11097,6 @@ TEST(NVFuserTest, FusionWelfordSchedule_CUDA) {
       red_params.value().lparams);
 }
 
-
 TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
   std::vector<DataType> dtypes = {
       DataType::Double, DataType::Float, DataType::Half};
@@ -11134,7 +11133,7 @@ TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
           TensorView* avg_cast = tv_avg;
           TensorView* M2_cast = tv_M2;
 
-          if(is_fp16){
+          if (is_fp16) {
             avg_cast = castOp(DataType::Half, tv_avg);
             M2_cast = castOp(DataType::Half, tv_M2);
           }
@@ -11143,37 +11142,43 @@ TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
           fusion.addOutput(tv_N);
           fusion.addOutput(avg_cast);
 
-          auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-          auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+          auto options =
+              at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+          auto options_int =
+              at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
           at::manual_seed(0);
           std::vector<TensorView*> outputs_of_red;
           at::Tensor aten_input =
-                (axis ? at::randn({odim, rdim}, options)
-                      : at::randn({rdim, odim}, options));
+              (axis ? at::randn({odim, rdim}, options)
+                    : at::randn({rdim, odim}, options));
 
           if (is_fp16) {
-                outputs_of_red.push_back(avg_cast);
-                outputs_of_red.push_back(M2_cast);
+            outputs_of_red.push_back(avg_cast);
+            outputs_of_red.push_back(M2_cast);
           }
 
-          auto reduction_params = getReductionHeuristics(&fusion, {aten_input}, tv_avg);
+          auto reduction_params =
+              getReductionHeuristics(&fusion, {aten_input}, tv_avg);
           scheduleReduction(
-            &fusion, reduction_params.value(),tv_avg,outputs_of_red);
-          
+              &fusion, reduction_params.value(), tv_avg, outputs_of_red);
+
           auto lparams = reduction_params.value().lparams;
 
           FusionExecutor fe;
           fe.compileFusion(&fusion);
-          auto outputs = fe.runFusion({aten_input}, reduction_params.value().lparams);
+          auto outputs =
+              fe.runFusion({aten_input}, reduction_params.value().lparams);
 
-          // by default Welford outputs sum of square diff so need to divide to get var
-          
+          // by default Welford outputs sum of square diff so need to divide to
+          // get var
+
           outputs[0] /= rdim;
 
           auto at_var = aten_input.var({axis}, false);
           auto at_avg = aten_input.mean({axis});
-          auto at_n = (axis ? at::ones({odim, rdim}, options)
-                            : at::ones({rdim, odim}, options));
+          auto at_n =
+              (axis ? at::ones({odim, rdim}, options)
+                    : at::ones({rdim, odim}, options));
           at_n = at_n.sum({axis});
 
           testValidate(

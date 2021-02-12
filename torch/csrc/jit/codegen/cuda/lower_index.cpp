@@ -361,7 +361,6 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
         wop,
         scope_utils::getLoops(active_scope_expr_),
         thread_predicates_.getExpr(out_tv->fuserTv()),
-        ca_root_map_,
         false);
     block_welford_op->setPredicate(pred);
     pushBack(block_welford_op);
@@ -400,11 +399,7 @@ void IndexLowering::visit(const kir::WelfordOp* wop) {
         sync_buffer);
     grid_welford->setThreadPredicate(thread_pred);
     const auto pred = PredicateCompute::getInlinePredicate(
-        wop,
-        scope_utils::getLoops(active_scope_expr_),
-        nullptr,
-        ca_root_map_,
-        false);
+        wop, scope_utils::getLoops(active_scope_expr_), nullptr, false);
     grid_welford->setPredicate(pred);
 
     pushBack(out_var_buffer);

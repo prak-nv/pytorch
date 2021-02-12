@@ -16,7 +16,7 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-struct WelfordResult;
+class WelfordResult;
 
 //! A Bool value
 //!

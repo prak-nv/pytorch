@@ -191,7 +191,7 @@ class TORCH_CUDA_CU_API WelfordOp : public Expr {
     return init_avg_;
   }
 
-  bool sameAs(const WelfordOp* const other) const;
+  bool sameAs(const Statement* const other) const override;
 
   // Welford Accessors
   // TODO clean up
