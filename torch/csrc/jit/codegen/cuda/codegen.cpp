@@ -780,8 +780,9 @@ class CudaKernelGenerator : private kir::IrVisitor {
              << kTab << gen(wop->outAvg()) << ",\n"
              << kTab << gen(wop->outN()) << ",\n";
     if (domain->hasBlockReduction()) {
-      indent() << kTab << "block_result"
-               << ",\n";
+      indent() << kTab << "block_result_var,\n"
+               << kTab << "block_result_avg,\n"
+               << kTab << "block_result_n,\n";
     } else {
       if (wop->inVar() == nullptr) {
         indent() << kTab << "(" << data_type << ") 0,\n";

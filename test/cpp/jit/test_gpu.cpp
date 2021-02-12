@@ -11097,24 +11097,13 @@ TEST(NVFuserTest, FusionWelfordSchedule_CUDA) {
       red_params.value().lparams);
 }
 
-TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::Double, DataType::Float, DataType::Half};
-  std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {160, 320};
-  std::vector<int> red_dims;
+//Double 1 160 262144
 
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
-    red_dims.push_back(i);
-  }
+namespace{
+  void testWelford(DataType dtype, int red_axis, int odim, int rdim){
+          const int axis = red_axis;
+          at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
-  for (auto dtype : dtypes) {
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
-    for (auto& axis : red_axis) {
-      for (auto& odim : output_dims) {
-        for (auto& rdim : red_dims) {
           Fusion fusion;
           FusionGuard fg(&fusion);
           TensorView* tv0 = makeSymbolicTensor(2, dtype);
@@ -11143,7 +11132,7 @@ TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
           fusion.addOutput(avg_cast);
 
           auto options =
-              at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+              at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
           auto options_int =
               at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
           at::manual_seed(0);
@@ -11190,6 +11179,32 @@ TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
               __FILE__,
               "validate welford",
               reduction_params.value().lparams);
+  }
+} // namespace
+
+
+TEST(NVFuserTest, FusionWelfordRepro_CUDA) {
+  testWelford(DataType::Double,1,160,262144);
+}
+
+TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
+  std::vector<DataType> dtypes = {
+      DataType::Double, DataType::Float, DataType::Half};
+  std::vector<int> red_axis = {1, 0};
+  std::vector<int> output_dims = {160, 320};
+  std::vector<int> red_dims;
+
+  // Tried to cut down the number iterations with just
+  // doing every other power of 2.
+  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
+    red_dims.push_back(i);
+  }
+
+  for (auto dtype : dtypes) {
+    for (auto& axis : red_axis) {
+      for (auto& odim : output_dims) {
+        for (auto& rdim : red_dims) {
+          testWelford(dtype,axis,odim,rdim);
         }
       }
     }
