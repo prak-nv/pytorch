@@ -177,7 +177,10 @@ void TensorView::setComputeAt(unsigned int this_pos) {
   this_compute_at_axis_ = this_pos;
 }
 
-TensorView* TensorView::computeAt(TensorView* consumer, int axis) {
+TensorView* TensorView::computeAt(
+    TensorView* consumer,
+    int axis,
+    ComputeAtMode mode) {
   // Make sure this and consumer are not the same tensor, that's illegal
   TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
 
@@ -190,8 +193,7 @@ TensorView* TensorView::computeAt(TensorView* consumer, int axis) {
       axis >= 0 && (unsigned int)axis < consumer->nDims() + 1,
       "Compute at called on an axis outside valid range.");
 
-  ComputeAt::run(this, consumer, (unsigned int)axis);
-
+  ComputeAt::run(this, consumer, (unsigned int)axis, mode);
   return this;
 }
 

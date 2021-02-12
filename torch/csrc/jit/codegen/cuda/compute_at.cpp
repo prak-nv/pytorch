@@ -146,12 +146,65 @@ std::deque<std::deque<TensorView*>> tvChains(
   return tv_chains;
 }
 
+unsigned int getReplayablePosPasC(
+    TensorView* producer,
+    TensorView* consumer,
+    const ComputeAtRootDomainMap& root_map_) {
+  auto mappable_roots =
+      root_map_.getMappableDims(producer->domain(), consumer->domain(), true);
+
+  for (size_t consumer_pos = consumer->nDims(); consumer_pos > 0;
+       consumer_pos--) {
+    auto root_dim_vals = IterVisitor::getInputsTo(
+        {consumer->domain()->domain().begin(),
+         consumer->domain()->domain().begin() + consumer_pos});
+    auto root_dim = ir_utils::filterByType<IterDomain>(root_dim_vals);
+    if (std::any_of(
+            root_dim.begin(),
+            root_dim.end(),
+            [&mappable_roots](IterDomain* root_id) {
+              return mappable_roots.find(root_id) == mappable_roots.end();
+            })) {
+      continue;
+    }
+    return consumer_pos;
+  }
+  return 0;
+}
+
+unsigned int getReplayablePosCasP(
+    TensorView* consumer,
+    TensorView* producer,
+    const ComputeAtRootDomainMap& root_map_) {
+  auto mappable_roots =
+      root_map_.getMappableDims(producer->domain(), consumer->domain(), false);
+
+  for (size_t producer_pos = producer->nDims(); producer_pos > 0;
+       producer_pos--) {
+    auto root_dim_vals = IterVisitor::getInputsTo(
+        {producer->domain()->domain().begin(),
+         producer->domain()->domain().begin() + producer_pos});
+    auto root_dim = ir_utils::filterByType<IterDomain>(root_dim_vals);
+    if (std::any_of(
+            root_dim.begin(),
+            root_dim.end(),
+            [&mappable_roots](IterDomain* root_id) {
+              return mappable_roots.find(root_id) == mappable_roots.end();
+            })) {
+      continue;
+    }
+    return producer_pos;
+  }
+  return 0;
+}
+
 } // namespace
 
 void ComputeAt::run(
     TensorView* producer,
     TensorView* consumer,
-    unsigned int consumer_position) {
+    unsigned int consumer_position,
+    ComputeAtMode mode) {
   FUSER_PERF_SCOPE("ComputeAt::run");
 
   // Make sure the correct fusion is setup between this and consumer.
@@ -207,7 +260,7 @@ void ComputeAt::run(
   // Run computeAt on our potentially modified producer(s)
   if (!producers.empty()) {
     for (auto producer_to_run : producers) {
-      ComputeAt ca(producer_to_run, consumer, consumer_position);
+      ComputeAt ca(producer_to_run, consumer, consumer_position, mode);
       ca.runPass();
     }
   }
@@ -221,6 +274,15 @@ unsigned int ComputeAt::backwardComputeAt_impl(
   FUSER_PERF_SCOPE("backwardComputeAt_impl");
 
   auto& producer_entry = tv_data.at(producer);
+
+  if (mode_ == ComputeAtMode::BestEffort) {
+    consumer_compute_at_axis = std::min(
+        consumer_compute_at_axis,
+        getReplayablePosPasC(producer, consumer, root_map_));
+  } else if (mode_ == ComputeAtMode::MostInlined) {
+    consumer_compute_at_axis =
+        getReplayablePosPasC(producer, consumer, root_map_);
+  }
 
   auto replay = TransformReplay::replayPasC(
       producer->domain(),
@@ -251,6 +313,15 @@ unsigned int ComputeAt::forwardComputeAt_impl(
 
   auto& consumer_entry = tv_data.at(consumer);
   const auto& producer_entry = tv_data.at(producer);
+
+  if (mode_ == ComputeAtMode::BestEffort) {
+    producer_compute_at_axis = std::min(
+        producer_compute_at_axis,
+        getReplayablePosCasP(producer, consumer, root_map_));
+  } else if (mode_ == ComputeAtMode::MostInlined) {
+    producer_compute_at_axis =
+        getReplayablePosCasP(producer, consumer, root_map_);
+  }
 
   auto replay = TransformReplay::replayCasP(
       consumer->domain(),
@@ -478,10 +549,12 @@ void ComputeAt::setupOutputs() {
 ComputeAt::ComputeAt(
     TensorView* _producer,
     TensorView* _consumer,
-    unsigned int _consumer_position)
+    unsigned int _consumer_position,
+    ComputeAtMode _mode)
     : producer_(_producer),
       consumer_(_consumer),
-      consumer_position_(_consumer_position) {
+      consumer_position_(_consumer_position),
+      mode_(_mode) {
   TORCH_INTERNAL_ASSERT(
       consumer_position_ >= 0 && consumer_position_ <= consumer_->nDims(),
       "Invalid computeAt axis, received ",

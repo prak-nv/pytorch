@@ -1,4 +1,4 @@
-#if defined(USE_CUDA)
+// #if defined(USE_CUDA)
 #include <gtest/gtest.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
@@ -5138,30 +5138,39 @@ TEST(NVFuserTest, FusionSoftmax3D_CUDA) {
   output_tv4->split(-1, tidx);
 
   exp_tv1->computeAt(sum_exp_rf_tv5, -1);
-  exp_tv1_copy->computeAt(output_tv4, -1);
+  fusion.printMath();
 
-  TensorView* tensors_to_parallelize[] = {
-      sum_exp_tv2, bcast_sum_tv3, output_tv4, sum_exp_rf_tv5};
+  exp_tv1->computeAt(output_tv4, -1, ComputeAtMode::BestEffort);
+  fusion.printMath();
 
-  for (auto tv : tensors_to_parallelize) {
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::BIDy);
-    tv->axis(-1)->parallelize(ParallelType::TIDx);
-  }
+  exp_tv1->computeAt(output_tv4, -1, ComputeAtMode::MostInlined);
+  fusion.printMath();
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({dimx, dimy, dimz}, options);
+  // exp_tv1->computeAt(sum_exp_rf_tv5, -1);
+  // exp_tv1_copy->computeAt(output_tv4, -1);
 
-  at::Tensor cg_output = at::empty({dimx, dimy, dimz}, options);
+  // TensorView* tensors_to_parallelize[] = {
+  //     sum_exp_tv2, bcast_sum_tv3, output_tv4, sum_exp_rf_tv5};
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion);
-  fe.runFusion({input}, {cg_output});
+  // for (auto tv : tensors_to_parallelize) {
+  //   tv->axis(0)->parallelize(ParallelType::BIDx);
+  //   tv->axis(1)->parallelize(ParallelType::BIDy);
+  //   tv->axis(-1)->parallelize(ParallelType::TIDx);
+  // }
 
-  auto aten_output = at::_softmax(input.to(at::kDouble), -1, false);
+  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // at::Tensor input = at::randn({dimx, dimy, dimz}, options);
 
-  testValidate(
-      &fusion, {cg_output}, {input}, {aten_output}, __LINE__, __FILE__);
+  // at::Tensor cg_output = at::empty({dimx, dimy, dimz}, options);
+
+  // FusionExecutor fe;
+  // fe.compileFusion(&fusion);
+  // fe.runFusion({input}, {cg_output});
+
+  // auto aten_output = at::_softmax(input.to(at::kDouble), -1, false);
+
+  // testValidate(
+  //     &fusion, {cg_output}, {input}, {aten_output}, __LINE__, __FILE__);
 }
 
 // Softmax with a 3D tensor with input normalization.
@@ -12048,4 +12057,4 @@ TEST(NVFuserTest, FusionBroadcastAcrossComputeAt_CUDA) {
 
 } // namespace jit
 } // namespace torch
-#endif // #if defined(USE_CUDA)
+// #endif // #if defined(USE_CUDA)

@@ -101,7 +101,8 @@ class ComputeAt {
   static void run(
       TensorView* _producer,
       TensorView* _consumer,
-      unsigned int _consumer_position);
+      unsigned int _consumer_position,
+      ComputeAtMode mode = ComputeAtMode::Standard);
 
  private:
   TensorView* producer_;
@@ -151,10 +152,17 @@ class ComputeAt {
   // All we need to know and keep track of for each TensorView in this pass.
   std::unordered_map<TensorView*, ComputeAtData> tv_data;
 
+  // Mode during propagation of computeAt, standard will throw an error if
+  // computeAt position provided can't be satisfied, best effort will lower the
+  // computeAt position as needed during traversal, most inlined will increase
+  // the compute at position to maximum possible through traversal.
+  ComputeAtMode mode_ = ComputeAtMode::Standard;
+
   ComputeAt(
       TensorView* _producer,
       TensorView* _consumer,
-      unsigned int _consumer_position);
+      unsigned int _consumer_position,
+      ComputeAtMode _mode);
 
   ComputeAt() = delete;
   ~ComputeAt() = default;

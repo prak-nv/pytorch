@@ -106,6 +106,8 @@ class TORCH_CUDA_CU_API Int : public Val {
   const c10::optional<ScalarType> maybe_value_;
 };
 
+enum class TORCH_CUDA_API ComputeAtMode { Standard, BestEffort, MostInlined };
+
 class ComputeAt;
 class TransformReplay;
 class TransformIter;
@@ -195,7 +197,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   }
 
   // Compute this TensorView relative to another tensor at axis
-  TensorView* computeAt(TensorView* consumer, int axis);
+  TensorView* computeAt(
+      TensorView* consumer,
+      int axis,
+      ComputeAtMode mode = ComputeAtMode::Standard);
 
   void clearComputeAt() {
     this_compute_at_axis_ = 0;
