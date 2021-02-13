@@ -95,8 +95,8 @@ class VectorizeValidator : public OptInDispatch {
         vector_size_optional.has_value(),
         "Could not evalualte constant value bound to vectorized dim.");
 
-    auto vector_size =
-        ((int64_t) dataTypeSize(tv->getDataType().value()) ) * vector_size_optional.value();
+    auto vector_size = ((int64_t)dataTypeSize(tv->getDataType().value())) *
+        vector_size_optional.value();
 
     // Allow half2, float2, float4 and same sized vtypes.
     std::array<int64_t, 3> allowed_vector_sizes = {4, 8, 16}; // NOLint
