@@ -38,6 +38,10 @@ class TORCH_CUDA_CU_API GpuLower {
   //! (or nullptr if no lowering is in progress)
   static GpuLower* current();
 
+  // TODO: Super unsafe!
+  void setAsCurrent();
+  // TODO: Super unsafe!
+  void unsetCurrent();
   const ComputeAtMap& caLoopMap() const {
     return ca_loop_map_;
   }

@@ -21,11 +21,11 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/mutator.h>
+#include <torch/csrc/jit/codegen/cuda/poc_replay.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 #include <torch/csrc/jit/codegen/cuda/transform_rfactor.h>
-
 // fuser and IR parser
 #include <torch/csrc/jit/codegen/cuda/parser.h>
 #include <torch/csrc/jit/ir/irparser.h>
@@ -5115,7 +5115,9 @@ TEST(NVFuserTest, FusionSoftmax3D_CUDA) {
   const int dimz = 130;
 
   // Set up your input tensor views
-  TensorView* input_tv0 = makeSymbolicTensor(3);
+  TensorView* input_tv0 =
+      TensorViewBuilder().ndims(3).dtype(DataType::Float).build();
+  ;
   fusion.addInput(input_tv0);
 
   TensorView* exp_tv1 = unaryOp(UnaryOpType::Exp, input_tv0);
@@ -5124,30 +5126,65 @@ TEST(NVFuserTest, FusionSoftmax3D_CUDA) {
 
   // Replicate exp_tv4 as exp_tv4_copy because exp_tv4 is going to be
   // computed at sum_exp_rf_tv8.
-  TensorView* exp_tv1_copy = unaryOp(UnaryOpType::Exp, input_tv0);
+  TensorView* exp4_tv1_copy = unaryOp(UnaryOpType::Exp, input_tv0);
 
-  TensorView* output_tv4 = div(exp_tv1_copy, bcast_sum_tv3);
+  TensorView* output_tv5 = div(exp4_tv1_copy, bcast_sum_tv3);
 
-  fusion.addOutput(output_tv4);
+  fusion.addOutput(output_tv5);
 
-  bcast_sum_tv3->split(-1, tidx);
+  // bcast_sum_tv3->split(-1, tidx);
 
-  sum_exp_tv2->split(-1, tidx);
-  TensorView* sum_exp_rf_tv5 = sum_exp_tv2->rFactor({-2});
+  sum_exp_tv2->split(-1, 4, false);
+  TensorView* sum_exp_rf_tv6 = sum_exp_tv2->rFactor({-2});
 
-  output_tv4->split(-1, tidx);
+  // fusion.printMath();
 
-  exp_tv1->computeAt(sum_exp_rf_tv5, -1);
-  exp_tv1_copy->computeAt(output_tv4, -1);
+  sum_exp_rf_tv6->merge(0);
 
-  TensorView* tensors_to_parallelize[] = {
-      sum_exp_tv2, bcast_sum_tv3, output_tv4, sum_exp_rf_tv5};
+  // Propagate the transformations we made to sum_expr_rf through all of the
+  // fusion
+  TransformPropagator tester;
+  tester.from(sum_exp_rf_tv6);
 
-  for (auto tv : tensors_to_parallelize) {
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::BIDy);
-    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  GpuLower lower(&fusion);
+
+  // TODO: Super unsafe! Only used because ComputeAtMap assumes it's created
+  // during lowering to fill in kir values.
+  lower.setAsCurrent();
+
+  // Map all of the iteration domains at the "loop" level, this is how we'll
+  // parallelize the problem
+  auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
+  ca_loop_map_.build();
+
+  // TODO: Super unsafe! Only used because ComputeAtMap assumes it's created
+  // during lowering to fill in kir values.
+  lower.unsetCurrent();
+
+  // Parallelize block and thread dim, on "concretized" iter domain (key of the
+  // mapping we made)
+  ca_loop_map_.getConcreteMappedID(sum_exp_rf_tv6->axis(0))
+      ->parallelize(ParallelType::BIDx);
+  ca_loop_map_.getConcreteMappedID(sum_exp_rf_tv6->axis(-1))
+      ->parallelize(ParallelType::TIDx);
+
+  // Find all tensor views in the fusion
+  // (Taken from executor.cpp::FusionExecutor::setUsedTVs)
+  auto used_vals = DependencyCheck::getAllValsBetween(
+      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+
+  // Parallelize all the tensor views like we parallelized the concretized iter
+  // domains
+  for (auto tv : used_tvs) {
+    for (auto id : tv->domain()->domain()) {
+      id->parallelize(ca_loop_map_.getConcreteMappedID(id)->getParallelType());
+    }
   }
+
+  // We're done.
+  fusion.printMath();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({dimx, dimy, dimz}, options);
@@ -5160,8 +5197,7 @@ TEST(NVFuserTest, FusionSoftmax3D_CUDA) {
 
   auto aten_output = at::_softmax(input.to(at::kDouble), -1, false);
 
-  testValidate(
-      &fusion, {cg_output}, {input}, {aten_output}, __LINE__, __FILE__);
+  std::cout << aten_output.sub(cg_output[0]).abs().max() << std::endl;
 }
 
 // Softmax with a 3D tensor with input normalization.

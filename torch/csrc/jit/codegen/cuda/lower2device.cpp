@@ -80,6 +80,16 @@ void GpuLower::replaceSymbolicSizes() {
   }
 }
 
+// TODO: Super unsafe!
+void GpuLower::setAsCurrent() {
+  active_gpu_lower = this;
+}
+
+// TODO: Super unsafe!
+void GpuLower::unsetCurrent() {
+  active_gpu_lower = nullptr;
+}
+
 void GpuLower::lower() {
   FUSER_PERF_SCOPE("GpuLower::lower");
 

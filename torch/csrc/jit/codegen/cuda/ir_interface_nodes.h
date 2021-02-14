@@ -110,6 +110,7 @@ class ComputeAt;
 class TransformReplay;
 class TransformIter;
 class OptOutMutator;
+class TransformPropagator;
 
 namespace ir_utils {
 class TVDomainGuard;
@@ -299,6 +300,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   friend ComputeAt;
   friend void adjustMemoryTypes(Fusion* fusion);
   friend class ir_utils::TVDomainGuard;
+  friend TransformPropagator;
 
  protected:
   void setDomain(TensorDomain* td) {

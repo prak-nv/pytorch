@@ -5,6 +5,7 @@
 #include <torch/csrc/jit/codegen/cuda/executor_kernel_arg.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
@@ -397,10 +398,8 @@ void FusionExecutor::setUsedTVs() {
   used_tvs_.clear();
   auto used_vals = DependencyCheck::getAllValsBetween(
       {fusion_.inputs().begin(), fusion_.inputs().end()}, fusion_.outputs());
-  for (auto val : used_vals) {
-    if (val->getValType().value() == ValType::TensorView) {
-      used_tvs_.push_back(val->as<TensorView>());
-    }
+  for (auto val : ir_utils::filterByType<TensorView>(used_vals)) {
+    used_tvs_.push_back(val->as<TensorView>());
   }
 }
 
