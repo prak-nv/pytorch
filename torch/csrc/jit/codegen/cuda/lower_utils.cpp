@@ -36,10 +36,10 @@ std::vector<kir::ForLoop*> getLoops(kir::Expr* scope) {
 void insertBefore(kir::Expr* scope, kir::Expr* ref, kir::Expr* expr) {
   if (auto ite = dynamic_cast<kir::IfThenElse*>(scope)) {
     ite->thenBody().insert_before(ref, expr);
-  } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+  } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(scope)) {
     for_loop->body().insert_before(ref, expr);
   } else {
-    TORCH_INTERNAL_ASSERT("Unexpected scope expression");
+    TORCH_INTERNAL_ASSERT(false, "Unexpected scope expression");
   }
 }
 

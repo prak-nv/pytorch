@@ -11097,94 +11097,92 @@ TEST(NVFuserTest, FusionWelfordSchedule_CUDA) {
       red_params.value().lparams);
 }
 
-//Double 1 160 262144
+// Double 1 160 262144
 
-namespace{
-  void testWelford(DataType dtype, int red_axis, int odim, int rdim){
-          const int axis = red_axis;
-          at::ScalarType aten_dtype = data_type_to_aten(dtype);
+namespace {
+void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
+  const int axis = red_axis;
+  at::ScalarType aten_dtype = data_type_to_aten(dtype);
 
-          Fusion fusion;
-          FusionGuard fg(&fusion);
-          TensorView* tv0 = makeSymbolicTensor(2, dtype);
-          bool is_fp16 = dtype == DataType::Half;
-          TensorView* tv0_cast = tv0;
-          if (is_fp16) {
-            tv0_cast = castOp(DataType::Float, tv0);
-          }
-          fusion.addInput(tv0);
-          auto tv1 = mul(tv0_cast, new Double(1));
-          auto tvs = Welford(tv1, {1});
-          auto tv_M2 = tvs.var;
-          auto tv_avg = tvs.avg;
-          auto tv_N = tvs.n;
+  std::cout << aten_dtype << " " << red_axis << " " << odim << " " << rdim
+            << "\n";
 
-          TensorView* avg_cast = tv_avg;
-          TensorView* M2_cast = tv_M2;
-
-          if (is_fp16) {
-            avg_cast = castOp(DataType::Half, tv_avg);
-            M2_cast = castOp(DataType::Half, tv_M2);
-          }
-
-          fusion.addOutput(M2_cast);
-          fusion.addOutput(tv_N);
-          fusion.addOutput(avg_cast);
-
-          auto options =
-              at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
-          auto options_int =
-              at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-          at::manual_seed(0);
-          std::vector<TensorView*> outputs_of_red;
-          at::Tensor aten_input =
-              (axis ? at::randn({odim, rdim}, options)
-                    : at::randn({rdim, odim}, options));
-
-          if (is_fp16) {
-            outputs_of_red.push_back(avg_cast);
-            outputs_of_red.push_back(M2_cast);
-          }
-
-          auto reduction_params =
-              getReductionHeuristics(&fusion, {aten_input}, tv_avg);
-          scheduleReduction(
-              &fusion, reduction_params.value(), tv_avg, outputs_of_red);
-
-          auto lparams = reduction_params.value().lparams;
-
-          FusionExecutor fe;
-          fe.compileFusion(&fusion);
-          auto outputs =
-              fe.runFusion({aten_input}, reduction_params.value().lparams);
-
-          // by default Welford outputs sum of square diff so need to divide to
-          // get var
-
-          outputs[0] /= rdim;
-
-          auto at_var = aten_input.var({axis}, false);
-          auto at_avg = aten_input.mean({axis});
-          auto at_n =
-              (axis ? at::ones({odim, rdim}, options)
-                    : at::ones({rdim, odim}, options));
-          at_n = at_n.sum({axis});
-
-          testValidate(
-              &fusion,
-              outputs,
-              {aten_input},
-              {at_var, at_n, at_avg},
-              __LINE__,
-              __FILE__,
-              "validate welford",
-              reduction_params.value().lparams);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = makeSymbolicTensor(2, dtype);
+  bool is_fp16 = dtype == DataType::Half;
+  TensorView* tv0_cast = tv0;
+  if (is_fp16) {
+    tv0_cast = castOp(DataType::Float, tv0);
   }
+  fusion.addInput(tv0);
+  auto tv1 = mul(tv0_cast, new Double(1));
+  auto tvs = Welford(tv1, {axis});
+  auto tv_M2 = tvs.var;
+  auto tv_avg = tvs.avg;
+  auto tv_N = tvs.n;
+
+  TensorView* avg_cast = tv_avg;
+  TensorView* M2_cast = tv_M2;
+
+  if (is_fp16) {
+    avg_cast = castOp(DataType::Half, tv_avg);
+    M2_cast = castOp(DataType::Half, tv_M2);
+  }
+
+  fusion.addOutput(M2_cast);
+  fusion.addOutput(tv_N);
+  fusion.addOutput(avg_cast);
+
+  auto options = at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  std::vector<TensorView*> outputs_of_red;
+  at::Tensor aten_input =
+      (axis ? at::randn({odim, rdim}, options)
+            : at::randn({rdim, odim}, options));
+
+  if (is_fp16) {
+    outputs_of_red.push_back(avg_cast);
+    outputs_of_red.push_back(M2_cast);
+  }
+
+  auto reduction_params = getReductionHeuristics(&fusion, {aten_input}, tv_avg);
+  scheduleReduction(&fusion, reduction_params.value(), tv_avg, outputs_of_red);
+
+  auto lparams = reduction_params.value().lparams;
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion({aten_input}, reduction_params.value().lparams);
+
+  // by default Welford outputs sum of square diff so need to divide to
+  // get var
+
+  outputs[0] /= rdim;
+
+  auto at_var = aten_input.var({axis}, false);
+  auto at_avg = aten_input.mean({axis});
+  auto at_n =
+      (axis ? at::ones({odim, rdim}, options)
+            : at::ones({rdim, odim}, options));
+  at_n = at_n.sum({axis});
+
+  testValidate(
+      &fusion,
+      outputs,
+      {aten_input},
+      {at_var, at_n, at_avg},
+      __LINE__,
+      __FILE__,
+      "validate welford",
+      reduction_params.value().lparams);
+}
 } // namespace
 
-
 TEST(NVFuserTest, FusionWelfordRepro_CUDA) {
-  testWelford(DataType::Double,1,160,262144);
+  // testWelford(DataType::Double,1,1,262144);
+  testWelford(DataType::Half, 1, 160, 65536);
 }
 
 TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
@@ -11204,7 +11202,7 @@ TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
     for (auto& axis : red_axis) {
       for (auto& odim : output_dims) {
         for (auto& rdim : red_dims) {
-          testWelford(dtype,axis,odim,rdim);
+          testWelford(dtype, axis, odim, rdim);
         }
       }
     }
