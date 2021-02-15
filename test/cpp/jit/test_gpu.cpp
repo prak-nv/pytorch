@@ -11177,7 +11177,6 @@ void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
 }
 } // namespace
 
-
 TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
   std::vector<DataType> dtypes = {
       DataType::Double, DataType::Float, DataType::Half};
