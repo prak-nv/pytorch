@@ -1353,7 +1353,7 @@ class TORCH_CUDA_CU_API GridReduction final : public Expr {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! reduction and sync buffers.
-class TORCH_CUDA_API GridWelford final : public Expr {
+class TORCH_CUDA_CU_API GridWelford final : public Expr {
  public:
   void accept(IrVisitor* visitor) const override {
     visitor->visit(this);

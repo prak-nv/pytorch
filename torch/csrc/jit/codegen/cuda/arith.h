@@ -71,7 +71,7 @@ class TORCH_CUDA_CU_API WelfordResult {
 //! Welford operator on specified axes. This is currently the only scan op with
 //! multiple outputs that is supported. May consider generalization if more scan
 //! ops are added.
-TORCH_CUDA_API WelfordResult Welford(
+TORCH_CUDA_CU_API WelfordResult Welford(
     TensorView* tv,
     const std::vector<int>& axes,
     TensorView* init_var = nullptr,
