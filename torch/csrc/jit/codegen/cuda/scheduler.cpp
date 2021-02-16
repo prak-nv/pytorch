@@ -618,6 +618,7 @@ void scheduleReductionComputeAt(
 }
 
 TensorView* rfactorHelper(TensorView* red_tv, const std::vector<int>& axes) {
+  TORCH_INTERNAL_ASSERT(red_tv->definition() != nullptr);
   const bool is_welford = red_tv->definition()->isA<WelfordOp>();
   if (!is_welford) {
     return red_tv->rFactor(axes);
