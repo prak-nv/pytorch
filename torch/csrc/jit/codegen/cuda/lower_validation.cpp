@@ -13,6 +13,13 @@ namespace fuser {
 namespace cuda {
 
 namespace {
+
+//! A parallel type validation pass to make sure all the outputs of
+//!   welford ops are parallelized the same way. Will infer and modify serial
+//!   parallel types if other output/s are parallelized, so that
+//!   user wouldn't have to specify the same parallelization
+//!   3 times. Will throw if conflicts are detected, i.e.
+//!   TIDx vs BIDx etc.
 class ValidateParallelType : public IterVisitor {
  public:
   static void validate(Fusion* fusion) {
