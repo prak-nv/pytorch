@@ -11097,8 +11097,6 @@ TEST(NVFuserTest, FusionWelfordSchedule_CUDA) {
       red_params.value().lparams);
 }
 
-// Double 1 160 262144
-
 namespace {
 void testWelford(DataType dtype, int red_axis, int odim, int rdim) {
   const int axis = red_axis;
