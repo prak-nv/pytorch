@@ -1106,23 +1106,26 @@ void organizeAxes(
   }
 }
 
-Expr* checkBroadcast(TensorView* tv) {
+// If tv is broadcasted (used in a broadcast op) return that op, otherwise
+// return nullptr
+Expr* isBroadcasted(TensorView* tv) {
   auto uses = tv->uses();
   if (uses.size() == 1) {
     auto expr = *uses.begin();
-    bool isBroadcast = expr->getExprType().value() == ExprType::BroadcastOp;
-    return (isBroadcast) ? expr : nullptr;
+    bool is_broadcasted = expr->getExprType().value() == ExprType::BroadcastOp;
+    return (is_broadcasted) ? expr : nullptr;
   }
   return nullptr;
 };
 
-Expr* checkCastOp(TensorView* tv) {
+// If tv is casted (used in a cast op) return that op, otherwise return nullptr
+Expr* isCasted(TensorView* tv) {
   auto uses = tv->uses();
   if (uses.size() == 1) {
     auto expr = *uses.begin();
-    bool isCastOp = expr->getExprType().value() == ExprType::UnaryOp &&
+    bool is_casted = expr->getExprType().value() == ExprType::UnaryOp &&
         expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
-    return (isCastOp) ? expr : nullptr;
+    return (is_casted) ? expr : nullptr;
   }
   return nullptr;
 };
@@ -1130,10 +1133,10 @@ Expr* checkCastOp(TensorView* tv) {
 void handleCastBroadcastInput(Fusion* fusion, TensorView* input) {
   TORCH_INTERNAL_ASSERT(fusion->hasInput(input));
 
-  auto castOp_expr = checkCastOp(input);
+  auto castOp_expr = isCasted(input);
   if (castOp_expr != nullptr) {
     auto castOp_tv = castOp_expr->output(0)->as<TensorView>();
-    auto broadcast_expr = checkBroadcast(castOp_tv);
+    auto broadcast_expr = isBroadcasted(castOp_tv);
     if (broadcast_expr != nullptr) {
       auto broadcast_tv = broadcast_expr->output(0)->as<TensorView>();
       castOp_tv->computeAt(broadcast_tv, -1);
@@ -1156,8 +1159,8 @@ void cacheInputs(
       for (const auto input : in_tv) {
         if (input->getRootDomain().size() > 1) {
           // If pseudo-cache, skip cache after
-          bool hasBroadcast = checkBroadcast(input) != nullptr;
-          bool hasCast = checkCastOp(input) != nullptr;
+          bool hasBroadcast = isBroadcasted(input) != nullptr;
+          bool hasCast = isCasted(input) != nullptr;
           if (!hasBroadcast && !hasCast) {
             other_tv.push_back(input->cache_after());
           }
