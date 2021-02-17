@@ -131,12 +131,27 @@ void handleBlock(Block* block, bool initial_state) {
   for (Node* node : block->nodes()) {
     switch (node->kind()) {
       case prim::CallFunction:
-      case prim::CallMethod:
         TORCH_INTERNAL_ASSERT(false, "Calls are not expected with AMP & JIT");
+        break;
+
+      case prim::CallMethod:
+        if (auto class_type = node->input(0)->type()->cast<ClassType>()) {
+          const auto& name = node->s(attr::name);
+          const auto& function = class_type->getMethod(name);
+          TORCH_INTERNAL_ASSERT(
+              !function.isGraphFunction(),
+              "Calls are not expected with AMP & JIT");
+        } else {
+          TORCH_INTERNAL_ASSERT(false, "Unexpected prim::CallMethod form");
+        }
         break;
 
       case prim::Enter:
         if (auto autocast_scope = parseAutocast(node->input())) {
+          if (node->hasUses()) {
+            // TODO: better error message
+            AT_ERROR("`with autocast() as ...` is not supported");
+          }
           autocast_stack.push(*autocast_scope);
         }
         break;
@@ -180,7 +195,7 @@ void handleBlock(Block* block, bool initial_state) {
       case aten::gru_cell:
       case aten::rnn_tanh_cell:
       case aten::rnn_relu_cell:
-        if (current_state()) {
+        if (current_state() && !node->schema().is_mutable()) {
           castTensorInputs(node, at::ScalarType::Half);
         }
         break;
@@ -227,7 +242,7 @@ void handleBlock(Block* block, bool initial_state) {
       case aten::pdist:
       case aten::cdist:
       case aten::renorm:
-        if (current_state()) {
+        if (current_state() && !node->schema().is_mutable()) {
           castTensorInputs(node, at::ScalarType::Float);
         }
         break;
@@ -245,7 +260,7 @@ void handleBlock(Block* block, bool initial_state) {
       case aten::index_put:
       case aten::stack:
       case aten::tensordot:
-        if (current_state()) {
+        if (current_state() && !node->schema().is_mutable()) {
           castInputsToWidestType(node);
         }
         break;
