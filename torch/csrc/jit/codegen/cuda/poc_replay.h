@@ -28,24 +28,12 @@ std::deque<TensorView*> deduplicate(const std::deque<TensorView*>& tv_deuqe) {
 class TransformPropagator {
   std::deque<TensorView*> tvInputs(Expr* expr) {
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::deque<TensorView*> inputs;
-    for (auto tv : tv_inputs) {
-      inputs.emplace_back(tv);
-    }
-    return inputs;
-    // Why doesn't this work?
-    // return std::deque<TensorView*>(tv_inputs.begin(), tv_inputs.end());
+    return std::deque<TensorView*>(tv_inputs.begin(), tv_inputs.end());
   }
 
   std::deque<TensorView*> tvOutputs(Expr* expr) {
     auto tv_outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::deque<TensorView*> outputs;
-    for (auto tv : tv_outputs) {
-      outputs.emplace_back(tv);
-    }
-    return outputs;
-    // Why doesn't this work?
-    // return std::deque<TensorView*>(tv_outputs.begin(), tv_outputs.end());
+    return std::deque<TensorView*>(tv_outputs.begin(), tv_outputs.end());
   }
 
   std::deque<TensorView*> consumersOf(TensorView* tv) {
