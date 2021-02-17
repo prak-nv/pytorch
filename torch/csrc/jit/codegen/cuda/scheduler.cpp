@@ -1037,6 +1037,8 @@ void setupSharedMemory(
   }
 }
 
+// TODO: Review this. Seems we should be using a root map here, or we should
+// simply be replaying all tensors as a reduction tv.
 void organizeAxes(
     const std::vector<TensorView*>& reduction_tv,
     const std::vector<TensorView*>& all_tv) {
@@ -1185,7 +1187,9 @@ void scheduleNormalization(
   const auto& in_tv = ir_utils::filterByType<TensorView>(fusion->inputs());
   const auto& out_tv = ir_utils::filterByType<TensorView>(fusion->outputs());
 
-  cacheInputs(fusion, rparams, reduction_tv, other_tv);
+  if (rparams.fastest_dim && rparams.persistent_kernel) {
+    cacheInputs(fusion, rparams, reduction_tv, other_tv);
+  }
 
   std::vector<TensorView*> all_tv;
   for (auto input : in_tv) {
