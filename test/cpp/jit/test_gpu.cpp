@@ -1878,7 +1878,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAt6_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionAdvancedComputeAtFwd1_CUDA) {
+TEST(NVFuserTest, FusionAdvancedComputeWith1_CUDA) {
   // Case 1
   // tv1 = tv0 * 0.5
   // tv2 = tv1 * -1
@@ -1912,7 +1912,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd1_CUDA) {
 
   tv0->axis(0)->parallelize(ParallelType::BIDx);
 
-  tv0->computeAtForward(tv7, 1);
+  tv0->computeWith(tv7, 1);
 
   GpuLower gpulw(&fusion);
 
@@ -1957,7 +1957,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd1_CUDA) {
       &fusion, cg_outputs, {aten_input}, aten_outputs, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionAdvancedComputeAtFwd2_CUDA) {
+TEST(NVFuserTest, FusionAdvancedComputeWith2_CUDA) {
   // Case 2
   // tv1 = tv0 * -1
   // tv2 = tv0 + 3
@@ -1989,7 +1989,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd2_CUDA) {
 
   tv0->axis(0)->parallelize(ParallelType::BIDx);
 
-  tv0->computeAtForward(tv6, 1);
+  tv0->computeWith(tv6, 1);
 
   for (Val* val : fusion.vals()) {
     if (!fusion.hasInput(val) &&
@@ -2020,7 +2020,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd2_CUDA) {
   testValidate(&fusion, cg_outputs, {input}, aten_outputs, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionAdvancedComputeAtFwd3_CUDA) {
+TEST(NVFuserTest, FusionAdvancedComputeWith3_CUDA) {
   // Case 3
   // T2 = T1 * 0.979361
   // T3 = T2 * T0
@@ -2049,8 +2049,8 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd3_CUDA) {
   tv1->split(0, 128);
   tv1->split(0, 4);
 
-  tv0->computeAtForward(tv3, 1);
-  tv1->computeAtForward(tv3, 1);
+  tv0->computeWith(tv3, 1);
+  tv1->computeWith(tv3, 1);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
@@ -2083,7 +2083,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd3_CUDA) {
       &fusion, {cg_output}, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionAdvancedComputeAtFwd4_CUDA) {
+TEST(NVFuserTest, FusionAdvancedComputeWith4_CUDA) {
   // Case 4
   // T4 = T2 - T3
   // T5 = T1 + T4
@@ -2116,7 +2116,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd4_CUDA) {
     }
     tv->split(0, 128);
     tv->split(0, 4);
-    tv->computeAtForward(tv6, 1);
+    tv->computeWith(tv6, 1);
   }
 
   tv6->axis(0)->parallelize(ParallelType::BIDx);
@@ -2151,7 +2151,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd4_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionAdvancedComputeAtFwd5_CUDA) {
+TEST(NVFuserTest, FusionAdvancedComputeWith5_CUDA) {
   // Case 5
   // tv2 = tv0 + 2.0
   // tv3 = tv1 * tv2
@@ -2171,7 +2171,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd5_CUDA) {
   tv2->split(-1, 8);
   tv2->split(-1, 4);
 
-  tv2->computeAtForward(tv3, 1);
+  tv2->computeWith(tv3, 1);
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -2191,7 +2191,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd5_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionAdvancedComputeAtFwd6_CUDA) {
+TEST(NVFuserTest, FusionAdvancedComputeWith6_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2209,7 +2209,7 @@ TEST(NVFuserTest, FusionAdvancedComputeAtFwd6_CUDA) {
   tv3->merge(0);
   tv3->split(-1, 8);
 
-  tv2->computeAtForward(tv3, 1);
+  tv2->computeWith(tv3, 1);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
 

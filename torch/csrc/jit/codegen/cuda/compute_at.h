@@ -98,12 +98,16 @@ class ComputeAtData {
 
 class ComputeAt {
  public:
-  static void run(
+  // Runs the compute at pass making producer look like consumer, computing
+  // producer relative to consumer
+  static void runAt(
       TensorView* producer,
       TensorView* consumer,
       unsigned int consumer_position);
 
-  static void runForward(
+  // Runs the compute with pass making consumer look like producer, computing
+  // producer relative to consumer
+  static void runWith(
       TensorView* producer,
       TensorView* consumer,
       unsigned int producer_position);

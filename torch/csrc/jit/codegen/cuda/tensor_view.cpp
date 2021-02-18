@@ -190,12 +190,12 @@ TensorView* TensorView::computeAt(TensorView* consumer, int position) {
       position >= 0 && (unsigned int)position < consumer->nDims() + 1,
       "Compute at called on an position outside valid range.");
 
-  ComputeAt::run(this, consumer, (unsigned int)position);
+  ComputeAt::runAt(this, consumer, (unsigned int)position);
 
   return this;
 }
 
-TensorView* TensorView::computeAtForward(TensorView* consumer, int position) {
+TensorView* TensorView::computeWith(TensorView* consumer, int position) {
   // Make sure this and consumer are not the same tensor, that's illegal
   TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
 
@@ -208,7 +208,7 @@ TensorView* TensorView::computeAtForward(TensorView* consumer, int position) {
       position >= 0 && (unsigned int)position < this->nDims() + 1,
       "Compute at called on an position outside valid range.");
 
-  ComputeAt::runForward(this, consumer, (unsigned int)position);
+  ComputeAt::runWith(this, consumer, (unsigned int)position);
 
   return this;
 }

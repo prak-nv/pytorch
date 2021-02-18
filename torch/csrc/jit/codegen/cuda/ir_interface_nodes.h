@@ -201,7 +201,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // Compute this tensor to consumer, at local position, -1 will compute tensors
   // inline with eachother, 0 doesn't share any loop nests between the tensors
-  TensorView* computeAtForward(TensorView* consumer, int position);
+  TensorView* computeWith(TensorView* consumer, int position);
 
   void clearComputeAt() {
     this_compute_at_axis_ = 0;

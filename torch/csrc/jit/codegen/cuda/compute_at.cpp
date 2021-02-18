@@ -148,7 +148,7 @@ std::deque<std::deque<TensorView*>> tvChains(
 
 } // namespace
 
-void ComputeAt::run(
+void ComputeAt::runAt(
     TensorView* producer,
     TensorView* consumer,
     unsigned int consumer_position) {
@@ -213,11 +213,11 @@ void ComputeAt::run(
   }
 }
 
-void ComputeAt::runForward(
+void ComputeAt::runWith(
     TensorView* producer,
     TensorView* consumer,
     unsigned int producer_position) {
-  FUSER_PERF_SCOPE("ComputeAt::runForward");
+  FUSER_PERF_SCOPE("ComputeAt::runWith");
 
   // Make sure the correct fusion is setup between this and consumer.
   TORCH_CHECK(
