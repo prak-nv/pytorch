@@ -1188,7 +1188,7 @@ void scheduleNormalization(
   const auto& out_tv = ir_utils::filterByType<TensorView>(fusion->outputs());
 
   if (rparams.fastest_dim && rparams.persistent_kernel) {
-    cacheInputs(fusion, rparams, reduction_tv, other_tv);
+    // cacheInputs(fusion, rparams, reduction_tv, other_tv);
   }
 
   std::vector<TensorView*> all_tv;
@@ -1241,29 +1241,32 @@ void scheduleNormalization(
         rfactor_tv.push_back(reduction_tv_rf);
       }
 
-      // 3) Split the other TensorViews
-      for (auto tv : other_tv) {
-        if (tv->getRootDomain().size() == kReductionRootDims) {
-          if (kHasOuterAxis && rparams.batches_per_block > 1 &&
-              rparams.num_warps > 1) {
-            tv->split(0, rparams.batches_per_block);
-            tv->split(1, rparams.num_warps);
-          }
-          tv->split(-1, rparams.loop_unroll, false);
-        }
-      }
-
+      // // 3) Split the other TensorViews
+      // for (auto tv : other_tv) {
+      //   if (tv->getRootDomain().size() == kReductionRootDims) {
+      //     if (kHasOuterAxis && rparams.batches_per_block > 1 &&
+      //         rparams.num_warps > 1) {
+      //       tv->split(0, rparams.batches_per_block);
+      //       tv->split(1, rparams.num_warps);
+      //     }
+      //     tv->split(-1, rparams.loop_unroll, false);
+      //   }
+      // }
+      fusion->printMath();
       if (kHasOuterAxis) {
         // 4) ComputeAt Structure
-        const int kComputeAtAxis = 1;
-        for (auto output : out_tv) {
-          auto inputs_for_output = fusion->inputsOf(output);
+        for (auto red_tv : rfactor_tv) {
+          auto inputs_for_red_tv = fusion->inputsOf(red_tv);
           for (auto input : in_tv) {
-            if (inputs_for_output.find(input) != inputs_for_output.end()) {
-              input->computeAt(output, kComputeAtAxis);
+            if (inputs_for_red_tv.find(input) != inputs_for_red_tv.end()) {
+              std::cout << "Best Effort: " << input << " -> " << red_tv
+                        << std::endl;
+              input->computeAt(red_tv, -1, ComputeAtMode::BestEffort);
+              std::cout << "Done" << std::endl;
             }
           }
         }
+        fusion->printMath();
       }
 
       // 6) Parallel Binding

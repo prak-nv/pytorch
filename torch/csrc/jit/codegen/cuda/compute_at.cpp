@@ -153,6 +153,14 @@ unsigned int getReplayablePosPasC(
   auto mappable_roots =
       root_map_.getMappableDims(producer->domain(), consumer->domain(), true);
 
+  std::cout << "PasC Mappable " << consumer << " && " << producer << std::endl
+            << "  ";
+
+  for (auto entry : mappable_roots) {
+    std::cout << entry << ", ";
+  }
+  std::cout << std::endl;
+
   for (size_t consumer_pos = consumer->nDims(); consumer_pos > 0;
        consumer_pos--) {
     auto root_dim_vals = IterVisitor::getInputsTo(
@@ -163,7 +171,12 @@ unsigned int getReplayablePosPasC(
             root_dim.begin(),
             root_dim.end(),
             [&mappable_roots](IterDomain* root_id) {
-              return mappable_roots.find(root_id) == mappable_roots.end();
+              bool not_mappable =
+                  mappable_roots.find(root_id) == mappable_roots.end();
+              if (not_mappable) {
+                std::cout << root_id << " not mappable" << std::endl;
+              }
+              return not_mappable;
             })) {
       continue;
     }
@@ -176,23 +189,33 @@ unsigned int getReplayablePosCasP(
     TensorView* consumer,
     TensorView* producer,
     const ComputeAtRootDomainMap& root_map_) {
+  std::cout << "CasP Mappable " << consumer << " && " << producer << std::endl
+            << "  ";
   auto mappable_roots =
       root_map_.getMappableDims(producer->domain(), consumer->domain(), false);
+  for (auto entry : mappable_roots) {
+    std::cout << entry << ", ";
+  }
+  std::cout << std::endl;
 
   for (size_t producer_pos = producer->nDims(); producer_pos > 0;
        producer_pos--) {
-    auto root_dim_vals = IterVisitor::getInputsTo(
+    std::cout << producer_pos << std::endl;
+    auto all_vals = DependencyCheck::getAllValsBetween(
+        {producer->getMaybeRFactorDomain().begin(),
+         producer->getMaybeRFactorDomain().end()},
         {producer->domain()->domain().begin(),
          producer->domain()->domain().begin() + producer_pos});
-    auto root_dim = ir_utils::filterByType<IterDomain>(root_dim_vals);
-    if (std::any_of(
-            root_dim.begin(),
-            root_dim.end(),
-            [&mappable_roots](IterDomain* root_id) {
-              return mappable_roots.find(root_id) == mappable_roots.end();
-            })) {
-      continue;
+
+    for (auto root_dim : producer->getMaybeRFactorDomain()) {
+      if (all_vals.find(root_dim) != all_vals.end()) {
+        if (mappable_roots.find(root_dim) == mappable_roots.end()) {
+          std::cout << root_dim << " not mappable" << std::endl;
+          continue;
+        }
+      }
     }
+
     return producer_pos;
   }
   return 0;
@@ -217,59 +240,15 @@ void ComputeAt::runAt(
 
   // Make sure Fusion Guard is set appropriately
   FusionGuard fg(producer->fusion());
-
-  std::vector<TensorView*> producers;
-
-  // It doesn't make sense to set computeAt on an input as it's not generated,
-  // it's provided. If this was called, move the computeAt to users of the
-  // producer that are in a dependency between prodcer and consumer.
-  if (producer->fusion()->hasInput(producer)) {
-    auto all_chains =
-        tvChains(DependencyCheck::getAllDependencyChains(producer, consumer));
-
-    TORCH_CHECK(
-        !all_chains.empty(),
-        "Compute At expects ",
-        producer->name(),
-        " is a dependency of ",
-        consumer->name(),
-        ", however it is not.");
-
-    std::unordered_set<TensorView*> added_producers;
-
-    // Check all dependency chains, select the next TV after producer towards
-    // consumer. These are the TVs we're going to actually call computeAt on.
-    for (const auto& tv_chain : all_chains) {
-      // When a chain only has two tensors, they must be the producer,
-      // which is an input, and the consumer. There is nothing we need
-      // to do for such chains.
-      if (tv_chain.size() > 2) {
-        // Make sure we only add once, but we want to add in a determinsitic
-        // order
-        if (added_producers.find(tv_chain[1]) == added_producers.end()) {
-          producers.push_back(tv_chain[1]);
-          added_producers.emplace(tv_chain[1]);
-        }
-      }
-    }
-  } else {
-    // If producer is not an input, it's the only one.
-    producers.push_back(producer);
-  }
-
-  // Run computeAt on our potentially modified producer(s)
-  if (!producers.empty()) {
-    for (auto producer_to_run : producers) {
-      ComputeAt ca(producer_to_run, consumer, consumer, consumer_position);
-      ca.runPass();
-    }
-  }
+  ComputeAt ca(producer, consumer, consumer, consumer_position, mode);
+  ca.runPass();
 }
 
 void ComputeAt::runWith(
     TensorView* producer,
     TensorView* consumer,
-    unsigned int producer_position) {
+    unsigned int producer_position,
+    ComputeAtMode mode) {
   FUSER_PERF_SCOPE("ComputeAt::runWith");
 
   // Make sure the correct fusion is setup between this and consumer.
@@ -283,7 +262,7 @@ void ComputeAt::runWith(
   // Make sure Fusion Guard is set appropriately
   FusionGuard fg(producer->fusion());
 
-  ComputeAt ca(producer, consumer, producer, producer_position);
+  ComputeAt ca(producer, consumer, producer, producer_position, mode);
   ca.runPass();
 }
 
@@ -291,24 +270,28 @@ void ComputeAt::runWith(
 unsigned int ComputeAt::backwardComputeAt_impl(
     TensorView* producer,
     TensorView* consumer,
-    unsigned int consumer_compute_at_axis) {
+    unsigned int consumer_compute_at_pos) {
   FUSER_PERF_SCOPE("backwardComputeAt_impl");
 
   auto& producer_entry = tv_data.at(producer);
 
+  std::cout << "\n"
+            << consumer << "\n -> " << producer << "\n at "
+            << consumer_compute_at_pos << std::endl;
   if (mode_ == ComputeAtMode::BestEffort) {
-    consumer_compute_at_axis = std::min(
-        consumer_compute_at_axis,
+    consumer_compute_at_pos = std::min(
+        consumer_compute_at_pos,
         getReplayablePosPasC(producer, consumer, root_map_));
   } else if (mode_ == ComputeAtMode::MostInlined) {
-    consumer_compute_at_axis =
+    consumer_compute_at_pos =
         getReplayablePosPasC(producer, consumer, root_map_);
   }
+  std::cout << " Really at " << consumer_compute_at_pos << std::endl;
 
   auto replay = TransformReplay::replayPasC(
       producer->domain(),
       consumer->domain(),
-      (int)consumer_compute_at_axis,
+      (int)consumer_compute_at_pos,
       root_map_);
 
   producer_entry.setPassPosition(replay.second);
@@ -318,7 +301,9 @@ unsigned int ComputeAt::backwardComputeAt_impl(
     TensorDomain* new_domain = replay.first;
     producer->setDomain(new_domain);
     root_map_.setAlias(current_domain, new_domain);
-    producer->setComputeAt(replay.second);
+    if (!producer->isFusionInput()) {
+      producer->setComputeAt(replay.second);
+    }
     producer_entry.setComputeAtDomain(producer->domain());
   }
 
@@ -331,36 +316,41 @@ unsigned int ComputeAt::backwardComputeAt_impl(
 unsigned int ComputeAt::forwardComputeAt_impl(
     TensorView* producer,
     TensorView* consumer,
-    unsigned int producer_compute_at_axis) {
+    unsigned int producer_compute_at_pos) {
   FUSER_PERF_SCOPE("forwardComputeAt_impl");
 
   auto& consumer_entry = tv_data.at(consumer);
   const auto& producer_entry = tv_data.at(producer);
 
+  std::cout << consumer << "\n <- " << producer << "\n at "
+            << producer_compute_at_pos << std::endl;
   if (mode_ == ComputeAtMode::BestEffort) {
-    producer_compute_at_axis = std::min(
-        producer_compute_at_axis,
+    producer_compute_at_pos = std::min(
+        producer_compute_at_pos,
         getReplayablePosCasP(producer, consumer, root_map_));
   } else if (mode_ == ComputeAtMode::MostInlined) {
-    producer_compute_at_axis =
+    producer_compute_at_pos =
         getReplayablePosCasP(producer, consumer, root_map_);
   }
+  std::cout << "Really at " << producer_compute_at_pos << std::endl;
 
   auto replay = TransformReplay::replayCasP(
       consumer->domain(),
       producer->domain(),
-      (int)producer_compute_at_axis,
+      (int)producer_compute_at_pos,
       root_map_);
 
-  if (producer_entry.shouldSetComputeAt(producer_compute_at_axis)) {
+  if (producer_entry.shouldSetComputeAt(producer_compute_at_pos)) {
     int producer_rel_pos = replay.second;
-    int producer_this_pos = (int)producer_compute_at_axis;
+    int producer_this_pos = (int)producer_compute_at_pos;
     // When the producer CA axes have reductions, they are not used to
     // replay the consumer.
     if (producer_this_pos > producer_rel_pos) {
       producer_this_pos = producer_rel_pos;
     }
-    producer->setComputeAt(producer_this_pos);
+    if (!producer->isFusionInput()) {
+      producer->setComputeAt(producer_this_pos);
+    }
   }
 
   consumer_entry.setPassPosition(replay.second);

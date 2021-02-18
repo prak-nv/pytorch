@@ -177,7 +177,9 @@ void TensorView::setComputeAt(unsigned int this_pos) {
   this_compute_at_axis_ = this_pos;
 }
 
-TensorView* TensorView::computeAt(TensorView* consumer, int position,
+TensorView* TensorView::computeAt(
+    TensorView* consumer,
+    int position,
     ComputeAtMode mode) {
   // Make sure this and consumer are not the same tensor, that's illegal
   TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
@@ -196,7 +198,9 @@ TensorView* TensorView::computeAt(TensorView* consumer, int position,
   return this;
 }
 
-TensorView* TensorView::computeWith(TensorView* consumer, int position,
+TensorView* TensorView::computeWith(
+    TensorView* consumer,
+    int position,
     ComputeAtMode mode) {
   // Make sure this and consumer are not the same tensor, that's illegal
   TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
