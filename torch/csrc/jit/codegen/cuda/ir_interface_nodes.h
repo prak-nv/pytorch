@@ -16,6 +16,8 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+class WelfordResult;
+
 //! A Bool value
 //!
 //! This value can be a symbolic value (defined after the kernel
@@ -194,8 +196,14 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return compute_at_pos_;
   }
 
-  // Compute this TensorView relative to another tensor at axis
-  TensorView* computeAt(TensorView* consumer, int axis);
+  // Compute this TensorView relative to a consumer relative to consumer
+  // position, -1 will compute tensors inline with eachother, 0 doesn't share
+  // any loop nests between the tensors
+  TensorView* computeAt(TensorView* consumer, int position);
+
+  // Compute this tensor to consumer, at local position, -1 will compute tensors
+  // inline with eachother, 0 doesn't share any loop nests between the tensors
+  TensorView* computeWith(TensorView* consumer, int position);
 
   void clearComputeAt() {
     compute_at_pos_ = 0;
@@ -258,6 +266,15 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //  TV1[I0, R2, I3] = TV2[I0, R1, I2, I3]
   //
   TensorView* rFactor(const std::vector<int>& axes);
+
+  //! Welford Version of rFactor, semantically similar with
+  //!  the reduction version except that the rfactor is done
+  //!  in a multi-output scan pattern
+  WelfordResult rFactor(
+      const std::vector<int>& axes,
+      TensorView* var,
+      TensorView* avg,
+      TensorView* n);
 
   // For all usages of this TensorView, create a new TensorView and
   // duplicate the origin expression.
@@ -329,6 +346,12 @@ class TORCH_CUDA_CU_API TensorView : public Val {
       Expr* expr,
       TensorView* current,
       TensorView* producer);
+
+  //! A helper function to maintain the consistency of welford output
+  //! schedules when doing rfactor on welford ops.
+  TensorView* welfordRfactorHelper(
+      TensorView* tv,
+      const std::vector<int>& axes);
 
  private:
   TensorDomain* domain_ = nullptr;

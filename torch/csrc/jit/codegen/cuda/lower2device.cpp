@@ -70,7 +70,10 @@ void GpuLower::replaceSymbolicSizes() {
 
       // TODO(kir): consider a different implementation which doesn't
       //  hijack the kir_val_map_
-      if (kir_val_map_.find(orig_size) == kir_val_map_.end()) {
+      // Currently turn off this part for inputs of segmented fusion,
+      //  since FusionSegmentRuntime will provide these as integer inputs
+      if (kir_val_map_.find(orig_size) == kir_val_map_.end() &&
+          !orig_size->isFusionInput()) {
         std::stringstream ss;
         ss << "T" << tv->name() << ".size[" << dim++ << "]";
         kir_val_map_[orig_size] = ir_builder.create<kir::NamedScalar>(
@@ -306,6 +309,22 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
         lowerValue(node->init()),
         lowerValue(node->out()),
         lowerValue(node->in()));
+    TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
+  }
+
+  void handle(const WelfordOp* node) final {
+    auto lowerOptional = [&](Val* v) { return v ? lowerValue(v) : nullptr; };
+    const auto lowered_node = ir_builder_.create<kir::WelfordOp>(
+        lowerValue(node->outVar()),
+        lowerValue(node->outAvg()),
+        lowerValue(node->outN()),
+        lowerOptional(node->initVar()),
+        lowerOptional(node->initAvg()),
+        lowerValue(node->initN()),
+        lowerOptional(node->inVar()),
+        lowerValue(node->inAvg()),
+        lowerValue(node->inN()));
+
     TORCH_CHECK(gpu_lower_->kir_expr_map_.insert({node, lowered_node}).second);
   }
 

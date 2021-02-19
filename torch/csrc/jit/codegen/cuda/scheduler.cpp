@@ -581,7 +581,8 @@ TORCH_CUDA_API c10::optional<ReductionParams> getReductionHeuristics(
 
   TORCH_INTERNAL_ASSERT(
       red_expr->getExprType() != c10::nullopt &&
-          red_expr->getExprType().value() == ExprType::ReductionOp,
+          (red_expr->getExprType().value() == ExprType::ReductionOp ||
+           red_expr->getExprType().value() == ExprType::WelfordOp),
       "TensorView doesn't have a reduction.");
 
   int64_t num_outputs_for_reduction = 1;
@@ -614,6 +615,24 @@ void scheduleReductionComputeAt(
   if (red_tv_rf != nullptr) {
     red_tv_rf->computeAt(red_tv, -1);
   }
+}
+
+TensorView* rfactorHelper(TensorView* red_tv, const std::vector<int>& axes) {
+  TORCH_INTERNAL_ASSERT(red_tv->definition() != nullptr);
+  const bool is_welford = red_tv->definition()->isA<WelfordOp>();
+  if (!is_welford) {
+    return red_tv->rFactor(axes);
+  }
+  auto welford = red_tv->definition()->as<WelfordOp>();
+  auto w_var = welford->outVar()->as<TensorView>();
+  auto w_avg = welford->outAvg()->as<TensorView>();
+  auto w_n = welford->outN()->as<TensorView>();
+
+  auto rtvs = red_tv->rFactor(axes, w_var, w_avg, w_n);
+
+  // TODO: this can be more generic, using avg because
+  //      WelfordOp::out() returns the avg
+  return rtvs.avg;
 }
 
 } // namespace
@@ -684,7 +703,7 @@ void scheduleReduction(
         }
       }
 
-      auto red_tv_rf = red_tv->rFactor({-3, -1});
+      auto red_tv_rf = rfactorHelper(red_tv, {-3, -1});
 
       scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
@@ -725,8 +744,8 @@ void scheduleReduction(
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::BIDy));
 
-        auto red_tv_rf = red_tv->rFactor(
-            {-5, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+        auto red_tv_rf = rfactorHelper(
+            red_tv, {-5, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
         scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
@@ -760,7 +779,8 @@ void scheduleReduction(
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
 
-        auto red_tv_rf = red_tv->rFactor({-4, -1});
+        auto red_tv_rf = rfactorHelper(
+            red_tv, {-4, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
         scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
@@ -816,7 +836,8 @@ void scheduleReduction(
           iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
         }
 
-        auto red_tv_rf = red_tv->rFactor({-4, -1});
+        auto red_tv_rf = rfactorHelper(
+            red_tv, {-4, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
         scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
@@ -867,7 +888,8 @@ void scheduleReduction(
           iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
         }
 
-        auto red_tv_rf = red_tv->rFactor({-3, -1});
+        auto red_tv_rf = rfactorHelper(
+            red_tv, {-3, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
         scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
@@ -1037,6 +1059,8 @@ void setupSharedMemory(
   }
 }
 
+// TODO: Review this. Seems we should be using a root map here, or we should
+// simply be replaying all tensors as a reduction tv.
 void organizeAxes(
     const std::vector<TensorView*>& reduction_tv,
     const std::vector<TensorView*>& all_tv) {
@@ -1106,23 +1130,26 @@ void organizeAxes(
   }
 }
 
-Expr* checkBroadcast(TensorView* tv) {
+// If tv is broadcasted (used in a broadcast op) return that op, otherwise
+// return nullptr
+Expr* isBroadcasted(TensorView* tv) {
   auto uses = tv->uses();
   if (uses.size() == 1) {
     auto expr = *uses.begin();
-    bool isBroadcast = expr->getExprType().value() == ExprType::BroadcastOp;
-    return (isBroadcast) ? expr : nullptr;
+    bool is_broadcasted = expr->getExprType().value() == ExprType::BroadcastOp;
+    return (is_broadcasted) ? expr : nullptr;
   }
   return nullptr;
 };
 
-Expr* checkCastOp(TensorView* tv) {
+// If tv is casted (used in a cast op) return that op, otherwise return nullptr
+Expr* isCasted(TensorView* tv) {
   auto uses = tv->uses();
   if (uses.size() == 1) {
     auto expr = *uses.begin();
-    bool isCastOp = expr->getExprType().value() == ExprType::UnaryOp &&
+    bool is_casted = expr->getExprType().value() == ExprType::UnaryOp &&
         expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast;
-    return (isCastOp) ? expr : nullptr;
+    return (is_casted) ? expr : nullptr;
   }
   return nullptr;
 };
@@ -1130,13 +1157,39 @@ Expr* checkCastOp(TensorView* tv) {
 void handleCastBroadcastInput(Fusion* fusion, TensorView* input) {
   TORCH_INTERNAL_ASSERT(fusion->hasInput(input));
 
-  auto castOp_expr = checkCastOp(input);
+  auto castOp_expr = isCasted(input);
   if (castOp_expr != nullptr) {
     auto castOp_tv = castOp_expr->output(0)->as<TensorView>();
-    auto broadcast_expr = checkBroadcast(castOp_tv);
+    auto broadcast_expr = isBroadcasted(castOp_tv);
     if (broadcast_expr != nullptr) {
       auto broadcast_tv = broadcast_expr->output(0)->as<TensorView>();
       castOp_tv->computeAt(broadcast_tv, -1);
+    }
+  }
+}
+
+void cacheInputs(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    const std::vector<TensorView*>& reduction_tv,
+    std::vector<TensorView*>& other_tv) {
+  if (rparams.fastest_dim) {
+    const bool kHasOuterAxis = reduction_tv.front()->nDims() > 1;
+    if (rparams.persistent_kernel && kHasOuterAxis) {
+      // Fusion input castOp replaces cache_after
+      // Determine if there are any casts or broadcast on fusion
+      // inputs
+      const auto& in_tv = ir_utils::filterByType<TensorView>(fusion->inputs());
+      for (const auto input : in_tv) {
+        if (input->getRootDomain().size() > 1) {
+          // If pseudo-cache, skip cache after
+          bool hasBroadcast = isBroadcasted(input) != nullptr;
+          bool hasCast = isCasted(input) != nullptr;
+          if (!hasBroadcast && !hasCast) {
+            other_tv.push_back(input->cache_after());
+          }
+        }
+      }
     }
   }
 }
@@ -1155,6 +1208,10 @@ void scheduleNormalization(
 
   const auto& in_tv = ir_utils::filterByType<TensorView>(fusion->inputs());
   const auto& out_tv = ir_utils::filterByType<TensorView>(fusion->outputs());
+
+  if (rparams.fastest_dim && rparams.persistent_kernel) {
+    cacheInputs(fusion, rparams, reduction_tv, other_tv);
+  }
 
   std::vector<TensorView*> all_tv;
   for (auto input : in_tv) {
@@ -1226,19 +1283,6 @@ void scheduleNormalization(
           for (auto input : in_tv) {
             if (inputs_for_output.find(input) != inputs_for_output.end()) {
               input->computeAt(output, kComputeAtAxis);
-            }
-          }
-        }
-
-        // Fusion input castOp replaces cache_after
-        // Determine if there are any casts or broadcast on fusion inputs
-        for (const auto input : in_tv) {
-          if (input->getRootDomain().size() > 1) {
-            // If pseudo-cache, skip cache after
-            bool hasBroadcast = checkBroadcast(input) != nullptr;
-            bool hasCast = checkCastOp(input) != nullptr;
-            if (!hasBroadcast && !hasCast) {
-              other_tv.push_back(input->cache_after());
             }
           }
         }
