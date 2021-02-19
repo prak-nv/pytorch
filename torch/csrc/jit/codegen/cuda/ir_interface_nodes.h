@@ -184,21 +184,21 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // Does it share outer axes with other tensors?
   bool hasComputeAt() const {
-    return this_compute_at_axis_ > 0;
+    return compute_at_pos_ > 0;
   }
 
   size_t nDims() const;
 
   // Return compute at axis relative to this domain
-  unsigned int getThisComputeAtAxis() const {
-    return this_compute_at_axis_;
+  unsigned int getComputeAtPosition() const {
+    return compute_at_pos_;
   }
 
   // Compute this TensorView relative to another tensor at axis
   TensorView* computeAt(TensorView* consumer, int axis);
 
   void clearComputeAt() {
-    this_compute_at_axis_ = 0;
+    compute_at_pos_ = 0;
   }
 
   // Split "axis" into 2 axes
@@ -332,7 +332,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
  private:
   TensorDomain* domain_ = nullptr;
-  unsigned int this_compute_at_axis_ = 0;
+  unsigned int compute_at_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
   SwizzleType swizzle_type_ = SwizzleType::NoSwizzle;
   std::vector<IterDomain*> axes_to_swizzle_;

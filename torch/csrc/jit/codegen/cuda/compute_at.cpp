@@ -15,9 +15,8 @@ namespace cuda {
 ComputeAtData::ComputeAtData(TensorView* tv)
     : tv_ref_(tv),
       original_has_compute_at_(tv->hasComputeAt()),
-      original_compute_at_position(tv->getThisComputeAtAxis()),
-      original_domain_(tv->domain()),
-      new_compute_at_domain_(tv->domain()) {}
+      original_compute_at_position(tv->getComputeAtPosition()),
+      original_domain_(tv->domain()) {}
 
 // Clear pass based data
 void ComputeAtData::clearPass() {
@@ -87,22 +86,6 @@ void ComputeAtData::validateNewComputeAt() const {
       " with a computeAt position of ",
       original_compute_at_position,
       ".");
-}
-
-void ComputeAtData::setComputeAtDomain(TensorDomain* td) {
-  if (new_compute_at_domain_ != original_domain_) {
-    size_t mismatch =
-        BestEffortReplay::findFirstMismatchedID(new_compute_at_domain_, td);
-    TORCH_INTERNAL_ASSERT(
-        mismatch == new_compute_at_domain_->nDims(),
-        "TensorDomain, ",
-        td,
-        ", does not match with the previously set domain of ",
-        tv_ref_,
-        ", which is ",
-        new_compute_at_domain_);
-  }
-  new_compute_at_domain_ = td;
 }
 
 namespace {
@@ -228,15 +211,22 @@ unsigned int ComputeAt::backwardComputeAt_impl(
       (int)consumer_compute_at_axis,
       root_map_);
 
+  if (replay.second == 0) {
+    return 0;
+  }
+
   producer_entry.setPassPosition(replay.second);
 
-  if (producer_entry.shouldSetComputeAt(replay.second)) {
+  // Should set compute at isn't quite right at the moment, still important for
+  // the consumer usage though. Need to refactor.
+  if (producer_entry.shouldSetComputeAt(replay.second) ||
+      replay.second > producer->getComputeAtPosition()) {
     const TensorDomain* current_domain = producer->domain();
     TensorDomain* new_domain = replay.first;
+
     producer->setDomain(new_domain);
     root_map_.setAlias(current_domain, new_domain);
     producer->setComputeAt(replay.second);
-    producer_entry.setComputeAtDomain(producer->domain());
   }
 
   return replay.second;
@@ -249,6 +239,29 @@ unsigned int ComputeAt::forwardComputeAt_impl(
     unsigned int producer_compute_at_axis) {
   FUSER_PERF_SCOPE("forwardComputeAt_impl");
 
+  // Can get into a situation where we inlined into a reduction, but then would
+  // try to traverse forward at that position but wouldn't be valid... e.g.:
+  // T1[ iS2{9}, iS20{( ceilDiv(5, 4) )}, iS21{4} ] compute_at( 3 )
+  //   -> T3[ iS6{9}, iS18{( ceilDiv(5, 4) )}, iS19{4} ] compute_at( 3 ) 3
+  // T3[ iS6{9}, iS18{( ceilDiv(5, 4) )}, iS19{4} ] compute_at( 3 )
+  //   -> T5[ iS12{9}, iS14{( ceilDiv(5, 4) )}rf, rS15{4}rf ] 3
+  // T5[ iS12{9}, iS14{( ceilDiv(5, 4) )}rf, rS15{4}rf ]
+  //   -> T4[ iS16{9}, rS17{( ceilDiv(5, 4) )} ] 3
+  // Reduce position to be inside first reduction
+  unsigned int first_red_pos = producer->nDims();
+  for (unsigned int i = 0;
+       i < (unsigned int)producer->domain()->domain().size();
+       i++) {
+    if (producer->axis(i)->isReduction()) {
+      first_red_pos = i;
+      break;
+    }
+  }
+  producer_compute_at_axis = std::min(first_red_pos, producer_compute_at_axis);
+  if (producer_compute_at_axis == 0) {
+    return 0;
+  }
+
   auto& consumer_entry = tv_data.at(consumer);
   const auto& producer_entry = tv_data.at(producer);
 
@@ -258,15 +271,11 @@ unsigned int ComputeAt::forwardComputeAt_impl(
       (int)producer_compute_at_axis,
       root_map_);
 
-  if (producer_entry.shouldSetComputeAt(producer_compute_at_axis)) {
-    int producer_rel_pos = replay.second;
-    int producer_this_pos = (int)producer_compute_at_axis;
-    // When the producer CA axes have reductions, they are not used to
-    // replay the consumer.
-    if (producer_this_pos > producer_rel_pos) {
-      producer_this_pos = producer_rel_pos;
-    }
-    producer->setComputeAt(producer_this_pos);
+  // Should set compute at isn't quite right at the moment, still important for
+  // the consumer usage though. Need to refactor.
+  if (producer_entry.shouldSetComputeAt(producer_compute_at_axis) ||
+      producer_compute_at_axis > producer->getComputeAtPosition()) {
+    producer->setComputeAt((int)producer_compute_at_axis);
   }
 
   consumer_entry.setPassPosition(replay.second);
@@ -276,7 +285,6 @@ unsigned int ComputeAt::forwardComputeAt_impl(
     TensorDomain* new_domain = replay.first;
     consumer->setDomain(new_domain);
     root_map_.setAlias(current_domain, new_domain);
-    consumer_entry.setComputeAtDomain(consumer->domain());
   }
 
   return replay.second;

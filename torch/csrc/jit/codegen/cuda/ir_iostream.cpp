@@ -68,7 +68,7 @@ void IrPrinter::handle(const TensorView* tv) {
 
     if (tv->hasComputeAt()) {
       os_ << " compute_at( ";
-      os_ << tv->getThisComputeAtAxis();
+      os_ << tv->getComputeAtPosition();
       os_ << " )";
     }
   }

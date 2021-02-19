@@ -56,16 +56,6 @@ class ComputeAtData {
     return original_domain_;
   }
 
-  // If we set computeAt, save the domain so we can reset it after traversal.
-  // Traversal state can deviate from the domain we will want to save after the
-  // entire computeAt pass.
-  void setComputeAtDomain(TensorDomain* td);
-
-  // Return domain set in setComputeAtDomain
-  TensorDomain* getComputeAtDomain() const {
-    return new_compute_at_domain_;
-  }
-
  private:
   // Was the position ever modified?
   bool touched_ = false;
@@ -90,10 +80,6 @@ class ComputeAtData {
 
   // Position to update after a traversal
   unsigned int new_compute_at_position = 0;
-
-  // Domain when we actually set computeAt, will set back to this after the
-  // pass.
-  TensorDomain* new_compute_at_domain_;
 };
 
 class ComputeAt {

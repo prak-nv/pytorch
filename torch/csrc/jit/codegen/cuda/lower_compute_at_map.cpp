@@ -239,16 +239,16 @@ void ComputeAtMap::build() {
         // Mark axes outside compute at point for parallel type tracking
         std::unordered_set<IterDomain*> right_of_ca_point;
         if (mapping_mode_ == MappingMode::PARALLEL &&
-            p_tv->getThisComputeAtAxis() < p_tv->nDims()) {
+            p_tv->getComputeAtPosition() < p_tv->nDims()) {
           right_of_ca_point.insert(
-              p_tv->domain()->domain().begin() + p_tv->getThisComputeAtAxis(),
+              p_tv->domain()->domain().begin() + p_tv->getComputeAtPosition(),
               p_tv->domain()->domain().end());
         }
         // if this is a producer tv, (i.e. not a terminating output tv), then
         // produce at is the same as this compute at position. Loop mode does
         // its own thing, see below in this function.
         if (mapping_mode_ != MappingMode::LOOP) {
-          produce_at_map_[p_tv] = p_tv->getThisComputeAtAxis();
+          produce_at_map_[p_tv] = p_tv->getComputeAtPosition();
         }
 
         auto c2p_root_map =
@@ -276,7 +276,7 @@ void ComputeAtMap::build() {
         // changed computeAt of TensorViews to always have a this computeAt
         // position even for terminating outputs
         std::unordered_set<IterDomain*> within_producer_compute_at;
-        for (unsigned int p_i = 0; p_i < p_tv->getThisComputeAtAxis(); p_i++) {
+        for (unsigned int p_i = 0; p_i < p_tv->getComputeAtPosition(); p_i++) {
           within_producer_compute_at.insert(p_tv->axis((int)p_i));
         }
 
@@ -317,7 +317,7 @@ void ComputeAtMap::build() {
           }
         }
         produce_at_map_[c_tv] =
-            std::max(max_mapped_id_pos, c_tv->getThisComputeAtAxis());
+            std::max(max_mapped_id_pos, c_tv->getComputeAtPosition());
       }
     }
   }
