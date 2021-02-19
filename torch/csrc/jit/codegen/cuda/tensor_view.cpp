@@ -98,6 +98,7 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       domain_(ir_cloner->clone(src->domain_)),
       compute_at_pos_(src->compute_at_pos_),
+      max_producer_pos_(src->max_producer_pos_),
       memory_type_(src->memory_type_),
       swizzle_type_(src->swizzle_type_) {
   for (const auto id : src->axesToSwizzle()) {
@@ -168,13 +169,33 @@ IterDomain* TensorView::axis(int pos) const {
 }
 
 void TensorView::setComputeAt(unsigned int pos) {
+  if (pos <= compute_at_pos_) {
+    return;
+  }
+
   TORCH_INTERNAL_ASSERT(
-      pos > 0 && (unsigned)pos <= nDims(),
+      (unsigned)pos <= nDims(),
       "Invalid this computeAt position for T",
       name(),
       ": ",
       pos);
+
   compute_at_pos_ = pos;
+}
+
+void TensorView::setMaxProducer(unsigned int pos) {
+  if (pos <= max_producer_pos_) {
+    return;
+  }
+
+  TORCH_INTERNAL_ASSERT(
+      (unsigned)pos <= nDims(),
+      "Invalid max producer position for T",
+      name(),
+      ": ",
+      pos);
+
+  max_producer_pos_ = pos;
 }
 
 TensorView* TensorView::computeAt(TensorView* consumer, int position) {
@@ -221,12 +242,24 @@ TensorView* TensorView::split(int axis, Val* factor, bool inner_split) {
   if (axis < 0)
     axis += domain()->nDims();
 
+  TORCH_INTERNAL_ASSERT(
+      axis >= 0,
+      "Split axis is less than 0 even after adjusting for nDims: ",
+      axis);
+
   TORCH_CHECK(
-      !(hasComputeAt() && (axis < (int)getComputeAtPosition())),
-      "Cannot split axis within compute at range. Axis = ",
+      axis >= (int)getComputeAtPosition(),
+      "Cannot split axis within compute at position. Axis = ",
       axis,
       " computeAtPosition = ",
       getComputeAtPosition());
+
+  TORCH_CHECK(
+      axis >= (int)getMaxProducerPosition(),
+      "Cannot split axis within max producer position. Axis = ",
+      axis,
+      " maxProducerPosition = ",
+      getMaxProducerPosition());
 
   domain()->split(axis, factor, inner_split);
   return this;
@@ -240,25 +273,33 @@ TensorView* TensorView::split(int axis, unsigned int factor, bool inner_split) {
 // Merge "axis" and "axis+1" into 1 dimension
 TensorView* TensorView::merge(int axis_o, int axis_i) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
+
   if (axis_o < 0)
     axis_o += domain()->nDims();
 
   if (axis_i < 0)
     axis_i += domain()->nDims();
 
-  if (hasComputeAt()) {
-    if (axis_o + 1 < (int)getComputeAtPosition() ||
-        axis_i + 1 < (int)getComputeAtPosition()) {
-      TORCH_CHECK(
-          false,
-          "Cannot merge axis within compute at range. Either axis ",
-          axis_o,
-          " or ",
-          axis_i,
-          " are within computeAtPosition = ",
-          getComputeAtPosition());
-    }
-  }
+  TORCH_CHECK(
+      axis_o >= (int)getComputeAtPosition() &&
+          axis_i >= (int)getComputeAtPosition(),
+      false,
+      "Cannot merge axes within compute at position. Either axis ",
+      axis_o,
+      " or ",
+      axis_i,
+      " are within computeAtPosition = ",
+      getComputeAtPosition());
+
+  TORCH_CHECK(
+      axis_o >= (int)getMaxProducerPosition() &&
+          axis_i >= (int)getMaxProducerPosition(),
+      "Cannot merge axes within max producer position. Either axis ",
+      axis_o,
+      " or ",
+      axis_i,
+      " are within maxProducerPosition = ",
+      getMaxProducerPosition());
 
   domain()->merge(axis_o, axis_i);
   return this;
@@ -268,6 +309,42 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
       !(nDims() == 0 && old2new_.size() > 0),
       "Tried to reorder a 0-dim TensorView");
+
+  for (auto entry : old2new_) {
+    auto old_pos = entry.first < 0 ? entry.first + nDims() : entry.first;
+    auto new_pos = entry.second < 0 ? entry.second + nDims() : entry.second;
+    if (old_pos == new_pos) {
+      continue;
+    }
+    TORCH_INTERNAL_ASSERT(
+        old_pos >= 0,
+        "Found \"old\" position that's less than 0 even though already adjusted by nDims: ",
+        old_pos);
+    TORCH_INTERNAL_ASSERT(
+        new_pos >= 0,
+        "Found \"new\" position that's less than 0 even though already adjusted by nDims: ",
+        new_pos);
+    TORCH_CHECK(
+        old_pos >= (int)getComputeAtPosition() &&
+            new_pos >= (int)getComputeAtPosition(),
+        "Cannot reorder axes within compute at position. Either axis ",
+        old_pos,
+        " or ",
+        new_pos,
+        " are within computeAtPosition = ",
+        getComputeAtPosition());
+
+    TORCH_CHECK(
+        old_pos >= (int)getComputeAtPosition() &&
+            new_pos >= (int)getComputeAtPosition(),
+        "Cannot reorder axes within max producer position. Either axis ",
+        old_pos,
+        " or ",
+        new_pos,
+        " are within maxProducerPosition = ",
+        getMaxProducerPosition());
+  }
+
   domain()->reorder(old2new_);
   return this;
 }
@@ -324,6 +401,13 @@ TensorView* TensorView::swizzle(
 }
 
 TensorView* TensorView::rFactor(const std::vector<int>& axes) {
+  // TODO: I think we should do this but
+  // NVFuserTest.FusionSmemBlockGemmCache_CUDA prevents it from going in at the
+  // moment.
+
+  // TORCH_INTERNAL_ASSERT(
+  //     !hasComputeAt(), "Cannot rfactor tensors after compute at has been
+  //     set.");
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   TORCH_INTERNAL_ASSERT(definition()->isA<ReductionOp>());
   FusionGuard fg(fusion());

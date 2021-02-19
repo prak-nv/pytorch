@@ -1556,9 +1556,14 @@ TEST(NVFuserTest, FusionAdvancedComputeAt1_CUDA) {
   GpuLower gpulw(&fusion);
 
   // The this-position of the last tensor should be zero.
-  TORCH_CHECK(tv7->nDims() == 3 && tv7->getComputeAtPosition() == 0);
+  TORCH_CHECK(
+      tv7->nDims() == 3 && tv7->getComputeAtPosition() == 0 &&
+      tv7->getMaxProducerPosition() == 1);
+  TORCH_CHECK(
+      tv7->nDims() == 3 && tv6->getComputeAtPosition() == 0 &&
+      tv6->getMaxProducerPosition() == 1);
   // The position of every other tensor should be 1.
-  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5}) {
     TORCH_CHECK(tv->nDims() == 3 && tv->getComputeAtPosition() == 1);
     TORCH_CHECK(gpulw.caLoopMap().areMapped(tv7->axis(0), tv->axis(0)));
   }
@@ -1904,10 +1909,16 @@ TEST(NVFuserTest, FusionAdvancedComputeWith1_CUDA) {
   GpuLower gpulw(&fusion);
 
   // The this-position of the last tensor should be zero.
-  TORCH_CHECK(tv7->nDims() == 3 && tv7->getThisComputeAtAxis() == 0);
+  TORCH_CHECK(
+      tv7->nDims() == 3 && tv7->getComputeAtPosition() == 0 &&
+      tv7->getMaxProducerPosition() == 1);
+  TORCH_CHECK(
+      tv7->nDims() == 3 && tv6->getComputeAtPosition() == 0 &&
+      tv6->getMaxProducerPosition() == 1);
+
   // The position of every other tensor should be 1.
-  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
-    TORCH_CHECK(tv->nDims() == 3 && tv->getThisComputeAtAxis() == 1);
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5}) {
+    TORCH_CHECK(tv->nDims() == 3 && tv->getComputeAtPosition() == 1);
     TORCH_CHECK(gpulw.caLoopMap().areMapped(tv7->axis(0), tv->axis(0)));
   }
 
@@ -2250,9 +2261,14 @@ TEST(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
 
   GpuLower gpulw(&fusion);
 
+  TORCH_CHECK(tv1->getComputeAtPosition() == 1);
+  TORCH_CHECK(
+      tv2->getComputeAtPosition() == 0 && tv2->getMaxProducerPosition() == 1);
+  TORCH_CHECK(
+      tv3->getComputeAtPosition() == 0 && tv3->getMaxProducerPosition() == 1);
+
   // Note that tv2 is also computed at tv3.
   for (auto tv : {tv1, tv2}) {
-    TORCH_CHECK(tv->getComputeAtPosition() == 1);
     TORCH_CHECK(
         gpulw.caLoopMap().areMapped(tv->axis(0), computeAtTarget->axis(0)));
   }
@@ -2490,8 +2506,9 @@ TEST(NVFuserTest, FusionComputeAtCommonConsumer3_CUDA) {
       continue;
     }
     TORCH_CHECK(tv->nDims() == computeAtTarget->nDims());
-    if (tv == tv6) {
+    if (tv == tv5 || tv == tv6) {
       TORCH_CHECK(tv->getComputeAtPosition() == 0);
+      TORCH_CHECK(tv->getMaxProducerPosition() == 1);
     } else {
       TORCH_CHECK(tv->getComputeAtPosition() == 1);
     }
@@ -10421,10 +10438,13 @@ TEST(NVFuserTest, FusionCacheBeforeReduction_CUDA) {
   fusion.addOutput(tv2);
 
   tv2->split(0, 4);
-  tv0->computeAt(tv2, -1);
 
-  auto tv2_cache = tv2->cache_before();
-  tv2_cache->axis(-1)->parallelize(ParallelType::TIDx);
+  auto tv3 = tv2->cache_before();
+
+  tv0->computeAt(tv3, -1);
+  tv3->computeAt(tv2, -1);
+
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -10456,10 +10476,10 @@ TEST(NVFuserTest, FusionCacheBeforeReduction2_CUDA) {
   fusion.addOutput(tv2);
   fusion.addOutput(tv3);
 
-  tv2->computeAt(tv3, 1);
-  tv0->computeAt(tv2, -1);
-
   auto tv4 = tv2->cache_before();
+
+  tv4->computeAt(tv3, 1);
+  tv0->computeAt(tv4, -1);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
@@ -11944,9 +11964,14 @@ TEST(NVFuserTest, FusionAdvancedComputeAtTransposed1_CUDA) {
   tv0->computeAt(tv7, 1);
 
   // The this-position of the last tensor should be zero.
-  TORCH_CHECK(tv7->nDims() == 3 && tv7->getComputeAtPosition() == 0);
+  TORCH_CHECK(
+      tv7->nDims() == 3 && tv7->getComputeAtPosition() == 0 &&
+      tv7->getMaxProducerPosition() == 1);
+  TORCH_CHECK(
+      tv6->nDims() == 3 && tv6->getComputeAtPosition() == 0 &&
+      tv6->getMaxProducerPosition() == 1);
   // The position of every other tensor should be 1.
-  for (auto tv : {tv1, tv2, tv3, tv4, tv5, tv6}) {
+  for (auto tv : {tv1, tv2, tv3, tv4, tv5}) {
     TORCH_CHECK(tv->nDims() == 3 && tv->getComputeAtPosition() == 1);
   }
 
