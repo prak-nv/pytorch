@@ -262,25 +262,25 @@ unsigned int ComputeAt::forwardComputeAt_impl(
 
   // Should set compute at isn't quite right at the moment, still important for
   // the consumer usage though. Need to refactor.
-  if (producer_compute_at_pos >= producer->getComputeAtPosition()) {
+  if (producer_compute_at_pos > producer->getComputeAtPosition()) {
     producer->setComputeAt((int)producer_compute_at_pos);
+  }
 
-    if (replay.second > consumer->getMaxProducerPosition()) {
-      const TensorDomain* current_domain = consumer->domain();
-      TensorDomain* new_domain = replay.first;
+  if (replay.second > consumer->getMaxProducerPosition()) {
+    const TensorDomain* current_domain = consumer->domain();
+    TensorDomain* new_domain = replay.first;
 
-      TORCH_INTERNAL_ASSERT(
-          validateDomain(consumer, new_domain),
-          "Tried to set the domain of ",
-          producer,
-          " to ",
-          new_domain,
-          " but that would invalidate previously compute at position or max producer position.");
+    TORCH_INTERNAL_ASSERT(
+        validateDomain(consumer, new_domain),
+        "Tried to set the domain of ",
+        producer,
+        " to ",
+        new_domain,
+        " but that would invalidate previously compute at position or max producer position.");
 
-      consumer->setDomain(new_domain);
-      consumer->setMaxProducer(replay.second);
-      root_map_.setAlias(current_domain, new_domain);
-    }
+    consumer->setDomain(new_domain);
+    consumer->setMaxProducer(replay.second);
+    root_map_.setAlias(current_domain, new_domain);
   }
 
   return replay.second;
