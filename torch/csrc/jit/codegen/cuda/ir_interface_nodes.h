@@ -107,6 +107,7 @@ class TORCH_CUDA_CU_API Int : public Val {
  private:
   const c10::optional<ScalarType> maybe_value_;
 };
+enum class TORCH_CUDA_API ComputeAtMode { Standard, BestEffort, MostInlined };
 
 class ComputeAt;
 class TransformReplay;
@@ -205,11 +206,17 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   // Compute this TensorView relative to a consumer relative to consumer
   // position, -1 will compute tensors inline with eachother, 0 doesn't share
   // any loop nests between the tensors
-  TensorView* computeAt(TensorView* consumer, int position);
+  TensorView* computeAt(
+      TensorView* consumer,
+      int position,
+      ComputeAtMode mode = ComputeAtMode::Standard);
 
   // Compute this tensor to consumer, at local position, -1 will compute tensors
   // inline with eachother, 0 doesn't share any loop nests between the tensors
-  TensorView* computeWith(TensorView* consumer, int position);
+  TensorView* computeWith(
+      TensorView* consumer,
+      int position,
+      ComputeAtMode mode = ComputeAtMode::Standard);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
