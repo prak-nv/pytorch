@@ -809,16 +809,24 @@ bool canReduceCA(ExprGroup* group) {
     return false;
   }
 
+  // Compute at can sometimes get in a strange position as the update rules are
+  // not fool proof. All consumers should have a match to this groups inner most
+  // compute at axis, otherwise it should be lowered.
   for (auto consumer_edge : group->consumerEdges()) {
     auto consumer = consumer_edge->to;
+    bool has_match = false;
     for (auto c_id : consumer->payload()->pa_domains_) {
       if (GpuLower::current()->caLoopMap().areMapped(c_id, g_last_id)) {
-        return false;
+        has_match = true;
+        break;
       }
+    }
+    if (!has_match) {
+      return true;
     }
   }
 
-  return true;
+  return false;
 }
 
 bool canReducePA(ExprGroup* group) {

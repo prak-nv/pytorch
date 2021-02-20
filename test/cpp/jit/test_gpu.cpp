@@ -7184,12 +7184,13 @@ TEST(NVFuserTest, FusionCacheFork_CUDA) {
   //          TV2 = TV1 * 1
   // Output:  TV3, TV2
 
+  // cache_fork !!does not!! automatically apply ComputeAt to the cache
+  // TensorView TODO: enforce
+  auto tv3 = tv1->cache_fork();
+
   constexpr int BSX = 32;
   tv2->split(-1, BSX);
   tv0->computeAt(tv2, -1);
-
-  // cache_fork automatically applies ComputeAt to the cache TensorView
-  auto cf1 = tv1->cache_fork();
 
   // Thread and Block binding
   tv2->axis(0)->parallelize(ParallelType::BIDx);
