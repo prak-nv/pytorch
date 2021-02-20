@@ -57,7 +57,8 @@ class ExprSegmentationSorter;
 // Debug printing disabled due to clang tidy, see below for definitions
 // std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge);
 // std::ostream& operator<<(std::ostream& os, const ExprGroup* group);
-// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf);
+// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter*
+// scf);
 
 // Wrapper for values, these are edges between expr groups. Multiple edges can
 // exist between expr groups, and the same Val can show up more than once in
@@ -328,12 +329,14 @@ class ExprSegmentationSorter {
 //   return os;
 // }
 
-// std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge) {
+// std::ostream& operator<<(std::ostream& os, const ExprGroupConnections* edge)
+// {
 //   os << "e{ " << edge->from << " -> " << edge->to << " }" << std::endl;
 //   return os;
 // }
 
-// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf) {
+// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf)
+// {
 //   return os << scf->toString();
 // }
 
