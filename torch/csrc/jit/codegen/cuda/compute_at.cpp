@@ -56,8 +56,67 @@ std::deque<std::deque<TensorView*>> tvChains(
 bool validateDomain(TensorView* tv, TensorDomain* new_td) {
   auto first_mismatch =
       BestEffortReplay::findFirstMismatchedID(tv->domain(), new_td);
-  return first_mismatch >= (int) tv->getMaxProducerPosition() &&
-      first_mismatch >= (int) tv->getComputeAtPosition();
+  return first_mismatch >= (int)tv->getMaxProducerPosition() &&
+      first_mismatch >= (int)tv->getComputeAtPosition();
+}
+
+unsigned int getReplayablePosPasC(
+    TensorView* producer,
+    TensorView* consumer,
+    const ComputeAtRootDomainMap& root_map_) {
+  auto mappable_roots =
+      root_map_.getMappableDims(producer->domain(), consumer->domain(), true);
+
+  for (size_t consumer_pos = consumer->nDims(); consumer_pos > 0;
+       consumer_pos--) {
+    auto root_dim_vals = IterVisitor::getInputsTo(
+        {consumer->domain()->domain().begin(),
+         consumer->domain()->domain().begin() + consumer_pos});
+    auto root_dim = ir_utils::filterByType<IterDomain>(root_dim_vals);
+    if (std::any_of(
+            root_dim.begin(),
+            root_dim.end(),
+            [&mappable_roots](IterDomain* root_id) {
+              return mappable_roots.find(root_id) == mappable_roots.end();
+            })) {
+      continue;
+    }
+    return consumer_pos;
+  }
+  return 0;
+}
+
+unsigned int getReplayablePosCasP(
+    TensorView* consumer,
+    TensorView* producer,
+    const ComputeAtRootDomainMap& root_map_) {
+  auto mappable_roots =
+      root_map_.getMappableDims(producer->domain(), consumer->domain(), false);
+
+  for (size_t producer_pos = producer->nDims(); producer_pos > 0;
+       producer_pos--) {
+    auto all_vals = DependencyCheck::getAllValsBetween(
+        {producer->getMaybeRFactorDomain().begin(),
+         producer->getMaybeRFactorDomain().end()},
+        {producer->domain()->domain().begin(),
+         producer->domain()->domain().begin() + producer_pos});
+
+    bool mappable = true;
+
+    for (auto root_dim : producer->getMaybeRFactorDomain()) {
+      if (all_vals.find(root_dim) != all_vals.end()) {
+        if (mappable_roots.find(root_dim) == mappable_roots.end()) {
+          mappable = false;
+          continue;
+        }
+      }
+    }
+    if (!mappable) {
+      continue;
+    }
+    return producer_pos;
+  }
+  return 0;
 }
 
 } // namespace
@@ -65,7 +124,8 @@ bool validateDomain(TensorView* tv, TensorDomain* new_td) {
 void ComputeAt::runAt(
     TensorView* producer,
     TensorView* consumer,
-    unsigned int consumer_position) {
+    unsigned int consumer_position,
+    ComputeAtMode mode) {
   FUSER_PERF_SCOPE("ComputeAt::run");
 
   // Make sure the correct fusion is setup between this and consumer.
@@ -88,14 +148,15 @@ void ComputeAt::runAt(
       ", however it is not.");
 
   // Run computeAt on our potentially modified producer(s)
-  ComputeAt ca(producer, consumer, consumer, consumer_position);
+  ComputeAt ca(producer, consumer, consumer, consumer_position, mode);
   ca.runPass();
 }
 
 void ComputeAt::runWith(
     TensorView* producer,
     TensorView* consumer,
-    unsigned int producer_position) {
+    unsigned int producer_position,
+    ComputeAtMode mode) {
   FUSER_PERF_SCOPE("ComputeAt::runWith");
 
   // Make sure the correct fusion is setup between this and consumer.
@@ -117,7 +178,7 @@ void ComputeAt::runWith(
   // Make sure Fusion Guard is set appropriately
   FusionGuard fg(producer->fusion());
 
-  ComputeAt ca(producer, consumer, producer, producer_position);
+  ComputeAt ca(producer, consumer, producer, producer_position, mode);
   ca.runPass();
 }
 
@@ -127,6 +188,15 @@ unsigned int ComputeAt::backwardComputeAt_impl(
     TensorView* consumer,
     unsigned int consumer_compute_at_pos) {
   FUSER_PERF_SCOPE("backwardComputeAt_impl");
+
+  if (mode_ == ComputeAtMode::BestEffort) {
+    consumer_compute_at_pos = std::min(
+        consumer_compute_at_pos,
+        getReplayablePosPasC(producer, consumer, root_map_));
+  } else if (mode_ == ComputeAtMode::MostInlined) {
+    consumer_compute_at_pos =
+        getReplayablePosPasC(producer, consumer, root_map_);
+  }
 
   auto replay = TransformReplay::replayPasC(
       producer->domain(),
@@ -151,7 +221,7 @@ unsigned int ComputeAt::backwardComputeAt_impl(
         " but that would invalidate previously compute at position or max producer position.");
 
     producer->setDomain(new_domain);
-    if(!producer->isFusionInput()){
+    if (!producer->isFusionInput()) {
       producer->setComputeAt(replay.second);
     }
     consumer->setMaxProducer(consumer_compute_at_pos);
@@ -187,6 +257,14 @@ unsigned int ComputeAt::forwardComputeAt_impl(
     return 0;
   }
 
+  if (mode_ == ComputeAtMode::BestEffort) {
+    producer_compute_at_pos = std::min(
+        producer_compute_at_pos,
+        getReplayablePosCasP(producer, consumer, root_map_));
+  } else if (mode_ == ComputeAtMode::MostInlined) {
+    producer_compute_at_pos =
+        getReplayablePosCasP(producer, consumer, root_map_);
+  }
   auto replay = TransformReplay::replayCasP(
       consumer->domain(),
       producer->domain(),
@@ -194,7 +272,7 @@ unsigned int ComputeAt::forwardComputeAt_impl(
       root_map_);
 
   if (producer_compute_at_pos > producer->getComputeAtPosition()) {
-    if(!producer->isFusionInput()){
+    if (!producer->isFusionInput()) {
       producer->setComputeAt((int)producer_compute_at_pos);
     }
   }
@@ -355,11 +433,13 @@ ComputeAt::ComputeAt(
     TensorView* _producer,
     TensorView* _consumer,
     TensorView* _reference,
-    unsigned int _reference_position)
+    unsigned int _reference_position,
+    ComputeAtMode _mode)
     : producer_(_producer),
       consumer_(_consumer),
       reference_(_reference),
-      reference_position_(_reference_position) {
+      reference_position_(_reference_position),
+      mode_(_mode) {
   TORCH_INTERNAL_ASSERT(
       reference_ == producer_ || reference_ == consumer_,
       "For compute at reference must be producer or consumer, it's neither.",

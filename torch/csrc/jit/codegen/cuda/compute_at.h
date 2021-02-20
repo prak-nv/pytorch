@@ -24,14 +24,16 @@ class ComputeAt {
   static void runAt(
       TensorView* producer,
       TensorView* consumer,
-      unsigned int consumer_position);
+      unsigned int consumer_position,
+      ComputeAtMode mode = ComputeAtMode::Standard);
 
   // Runs the compute with pass making consumer look like producer, computing
   // producer relative to consumer
   static void runWith(
       TensorView* producer,
       TensorView* consumer,
-      unsigned int producer_position);
+      unsigned int producer_position,
+      ComputeAtMode mode = ComputeAtMode::Standard);
 
  private:
   TensorView* producer_;
@@ -40,6 +42,12 @@ class ComputeAt {
   unsigned int reference_position_;
   unsigned int producer_position_ = 0;
   ComputeAtRootDomainMap root_map_;
+
+  // Mode during propagation of computeAt, standard will throw an error if
+  // computeAt position provided can't be satisfied, best effort will lower the
+  // computeAt position as needed during traversal, most inlined will increase
+  // the compute at position to maximum possible through traversal.
+  ComputeAtMode mode_ = ComputeAtMode::Standard;
 
   // Runs replayPasC and sets producer computeAt settings. Returns
   // producer_compute_at_pos.
@@ -81,7 +89,8 @@ class ComputeAt {
       TensorView* _producer,
       TensorView* _consumer,
       TensorView* _reference,
-      unsigned int _reference_position);
+      unsigned int _reference_position,
+      ComputeAtMode _mode);
 
   ComputeAt() = delete;
   ~ComputeAt() = default;
