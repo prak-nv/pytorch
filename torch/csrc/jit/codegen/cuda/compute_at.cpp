@@ -12,37 +12,6 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-ComputeAtData::ComputeAtData(TensorView* tv)
-    : tv_ref_(tv), original_compute_at_position(tv->getComputeAtPosition()) {}
-
-// Clear pass based data
-void ComputeAtData::clearPass() {
-  current_traversal_position_set = false;
-  current_traversal_position = 0;
-}
-
-void ComputeAtData::setPassPosition(unsigned int pos) {
-  if (current_traversal_position_set) {
-    // A single traversal cannot try to enforce more than one position on a
-    // TensorView as it would produce in incorrect code. If this is hit, then
-    // the given tensor and its production should be duplicated.
-    TORCH_CHECK(
-        pos == current_traversal_position,
-        "Error during computeAt. ComputeAt pass wanted to set position of TensorView: ",
-        tv_ref_->name(),
-        " at position ",
-        pos,
-        " but was already set to position ",
-        current_traversal_position,
-        ". This tensor would have to be recomputed to satsify the selected computeAt position.");
-  }
-
-  if (pos > original_compute_at_position) {
-    current_traversal_position = pos;
-    current_traversal_position_set = true;
-  }
-}
-
 namespace {
 
 // Wrapper around set_intersection
@@ -87,8 +56,8 @@ std::deque<std::deque<TensorView*>> tvChains(
 bool validateDomain(TensorView* tv, TensorDomain* new_td) {
   auto first_mismatch =
       BestEffortReplay::findFirstMismatchedID(tv->domain(), new_td);
-  return first_mismatch >= (int)tv->getMaxProducerPosition() &&
-      first_mismatch >= (int)tv->getComputeAtPosition();
+  return first_mismatch >= (int) tv->getMaxProducerPosition() &&
+      first_mismatch >= (int) tv->getComputeAtPosition();
 }
 
 } // namespace
@@ -110,52 +79,17 @@ void ComputeAt::runAt(
   // Make sure Fusion Guard is set appropriately
   FusionGuard fg(producer->fusion());
 
-  std::vector<TensorView*> producers;
-
-  // It doesn't make sense to set computeAt on an input as it's not generated,
-  // it's provided. If this was called, move the computeAt to users of the
-  // producer that are in a dependency between prodcer and consumer.
-  if (producer->fusion()->hasInput(producer)) {
-    auto all_chains =
-        tvChains(DependencyCheck::getAllDependencyChains(producer, consumer));
-
-    TORCH_CHECK(
-        !all_chains.empty(),
-        "Compute At expects ",
-        producer->name(),
-        " is a dependency of ",
-        consumer->name(),
-        ", however it is not.");
-
-    std::unordered_set<TensorView*> added_producers;
-
-    // Check all dependency chains, select the next TV after producer towards
-    // consumer. These are the TVs we're going to actually call computeAt on.
-    for (const auto& tv_chain : all_chains) {
-      // When a chain only has two tensors, they must be the producer,
-      // which is an input, and the consumer. There is nothing we need
-      // to do for such chains.
-      if (tv_chain.size() > 2) {
-        // Make sure we only add once, but we want to add in a determinsitic
-        // order
-        if (added_producers.find(tv_chain[1]) == added_producers.end()) {
-          producers.push_back(tv_chain[1]);
-          added_producers.emplace(tv_chain[1]);
-        }
-      }
-    }
-  } else {
-    // If producer is not an input, it's the only one.
-    producers.push_back(producer);
-  }
+  TORCH_CHECK(
+      DependencyCheck::isDependencyOf(producer, consumer),
+      "Compute At expects ",
+      producer->name(),
+      " is a dependency of ",
+      consumer->name(),
+      ", however it is not.");
 
   // Run computeAt on our potentially modified producer(s)
-  if (!producers.empty()) {
-    for (auto producer_to_run : producers) {
-      ComputeAt ca(producer_to_run, consumer, consumer, consumer_position);
-      ca.runPass();
-    }
-  }
+  ComputeAt ca(producer, consumer, consumer, consumer_position);
+  ca.runPass();
 }
 
 void ComputeAt::runWith(
@@ -172,6 +106,14 @@ void ComputeAt::runWith(
       consumer,
       " are not in the same fusion.");
 
+  TORCH_CHECK(
+      DependencyCheck::isDependencyOf(producer, consumer),
+      "Compute At expects ",
+      producer->name(),
+      " is a dependency of ",
+      consumer->name(),
+      ", however it is not.");
+
   // Make sure Fusion Guard is set appropriately
   FusionGuard fg(producer->fusion());
 
@@ -186,8 +128,6 @@ unsigned int ComputeAt::backwardComputeAt_impl(
     unsigned int consumer_compute_at_pos) {
   FUSER_PERF_SCOPE("backwardComputeAt_impl");
 
-  auto& producer_entry = tv_data.at(producer);
-
   auto replay = TransformReplay::replayPasC(
       producer->domain(),
       consumer->domain(),
@@ -197,8 +137,6 @@ unsigned int ComputeAt::backwardComputeAt_impl(
   if (replay.second == 0) {
     return 0;
   }
-
-  producer_entry.setPassPosition(replay.second);
 
   if (replay.second >= producer->getComputeAtPosition()) {
     const TensorDomain* current_domain = producer->domain();
@@ -213,7 +151,9 @@ unsigned int ComputeAt::backwardComputeAt_impl(
         " but that would invalidate previously compute at position or max producer position.");
 
     producer->setDomain(new_domain);
-    producer->setComputeAt(replay.second);
+    if(!producer->isFusionInput()){
+      producer->setComputeAt(replay.second);
+    }
     consumer->setMaxProducer(consumer_compute_at_pos);
     root_map_.setAlias(current_domain, new_domain);
   }
@@ -247,19 +187,16 @@ unsigned int ComputeAt::forwardComputeAt_impl(
     return 0;
   }
 
-  auto& consumer_entry = tv_data.at(consumer);
-  const auto& producer_entry = tv_data.at(producer);
-
   auto replay = TransformReplay::replayCasP(
       consumer->domain(),
       producer->domain(),
       (int)producer_compute_at_pos,
       root_map_);
 
-  consumer_entry.setPassPosition(replay.second);
-
   if (producer_compute_at_pos > producer->getComputeAtPosition()) {
-    producer->setComputeAt((int)producer_compute_at_pos);
+    if(!producer->isFusionInput()){
+      producer->setComputeAt((int)producer_compute_at_pos);
+    }
   }
 
   if (replay.second > consumer->getMaxProducerPosition()) {
@@ -340,6 +277,7 @@ void ComputeAt::traverseBackward() {
   FUSER_PERF_SCOPE("ComputeAt::traverseBackward");
   if (reference_ == producer_) {
     // Forward compute at don't need to run backward traversal
+    producer_position_ = reference_position_;
     return;
   }
 
@@ -365,6 +303,11 @@ void ComputeAt::traverseBackward() {
       running_consumer_pos = backwardComputeAt_impl(
           running_producer, running_consumer, running_consumer_pos);
     }
+
+    TORCH_INTERNAL_ASSERT(
+        running_producer == producer_,
+        "Compute at backward traversal ended up on something other than the producer.");
+    producer_position_ = running_consumer_pos;
   }
 }
 
@@ -379,16 +322,12 @@ void ComputeAt::traverseForward() {
         DependencyCheck::getAllDependencyChains(producer_, common_consumer_));
   }
 
-  unsigned int producer_pos = reference_ == producer_
-      ? reference_position_
-      : producer_->getComputeAtPosition();
-
   // propagate forward through all chains
   for (auto tv_dep_chain : chains) {
     TensorView* running_producer = nullptr;
     TensorView* running_consumer = tv_dep_chain.front();
     tv_dep_chain.pop_front();
-    unsigned int running_producer_pos = producer_pos;
+    unsigned int running_producer_pos = producer_position_;
 
     TORCH_INTERNAL_ASSERT(running_consumer == producer_);
 
@@ -405,28 +344,8 @@ void ComputeAt::traverseForward() {
 void ComputeAt::runPass() {
   FUSER_PERF_SCOPE("ComputeAt::runPass");
 
-  // Initialize tv_data for all TensorViews we may modify
-  auto chains = producer_use_chains_;
-  if (common_consumer_ != nullptr) {
-    chains = tvChains(
-        DependencyCheck::getAllDependencyChains(producer_, common_consumer_));
-  }
-
-  for (const auto& tv_chain : chains) {
-    for (auto tv : tv_chain) {
-      if (tv_data.find(tv) == tv_data.end()) {
-        tv_data[tv] = ComputeAtData(tv);
-      }
-    }
-  }
-
   // Traverse backward through all dep chains from producer to consumer
   traverseBackward();
-
-  // Clear data from backward traversal:
-  for (auto& entry : tv_data) {
-    entry.second.clearPass();
-  }
 
   // Start at producer and traverse forward through all chains
   traverseForward();
