@@ -87,8 +87,8 @@ std::deque<std::deque<TensorView*>> tvChains(
 bool validateDomain(TensorView* tv, TensorDomain* new_td) {
   auto first_mismatch =
       BestEffortReplay::findFirstMismatchedID(tv->domain(), new_td);
-  return first_mismatch >= tv->getMaxProducerPosition() &&
-      first_mismatch >= tv->getComputeAtPosition();
+  return first_mismatch >= (int)tv->getMaxProducerPosition() &&
+      first_mismatch >= (int)tv->getComputeAtPosition();
 }
 
 } // namespace
@@ -200,8 +200,6 @@ unsigned int ComputeAt::backwardComputeAt_impl(
 
   producer_entry.setPassPosition(replay.second);
 
-  // Should set compute at isn't quite right at the moment, still important for
-  // the consumer usage though. Need to refactor.
   if (replay.second >= producer->getComputeAtPosition()) {
     const TensorDomain* current_domain = producer->domain();
     TensorDomain* new_domain = replay.first;
@@ -239,7 +237,7 @@ unsigned int ComputeAt::forwardComputeAt_impl(
   for (unsigned int i = 0;
        i < (unsigned int)producer->domain()->domain().size();
        i++) {
-    if (producer->axis(i)->isReduction()) {
+    if (producer->axis((int)i)->isReduction()) {
       first_red_pos = i;
       break;
     }
@@ -260,8 +258,6 @@ unsigned int ComputeAt::forwardComputeAt_impl(
 
   consumer_entry.setPassPosition(replay.second);
 
-  // Should set compute at isn't quite right at the moment, still important for
-  // the consumer usage though. Need to refactor.
   if (producer_compute_at_pos > producer->getComputeAtPosition()) {
     producer->setComputeAt((int)producer_compute_at_pos);
   }

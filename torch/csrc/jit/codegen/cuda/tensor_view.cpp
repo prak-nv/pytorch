@@ -311,8 +311,9 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
       "Tried to reorder a 0-dim TensorView");
 
   for (auto entry : old2new_) {
-    auto old_pos = entry.first < 0 ? entry.first + nDims() : entry.first;
-    auto new_pos = entry.second < 0 ? entry.second + nDims() : entry.second;
+    auto old_pos = entry.first < 0 ? entry.first + (int)nDims() : entry.first;
+    auto new_pos =
+        entry.second < 0 ? entry.second + (int)nDims() : entry.second;
     if (old_pos == new_pos) {
       continue;
     }
@@ -335,8 +336,8 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
         getComputeAtPosition());
 
     TORCH_CHECK(
-        old_pos >= (int)getComputeAtPosition() &&
-            new_pos >= (int)getComputeAtPosition(),
+        old_pos >= (int)getMaxProducerPosition() &&
+            new_pos >= (int)getMaxProducerPosition(),
         "Cannot reorder axes within max producer position. Either axis ",
         old_pos,
         " or ",
