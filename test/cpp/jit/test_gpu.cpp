@@ -13116,7 +13116,6 @@ TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t3}, __LINE__, __FILE__);
 }
 
-
 TEST(NVFuserTest, FusionSizeOneLoop_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
