@@ -1282,7 +1282,7 @@ void scheduleNormalization(
           auto inputs_for_output = fusion->inputsOf(output);
           for (auto input : in_tv) {
             if (inputs_for_output.find(input) != inputs_for_output.end()) {
-              input->computeAt(output, kComputeAtAxis);
+              input->computeAt(output, -1, ComputeAtMode::MostInlined);
             }
           }
         }
