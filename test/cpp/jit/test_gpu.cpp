@@ -12955,6 +12955,11 @@ TEST(NVFuserTest, FusionVectorization1_CUDA) {
 
   std::vector<IValue> aten_inputs = {t0, t1};
 
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
   auto aten_output = t0 + t1;
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);

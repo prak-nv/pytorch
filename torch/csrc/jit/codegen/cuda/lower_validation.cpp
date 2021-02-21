@@ -153,7 +153,7 @@ class VectorizeValidator : public OptInDispatch {
         vector_size_optional.value();
 
     // Allow half2, float2, float4 and same sized vtypes.
-    std::array<int64_t, 3> allowed_vector_sizes = {4, 8, 16}; // NOLint
+    std::array<int64_t, 3> allowed_vector_sizes = {4, 8, 16}; // NOLINT
 
     TORCH_CHECK(
         std::find(
@@ -243,7 +243,7 @@ void validateVectorize(Fusion* fusion) {
         // on it to make sure their compute at position isn't to the right of
         // the vectorize dim.
         TORCH_INTERNAL_ASSERT(
-            i >= tv->getThisComputeAtAxis(),
+            i >= tv->getComputeAtPosition(),
             "IterDomains to the left of the compute at point cannot be vectorized.");
         has_vectorize_dim = true;
       }
