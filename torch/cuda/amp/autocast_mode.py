@@ -138,6 +138,7 @@ class autocast(object):
         self.prev = torch.is_autocast_enabled()
         torch.set_autocast_enabled(self._enabled)
         torch.autocast_increment_nesting()
+        return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any):
         if torch._jit_internal.is_scripting():

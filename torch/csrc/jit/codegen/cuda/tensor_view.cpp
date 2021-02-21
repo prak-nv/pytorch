@@ -97,7 +97,8 @@ TensorView::TensorView(const std::shared_ptr<c10::TensorType>& tensor_type)
 TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       domain_(ir_cloner->clone(src->domain_)),
-      this_compute_at_axis_(src->this_compute_at_axis_),
+      compute_at_pos_(src->compute_at_pos_),
+      max_producer_pos_(src->max_producer_pos_),
       memory_type_(src->memory_type_),
       swizzle_type_(src->swizzle_type_) {
   for (const auto id : src->axesToSwizzle()) {
@@ -167,30 +168,68 @@ IterDomain* TensorView::axis(int pos) const {
   return domain()->axis(pos);
 }
 
-void TensorView::setComputeAt(unsigned int this_pos) {
+void TensorView::setComputeAt(unsigned int pos) {
+  if (pos <= compute_at_pos_) {
+    return;
+  }
+
   TORCH_INTERNAL_ASSERT(
-      this_pos > 0 && (unsigned)this_pos <= nDims(),
+      (unsigned)pos <= nDims(),
       "Invalid this computeAt position for T",
       name(),
       ": ",
-      this_pos);
-  this_compute_at_axis_ = this_pos;
+      pos);
+
+  compute_at_pos_ = pos;
 }
 
-TensorView* TensorView::computeAt(TensorView* consumer, int axis) {
+void TensorView::setMaxProducer(unsigned int pos) {
+  if (pos <= max_producer_pos_) {
+    return;
+  }
+
+  TORCH_INTERNAL_ASSERT(
+      (unsigned)pos <= nDims(),
+      "Invalid max producer position for T",
+      name(),
+      ": ",
+      pos);
+
+  max_producer_pos_ = pos;
+}
+
+TensorView* TensorView::computeAt(TensorView* consumer, int position) {
   // Make sure this and consumer are not the same tensor, that's illegal
   TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
 
   // We support negative axes, so increment it by consumer->nDims() + 1 and make
   // sure the result is within consumer->nDims() + 1. being at consumer->nDims()
   // means producer will be computed inline with consumer, hence the +1.
-  if (axis < 0)
-    axis += int(consumer->nDims()) + 1;
+  if (position < 0)
+    position += int(consumer->nDims()) + 1;
   TORCH_CHECK(
-      axis >= 0 && (unsigned int)axis < consumer->nDims() + 1,
-      "Compute at called on an axis outside valid range.");
+      position >= 0 && (unsigned int)position < consumer->nDims() + 1,
+      "Compute at called on an position outside valid range.");
 
-  ComputeAt::run(this, consumer, (unsigned int)axis);
+  ComputeAt::runAt(this, consumer, (unsigned int)position);
+
+  return this;
+}
+
+TensorView* TensorView::computeWith(TensorView* consumer, int position) {
+  // Make sure this and consumer are not the same tensor, that's illegal
+  TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
+
+  // We support negative axes, so increment it by this->nDims() + 1 and make
+  // sure the result is within this->nDims() + 1. being at this->nDims()
+  // means producer will be computed inline with this, hence the +1.
+  if (position < 0)
+    position += int(this->nDims()) + 1;
+  TORCH_CHECK(
+      position >= 0 && (unsigned int)position < this->nDims() + 1,
+      "Compute at called on an position outside valid range.");
+
+  ComputeAt::runWith(this, consumer, (unsigned int)position);
 
   return this;
 }
@@ -203,12 +242,24 @@ TensorView* TensorView::split(int axis, Val* factor, bool inner_split) {
   if (axis < 0)
     axis += domain()->nDims();
 
+  TORCH_INTERNAL_ASSERT(
+      axis >= 0,
+      "Split axis is less than 0 even after adjusting for nDims: ",
+      axis);
+
   TORCH_CHECK(
-      !(hasComputeAt() && (axis < (int)getThisComputeAtAxis())),
-      "Cannot split axis within compute at range. Axis = ",
+      axis >= (int)getComputeAtPosition(),
+      "Cannot split axis within compute at position. Axis = ",
       axis,
-      " thisComputeAtAxis = ",
-      getThisComputeAtAxis());
+      " computeAtPosition = ",
+      getComputeAtPosition());
+
+  TORCH_CHECK(
+      axis >= (int)getMaxProducerPosition(),
+      "Cannot split axis within max producer position. Axis = ",
+      axis,
+      " maxProducerPosition = ",
+      getMaxProducerPosition());
 
   domain()->split(axis, factor, inner_split);
   return this;
@@ -222,25 +273,33 @@ TensorView* TensorView::split(int axis, unsigned int factor, bool inner_split) {
 // Merge "axis" and "axis+1" into 1 dimension
 TensorView* TensorView::merge(int axis_o, int axis_i) {
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
+
   if (axis_o < 0)
     axis_o += domain()->nDims();
 
   if (axis_i < 0)
     axis_i += domain()->nDims();
 
-  if (hasComputeAt()) {
-    if (axis_o + 1 < (int)getThisComputeAtAxis() ||
-        axis_i + 1 < (int)getThisComputeAtAxis()) {
-      TORCH_CHECK(
-          false,
-          "Cannot merge axis within compute at range. Either axis ",
-          axis_o,
-          " or ",
-          axis_i,
-          " are within thisComputeAtAxis = ",
-          getThisComputeAtAxis());
-    }
-  }
+  TORCH_CHECK(
+      axis_o >= (int)getComputeAtPosition() &&
+          axis_i >= (int)getComputeAtPosition(),
+      false,
+      "Cannot merge axes within compute at position. Either axis ",
+      axis_o,
+      " or ",
+      axis_i,
+      " are within computeAtPosition = ",
+      getComputeAtPosition());
+
+  TORCH_CHECK(
+      axis_o >= (int)getMaxProducerPosition() &&
+          axis_i >= (int)getMaxProducerPosition(),
+      "Cannot merge axes within max producer position. Either axis ",
+      axis_o,
+      " or ",
+      axis_i,
+      " are within maxProducerPosition = ",
+      getMaxProducerPosition());
 
   domain()->merge(axis_o, axis_i);
   return this;
@@ -250,6 +309,43 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
   TORCH_INTERNAL_ASSERT(
       !(nDims() == 0 && old2new_.size() > 0),
       "Tried to reorder a 0-dim TensorView");
+
+  for (auto entry : old2new_) {
+    auto old_pos = entry.first < 0 ? entry.first + (int)nDims() : entry.first;
+    auto new_pos =
+        entry.second < 0 ? entry.second + (int)nDims() : entry.second;
+    if (old_pos == new_pos) {
+      continue;
+    }
+    TORCH_INTERNAL_ASSERT(
+        old_pos >= 0,
+        "Found \"old\" position that's less than 0 even though already adjusted by nDims: ",
+        old_pos);
+    TORCH_INTERNAL_ASSERT(
+        new_pos >= 0,
+        "Found \"new\" position that's less than 0 even though already adjusted by nDims: ",
+        new_pos);
+    TORCH_CHECK(
+        old_pos >= (int)getComputeAtPosition() &&
+            new_pos >= (int)getComputeAtPosition(),
+        "Cannot reorder axes within compute at position. Either axis ",
+        old_pos,
+        " or ",
+        new_pos,
+        " are within computeAtPosition = ",
+        getComputeAtPosition());
+
+    TORCH_CHECK(
+        old_pos >= (int)getMaxProducerPosition() &&
+            new_pos >= (int)getMaxProducerPosition(),
+        "Cannot reorder axes within max producer position. Either axis ",
+        old_pos,
+        " or ",
+        new_pos,
+        " are within maxProducerPosition = ",
+        getMaxProducerPosition());
+  }
+
   domain()->reorder(old2new_);
   return this;
 }
@@ -284,7 +380,7 @@ TensorView* TensorView::swizzle(
       }
       TORCH_CHECK(pos >= 0 && pos < (int)nDims(), "Invalid axis: ", pos);
       TORCH_CHECK(
-          pos >= (int)getThisComputeAtAxis(),
+          pos >= (int)getComputeAtPosition(),
           "Invalid axis: ",
           pos,
           ". Axis outside computeAt position is not allocated.");
@@ -306,7 +402,15 @@ TensorView* TensorView::swizzle(
 }
 
 TensorView* TensorView::rFactor(const std::vector<int>& axes) {
+  // TODO: I think we should do this but
+  // NVFuserTest.FusionSmemBlockGemmCache_CUDA prevents it from going in at the
+  // moment.
+
+  // TORCH_INTERNAL_ASSERT(
+  //     !hasComputeAt(), "Cannot rfactor tensors after compute at has been
+  //     set.");
   TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
+  TORCH_INTERNAL_ASSERT(definition()->isA<ReductionOp>());
   FusionGuard fg(fusion());
   TORCH_CHECK(
       definition() != nullptr &&
@@ -352,6 +456,134 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
   return producer;
 }
 
+TensorView* TensorView::welfordRfactorHelper(
+    TensorView* tv,
+    const std::vector<int>& axes) {
+  // Hack:
+  // Semantically we should always keep the outputs of welfordOp scheduled
+  // the same but the user end cannot guarantee that.
+  // In order to guarantee that the rFactor is defined meaningfully the
+  // scheduling of the output TV that got the rfactor call is force replayed
+  // towards the other two
+
+  if (!sameAs(tv)) {
+    auto root = tv->getRootDomain();
+    auto this_root = getRootDomain();
+
+    // construct a trivial root domain map
+    std::unordered_map<IterDomain*, IterDomain*> id_map;
+    for (size_t i = 0; i < root.size(); i++) {
+      id_map[this_root[i]] = root[i];
+    }
+
+    // replay on the target tv
+    ReplayTransformations replay(domain()->domain(), id_map);
+
+    // construct the new tensor domain
+    std::vector<IterDomain*> new_id;
+    for (auto id : domain()->domain()) {
+      TORCH_INTERNAL_ASSERT(
+          replay.getReplay().count(id), "Welford Replay Failed");
+      new_id.push_back(replay.getReplay().at(id));
+    }
+
+    std::vector<bool> new_contig(
+        tv->domain()->contiguity().begin(), tv->domain()->contiguity().end());
+    // replace tensor domain of target tv
+    tv->setDomain(new TensorDomain(tv->getRootDomain(), new_id, new_contig));
+  }
+
+  // Split tensor view into 2 parts
+  auto domain_pair = tv->domain()->rFactor(axes);
+  // Producer in the pair
+  auto producer_domain = domain_pair.first;
+  // Consumer in the pair
+  auto consumer_domain = domain_pair.second;
+
+  // This domain will be the consumer, so create the producer
+  TensorView* producer =
+      new TensorView(producer_domain, tv->getDataType().value());
+
+  // Set domain of consumer
+  tv->setDomain(consumer_domain);
+
+  return producer;
+}
+
+WelfordResult TensorView::rFactor(
+    const std::vector<int>& axes,
+    TensorView* var,
+    TensorView* avg,
+    TensorView* n) {
+  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
+  FusionGuard fg(fusion());
+  TORCH_CHECK(
+      definition() != nullptr &&
+          definition()->getExprType() == ExprType::WelfordOp,
+      "Error rfactoring welford ",
+      this,
+      " its definition is either a nullptr or not a welford.");
+  TORCH_CHECK(
+      !domain()->hasRFactor(), "Cannot call rfactor on the same view twice.");
+
+  WelfordOp* wop = definition()->as<WelfordOp>();
+
+  TORCH_INTERNAL_ASSERT(
+      avg->sameAs(wop->outAvg()), "Welford rfactor not used correctly");
+  TORCH_INTERNAL_ASSERT(
+      var->sameAs(wop->outVar()), "Welford rfactor not used correctly");
+  TORCH_INTERNAL_ASSERT(
+      n->sameAs(wop->outN()), "Welford rfactor not used correctly");
+
+  std::unordered_map<TensorView*, TensorView*> tv2rf{
+      {var, nullptr}, {avg, nullptr}, {n, nullptr}};
+
+  // Make sure this gets rfactored last so everybody gets
+  //  replayed correctly
+  for (auto& it : tv2rf) {
+    if (!sameAs(it.first)) {
+      it.second = welfordRfactorHelper(it.first, axes);
+    }
+  }
+
+  for (auto& it : tv2rf) {
+    if (sameAs(it.first)) {
+      it.second = welfordRfactorHelper(it.first, axes);
+    }
+  }
+
+  TensorView* producer_var = tv2rf.at(var);
+  TensorView* producer_avg = tv2rf.at(avg);
+  TensorView* producer_n = tv2rf.at(n);
+
+  // Setup dependency chain, inserting producer before this op.
+  // Expr* producer_definition =
+  new WelfordOp(
+      producer_var,
+      producer_avg,
+      producer_n, /*out var/avg/count */
+      wop->initVar(),
+      wop->initAvg(),
+      wop->initN(), /*init var/avg/count */
+      wop->inVar(),
+      wop->inAvg(),
+      wop->inN());
+
+  // Expr* consumer_definition =
+  new WelfordOp(
+      var,
+      avg,
+      n,
+      wop->initVar(),
+      wop->initAvg(),
+      wop->initN(),
+      producer_var,
+      producer_avg,
+      producer_n);
+
+  return WelfordResult(producer_var, producer_avg, producer_n);
+}
+
 std::vector<TensorView*> TensorView::duplicate() {
   FusionGuard fg(fusion());
 
@@ -383,7 +615,7 @@ std::vector<TensorView*> TensorView::duplicate() {
       createExprProducer(expr, this, producer);
 
       // Set ComputeAt position for this duplicate TV
-      producer->setComputeAt(getThisComputeAtAxis());
+      producer->setComputeAt(getComputeAtPosition());
 
       duplicates.push_back(producer);
     }
@@ -511,7 +743,7 @@ TensorView* TensorView::cache_before() {
   // position, so the removal of reduction domains should not affect
   // position indices.
   // First, make the cache tensor needs look like the consumer. The
-  // minimum number of axes to share is getThisComputeAtAxis(), but
+  // minimum number of axes to share is getComputeAtPosition(), but
   // it's safe to fully replay.
 
   // Before: This TV -> Next TV
@@ -521,7 +753,7 @@ TensorView* TensorView::cache_before() {
       TransformReplay::replayPasC(producer, consumer, -1);
       cache_replayed = true;
     }
-    producer->setComputeAt(getThisComputeAtAxis());
+    producer->setComputeAt(getComputeAtPosition());
   }
 
   // If the consumer was the target of computeAt by producer's inputs,
@@ -530,7 +762,7 @@ TensorView* TensorView::cache_before() {
   // Before: Prev TV -> This TV
   // After:  Prev TV -> New TV (CB) -> This TV
   // Iterate over definition expression inputs for cache_before on outputs
-  size_t producer_this_pos = producer->getThisComputeAtAxis();
+  size_t producer_this_pos = producer->getComputeAtPosition();
   for (TensorView* producer_of_producer :
        ir_utils::filterByType<TensorView>(expr_inputs)) {
     if (producer_of_producer->hasComputeAt()) {
@@ -538,11 +770,11 @@ TensorView* TensorView::cache_before() {
         TransformReplay::replayPasC(producer, consumer, -1);
         cache_replayed = true;
       }
-      TORCH_INTERNAL_ASSERT(producer_of_producer->getThisComputeAtAxis() > 0);
+      TORCH_INTERNAL_ASSERT(producer_of_producer->getComputeAtPosition() > 0);
       size_t producer_pos =
           getMappedConsumerAxis(
               producer_of_producer,
-              int(producer_of_producer->getThisComputeAtAxis()) - 1,
+              int(producer_of_producer->getComputeAtPosition()) - 1,
               producer) +
           1;
       producer_this_pos = std::max(producer_this_pos, producer_pos);
@@ -557,11 +789,11 @@ TensorView* TensorView::cache_before() {
   // Note that this step isn't strictly necessary in terms of the
   // Fusion IR semantics, but it's likely what users would want to do
   // anyway.
-  if (producer_this_pos > producer->getThisComputeAtAxis()) {
+  if (producer_this_pos > producer->getComputeAtPosition()) {
     // The relative position at the consumer must not include the
     // reduction domains.
     for (size_t i = 0; i < producer_this_pos; ++i) {
-      if (i < producer->getThisComputeAtAxis()) {
+      if (i < producer->getComputeAtPosition()) {
         // No CA axes can be reduction.
         TORCH_INTERNAL_ASSERT(!producer->axis(i)->isReduction());
       } else if (producer->axis(i)->isReduction()) {
@@ -569,7 +801,7 @@ TensorView* TensorView::cache_before() {
         break;
       }
     }
-    if (producer_this_pos > producer->getThisComputeAtAxis()) {
+    if (producer_this_pos > producer->getComputeAtPosition()) {
       producer->setComputeAt(producer_this_pos);
     }
   }
@@ -611,7 +843,7 @@ TensorView* TensorView::cache_fork() {
   // Set the computeAt for this forked TensorView. It is a terminating
   // output, so set only this position.
   if (hasComputeAt()) {
-    auto this_ca_pos = getThisComputeAtAxis();
+    auto this_ca_pos = getComputeAtPosition();
     new_output->setComputeAt(this_ca_pos);
   }
   return new_output;
@@ -664,7 +896,7 @@ TensorView* TensorView::cache_after() {
   // After:  This TV -> New TV (After) -> Next TV
   if (hasComputeAt()) {
     TransformReplay::replayCasP(consumer, producer, -1);
-    consumer->setComputeAt(getThisComputeAtAxis());
+    consumer->setComputeAt(getComputeAtPosition());
   } else if (kIsFusionInput) {
     bool cache_replayed = false;
     // Check users of this TV for computeAt for cache_after on inputs
@@ -677,7 +909,7 @@ TensorView* TensorView::cache_after() {
             TransformReplay::replayPasC(consumer, output, -1);
             cache_replayed = true;
           }
-          auto output_ca_pos = output->getThisComputeAtAxis();
+          auto output_ca_pos = output->getComputeAtPosition();
           auto this_pos =
               TransformReplay::replayPasC(consumer, output, output_ca_pos)
                   .second;

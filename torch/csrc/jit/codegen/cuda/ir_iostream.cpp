@@ -66,10 +66,15 @@ void IrPrinter::handle(const TensorView* tv) {
     os_ << "T" << tv->name();
     handle(tv->domain());
 
-    if (tv->hasComputeAt()) {
-      os_ << " compute_at( ";
-      os_ << tv->getThisComputeAtAxis();
+    if (tv->getComputeAtPosition() > 0) {
+      os_ << " ca_pos( ";
+      os_ << tv->getComputeAtPosition();
       os_ << " )";
+    }
+    if (tv->getMaxProducerPosition() > 0) {
+      os_ << " produce_pos( ";
+      os_ << tv->getMaxProducerPosition();
+      os_ << ")";
     }
   }
 }
@@ -309,6 +314,24 @@ void IrPrinter::handle(const ReductionOp* rop) {
   os_ << rop->out() << " = reduction( " << rop->in()
       << ", op = " << rop->getReductionOpType()
       << ", initial value = " << rop->init() << " )\n";
+}
+
+void IrPrinter::handle(const WelfordOp* wop) {
+  indent();
+  os_ << wop->outVar() << "(Var), " << wop->outAvg() << "(Avg), " << wop->outN()
+      << "(Count)"
+      << " = Welford ( ";
+  if (wop->singleValue()) {
+    os_ << wop->inAvg();
+  } else {
+    os_ << wop->inVar() << "(Var) " << wop->inAvg() << "(Avg) " << wop->inN()
+        << "(Count)";
+  }
+  if (wop->hasInit()) {
+    os_ << ", initial value = " << wop->initVar() << "(Var) " << wop->initAvg()
+        << "(Avg) " << wop->initN() << "(N)";
+  }
+  os_ << " )\n";
 }
 
 void IrPrinter::handle(const BroadcastOp* bop) {

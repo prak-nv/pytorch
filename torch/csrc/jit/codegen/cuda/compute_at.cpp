@@ -13,21 +13,10 @@ namespace fuser {
 namespace cuda {
 
 ComputeAtData::ComputeAtData(TensorView* tv)
-    : tv_ref_(tv),
-      original_has_compute_at_(tv->hasComputeAt()),
-      original_compute_at_position(tv->getThisComputeAtAxis()),
-      original_domain_(tv->domain()),
-      new_compute_at_domain_(tv->domain()) {}
+    : tv_ref_(tv), original_compute_at_position(tv->getComputeAtPosition()) {}
 
 // Clear pass based data
 void ComputeAtData::clearPass() {
-  // If the last pass set a position, update the new_compute_at_position if
-  // latest position would be greater than previously set.
-  if (current_traversal_position_set &&
-      current_traversal_position > new_compute_at_position) {
-    new_compute_at_position = current_traversal_position;
-  }
-
   current_traversal_position_set = false;
   current_traversal_position = 0;
 }
@@ -50,59 +39,8 @@ void ComputeAtData::setPassPosition(unsigned int pos) {
 
   if (pos > original_compute_at_position) {
     current_traversal_position = pos;
-    touched_ = true;
     current_traversal_position_set = true;
   }
-}
-
-unsigned int ComputeAtData::getNewPosition() const {
-  // If the last pass set a position, return the latest position if
-  // it would be greater than previously set.
-  if (current_traversal_position_set &&
-      current_traversal_position > new_compute_at_position) {
-    return current_traversal_position;
-  } else {
-    return new_compute_at_position;
-  }
-}
-
-void ComputeAtData::validateNewComputeAt() const {
-  FUSER_PERF_SCOPE("validateNewComputeAt");
-
-  TORCH_INTERNAL_ASSERT(
-      !touched() || getNewPosition() >= original_compute_at_position,
-      "Invalid computeAt detected. This computeAt would invalidate the set computeAt on ",
-      tv_ref_,
-      " as the new computeAt position was found to be ",
-      getNewPosition(),
-      ".");
-  auto mismatch = BestEffortReplay::findFirstMismatchedID(
-      tv_ref_->domain(), original_domain_);
-  TORCH_CHECK(
-      mismatch >= (int)original_compute_at_position,
-      "Invalid computeAt detected. This computeAt call would invalidate the set computeAt on ",
-      tv_ref_,
-      " as the previous set computeAt was on the domain ",
-      original_domain_,
-      " with a computeAt position of ",
-      original_compute_at_position,
-      ".");
-}
-
-void ComputeAtData::setComputeAtDomain(TensorDomain* td) {
-  if (new_compute_at_domain_ != original_domain_) {
-    size_t mismatch =
-        BestEffortReplay::findFirstMismatchedID(new_compute_at_domain_, td);
-    TORCH_INTERNAL_ASSERT(
-        mismatch == new_compute_at_domain_->nDims(),
-        "TensorDomain, ",
-        td,
-        ", does not match with the previously set domain of ",
-        tv_ref_,
-        ", which is ",
-        new_compute_at_domain_);
-  }
-  new_compute_at_domain_ = td;
 }
 
 namespace {
@@ -146,9 +84,16 @@ std::deque<std::deque<TensorView*>> tvChains(
   return tv_chains;
 }
 
+bool validateDomain(TensorView* tv, TensorDomain* new_td) {
+  auto first_mismatch =
+      BestEffortReplay::findFirstMismatchedID(tv->domain(), new_td);
+  return first_mismatch >= (int)tv->getMaxProducerPosition() &&
+      first_mismatch >= (int)tv->getComputeAtPosition();
+}
+
 } // namespace
 
-void ComputeAt::run(
+void ComputeAt::runAt(
     TensorView* producer,
     TensorView* consumer,
     unsigned int consumer_position) {
@@ -207,17 +152,38 @@ void ComputeAt::run(
   // Run computeAt on our potentially modified producer(s)
   if (!producers.empty()) {
     for (auto producer_to_run : producers) {
-      ComputeAt ca(producer_to_run, consumer, consumer_position);
+      ComputeAt ca(producer_to_run, consumer, consumer, consumer_position);
       ca.runPass();
     }
   }
+}
+
+void ComputeAt::runWith(
+    TensorView* producer,
+    TensorView* consumer,
+    unsigned int producer_position) {
+  FUSER_PERF_SCOPE("ComputeAt::runWith");
+
+  // Make sure the correct fusion is setup between this and consumer.
+  TORCH_CHECK(
+      producer->fusion() == consumer->fusion(),
+      producer,
+      " and ",
+      consumer,
+      " are not in the same fusion.");
+
+  // Make sure Fusion Guard is set appropriately
+  FusionGuard fg(producer->fusion());
+
+  ComputeAt ca(producer, consumer, producer, producer_position);
+  ca.runPass();
 }
 
 // Actually applies transformation
 unsigned int ComputeAt::backwardComputeAt_impl(
     TensorView* producer,
     TensorView* consumer,
-    unsigned int consumer_compute_at_axis) {
+    unsigned int consumer_compute_at_pos) {
   FUSER_PERF_SCOPE("backwardComputeAt_impl");
 
   auto& producer_entry = tv_data.at(producer);
@@ -225,29 +191,61 @@ unsigned int ComputeAt::backwardComputeAt_impl(
   auto replay = TransformReplay::replayPasC(
       producer->domain(),
       consumer->domain(),
-      (int)consumer_compute_at_axis,
+      (int)consumer_compute_at_pos,
       root_map_);
+
+  if (replay.second == 0) {
+    return 0;
+  }
 
   producer_entry.setPassPosition(replay.second);
 
-  if (producer_entry.shouldSetComputeAt(replay.second)) {
+  if (replay.second >= producer->getComputeAtPosition()) {
     const TensorDomain* current_domain = producer->domain();
     TensorDomain* new_domain = replay.first;
+
+    TORCH_INTERNAL_ASSERT(
+        validateDomain(producer, new_domain),
+        "Tried to set the domain of ",
+        producer,
+        " to ",
+        new_domain,
+        " but that would invalidate previously compute at position or max producer position.");
+
     producer->setDomain(new_domain);
-    root_map_.setAlias(current_domain, new_domain);
     producer->setComputeAt(replay.second);
-    producer_entry.setComputeAtDomain(producer->domain());
+    consumer->setMaxProducer(consumer_compute_at_pos);
+    root_map_.setAlias(current_domain, new_domain);
   }
 
   return replay.second;
 }
 
-// Actually applies transformation
+// Actually applies transformation, replay consumer based on producer, set
+// compute at of producer, set pass position of consumer, return position
+// relative to consumer
 unsigned int ComputeAt::forwardComputeAt_impl(
     TensorView* producer,
     TensorView* consumer,
-    unsigned int producer_compute_at_axis) {
+    unsigned int producer_compute_at_pos) {
   FUSER_PERF_SCOPE("forwardComputeAt_impl");
+
+  // Can get into a situation where we inlined into a reduction, but then would
+  // try to traverse forward at that position but wouldn't be valid.
+  // Reduce position to be inside first reduction
+  unsigned int first_red_pos = producer->nDims();
+  for (unsigned int i = 0;
+       i < (unsigned int)producer->domain()->domain().size();
+       i++) {
+    if (producer->axis((int)i)->isReduction()) {
+      first_red_pos = i;
+      break;
+    }
+  }
+  producer_compute_at_pos = std::min(first_red_pos, producer_compute_at_pos);
+  if (producer_compute_at_pos == 0) {
+    return 0;
+  }
 
   auto& consumer_entry = tv_data.at(consumer);
   const auto& producer_entry = tv_data.at(producer);
@@ -255,28 +253,30 @@ unsigned int ComputeAt::forwardComputeAt_impl(
   auto replay = TransformReplay::replayCasP(
       consumer->domain(),
       producer->domain(),
-      (int)producer_compute_at_axis,
+      (int)producer_compute_at_pos,
       root_map_);
 
-  if (producer_entry.shouldSetComputeAt(producer_compute_at_axis)) {
-    int producer_rel_pos = replay.second;
-    int producer_this_pos = (int)producer_compute_at_axis;
-    // When the producer CA axes have reductions, they are not used to
-    // replay the consumer.
-    if (producer_this_pos > producer_rel_pos) {
-      producer_this_pos = producer_rel_pos;
-    }
-    producer->setComputeAt(producer_this_pos);
+  consumer_entry.setPassPosition(replay.second);
+
+  if (producer_compute_at_pos > producer->getComputeAtPosition()) {
+    producer->setComputeAt((int)producer_compute_at_pos);
   }
 
-  consumer_entry.setPassPosition(replay.second);
-  if (consumer_entry.shouldSetComputeAt(replay.second) &&
-      consumer != consumer_) {
+  if (replay.second > consumer->getMaxProducerPosition()) {
     const TensorDomain* current_domain = consumer->domain();
     TensorDomain* new_domain = replay.first;
+
+    TORCH_INTERNAL_ASSERT(
+        validateDomain(consumer, new_domain),
+        "Tried to set the domain of ",
+        producer,
+        " to ",
+        new_domain,
+        " but that would invalidate previously compute at position or max producer position.");
+
     consumer->setDomain(new_domain);
+    consumer->setMaxProducer(replay.second);
     root_map_.setAlias(current_domain, new_domain);
-    consumer_entry.setComputeAtDomain(consumer->domain());
   }
 
   return replay.second;
@@ -338,6 +338,10 @@ void ComputeAt::setCommonConsumer() {
 // computeAt if it will increase computeAt positions.
 void ComputeAt::traverseBackward() {
   FUSER_PERF_SCOPE("ComputeAt::traverseBackward");
+  if (reference_ == producer_) {
+    // Forward compute at don't need to run backward traversal
+    return;
+  }
 
   // propagate *backward* through all *producer* use_chains or from *producer*
   // to common_consumer if common_consumer exists. Only apply transform if
@@ -348,7 +352,7 @@ void ComputeAt::traverseBackward() {
   for (auto tv_chain : chains) {
     TensorView* running_producer = tv_chain.back();
     TensorView* running_consumer = nullptr;
-    unsigned int running_consumer_pos = consumer_position_;
+    unsigned int running_consumer_pos = reference_position_;
     tv_chain.pop_back();
 
     TORCH_INTERNAL_ASSERT(running_producer == consumer_);
@@ -375,7 +379,9 @@ void ComputeAt::traverseForward() {
         DependencyCheck::getAllDependencyChains(producer_, common_consumer_));
   }
 
-  unsigned int producer_pos = tv_data.at(producer_).getNewPosition();
+  unsigned int producer_pos = reference_ == producer_
+      ? reference_position_
+      : producer_->getComputeAtPosition();
 
   // propagate forward through all chains
   for (auto tv_dep_chain : chains) {
@@ -390,7 +396,6 @@ void ComputeAt::traverseForward() {
       running_producer = running_consumer;
       running_consumer = tv_dep_chain.front();
       tv_dep_chain.pop_front();
-
       running_producer_pos = forwardComputeAt_impl(
           running_producer, running_consumer, running_producer_pos);
     }
@@ -425,71 +430,34 @@ void ComputeAt::runPass() {
 
   // Start at producer and traverse forward through all chains
   traverseForward();
-
-  setupOutputs();
-
-  for (const auto& entry : tv_data) {
-    entry.second.validateNewComputeAt();
-  }
-
-  TORCH_INTERNAL_ASSERT(
-      BestEffortReplay::findFirstMismatchedID(
-          consumer_->domain(), tv_data.at(consumer_).getOriginalDomain()) ==
-          (int)consumer_->domain()->nDims(),
-      "ComputeAt logic changed the consumer domain which should not happen. Domain was ",
-      tv_data.at(consumer_).getOriginalDomain(),
-      " but is now: ",
-      consumer_->domain());
-}
-
-void ComputeAt::setupOutputs() {
-  FUSER_PERF_SCOPE("ComputeAt::setupOutputs");
-
-  if (common_consumer_ != nullptr)
-    return;
-
-  std::vector<TensorView*> touched_output_order;
-  const auto& terminating_outputs =
-      FusionGuard::getCurFusion()->getTerminatingOutputs();
-
-  for (auto out : ir_utils::filterByType<TensorView>(
-           FusionGuard::getCurFusion()->outputs())) {
-    if (tv_data.find(out) != tv_data.end()) {
-      if (tv_data[out].touched()) {
-        // No need to adjust computeAt when an output is not
-        // a terminating output.
-        if (std::find(
-                terminating_outputs.begin(), terminating_outputs.end(), out) !=
-            terminating_outputs.end()) {
-          touched_output_order.push_back(out);
-        }
-      }
-    }
-  }
-
-  if (touched_output_order.size() > 0) {
-    for (size_t i = 0; i < touched_output_order.size() - 1; i++) {
-      touched_output_order[i]->setComputeAt(
-          (int)tv_data.at(touched_output_order[i]).getNewPosition());
-    }
-  }
 }
 
 ComputeAt::ComputeAt(
     TensorView* _producer,
     TensorView* _consumer,
-    unsigned int _consumer_position)
+    TensorView* _reference,
+    unsigned int _reference_position)
     : producer_(_producer),
       consumer_(_consumer),
-      consumer_position_(_consumer_position) {
+      reference_(_reference),
+      reference_position_(_reference_position) {
   TORCH_INTERNAL_ASSERT(
-      consumer_position_ >= 0 && consumer_position_ <= consumer_->nDims(),
+      reference_ == producer_ || reference_ == consumer_,
+      "For compute at reference must be producer or consumer, it's neither.",
+      " reference: ",
+      reference_,
+      " consumer: ",
+      consumer_,
+      " producer: ",
+      producer_);
+  TORCH_INTERNAL_ASSERT(
+      reference_position_ >= 0 && reference_position_ <= reference_->nDims(),
       "Invalid computeAt axis, received ",
-      _consumer_position,
+      reference_position_,
       " but should be > -",
-      consumer_->nDims(),
+      reference_->nDims(),
       " and <= ",
-      consumer_->nDims(),
+      reference_->nDims(),
       ".");
 
   producer_use_chains_ = tvChains(DependencyCheck::getAllUseChains(producer_));

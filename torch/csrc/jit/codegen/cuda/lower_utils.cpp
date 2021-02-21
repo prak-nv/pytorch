@@ -36,10 +36,10 @@ std::vector<kir::ForLoop*> getLoops(kir::Expr* scope) {
 void insertBefore(kir::Expr* scope, kir::Expr* ref, kir::Expr* expr) {
   if (auto ite = dynamic_cast<kir::IfThenElse*>(scope)) {
     ite->thenBody().insert_before(ref, expr);
-  } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+  } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(scope)) {
     for_loop->body().insert_before(ref, expr);
   } else {
-    TORCH_INTERNAL_ASSERT("Unexpected scope expression");
+    TORCH_INTERNAL_ASSERT(false, "Unexpected scope expression");
   }
 }
 
@@ -100,12 +100,15 @@ bool isTVOp(const Expr* expr) {
        expr->getExprType().value() == ExprType::TransposeOp)) {
     return true;
   }
+  if (expr->getExprType().value() == ExprType::WelfordOp) {
+    return true;
+  }
   return false;
 }
 
 bool isTVOp(const kir::Expr* expr) {
   const auto& outputs = expr->outputs();
-  return outputs.size() == 1 && outputs[0]->isA<kir::TensorView>();
+  return outputs.size() >= 1 && outputs[0]->isA<kir::TensorView>();
 }
 
 // TODO: why do we assume there's a single TV output?
@@ -188,7 +191,7 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
 
   auto loops_it = loops.begin();
   // Look at each axis individually in out's domain
-  for (int64_t tv_i = 0; tv_i < (int64_t)tv->getThisComputeAtAxis(); tv_i++) {
+  for (int64_t tv_i = 0; tv_i < (int64_t)tv->getComputeAtPosition(); tv_i++) {
     // Grab the axis ID
 
     auto local_id = tv->axis(tv_i);
@@ -220,7 +223,7 @@ std::pair<kir::ForLoop*, int64_t> getAllocPoint(
     ++loops_it;
   }
 
-  return {alloc_loop, (int64_t)tv->getThisComputeAtAxis()};
+  return {alloc_loop, (int64_t)tv->getComputeAtPosition()};
 }
 
 std::pair<kir::ForLoop*, int64_t> getAllocPoint(
