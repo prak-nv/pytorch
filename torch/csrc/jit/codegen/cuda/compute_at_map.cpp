@@ -1,4 +1,4 @@
-#include <torch/csrc/jit/codegen/cuda/lower_compute_at_map.h>
+#include <torch/csrc/jit/codegen/cuda/compute_at_map.h>
 
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>

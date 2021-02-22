@@ -356,7 +356,6 @@ kir::Expr* GpuLower::lowerExpr(const Expr* expr) {
 }
 
 GpuLower* GpuLower::current() {
-  TORCH_INTERNAL_ASSERT(active_gpu_lower != nullptr);
   return active_gpu_lower;
 }
 
