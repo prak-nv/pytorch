@@ -110,8 +110,9 @@ class TORCH_CUDA_CU_API Int : public Val {
 enum class TORCH_CUDA_API ComputeAtMode { Standard, BestEffort, MostInlined };
 
 class ComputeAt;
-class TransformReplay;
+class TransformPropagator;
 class TransformIter;
+class TransformReplay;
 class OptOutMutator;
 
 namespace ir_utils {
@@ -320,6 +321,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return axes_to_swizzle_;
   }
 
+  friend TORCH_CUDA_CU_API TransformPropagator;
   friend TORCH_CUDA_CU_API TransformReplay;
   friend TORCH_CUDA_CU_API OptOutMutator;
   friend ComputeAt;

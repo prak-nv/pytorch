@@ -71,6 +71,8 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   std::string toString();
 
  private:
+  bool has_lowered_kir_ = false;
+
   void mapIds(IterDomain* id0, IterDomain* id1);
 
   //! Convert everything to lowered structures (kernel ir), as we will use
