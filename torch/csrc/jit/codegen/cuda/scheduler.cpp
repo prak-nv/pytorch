@@ -1,6 +1,7 @@
 #include <torch/csrc/jit/codegen/cuda/scheduler.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
+#include <torch/csrc/jit/codegen/cuda/compute_at_map.h>
 #include <torch/csrc/jit/codegen/cuda/executor_utils.h>
 #include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
@@ -8,6 +9,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/parser.h>
+#include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -190,14 +192,14 @@ ReductionParams multipleReductionHeuristic(
         // const int log2_elements = log2_ceil(reduction_dim_size);
         // const int next_power_of_two = 1 << log2_elements;
         // const int kBatchesPerWarp = (next_power_of_two <= 128) ? 2 : 1;
-        // rparams.num_warps = 4;
+        rparams.num_warps = 1;
 
         // TODO: multiple batches per warp causes layer-norm errors
         const int kBatchesPerWarp = 1;
         rparams.batches_per_block = rparams.num_warps * kBatchesPerWarp;
         gdimx = std::max(
             ceilDiv(outer_dim_size, rparams.batches_per_block), (int64_t)1);
-        bdimx = at::cuda::warp_size();
+        bdimx = at::cuda::warp_size() * 4;
       } else {
         // rparams.num_warps = 1;
         // rparams.batches_per_block = 1;
@@ -1168,30 +1170,93 @@ void handleCastBroadcastInput(Fusion* fusion, TensorView* input) {
   }
 }
 
-void cacheInputs(
-    Fusion* fusion,
-    const ReductionParams& rparams,
-    const std::vector<TensorView*>& reduction_tv,
-    std::vector<TensorView*>& other_tv) {
-  if (rparams.fastest_dim) {
-    const bool kHasOuterAxis = reduction_tv.front()->nDims() > 1;
-    if (rparams.persistent_kernel && kHasOuterAxis) {
-      // Fusion input castOp replaces cache_after
-      // Determine if there are any casts or broadcast on fusion
-      // inputs
-      const auto& in_tv = ir_utils::filterByType<TensorView>(fusion->inputs());
-      for (const auto input : in_tv) {
-        if (input->getRootDomain().size() > 1) {
-          // If pseudo-cache, skip cache after
-          bool hasBroadcast = isBroadcasted(input) != nullptr;
-          bool hasCast = isCasted(input) != nullptr;
-          if (!hasBroadcast && !hasCast) {
-            other_tv.push_back(input->cache_after());
-          }
-        }
+void cacheInputs(Fusion* fusion, std::vector<TensorView*>& other_tv) {
+  // Fusion input castOp replaces cache_after
+  // Determine if there are any casts or broadcast on fusion
+  // inputs
+  const auto& in_tv = ir_utils::filterByType<TensorView>(fusion->inputs());
+  for (const auto input : in_tv) {
+    if (input->uses().size() > 1) {
+      // If pseudo-cache, skip cache after
+      bool hasBroadcast = isBroadcasted(input) != nullptr;
+      bool hasCast = isCasted(input) != nullptr;
+      if (!hasBroadcast && !hasCast) {
+        other_tv.push_back(input->cache_after());
       }
     }
   }
+}
+
+void computeAtInputs(
+    TensorView* consumer,
+    int pos,
+    ComputeAtMode mode = ComputeAtMode::Standard) {
+  auto inp_vals = IterVisitor::getInputsTo({consumer});
+  auto inp_tvs = ir_utils::filterByType<TensorView>(inp_vals);
+  for (auto inp_tv : inp_tvs) {
+    inp_tv->computeAt(consumer, pos, mode);
+  }
+}
+
+void computeWithOutputs(
+    TensorView* producer,
+    int pos,
+    ComputeAtMode mode = ComputeAtMode::Standard) {
+  auto out_vals = DependencyCheck::getAllOutputsOf({producer});
+  auto out_tvs = ir_utils::filterByType<TensorView>(out_vals);
+  for (auto out_tv : out_tvs) {
+    producer->computeWith(out_tv, pos, mode);
+  }
+}
+
+std::vector<TensorView*> uniqueEntries(
+    const std::vector<TensorView*>& tv_deuqe) {
+  std::vector<TensorView*> unique_entries;
+  std::unordered_set<TensorView*> inserted;
+  for (auto tv_entry : tv_deuqe) {
+    if (inserted.emplace(tv_entry).second) {
+      unique_entries.emplace_back(tv_entry);
+    }
+  }
+  return unique_entries;
+}
+
+std::vector<TensorView*> producerTvsOf(TensorView* tv) {
+  auto producer_vals =
+      ir_utils::filterByType<TensorView>(tv->definition()->inputs());
+  return {producer_vals.begin(), producer_vals.end()};
+}
+
+std::vector<TensorView*> consumerTvsOf(TensorView* tv) {
+  std::vector<TensorView*> consumer_tvs;
+  for (auto use_expr : tv->uses()) {
+    auto producer_tvs = ir_utils::filterByType<TensorView>(use_expr->inputs());
+    consumer_tvs.insert(
+        consumer_tvs.end(), producer_tvs.begin(), producer_tvs.end());
+  }
+  return uniqueEntries(consumer_tvs);
+}
+
+std::vector<TensorView*> producerTvsOf(std::vector<TensorView*> tvs) {
+  std::vector<TensorView*> all_producer_tvs;
+  for (auto tv : tvs) {
+    auto producer_tvs = producerTvsOf(tv);
+    all_producer_tvs.insert(
+        all_producer_tvs.end(), producer_tvs.begin(), producer_tvs.end());
+  }
+
+  return uniqueEntries(all_producer_tvs);
+}
+
+std::vector<TensorView*> consumerTvsOf(std::vector<TensorView*> tvs) {
+  std::vector<TensorView*> all_consumer_tvs;
+  for (auto tv : tvs) {
+    auto consumer_tvs = consumerTvsOf(tv);
+    all_consumer_tvs.insert(
+        all_consumer_tvs.end(), consumer_tvs.begin(), consumer_tvs.end());
+  }
+
+  return uniqueEntries(all_consumer_tvs);
 }
 
 } // namespace
@@ -1199,398 +1264,106 @@ void cacheInputs(
 void scheduleNormalization(
     Fusion* fusion,
     const ReductionParams& rparams,
-    const std::vector<TensorView*>& reduction_tv,
+    const std::vector<TensorView*>& reduction_tvs_,
     std::vector<TensorView*>& other_tv) {
   FusionGuard fg(fusion);
 
-  auto first_reduction_tv = reduction_tv.front();
-  const size_t kReductionRootDims = first_reduction_tv->getRootDomain().size();
-
-  const auto& in_tv = ir_utils::filterByType<TensorView>(fusion->inputs());
-  const auto& out_tv = ir_utils::filterByType<TensorView>(fusion->outputs());
-
-  if (rparams.fastest_dim && rparams.persistent_kernel) {
-    cacheInputs(fusion, rparams, reduction_tv, other_tv);
+  for (auto inp : fusion->inputs()) {
+    std::cout << inp << std::endl;
+  }
+  for (auto out : fusion->outputs()) {
+    std::cout << out << std::endl;
   }
 
-  std::vector<TensorView*> all_tv;
-  for (auto input : in_tv) {
-    if (input->getRootDomain().size() ==
-        reduction_tv.front()->getRootDomain().size()) {
-      all_tv.push_back(input);
-    }
-  }
-  all_tv.insert(all_tv.end(), reduction_tv.begin(), reduction_tv.end());
-  all_tv.insert(all_tv.end(), other_tv.begin(), other_tv.end());
+  fusion->printMath();
 
-  organizeAxes(reduction_tv, all_tv);
+  const auto& input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  const auto& output_tvs =
+      ir_utils::filterByType<TensorView>(fusion->outputs());
+
+  cacheInputs(fusion, other_tv);
 
   // For intermediate outputs, apply cache_fork
-  for (const auto output : fusion->outputs()) {
-    if (!output->uses().empty()) {
-      if (output->getValType().value() == ValType::TensorView) {
-        other_tv.push_back(output->as<TensorView>()->cache_fork());
+  for (const auto out_tv : output_tvs) {
+    if (!out_tv->uses().empty()) {
+      other_tv.push_back(out_tv->cache_fork());
+    }
+  }
+
+  for (const auto inp_tv : input_tvs) {
+    if (inp_tv->uses().size() > 1) {
+      other_tv.push_back(inp_tv->cache_after());
+    }
+  }
+
+  std::vector<TensorView*> reduction_tvs;
+  for (auto expr : fusion->exprs()) {
+    if (expr->getExprType().value() == ExprType::ReductionOp) {
+      auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+      for (auto out_tv : out_tvs) {
+        if (out_tv->hasReduction()) {
+          reduction_tvs.push_back(out_tv);
+        }
       }
     }
   }
 
-  // Scheduling the Reduction
-  if (rparams.fastest_dim) {
-    const bool kHasOuterAxis = reduction_tv.front()->nDims() > 1;
-    if (rparams.persistent_kernel) {
-      // 1) Apply heuristics to each reduction
-      std::vector<TensorView*> rfactor_tv;
-      for (auto tv : reduction_tv) {
-        if (kHasOuterAxis && rparams.batches_per_block > 1 &&
-            rparams.num_warps > 1) {
-          // Output Splits
-          //      [Out-Lft, Out-PerBlock?, Out-NumWarps>|, <Reduction Dims>]
-          // Idx: |     0             1             2   |
-          //      ---------------------------------------
-          //       Output Dimensions
-          tv->split(0, rparams.batches_per_block);
-          tv->split(1, rparams.num_warps);
-        }
+  auto first_reduction_tv = reduction_tvs[0];
+  organizeAxes({first_reduction_tv}, {first_reduction_tv});
+  first_reduction_tv->split(-1, 8, false);
+  TransformPropagator::from(first_reduction_tv);
 
-        // Reduction Split
-        //      [outer,   |rf-Unroll, rF-Leftover|]
-        // Idx:     0     |   (-2)       (-1)    |
-        //                ----------------------
-        //                Reduction Dimensions
-        tv->split(-1, rparams.loop_unroll, false);
+  std::vector<TensorView*> rfactor_tvs;
 
-        auto reduction_tv_rf = tv->rFactor({-2});
-        rfactor_tv.push_back(reduction_tv_rf);
+  for (auto reduction_tv : reduction_tvs) {
+    rfactor_tvs.push_back(reduction_tv->rFactor({-2}));
+  }
+
+  computeAtInputs(first_reduction_tv, 1);
+  computeWithOutputs(first_reduction_tv, 1);
+
+  // Want to compute inline everything except inputs and outputs. Those we want
+  // to unroll separately. Producer/consumer relative to computeAt call.
+  // Reduction tvs are source of truth, so propagate from there
+
+  for (auto output_tv : output_tvs) {
+    auto inputs = IterVisitor::getInputsTo({output_tv});
+    auto inp_tvs = ir_utils::filterByType<TensorView>(inputs);
+    auto producer_tvs = consumerTvsOf({inp_tvs.begin(), inp_tvs.end()});
+    for (auto producer_tv : producer_tvs) {
+      if (DependencyCheck::isDependencyOf(producer_tv, output_tv)) {
+        producer_tv->computeAt(output_tv, -1, ComputeAtMode::MostInlined);
       }
-
-      // 3) Split the other TensorViews
-      for (auto tv : other_tv) {
-        if (tv->getRootDomain().size() == kReductionRootDims) {
-          if (kHasOuterAxis && rparams.batches_per_block > 1 &&
-              rparams.num_warps > 1) {
-            tv->split(0, rparams.batches_per_block);
-            tv->split(1, rparams.num_warps);
-          }
-          tv->split(-1, rparams.loop_unroll, false);
-        }
-      }
-
-      if (kHasOuterAxis) {
-        // 4) ComputeAt Structure
-        const int kComputeAtAxis = 1;
-        for (auto output : out_tv) {
-          auto inputs_for_output = fusion->inputsOf(output);
-          for (auto input : in_tv) {
-            if (inputs_for_output.find(input) != inputs_for_output.end()) {
-              input->computeAt(output, -1, ComputeAtMode::MostInlined);
-            }
-          }
-        }
-      }
-
-      // 6) Parallel Binding
-      //      [Out-Lft, Out-PerBlock?, Out-NumWarps>|, rf-Unroll,  rF-Lft]
-      // Idx: [   0        1              2         |      3         4   ]
-      //      [  BIDx      1             TIDy       |      3        TIDx ]
-      //      |-------------------------------------|--------------------]
-      //                    Outer                         Reduction
-      // For all TensorViews
-      for (auto tv : other_tv) {
-        if (tv->getRootDomain().size() == kReductionRootDims) {
-          if (kHasOuterAxis) {
-            tv->axis(0)->parallelize(ParallelType::BIDx);
-            if (rparams.num_warps > 1) {
-              tv->axis(2)->parallelize(ParallelType::TIDy);
-            }
-          }
-          tv->axis(-1)->parallelize(ParallelType::TIDx);
-        }
-      }
-
-      // Reduction TensorViews
-      for (auto tv : reduction_tv) {
-        if (kHasOuterAxis) {
-          tv->axis(0)->parallelize(ParallelType::BIDx);
-          if (rparams.num_warps > 1) {
-            tv->axis(2)->parallelize(ParallelType::TIDy);
-          }
-        }
-        tv->axis(-1)->parallelize(ParallelType::TIDx);
-      }
-
-      // rFactor TensorViews
-      for (auto tv : rfactor_tv) {
-        if (kHasOuterAxis) {
-          tv->axis(0)->parallelize(ParallelType::BIDx);
-          if (rparams.num_warps > 1) {
-            tv->axis(2)->parallelize(ParallelType::TIDy);
-          }
-        }
-        tv->axis(-1)->parallelize(ParallelType::TIDx);
-      }
-      // end persistent kernel
-    } else {
-      // 1) Apply heuristics to each reduction
-      std::vector<TensorView*> rfactor_tv;
-      for (auto tv : reduction_tv) {
-        // Reduction Splits
-        //      [ Outer  |, rF-Leftover, rf-Unroll, rf-TDX|]
-        // Idx:     0    |     1             2         3  |
-        //               ----------------------------------
-        //                       Reduction Dimensions
-        tv->split(-1, rparams.lparams.bdimx());
-        tv->split(-2, rparams.loop_unroll);
-
-        auto reduction_tv_rf = tv->rFactor({-3, -2});
-        rfactor_tv.push_back(reduction_tv_rf);
-      }
-
-      // 2) Split the other TensorViews
-      for (auto tv : other_tv) {
-        if (tv->getRootDomain().size() == kReductionRootDims) {
-          tv->split(-1, rparams.lparams.bdimx());
-          tv->split(-2, rparams.loop_unroll);
-        }
-      }
-
-      if (kHasOuterAxis) {
-        // 3) ComputeAt Structure
-        const int kComputeAtAxis = 1;
-        for (auto output : out_tv) {
-          auto inputs_for_output = fusion->inputsOf(output);
-          for (auto input : in_tv) {
-            if (inputs_for_output.find(input) != inputs_for_output.end()) {
-              input->computeAt(output, kComputeAtAxis);
-            }
-          }
-        }
-
-        // 4) Find TensorViews to duplicate
-        auto duplicate_tv = findTensorViewsToDuplicate(fusion, other_tv);
-
-        // Any TVs with multiple uses and dependencies with same IterDomain
-        // Order of Duplication is necessary for correctness
-        for (auto tensor : duplicate_tv) {
-          auto result = tensor->duplicate();
-          other_tv.insert(other_tv.end(), result.begin(), result.end());
-        }
-
-        // 5) Handle Inline-ComputeAt
-        auto compute_inline_tv =
-            findTensorViewsToComputeAtInline(fusion, other_tv);
-        for (auto tensor : compute_inline_tv) {
-          auto uses = tensor->uses();
-          TORCH_INTERNAL_ASSERT(
-              uses.size() == 1,
-              "This inline-computeAt TensorView ",
-              tensor->name(),
-              " is used multiple times.")
-          Expr* expr = *uses.begin();
-          TensorView* consumer = expr->output(0)->as<TensorView>();
-          tensor->computeAt(consumer, -1);
-        }
-      }
-
-      // 6) Parallel Binding
-      //      [ outer |, rF-Leftover, rf-Unroll, rf-TDX]
-      // Idx: [  BIDx |     1           2         TIDx ]
-      //      |-------|--------------------------------]
-      //        Outer             Reduction
-      // For all TensorViews
-      for (auto tv : other_tv) {
-        if (tv->getRootDomain().size() == kReductionRootDims) {
-          if (kHasOuterAxis) {
-            tv->axis(0)->parallelize(ParallelType::BIDx);
-          }
-          tv->axis(-1)->parallelize(ParallelType::TIDx);
-        }
-      }
-
-      // Reduction TensorViews
-      for (auto tv : reduction_tv) {
-        if (kHasOuterAxis) {
-          tv->axis(0)->parallelize(ParallelType::BIDx);
-        }
-        tv->axis(-1)->parallelize(ParallelType::TIDx);
-      }
-
-      // rFactor TensorViews
-      for (auto tv : rfactor_tv) {
-        if (kHasOuterAxis) {
-          tv->axis(0)->parallelize(ParallelType::BIDx);
-        }
-        tv->axis(-1)->parallelize(ParallelType::TIDx);
-      }
-    } // end non-persistent
-    // end fastest_dim logic
-  } else {
-    // non_fastest_dim logic
-    const bool outer_axis_exists = reduction_tv.front()->nDims() > 2;
-    const int reduction_axis =
-        reduction_tv.front()->domain()->getReductionAxis().value();
-    const int inner_axis = reduction_axis - 1;
-    TORCH_INTERNAL_ASSERT(!outer_axis_exists || (inner_axis != 0));
-
-    // 1) For each reduction, apply reduction heuristics
-    std::vector<TensorView*> rfactor_tv;
-    for (auto tv : reduction_tv) {
-      bool rfactor_axis = false;
-
-      // Reduction Splits - [outer, inner, reduction-Leftover, TDX?]
-      if (rparams.lparams.bdimx() > 1) {
-        // Reduction Split
-        //      [outer, inner, | rF-Leftover, rf-TIDx  ]
-        // Idx:     0     1    |   (-2)       (-1)     |
-        //                     -------------------------
-        //                        Reduction Dimensions
-        rfactor_axis = true;
-        tv->split(
-            reduction_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
-      }
-
-      // Inner Splits
-      //      [Outer, |Inner-Lft, Inner-BIDy, Inner-TIDy|, <Reduction Dims>]
-      // Idx:         |     0        1             2    |
-      //              ---------------------------------------
-      //                          Inner Dimensions
-      tv->split(inner_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
-      tv->split(inner_axis, NamedScalar::getParallelDim(ParallelType::BIDy));
-
-      // Outer Splits
-      //      [Outer-Leftover, Outer-BIDx |, Inner, <Reduction Dims>]
-      // Idx: |     0             1       |
-      //      -----------------------------
-      //             Outer Dimensions
-      if (outer_axis_exists && rparams.lparams.gdimx() > 1) {
-        tv->split(0, NamedScalar::getParallelDim(ParallelType::BIDx));
-      }
-
-      if (rfactor_axis) {
-        auto reduction_tv_rf = tv->rFactor({-2});
-        rfactor_tv.push_back(reduction_tv_rf);
-      }
-    }
-
-    // 2) Other Tensor Splits
-    for (auto tv : other_tv) {
-      if (tv->getRootDomain().size() == kReductionRootDims) {
-        // Reduction Splits - [outer, inner, reduction-Leftover, TDX?]
-        if (rparams.lparams.bdimx() > 1) {
-          tv->split(
-              reduction_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
-        }
-
-        // Inner Splits - [outer, inner-Leftover, BDY, TDY, reduction]
-        tv->split(inner_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
-        tv->split(inner_axis, NamedScalar::getParallelDim(ParallelType::BIDy));
-
-        // Outer Splits
-        // [outer-Leftover, BDX?, inner-Leftover, BDY, TDY, reduction]
-        if (outer_axis_exists && rparams.lparams.gdimx() > 1) {
-          tv->split(0, NamedScalar::getParallelDim(ParallelType::BIDx));
-        }
-      }
-    }
-
-    int kBIDyAxis = -1;
-    if (outer_axis_exists) {
-      if (rparams.lparams.gdimx() > 1) {
-        kBIDyAxis = 3;
-      } else {
-        kBIDyAxis = 2;
-      }
-    } else {
-      kBIDyAxis = 1;
-    }
-    TORCH_INTERNAL_ASSERT(kBIDyAxis > 0);
-    const int kTIDyAxis = kBIDyAxis + 1;
-
-    // 3) ComputeAt structure
-    // [outer-lft, BDX?, inner-lft, BDY, TDY, reduction-lft, TDX?]
-    const size_t kComputeAtAxis = kTIDyAxis + 1;
-    for (auto output : out_tv) {
-      auto inputs_for_output = fusion->inputsOf(output);
-      for (auto input : in_tv) {
-        if (inputs_for_output.find(input) != inputs_for_output.end()) {
-          input->computeAt(output, kComputeAtAxis);
-        }
-      }
-    }
-
-    // 4) Find TensorViews to duplicate and computeAt inline
-    auto duplicate_tv = findTensorViewsToDuplicate(fusion, other_tv);
-
-    // Any TVs with multiple uses and dependencies with same IterDomain
-    // Order of Duplication is necessary for correctness
-    for (auto tensor : duplicate_tv) {
-      auto result = tensor->duplicate();
-      // Add duplicated TVs to Other TVs
-      other_tv.insert(other_tv.end(), result.begin(), result.end());
-    }
-
-    // 5) Handle Inline-ComputeAt
-    auto compute_inline_tv = findTensorViewsToComputeAtInline(fusion, other_tv);
-    for (auto tensor : compute_inline_tv) {
-      auto uses = tensor->uses();
-      TORCH_INTERNAL_ASSERT(
-          uses.size() == 1,
-          "This inline-computeAt TensorView ",
-          tensor->name(),
-          " is used multiple times.")
-      Expr* expr = *uses.begin();
-      TensorView* consumer = expr->output(0)->as<TensorView>();
-      tensor->computeAt(consumer, -1);
-    }
-
-    // 6) Parallel Bindings
-    for (auto tv : other_tv) {
-      if (tv->getRootDomain().size() == kReductionRootDims) {
-        if (outer_axis_exists && rparams.lparams.gdimx() > 1) {
-          tv->axis(1)->parallelize(ParallelType::BIDx);
-        }
-
-        tv->axis(kBIDyAxis)->parallelize(ParallelType::BIDy);
-        tv->axis(kTIDyAxis)->parallelize(ParallelType::TIDy);
-
-        if (tv->nDims() > kComputeAtAxis && rparams.lparams.bdimx() > 1) {
-          tv->axis(-1)->parallelize(ParallelType::TIDx);
-        }
-      }
-    }
-
-    for (auto tv : reduction_tv) {
-      if (outer_axis_exists && rparams.lparams.gdimx() > 1) {
-        tv->axis(1)->parallelize(ParallelType::BIDx);
-      }
-
-      tv->axis(kBIDyAxis)->parallelize(ParallelType::BIDy);
-      tv->axis(kTIDyAxis)->parallelize(ParallelType::TIDy);
-
-      if (tv->nDims() > kComputeAtAxis && rparams.lparams.bdimx() > 1) {
-        tv->axis(-1)->parallelize(ParallelType::TIDx);
-      }
-    }
-
-    for (auto tv : rfactor_tv) {
-      if (outer_axis_exists && rparams.lparams.gdimx() > 1) {
-        tv->axis(1)->parallelize(ParallelType::BIDx);
-      }
-
-      tv->axis(kBIDyAxis)->parallelize(ParallelType::BIDy);
-      tv->axis(kTIDyAxis)->parallelize(ParallelType::TIDy);
-
-      if (tv->nDims() > kComputeAtAxis && rparams.lparams.bdimx() > 1) {
-        tv->axis(-1)->parallelize(ParallelType::TIDx);
-      }
-    }
-  } // end non_fastest_dim logic
-
-  // If castOp then Broadcast, inline computeAt castOp with BroadcastOp
-  for (const auto input : in_tv) {
-    if (input->getRootDomain().size() != kReductionRootDims) {
-      handleCastBroadcastInput(fusion, input);
     }
   }
+
+  std::cout << rfactor_tvs[0] << std::endl;
+
+  auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
+  ca_loop_map_.build();
+
+  ca_loop_map_.getConcreteMappedID(rfactor_tvs[0]->axis(0))
+      ->parallelize(ParallelType::BIDx);
+
+  ca_loop_map_.getConcreteMappedID(rfactor_tvs[0]->axis(2))
+      ->parallelize(ParallelType::Unswitch);
+
+  ca_loop_map_.getConcreteMappedID(rfactor_tvs[0]->axis(1))
+      ->parallelize(ParallelType::TIDx);
+
+  auto used_vals = DependencyCheck::getAllValsBetween(
+      {fusion->inputs().begin(), fusion->inputs().end()}, fusion->outputs());
+
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+
+  for (auto tv : used_tvs) {
+    for (auto id : tv->domain()->domain()) {
+      id->parallelize(ca_loop_map_.getConcreteMappedID(id)->getParallelType());
+    }
+  }
+
+  fusion->printMath();
+  fusion->printKernel();
 }
 
 } // namespace cuda
