@@ -639,28 +639,6 @@ ExprGroup* getProducer(ExprGroup* sg1, ExprGroup* sg2) {
   return nullptr;
 }
 
-} // namespace
-
-// Disconect group from neighbors, and return edges that were disconnected
-std::unordered_set<ExprGroupConnections*> ExprSegmentationSorter::
-    disconnectGroup(ExprGroup* group) {
-  std::unordered_set<ExprGroupConnections*> removed_edges(
-      group->producerEdges().begin(), group->producerEdges().end());
-
-  for (auto edge : group->producerEdges()) {
-    edge->from->removeConsumerEdge(edge);
-  }
-
-  for (auto edge : group->consumerEdges()) {
-    edge->to->removeProducerEdge(edge);
-  }
-
-  group->clearProducerEdges();
-  group->clearConsumerEdges();
-
-  return removed_edges;
-}
-
 std::vector<IterDomain*> mergeDomains(
     const std::vector<IterDomain*>& domain1,
     const std::vector<IterDomain*>& domain2) {
@@ -710,6 +688,28 @@ std::vector<IterDomain*> mergeDomains(
     }
   }
   return resulting_domain;
+}
+
+} // namespace
+
+// Disconect group from neighbors, and return edges that were disconnected
+std::unordered_set<ExprGroupConnections*> ExprSegmentationSorter::
+    disconnectGroup(ExprGroup* group) {
+  std::unordered_set<ExprGroupConnections*> removed_edges(
+      group->producerEdges().begin(), group->producerEdges().end());
+
+  for (auto edge : group->producerEdges()) {
+    edge->from->removeConsumerEdge(edge);
+  }
+
+  for (auto edge : group->consumerEdges()) {
+    edge->to->removeProducerEdge(edge);
+  }
+
+  group->clearProducerEdges();
+  group->clearConsumerEdges();
+
+  return removed_edges;
 }
 
 // TODO: This function may be sub optimial. If we find that an iteration domain
