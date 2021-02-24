@@ -121,20 +121,6 @@ static void MagicScheduler_fp16_Inner_Reduction(benchmark::State& benchmark_stat
   MagicScheduler_Reduction(benchmark_state, DataType::Half, 1);
 }
 
-// inputs
-at::manual_seed(0);
-auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-at::Tensor at_x = at::randn(input_shape, options);
-
-cudaDeviceSynchronize();
-for (auto _ : benchmark_state) {
-  CudaKernelTimer timer;
-  auto output = at::layer_norm(at_x, norm_shape);
-  benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
-  cudaDeviceSynchronize();
-}
-}
-
 BENCHMARK(MagicScheduler_fp32_Outer_Reduction)
     ->RangeMultiplier(8)
     ->Ranges({{1, 1024 * 1024}, {160, 320}})
