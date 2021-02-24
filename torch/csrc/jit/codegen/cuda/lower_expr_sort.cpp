@@ -335,17 +335,7 @@ class ExprSegmentationSorter {
 //   return os;
 // }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf)
-// {
-=======
 // std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf) {
->>>>>>> Fix expression sorting add a test that was broken.
-=======
-// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf)
-// {
->>>>>>> Clang format.
 //   return os << scf->toString();
 // }
 
