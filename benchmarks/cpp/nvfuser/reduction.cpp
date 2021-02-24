@@ -4,7 +4,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
-#include <torch/csrc/jit/codegen/cuda/scheduler/all_schedulers.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler.h>
 
 #include <benchmark/benchmark.h>
 
@@ -90,7 +90,6 @@ static void MagicScheduler_Reduction(benchmark::State& benchmark_state,
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
-
 
   for (auto _ : benchmark_state) {
     CudaKernelTimer timer;
