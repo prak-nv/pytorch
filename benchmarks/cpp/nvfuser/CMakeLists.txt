@@ -5,6 +5,7 @@ add_executable(nvfuser_bench
   softmax.cpp
   lstm_cell.cpp
   gelu_backward.cpp
+  transpose.cpp
   main.cpp)
 
 target_link_libraries(nvfuser_bench PRIVATE torch_library benchmark)
