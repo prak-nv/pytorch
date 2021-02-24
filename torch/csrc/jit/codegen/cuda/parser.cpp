@@ -629,24 +629,29 @@ class IrParser {
               }
 
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-              // auto training = constant_as<bool>(node->input(5));
-              // TORCH_INTERNAL_ASSERT(
-              //     training.has_value(),
-              //     "The training (bool) parameter is required.");
-              // const bool kTraining = training.value();
-
-              // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-              // auto momentum = constant_as<float>(node->input(6));
-              // TORCH_INTERNAL_ASSERT(
-              //     momentum.has_value(),
-              //     "The momentum (float) parameter is required.");
-              // const float kMomentum = momentum.value();
-
-              // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
-              auto eps = constant_as<float>(node->input(7));
+              auto training = constant_as<bool>(node->input(5));
               TORCH_INTERNAL_ASSERT(
-                  eps.has_value(), "The EPS parameter is required.");
-              const float kEps = eps.value();
+                  training.has_value(),
+                  "The training (bool) parameter is required.");
+              const bool kTraining = training.value();
+
+              Val* momentum_ptr = nullptr;
+              // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+              if (auto momentum = constant_as<float>(node->input(6))) {
+                momentum_ptr = new Double(momentum.value());
+              } else {
+                // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+                momentum_ptr = value_map[node->input(6)->unique()];
+              }
+
+              Val* eps_ptr = nullptr;
+              // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+              if (auto eps = constant_as<float>(node->input(7))) {
+                eps_ptr = new Double(eps.value());
+              } else {
+                // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
+                eps_ptr = value_map[node->input(7)->unique()];
+              }
 
               const size_t kNumberOfDims = input->nDims();
               std::vector<int> reduction_axes;
@@ -685,7 +690,7 @@ class IrParser {
               // - kMomentum)); auto new_var_hat = add(var_hat,
               // current_var_hat);
 
-              auto var_eps = add(var, new Double(kEps));
+              auto var_eps = add(var, eps_ptr);
               auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
               auto output = mul(x_mean_sub, invstd);
 
@@ -1725,6 +1730,44 @@ bool insertProfileIValue(ProfilingRecord* pr, Node* node, size_t offset) {
         // TODO(profile_size): double check optional[size]?
         profileSize(pr, node, offset);
         break;
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  static auto native_batch_norm_schema =
+      getOperatorForLiteral(
+          "aten::native_batch_norm(Tensor input, Tensor? weight, Tensor? bias, Tensor? running_mean, Tensor? running_var, bool training, float momentum, float eps) -> (Tensor, Tensor, Tensor)")
+          ->schema();
+  static auto batch_norm_schema =
+      getOperatorForLiteral(
+          "aten::batch_norm(Tensor input, Tensor? weight, Tensor? bias, Tensor? running_mean, Tensor? running_var, bool training, float momentum, float eps, bool cudnn_enabled) -> Tensor")
+          ->schema();
+  if (node->matches(native_batch_norm_schema) ||
+      node->matches(batch_norm_schema)) {
+    switch (offset) {
+      // argument 5: training;
+      case 5:
+        profileBool(pr, node, offset);
+        break;
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  static auto native_batch_norm_backward_schema =
+      getOperatorForLiteral(
+          "aten::native_batch_norm_backward(Tensor grad_out, Tensor input, Tensor? weight, Tensor? running_mean, Tensor? running_var, Tensor? save_mean, Tensor? save_invstd, bool train, float eps, bool[3] output_mask) -> (Tensor, Tensor, Tensor)")
+          ->schema();
+  if (node->matches(native_batch_norm_backward_schema)) {
+    switch (offset) {
+      // argument 7: training;
+      case 7:
+        profileBool(pr, node, offset);
+        break;
+      // TODO: profile bool list of output_mask as well
       default:
         return false;
     }
