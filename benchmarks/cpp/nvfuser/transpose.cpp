@@ -67,6 +67,234 @@ static TensorView* setupTranspose(
 }
 
 
+static TensorView* setupTranspose3DOI(
+    Fusion* fusion,
+    TensorView* input) {
+  FusionGuard fg(fusion);
+
+  auto tv0 = input;
+  auto tv1 = transpose(tv0, {{0, 2}});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  const int BS = 32;
+  const int BDIM = 256;
+
+  tv1->merge(1);
+
+  // CTA tiling by BS*BS
+  tv1->split(1, BS);
+  tv1->split(0, BS);
+  tv1->reorder({{1, 2}});
+  // tv1: [I1/BS, I0/BS, BS(I1), BS(I0)]
+
+  // Create a smem buffer to cache each tile
+  auto tv0_cache = tv0->cache_after();
+  tv0_cache->setMemoryType(MemoryType::Shared);
+
+  tv0->computeAt(tv1, 2);
+  // tv0: [I0, I1]
+  // tv0_cache: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+  // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Tranform the tile axes for 1D thread mapping
+  tv1->merge(-2, -1);
+  tv1->split(-1, BDIM);
+  // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Transform the cache similarly but apply swizzle to the 2D tile axes.
+  tv0_cache->reorder({{-2, -1}});
+  tv0_cache->swizzle(SwizzleType::Transpose, {2, 3});
+  tv0_cache->merge(-2, -1);
+  tv0_cache->split(-1, BDIM);
+  // tv0: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Assign each thread block to a tile
+  tv1->axis(0)->parallelize(ParallelType::BIDy);
+  tv1->axis(1)->parallelize(ParallelType::BIDx);
+
+  // Thread mapping for each tile.
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
+
+  return tv1;
+}
+
+static TensorView* setupTranspose3DMI(
+    Fusion* fusion,
+    TensorView* input) {
+  FusionGuard fg(fusion);
+
+  auto tv0 = input;
+  auto tv1 = transpose(tv0, {{1, 2}});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  const int BS = 32;
+  const int BDIM = 256;
+
+  tv1->merge(0);
+
+  // CTA tiling by BS*BS
+  tv1->split(1, BS);
+  tv1->split(0, BS);
+  tv1->reorder({{1, 2}});
+  // tv1: [I1/BS, I0/BS, BS(I1), BS(I0)]
+
+  // Create a smem buffer to cache each tile
+  auto tv0_cache = tv0->cache_after();
+  tv0_cache->setMemoryType(MemoryType::Shared);
+
+  tv0->computeAt(tv1, 2);
+  // tv0: [I0, I1]
+  // tv0_cache: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+  // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Tranform the tile axes for 1D thread mapping
+  tv1->merge(-2, -1);
+  tv1->split(-1, BDIM);
+  // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Transform the cache similarly but apply swizzle to the 2D tile axes.
+  tv0_cache->reorder({{-2, -1}});
+  tv0_cache->swizzle(SwizzleType::Transpose, {2, 3});
+  tv0_cache->merge(-2, -1);
+  tv0_cache->split(-1, BDIM);
+  // tv0: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Assign each thread block to a tile
+  tv1->axis(0)->parallelize(ParallelType::BIDy);
+  tv1->axis(1)->parallelize(ParallelType::BIDx);
+
+  // Thread mapping for each tile.
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
+
+  return tv1;
+}
+
+static TensorView* setupTranspose3DMIO(
+    Fusion* fusion,
+    TensorView* input) {
+  FusionGuard fg(fusion);
+
+  auto tv0 = input;
+  auto tv1 = transpose(tv0, {{0, 2},{1,0},{2,1}});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  const int BS = 32;
+  const int BDIM = 256;
+
+  tv1->merge(0);
+
+  // CTA tiling by BS*BS
+  tv1->split(1, BS);
+  tv1->split(0, BS);
+  tv1->reorder({{1, 2}});
+  // tv1: [I1/BS, I0/BS, BS(I1), BS(I0)]
+
+  // Create a smem buffer to cache each tile
+  auto tv0_cache = tv0->cache_after();
+  tv0_cache->setMemoryType(MemoryType::Shared);
+
+  tv0->computeAt(tv1, 2);
+  // tv0: [I0, I1]
+  // tv0_cache: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+  // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Tranform the tile axes for 1D thread mapping
+  tv1->merge(-2, -1);
+  tv1->split(-1, BDIM);
+  // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Transform the cache similarly but apply swizzle to the 2D tile axes.
+  tv0_cache->reorder({{-2, -1}});
+  tv0_cache->swizzle(SwizzleType::Transpose, {2, 3});
+  tv0_cache->merge(-2, -1);
+  tv0_cache->split(-1, BDIM);
+  // tv0: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Assign each thread block to a tile
+  tv1->axis(0)->parallelize(ParallelType::BIDy);
+  tv1->axis(1)->parallelize(ParallelType::BIDx);
+
+  // Thread mapping for each tile.
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
+
+  return tv1;
+}
+
+
+static TensorView* setupTranspose3DIOM(
+    Fusion* fusion,
+    TensorView* input) {
+  FusionGuard fg(fusion);
+
+  auto tv0 = input;
+  auto tv1 = transpose(tv0, {{0, 1},{1,2},{2,0}});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  const int BS = 32;
+  const int BDIM = 256;
+
+  tv1->merge(1);
+
+  // CTA tiling by BS*BS
+  tv1->split(1, BS);
+  tv1->split(0, BS);
+  tv1->reorder({{1, 2}});
+  // tv1: [I1/BS, I0/BS, BS(I1), BS(I0)]
+
+  // Create a smem buffer to cache each tile
+  auto tv0_cache = tv0->cache_after();
+  tv0_cache->setMemoryType(MemoryType::Shared);
+
+  tv0->computeAt(tv1, 2);
+  // tv0: [I0, I1]
+  // tv0_cache: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+  // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Tranform the tile axes for 1D thread mapping
+  tv1->merge(-2, -1);
+  tv1->split(-1, BDIM);
+  // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Transform the cache similarly but apply swizzle to the 2D tile axes.
+  tv0_cache->reorder({{-2, -1}});
+  tv0_cache->swizzle(SwizzleType::Transpose, {2, 3});
+  tv0_cache->merge(-2, -1);
+  tv0_cache->split(-1, BDIM);
+  // tv0: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
+
+  // Assign each thread block to a tile
+  tv1->axis(0)->parallelize(ParallelType::BIDy);
+  tv1->axis(1)->parallelize(ParallelType::BIDx);
+
+  // Thread mapping for each tile.
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
+
+  return tv1;
+}
+
+static TensorView* setupTranspose3DOM(
+    Fusion* fusion,
+    TensorView* input) {
+  FusionGuard fg(fusion);
+
+  auto tv0 = input;
+  auto tv1 = transpose(tv0, {{0, 1}});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  scheduleFusion(fusion);
+
+  return tv1;
+}
+
 static TensorView* setupTranspose4D(
     Fusion* fusion,
     TensorView* input) {
@@ -177,6 +405,94 @@ static void Transpose2D(benchmark::State& benchmark_state) {
 }
 
 
+static void Transpose3DOI(benchmark::State& benchmark_state) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{benchmark_state.range(0),benchmark_state.range(1),benchmark_state.range(2)};
+  
+  // setup fusion
+  auto input = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+  
+  auto output = setupTranspose3DOI(&fusion, input);
+
+  timeFusionRun(fusion,input_shape,benchmark_state);
+}
+
+
+static void Transpose3DOM(benchmark::State& benchmark_state) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{benchmark_state.range(0),benchmark_state.range(1),benchmark_state.range(2)};
+  
+  // setup fusion
+  auto input = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+  
+  auto output = setupTranspose3DOM(&fusion, input);
+
+  timeFusionRun(fusion,input_shape,benchmark_state);
+}
+
+static void Transpose3DMI(benchmark::State& benchmark_state) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{benchmark_state.range(0),benchmark_state.range(1),benchmark_state.range(2)};
+  
+  // setup fusion
+  auto input = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+  
+  auto output = setupTranspose3DMI(&fusion, input);
+
+  timeFusionRun(fusion,input_shape,benchmark_state);
+}
+
+
+static void Transpose3DMIO(benchmark::State& benchmark_state) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{benchmark_state.range(0),benchmark_state.range(1),benchmark_state.range(2)};
+  
+  // setup fusion
+  auto input = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+  
+  auto output = setupTranspose3DMIO(&fusion, input);
+
+  timeFusionRun(fusion,input_shape,benchmark_state);
+}
+
+static void Transpose3DIOM(benchmark::State& benchmark_state) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{benchmark_state.range(0),benchmark_state.range(1),benchmark_state.range(2)};
+  
+  // setup fusion
+  auto input = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+  
+  auto output = setupTranspose3DIOM(&fusion, input);
+
+  timeFusionRun(fusion,input_shape,benchmark_state);
+}
+
+
 static void Transpose4D(benchmark::State& benchmark_state) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -199,6 +515,25 @@ static void SingleAddBaseline2D(benchmark::State& benchmark_state) {
   FusionGuard fg(&fusion);
 
   std::vector<int64_t> input_shape{benchmark_state.range(0), benchmark_state.range(1)};
+  
+  // setup fusion
+  auto input = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+  
+  auto output = setupPointwise(&fusion, input);
+  scheduleFusion(&fusion);
+  
+  timeFusionRun(fusion,input_shape,benchmark_state);
+}
+
+
+static void SingleAddBaseline3D(benchmark::State& benchmark_state) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{benchmark_state.range(0), benchmark_state.range(1),benchmark_state.range(2)};
   
   // setup fusion
   auto input = TensorViewBuilder()
@@ -237,6 +572,36 @@ BENCHMARK(Transpose2D)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+BENCHMARK(Transpose3DOI)
+    ->RangeMultiplier(8)
+    ->Ranges({{8,512},{8,512},{8,512}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(Transpose3DOM)
+    ->RangeMultiplier(8)
+    ->Ranges({{8,512},{8,512},{8,512}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(Transpose3DMI)
+    ->RangeMultiplier(8)
+    ->Ranges({{8,512},{8,512},{8,512}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(Transpose3DMIO)
+    ->RangeMultiplier(8)
+    ->Ranges({{8,512},{8,512},{8,512}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(Transpose3DIOM)
+    ->RangeMultiplier(8)
+    ->Ranges({{8,512},{8,512},{8,512}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
 BENCHMARK(Transpose4D)
     ->Ranges({{32,64},{3,3},{16,32},{16,32}})
     ->Unit(benchmark::kMicrosecond)
@@ -246,6 +611,12 @@ BENCHMARK(Transpose4D)
 BENCHMARK(SingleAddBaseline2D)
     ->RangeMultiplier(2)
     ->Ranges({{128<<3, 128 << 5},{128<<3, 128 << 5}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(SingleAddBaseline3D)
+    ->RangeMultiplier(8)
+    ->Ranges({{8,512},{8,512},{8,512}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
