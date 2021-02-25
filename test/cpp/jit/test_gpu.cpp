@@ -13009,6 +13009,63 @@ TEST(NVFuserTest, FusionSizeOneLoop_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t6}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionIOTensor_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Progressively broadcast tensors
+  TensorView* tv0 = makeSymbolicTensor(3);
+  fusion.addInput(tv0);
+
+  TensorView* tv1 = add(tv0, new Double(1.0));
+
+  fusion.addOutput(tv1);
+
+  // Split inner dimension
+  tv1->split(1, 8);
+  // Merge middle dims with outer dimensions
+  tv1->merge(2);
+  tv1->merge(0);
+
+  tv1->split(0, 1, false);
+
+  // Compute everything inline
+  tv0->computeAt(tv1, -1);
+
+  tv1->axis(0)->parallelize(ParallelType::Unswitch);
+  tv1->axis(1)->parallelize(ParallelType::BIDx);
+  tv1->axis(2)->parallelize(ParallelType::TIDx);
+
+  // Make sure the unswitched loop does not have an else clause.
+  GpuLower gpulw(&fusion);
+  for (const auto& kir_node : gpulw.kernel()->irNodes()) {
+    if (auto fl = dynamic_cast<kir::ForLoop*>(kir_node.get())) {
+      if (fl->iter_domain()->parallelType() != ParallelType::Unswitch) {
+        continue;
+      }
+      if (auto pred = dynamic_cast<kir::IfThenElse*>(fl->parentScope())) {
+        TORCH_CHECK(!pred->hasElse());
+      }
+    }
+  }
+
+  const int x = 11;
+  const int y = 12;
+  const int z = 13;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({x, y, z}, options);
+  at::Tensor t0_clone = t0.clone();
+  std::vector<IValue> aten_inputs = {t0};
+  std::vector<at::Tensor> aten_outputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs, aten_outputs);
+
+  t0_clone.add_(1.0);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {t0_clone}, __LINE__, __FILE__);
+}
 } // namespace jit
 } // namespace torch
 #endif // #if defined(USE_CUDA)
