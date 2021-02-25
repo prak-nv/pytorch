@@ -37,9 +37,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> runFusion(
       const at::ArrayRef<IValue>& inputs,
       const std::vector<at::Tensor>& outputs,
+      const std::unordered_map<size_t, size_t> io_tensor_mapping,
       const LaunchParams& launch_constraints = LaunchParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt,
-      const std::unordered_map<size_t, size_t> io_tensor_mapping);
+      const c10::optional<size_t>& opt_code = c10::nullopt);
 
   std::vector<at::Tensor> runFusion(
       const at::ArrayRef<IValue>& inputs,
