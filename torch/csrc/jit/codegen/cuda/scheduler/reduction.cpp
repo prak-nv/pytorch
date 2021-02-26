@@ -91,8 +91,7 @@ ReductionParams reductionHeuristic(
 
   // Reduction is performed across warp threads (cross-thread reduction)
   if (rparams.fastest_dim) {
-    red_elems_per_thread =
-        ceilDiv(red_elems_per_thread, bdimx);
+    red_elems_per_thread = ceilDiv(red_elems_per_thread, bdimx);
     // Warp threads are applied across the output
   } else {
     outputs_produced_per_block_iter *= bdimx;
@@ -240,7 +239,6 @@ void scheduleReduction(
     const std::vector<TensorView*>& outs_of_red) {
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
-
 
   constexpr int kLoopUnrollSplit = 4;
 
