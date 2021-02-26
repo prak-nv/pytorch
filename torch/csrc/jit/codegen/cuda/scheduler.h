@@ -110,6 +110,10 @@ TORCH_CUDA_API void scheduleNormalization(
     const std::vector<TensorView*>& reduction_tv,
     std::vector<TensorView*>& other_tv);
 
+TORCH_CUDA_API void scheduleTranspose(
+    Fusion* fusion,
+    TensorView* transpose_tv);
+
 } // namespace cuda
 } // namespace fuser
 } // namespace jit
