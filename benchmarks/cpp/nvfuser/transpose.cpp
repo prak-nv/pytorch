@@ -70,6 +70,11 @@ inline void timeFusionRun(
   benchmark_state.SetBytesProcessed(8*benchmark_state.iterations()*std::accumulate(std::begin(input_shape), std::end(input_shape), 1, std::multiplies<int64_t>()));
 }
 
+// Input axes are OI
+enum class PERMUTE2D{
+  IO
+};
+
 // Input axes are outter-middle-inner (OMI)
 enum class PERMUTE3D{
   OIM,
@@ -137,6 +142,10 @@ static void transposeHelper(benchmark::State& benchmark_state, size_t ndims, std
   timeFusionRun(fusion,input_shape,benchmark_state);
 }
 
+static void runTranspose(benchmark::State& benchmark_state,PERMUTE2D permute){
+  transposeHelper(benchmark_state,2,{{0,1}});
+}
+
 static void runTranspose(benchmark::State& benchmark_state, PERMUTE3D permute){
   transposeHelper(benchmark_state,3,getPermute3D(permute));
 }
@@ -194,6 +203,12 @@ BENCHMARK_CAPTURE(BenchmarkSingleAdd,ADD4D,4)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose2D,PERMUTE2D::IO)
+    ->RangeMultiplier(2)
+    ->Ranges({{128<<3, 128 << 5},{128<<3, 128 << 5}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
 BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose3DOIM,PERMUTE3D::OIM)
     ->RangeMultiplier(8)
     ->Ranges({{8,512},{8,512},{8,512}})
@@ -212,7 +227,6 @@ BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose3DMOI,PERMUTE3D::MOI)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-
 BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose3DIMO,PERMUTE3D::IMO)
     ->RangeMultiplier(8)
     ->Ranges({{8,512},{8,512},{8,512}})
@@ -224,7 +238,6 @@ BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose3DIOM,PERMUTE3D::IOM)
     ->Ranges({{8,512},{8,512},{8,512}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
-
 
 BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose4DNHWC,PERMUTE4D::NHWC)
     ->Ranges({{32,64},{3,3},{16,32},{16,32}})
