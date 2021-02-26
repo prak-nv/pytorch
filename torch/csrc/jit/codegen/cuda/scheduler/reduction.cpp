@@ -13,8 +13,6 @@ namespace fuser {
 namespace cuda {
 
 namespace {
-constexpr int kLoopUnrollSplit = 4;
-
 // Largest Power of 2 less-than n
 constexpr int lastPow2(int n) {
   n |= (n >> 1);
@@ -87,16 +85,14 @@ ReductionParams reductionHeuristic(
   constexpr int kMinValuesPerThread = 16;
   constexpr int kMaxValuesPerThread = 256;
 
-  int inputs_consumed_per_block_iter = 1;
   int red_elems_per_thread = num_elems_in_reduction;
 
   int outputs_produced_per_block_iter = 1;
 
   // Reduction is performed across warp threads (cross-thread reduction)
   if (rparams.fastest_dim) {
-    inputs_consumed_per_block_iter *= bdimx;
     red_elems_per_thread =
-        ceilDiv(red_elems_per_thread, inputs_consumed_per_block_iter);
+        ceilDiv(red_elems_per_thread, bdimx);
     // Warp threads are applied across the output
   } else {
     outputs_produced_per_block_iter *= bdimx;
@@ -105,7 +101,6 @@ ReductionParams reductionHeuristic(
   // Decision to do a cross-warp reduction per block
   if (red_elems_per_thread >= (bdimy * kMinValuesPerThread) ||
       red_elems_per_thread >= kMaxValuesPerThread || !rparams.fastest_dim) {
-    inputs_consumed_per_block_iter *= bdimy;
     red_elems_per_thread = ceilDiv(red_elems_per_thread, bdimy);
     rparams.cross_block = true;
     rparams.multiple_reds_per_blk = false;
@@ -242,9 +237,12 @@ void scheduleReduction(
     Fusion* fusion,
     const ReductionParams& rparams,
     TensorView* red_tv,
-    std::vector<TensorView*> outs_of_red) {
+    const std::vector<TensorView*>& outs_of_red) {
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
+
+
+  constexpr int kLoopUnrollSplit = 4;
 
   // We coalesce all reduction axes to the right;
   scheduler_utils::mergeReduction(red_tv);
