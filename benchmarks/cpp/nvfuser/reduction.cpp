@@ -1,4 +1,3 @@
-
 #include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/executor.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
@@ -50,8 +49,6 @@ static std::pair<TensorView*, TensorView*> setupReduction(
   return {tv1, output_of_reduction};
 }
 
-//------------------------------------------------------------------------------
-
 static LaunchParams ScheduleReduction(
     Fusion* fusion,
     at::Tensor aten_input,
@@ -94,7 +91,7 @@ static void MagicScheduler_Reduction(benchmark::State& benchmark_state,
   FusionExecutor fe;
   fe.compileFusion(&fusion);
 
-  
+
   for (auto _ : benchmark_state) {
     CudaKernelTimer timer;
     auto cg_outputs = fe.runFusion({aten_input}, lparams);
