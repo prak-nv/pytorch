@@ -1,4 +1,4 @@
-#include <torch/csrc/jit/codegen/cuda/scheduler.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler/scheduler.h>
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/executor_utils.h>
@@ -320,28 +320,20 @@ ReductionParams reductionHeuristic(
 
   // 2. Initial Definition of Block Dimensions
 
+  // Is fastest dimension a reduction dimension?
   if (rparams.fastest_dim) {
-    // If fastest dim, unroll if there are enough elements in reduction.
-    // Block in x direction will be correlated with number of reduction elements
-    // Block in y direction will be across iter axis.
-
     if (num_elems_in_reduction < rparams.loop_unroll) {
       rparams.loop_unroll = 1;
     }
     bdimx = ceilDiv(num_elems_in_reduction, rparams.loop_unroll);
     bdimy = num_outputs_for_reduction;
   } else {
-    // Outer most reduction,
-    // x direction will be across iterations,
-    // y dimension
-    // can help in the reduction dimension
     bdimx = num_outputs_for_reduction;
     bdimy = num_elems_in_reduction;
   }
 
   // 3. Applying Power of 2 Blocking based on the Maximum Number of threads
-  // Make sure our threads are a power of 2, don't exceed max number of threads
-  // Prefer threads in x dimension
+
   constexpr int kMaxNumThreads = 512;
   int num_threads = kMaxNumThreads;
   int device_warp_size = at::cuda::warp_size();
@@ -359,14 +351,15 @@ ReductionParams reductionHeuristic(
   }
 
   int bdimx_prev = bdimx;
-  // Max x dimension to size of 32
   bdimx = std::min(bdimx, device_warp_size);
-  // Expand into y dimension
   bdimy = std::min(bdimy, num_threads / bdimx);
-  // If we can expand further into x dimension, do it
   bdimx = std::min(bdimx_prev, num_threads / bdimy);
 
   // 4. Distributing work across a block
+
+  // Magic numbers of calculations allowed per thread.
+  constexpr int kMinValuesPerThread = 16;
+  constexpr int kMaxValuesPerThread = 256;
 
   int inputs_consumed_per_block_iter = 1;
   int red_elems_per_thread = num_elems_in_reduction;
@@ -383,25 +376,14 @@ ReductionParams reductionHeuristic(
     outputs_produced_per_block_iter *= bdimx;
   }
 
-  // Magic numbers of calculations allowed per thread.
-  constexpr int kMinValuesPerThread = 16;
-  constexpr int kMaxValuesPerThread = 256;
-
   // Decision to do a cross-warp reduction per block
-  // If fastest
-  //   and
-  //     red_elemens_per_thread >= #iter dim per block * 16
-  //     or
-  //     red_elements_per_thread >= 256
-  //   Do cross grid, don't do multiple reductions per block
-  // If not fastest
-  //  Do cross grid
   if (red_elems_per_thread >= (bdimy * kMinValuesPerThread) ||
       red_elems_per_thread >= kMaxValuesPerThread || !rparams.fastest_dim) {
     inputs_consumed_per_block_iter *= bdimy;
     red_elems_per_thread = ceilDiv(red_elems_per_thread, bdimy);
     rparams.cross_block = true;
     rparams.multiple_reds_per_blk = false;
+    // Do multiple reductions per block
   } else {
     rparams.cross_block = false;
     rparams.multiple_reds_per_blk = true;
@@ -416,9 +398,8 @@ ReductionParams reductionHeuristic(
   int device_multiprocessor_count =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
-  int64_t blocks_per_sm =
-      device_max_threads_per_multiprocessor / (bdimx * bdimy);
-  int64_t target_grid_size = device_multiprocessor_count * blocks_per_sm;
+  int blocks_per_sm = device_max_threads_per_multiprocessor / (bdimx * bdimy);
+  int target_grid_size = device_multiprocessor_count * blocks_per_sm;
 
   // Setting the number of blocks based on the number of outputs
   gdimx = ceilDiv(num_outputs_for_reduction, outputs_produced_per_block_iter);
@@ -426,13 +407,13 @@ ReductionParams reductionHeuristic(
   // Cross-block reductions (if necessary)
   if (rparams.cross_block && red_elems_per_thread >= kMaxValuesPerThread &&
       gdimx <= target_grid_size) {
-    int64_t blks_per_out_1 = ceilDiv(target_grid_size, gdimx);
-    int64_t blks_per_out_2 = ceilDiv(red_elems_per_thread, kMinValuesPerThread);
-    int64_t blks_per_out_3 = ceilDiv(red_elems_per_thread, kMaxValuesPerThread);
-    int64_t blks_per_output =
+    int blks_per_out_1 = ceilDiv(target_grid_size, gdimx);
+    int blks_per_out_2 = ceilDiv(red_elems_per_thread, kMinValuesPerThread);
+    int blks_per_out_3 = ceilDiv(red_elems_per_thread, kMaxValuesPerThread);
+    int blks_per_output =
         std::max(std::min(blks_per_out_1, blks_per_out_2), blks_per_out_3);
 
-    gdimy = std::max((int64_t)1, blks_per_output);
+    gdimy = std::max(1, blks_per_output);
     // If a cross-block reduction was generated
     if (blks_per_output > 1) {
       rparams.cross_grid = true;
@@ -487,17 +468,17 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getNormalizationHeuristics(
         "TensorView doesn't have a reduction.");
   }
 
-  std::vector<int64_t> reduction_elements;
-  std::vector<int64_t> reduction_outer;
-  std::vector<int64_t> reduction_inner;
+  std::vector<int> reduction_elements;
+  std::vector<int> reduction_outer;
+  std::vector<int> reduction_inner;
   std::vector<bool> fastest_dim_reduction;
 
   for (auto tv : reduction_tv) {
     bool has_outer = false;
     bool has_inner = false;
-    int64_t this_outer_size = 1;
-    int64_t this_inner_size = 1;
-    int64_t this_reduction_size = 1;
+    int this_outer_size = 1;
+    int this_inner_size = 1;
+    int this_reduction_size = 1;
 
     bool before_reduction = true;
     for (auto id : tv->getRootDomain()) {
@@ -636,8 +617,6 @@ void scheduleReductionComputeAt(
   }
 }
 
-// Simple rfactor wrapper in case reduction is from a welford op
-// TODO: Does this logic belong in tensorview->rFactor?
 TensorView* rfactorHelper(TensorView* red_tv, const std::vector<int>& axes) {
   TORCH_INTERNAL_ASSERT(red_tv->definition() != nullptr);
   const bool is_welford = red_tv->definition()->isA<WelfordOp>();
@@ -683,7 +662,7 @@ void scheduleReduction(
 
   TORCH_INTERNAL_ASSERT(
       red_ids.size() == 1 || red_ids.size() == 2,
-      "Issue hit when trying to merge axes in reduction scheduler.");
+      "We coalesced all dimensions into 1 or 2 previously.");
 
   if (red_ids.size() == 1) {
     TORCH_INTERNAL_ASSERT(
@@ -726,10 +705,8 @@ void scheduleReduction(
 
       auto red_tv_rf = rfactorHelper(red_tv, {-3, -1});
 
-      // Replace with transform replay and compute at inline most
       scheduleReductionComputeAt(red_tv, red_tv_rf, outs_of_red);
 
-      // Do this inline with above, parallel all like reduction tv
       red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
 
       if (has_iter_axis) {
@@ -748,7 +725,6 @@ void scheduleReduction(
       // Bind Inputs to Reduction
       for (auto input : fusion->inputsOf(red_tv_rf)) {
         if (input->getValType().value() == ValType::TensorView) {
-          // Replace with most inlined input to outputs
           input->as<TensorView>()->computeAt(red_tv_rf, -1);
         }
       }
@@ -935,11 +911,6 @@ void scheduleReduction(
         }
       }
     } else {
-      // Reduction Splits
-      //      [outputs, |rF-Leftover, X-Block|]
-      // Idx:     0     |   1(-2)     2(-1) |
-      //                ---------------------------------
-      //                Reduction Dimensions
       red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
       for (auto iter_tv : outs_of_red) {
         iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
@@ -1626,45 +1597,3 @@ void scheduleNormalization(
 } // namespace fuser
 } // namespace jit
 } // namespace torch
-
-// Fastest dim, multiple reductions per block
-//      [Out-Leftover, Out-PerBlock|rF-Leftover, X-Warp, rf-Unroll]
-// Idx:       0             1      |   1(-1)      2(-2)     3(-1)
-//           bidx           tidy                   tidx     unroll
-
-// Fastest dim, cross grid
-// Reduction Splits
-//      [outputs, |rF-Leftover, X-Grid, X-Block, X-Warp, rf-Unroll]
-// Idx:     0     |   1(-5)      2(-4)    3(-3)   4(-2)     5(-1)
-//         bidx                   bidy     tidy    tidx     unroll
-
-// Fastest dim
-//      [outputs, |rF-Leftover, X-Block, X-Warp, rf-Unroll]
-// Idx:     0     |   1(-4)       2(-3)   3(-2)     4(-1)
-//         bidx                   tidy    tidx      unroll
-
-// Outer Dim, cross block, cross grid
-//      [outputs,                   |rF-Leftover, rf-Unroll, X-Grid, X-Block]
-// Idx:     0                       |   1(-4)       2(-3)     3(-2)   4(-1)
-//                                                  unroll    bidy    tidy
-//                                                   |--- Reordered ----|
-//                                                   V                  V
-//      [Out-Leftover, Out-PerBlock | rF-Leftover, X-Block, X-Grid, rF-Unroll]
-// Idx:     0               1       |   2(-4)      3(-3)   4(-2)     5(-1)
-//         bidx            tidx                   tidy    bidy      unroll
-
-// Outer Dim, cross block
-//      [outputs, |rF-Leftover, rf-Unroll, X-Block]
-// Idx:     0     |   1(-3)       2(-2)     3(-1)
-//                               |- Reordered -|
-//                               V             V
-//      [outputs, |rF-Leftover, X-Block, rF-Unroll]
-// Idx:     0     |   1(-3)       2(-2)     3(-1)
-//      [Out-Leftover, Out-PerBlock, |rF-Leftover, X-Block, rF-Unroll]
-// Idx:     0              1         |   2(-3)       3(-2)     4(-1)
-//         bidx           tidx                       tidy      unroll
-
-// Outer Dim
-//      [Out-Leftover, Out-PerBlock, |rF-Leftover, X-Block]
-// Idx:     0               1        |   1(-2)     2(-1)
-//         bidx            tidx

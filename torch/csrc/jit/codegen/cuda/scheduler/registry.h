@@ -1,7 +1,7 @@
 #pragma once
 
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
-#include <torch/csrc/jit/codegen/cuda/scheduler.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler/scheduler.h>
 
 namespace torch {
 namespace jit {

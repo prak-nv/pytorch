@@ -3,7 +3,6 @@
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/parser.h>
-#include <torch/csrc/jit/codegen/cuda/scheduler.h>
 #include <torch/csrc/jit/runtime/graph_executor.h>
 
 namespace torch {
