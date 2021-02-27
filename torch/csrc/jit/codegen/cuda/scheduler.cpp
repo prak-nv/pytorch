@@ -1595,9 +1595,11 @@ void scheduleNormalization(
 
 namespace{
 
-  int getInnerPose(const std::vector<int>& new2old){
+  size_t getInnerPose(const std::vector<int>& new2old){
     auto pos = new2old.begin();
-    while(pos!=new2old.end()&&*pos!=0){
+    int inner_pos_old = new2old.size()-1;
+
+    while(pos!=new2old.end()&&*pos!=inner_pos_old){
       pos++;
     }
     TORCH_INTERNAL_ASSERT(pos!=new2old.end());
@@ -1614,16 +1616,16 @@ namespace{
     const int BDIM = 256;
 
     // CTA tiling by BS*BS
-    tv1->split(1, BS);
-    tv1->split(0, BS);
-    tv1->reorder({{1, 2}});
+    tv1->split(-2, BS);
+    tv1->split(-1, BS);
+    tv1->reorder({{-2, -3}});
     // tv1: [I1/BS, I0/BS, BS(I1), BS(I0)]
 
     // Create a smem buffer to cache each tile
     auto tv0_cache = tv0->cache_after();
     tv0_cache->setMemoryType(MemoryType::Shared);
 
-    tv0->computeAt(tv1, 2);
+    tv0->computeAt(tv1, -3);
     // tv0: [I0, I1]
     // tv0_cache: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
     // tv1: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
@@ -1635,14 +1637,14 @@ namespace{
 
     // Transform the cache similarly but apply swizzle to the 2D tile axes.
     tv0_cache->reorder({{-2, -1}});
-    tv0_cache->swizzle(SwizzleType::Transpose, {2, 3});
+    tv0_cache->swizzle(SwizzleType::Transpose, {-2, -1});
     tv0_cache->merge(-2, -1);
     tv0_cache->split(-1, BDIM);
     // tv0: [I1/BS, I0/BS, BS*BS/BDIM, BDIM]
 
     // Assign each thread block to a tile
-    tv1->axis(0)->parallelize(ParallelType::BIDy);
-    tv1->axis(1)->parallelize(ParallelType::BIDx);
+    tv1->axis(-4)->parallelize(ParallelType::BIDy);
+    tv1->axis(-3)->parallelize(ParallelType::BIDx);
 
     // Thread mapping for each tile.
     tv1->axis(-1)->parallelize(ParallelType::TIDx);
@@ -1664,7 +1666,7 @@ void scheduleTranspose(
         return;
       }
 
-      for(int i=0;i<inner;i++){
+      for(size_t i=0;i<inner;i++){
         transpose_tv->merge(0);
       }
 
