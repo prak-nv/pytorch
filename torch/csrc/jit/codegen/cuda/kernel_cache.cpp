@@ -27,7 +27,7 @@ int getCommonDeviceCUDA(const at::ArrayRef<IValue>& inputs) {
     if (index != -1 && index != cur_index) {
       return -1;
     }
-    index = (int) cur_index;
+    index = (int)cur_index;
   }
   return index;
 }
