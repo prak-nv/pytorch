@@ -13222,6 +13222,206 @@ TEST(NVFuserTest, FusionSizeOneLoop_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t6}, __LINE__, __FILE__);
 }
 
+bool canDuplicate(const Expr* expr) {
+  return expr->outputs().size() == 1 &&
+      expr->output(0)->getValType().value() == ValType::TensorView &&
+      (expr->getExprType().value() == ExprType::BinaryOp ||
+       expr->getExprType().value() == ExprType::UnaryOp ||
+       expr->getExprType().value() == ExprType::TernaryOp ||
+       expr->getExprType().value() == ExprType::BroadcastOp);
+}
+
+bool isConstantAllocation(const TensorView* tv) {
+  if (!tv->hasComputeAt()) {
+    // We cannot determine allocation size without computeAt structure.
+    // Assume Non-Constant Allocation
+    return false;
+  }
+
+  bool constant_allocation = true;
+  auto domain = tv->domain()->domain();
+  for (size_t axis = tv->getComputeAtPosition(); axis < domain.size(); ++axis) {
+    if (!domain[axis]->isBroadcast() && !domain[axis]->isReduction() &&
+        !domain[axis]->isParallelized()) {
+      constant_allocation &= domain[axis]->extent()->isConstScalar();
+    }
+  }
+  return constant_allocation;
+}
+
+//! Find all TensorViews that require duplication to avoid recompute
+//! computeAt error when applying inline ComputeAt
+std::vector<TensorView*> findTensorViewsToDuplicate(Fusion& fusion) {
+  std::vector<TensorView*> duplicate_tv;
+  for (auto expr : fusion.exprs()) {
+    if (expr->getExprType().value() != ExprType::ReductionOp) {
+      auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+      for (auto out_tv : out_tvs) {
+        if (!out_tv->hasReduction() && out_tv->uses().size() > 1 && !fusion.hasOutput(out_tv)) {
+          duplicate_tv.push_back(out_tv);
+        }
+      }
+    }
+  }
+  return duplicate_tv;
+}
+
+TEST(NVFuserTest, FusionBN_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{
+      100,
+      3,
+      32,
+      32};
+
+  // setup fusion
+  auto input = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .build();
+  auto weight = makeSymbolicTensor(1);
+  auto bias = makeSymbolicTensor(1);
+  fusion.addInput(input);
+  fusion.addInput(weight);
+  fusion.addInput(bias);
+
+  const int kNumberOfDims = input_shape.size();
+  std::vector<int> reduction_axes;
+  std::vector<bool> broadcast_mask(kNumberOfDims, false);
+  torch::jit::fuser::cuda::Val* num_features = new Double(1);
+  for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
+    if (axis != 1) {
+      reduction_axes.push_back(axis);
+      broadcast_mask[axis] = true;
+      num_features =
+          mul(num_features, input->domain()->domain()[axis]->extent());
+    }
+  }
+
+  auto x_sum = sum(input, reduction_axes);
+  auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
+  auto x_mean = div(x_sum_bcast, num_features);
+
+  auto x_mean_sub = sub(input, x_mean);
+  auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
+  auto var_sum = sum(x_mean_sub_pow, reduction_axes);
+  auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
+  auto var = div(var_sum_bcast, num_features);
+
+  const float kEps = 1e-5;
+  auto var_eps = add(var, new Double(kEps));
+  auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
+  auto norm = mul(x_mean_sub, rvar);
+
+  auto weight_bcast = broadcast(weight, broadcast_mask);
+  auto bias_bcast = broadcast(bias, broadcast_mask);
+  auto norm_gamma = mul(norm, weight_bcast);
+  auto norm_gamma_bias = add(norm_gamma, bias_bcast);
+  fusion.addOutput(norm_gamma_bias);
+
+  std::vector<TensorView*> reduction_tvs;
+  for (auto expr : fusion.exprs()) {
+    if (expr->getExprType().value() == ExprType::ReductionOp) {
+      auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+      for (auto out_tv : out_tvs) {
+        if (out_tv->hasReduction()) {
+          reduction_tvs.push_back(out_tv);
+        }
+      }
+    }
+  }
+
+  const int kNumThreads = 1024;
+  for (auto expr : fusion.exprs()) {
+    auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    for (auto out_tv : out_tvs) {
+      // merge inner reductions together
+      auto inner_merge = out_tv->merge(-2);
+
+      // [N, C, H*W] => [N, C, H*W / TDX, TDX]
+      auto inner_split = inner_merge->split(-1, kNumThreads);
+    }
+  }
+
+  std::vector<TensorView*> first_rfactor_tvs;
+  std::vector<TensorView*> second_rfactor_tvs;
+  for (auto reduction_tv : reduction_tvs) {
+    // thread reduction first
+    first_rfactor_tvs.push_back(reduction_tv->rFactor({-2}));
+
+    // block reduction
+    second_rfactor_tvs.push_back(reduction_tv->rFactor({-1}));
+  }
+
+  input->computeAt(reduction_tvs[0], 2, ComputeAtMode::BestEffort);
+  reduction_tvs[0]->computeWith(norm_gamma_bias, 2, ComputeAtMode::BestEffort);
+
+  auto to_duplicate_tvs = findTensorViewsToDuplicate(fusion);
+  auto duplicated_tvs = to_duplicate_tvs[0]->duplicate();
+  fusion.printMath();
+
+  to_duplicate_tvs[0]->computeAt(norm_gamma_bias, -1);
+  to_duplicate_tvs[0]->computeWith(norm_gamma_bias, -1);
+
+  duplicated_tvs[0]->computeAt(var_sum, -1);
+  duplicated_tvs[0]->computeWith(var_sum, -1);
+
+  auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
+  ca_loop_map_.build();
+
+  for (auto rf : first_rfactor_tvs) {
+    ca_loop_map_.getConcreteMappedID(rf->axis(1))
+        ->parallelize(ParallelType::BIDx);
+
+    ca_loop_map_.getConcreteMappedID(rf->axis(-1))
+        ->parallelize(ParallelType::TIDx);
+  }
+
+  auto used_vals = DependencyCheck::getAllValsBetween(
+      {fusion.inputs().begin(), fusion.inputs().end()}, fusion.outputs());
+
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+
+  for (auto tv : used_tvs) {
+    for (auto id : tv->domain()->domain()) {
+      id->parallelize(ca_loop_map_.getConcreteMappedID(id)->getParallelType());
+    }
+  }
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  // inputs
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  at::Tensor at_weight = at::ones({input_shape[1]}, options);
+  at::Tensor at_bias = at::zeros({input_shape[1]}, options);
+  std::vector<c10::IValue> inputs({at_x, at_weight, at_bias});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  const float kMomentum = 0.1;
+  at::Tensor at_mean = at::zeros({input_shape[1]}, options);
+  at::Tensor at_var = at::ones({input_shape[1]}, options);
+  auto aten_output = at::batch_norm(
+      at_x,
+      c10::optional<at::Tensor>(at_weight),
+      c10::optional<at::Tensor>(at_bias),
+      c10::optional<at::Tensor>(at_mean),
+      c10::optional<at::Tensor>(at_var),
+      true,
+      kMomentum,
+      kEps,
+      false);
+
+  testValidate(&fusion, cg_outputs, inputs, {aten_output}, __LINE__, __FILE__);
+}
+
 } // namespace jit
 } // namespace torch
 #endif // #if defined(USE_CUDA)
