@@ -335,7 +335,8 @@ class ExprSegmentationSorter {
 //   return os;
 // }
 
-// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf) {
+// std::ostream& operator<<(std::ostream& os, const ExprSegmentationSorter* scf)
+// {
 //   return os << scf->toString();
 // }
 

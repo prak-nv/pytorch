@@ -231,12 +231,56 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getReductionHeuristics(
       red_elements, num_outputs_for_reduction, fastest_dim_reduction);
 }
 
+// Reduction schedule types
+
+// Fastest dim, multiple reductions per block
+//      [Out-Leftover, Out-PerBlock|rF-Leftover, X-Warp, rf-Unroll]
+// Idx:       0             1      |   1(-1)      2(-2)     3(-1)
+//           bidx           tidy                   tidx     unroll
+
+// Fastest dim, cross grid
+// Reduction Splits
+//      [outputs, |rF-Leftover, X-Grid, X-Block, X-Warp, rf-Unroll]
+// Idx:     0     |   1(-5)      2(-4)    3(-3)   4(-2)     5(-1)
+//         bidx                   bidy     tidy    tidx     unroll
+
+// Fastest dim
+//      [outputs, |rF-Leftover, X-Block, X-Warp, rf-Unroll]
+// Idx:     0     |   1(-4)       2(-3)   3(-2)     4(-1)
+//         bidx                   tidy    tidx      unroll
+
+// Outer Dim, cross block, cross grid
+//      [outputs,                   |rF-Leftover, rf-Unroll, X-Grid, X-Block]
+// Idx:     0                       |   1(-4)       2(-3)     3(-2)   4(-1)
+//                                                  unroll    bidy    tidy
+//                                                   |--- Reordered ----|
+//                                                   V                  V
+//      [Out-Leftover, Out-PerBlock | rF-Leftover, X-Block, X-Grid, rF-Unroll]
+// Idx:     0               1       |   2(-4)      3(-3)   4(-2)     5(-1)
+//         bidx            tidx                   tidy    bidy      unroll
+
+// Outer Dim, cross block
+//      [outputs, |rF-Leftover, rf-Unroll, X-Block]
+// Idx:     0     |   1(-3)       2(-2)     3(-1)
+//                               |- Reordered -|
+//                               V             V
+//      [outputs, |rF-Leftover, X-Block, rF-Unroll]
+// Idx:     0     |   1(-3)       2(-2)     3(-1)
+//      [Out-Leftover, Out-PerBlock, |rF-Leftover, X-Block, rF-Unroll]
+// Idx:     0              1         |   2(-3)       3(-2)     4(-1)
+//         bidx           tidx                       tidy      unroll
+
+// Outer Dim
+//      [Out-Leftover, Out-PerBlock, |rF-Leftover, X-Block]
+// Idx:     0               1        |   1(-2)     2(-1)
+//         bidx            tidx
+
 // fusion is the input IR that will be modified by this function
 void scheduleReduction(
     Fusion* fusion,
     const ReductionParams& rparams,
     TensorView* red_tv,
-    const std::vector<TensorView*>& outs_of_red) {
+    std::vector<TensorView*> outs_of_red) {
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
 
@@ -279,9 +323,9 @@ void scheduleReduction(
       // Idx:     0     |   1(-1)      2(-2)     3(-1) |
       //                --------------------------------
       //                Reduction Dimensions
-      red_tv->split(reduce_axis, rparams.loop_unroll);
       red_tv->split(
           reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
+      red_tv->split(reduce_axis, rparams.loop_unroll);
 
       // Output Splits
       //      [|Out-Leftover, Out-PerBlock|, <Reduction Dims>]
@@ -297,12 +341,12 @@ void scheduleReduction(
         }
       }
 
-      auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-3, -1});
+      auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-3, -2});
 
       scheduler_utils::scheduleReductionComputeAt(
           red_tv, red_tv_rf, outs_of_red);
 
-      red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
+      red_tv_rf->axis(-2)->parallelize(ParallelType::Unroll);
 
       if (has_iter_axis) {
         red_tv->axis(0)->parallelize(ParallelType::BIDx);
