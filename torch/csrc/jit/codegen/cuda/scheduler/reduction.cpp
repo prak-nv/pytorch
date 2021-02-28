@@ -3,7 +3,11 @@
 #include <torch/csrc/jit/codegen/cuda/executor_utils.h>
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler/utils.h>
+#include <torch/csrc/jit/codegen/cuda/transform_replay.h>
+
+#include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -238,13 +242,13 @@ TORCH_CUDA_API c10::optional<ReductionParams> getReductionHeuristics(
 // Idx:       0             1      |   1(-1)      2(-2)     3(-1)
 //           bidx           tidy                   tidx     unroll
 
-// Fastest dim, cross grid
+// Fastest dim, cross grid, cross block
 // Reduction Splits
 //      [outputs, |rF-Leftover, X-Grid, X-Block, X-Warp, rf-Unroll]
 // Idx:     0     |   1(-5)      2(-4)    3(-3)   4(-2)     5(-1)
 //         bidx                   bidy     tidy    tidx     unroll
 
-// Fastest dim
+// Fastest dim, cross block
 //      [outputs, |rF-Leftover, X-Block, X-Warp, rf-Unroll]
 // Idx:     0     |   1(-4)       2(-3)   3(-2)     4(-1)
 //         bidx                   tidy    tidx      unroll
@@ -319,13 +323,18 @@ void scheduleReduction(
     // Do multiple reductions per block
     if (rparams.multiple_reds_per_blk) {
       // Reduction Splits
-      //      [outputs, |rF-Leftover, X-Warp, rf-Unroll|]
+      //      [outputs, |rF-Leftover, rf-Unroll, X-Warp|]
       // Idx:     0     |   1(-1)      2(-2)     3(-1) |
       //                --------------------------------
       //                Reduction Dimensions
+      red_tv->split(reduce_axis, rparams.loop_unroll);
       red_tv->split(
           reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
-      red_tv->split(reduce_axis, rparams.loop_unroll);
+
+      auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-3, -1});
+
+      red_tv_rf->axis(-2)->parallelize(ParallelType::TIDx);
+      red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
 
       // Output Splits
       //      [|Out-Leftover, Out-PerBlock|, <Reduction Dims>]
@@ -333,45 +342,48 @@ void scheduleReduction(
       //       ----------------------------
       //       Output Dimensions
       if (has_iter_axis) {
-        red_tv->split(
+        red_tv_rf->split(
             iter_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
-        for (auto iter_tv : outs_of_red) {
-          iter_tv->split(
-              iter_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
-        }
+        red_tv_rf->axis(1)->parallelize(ParallelType::TIDy);
+        red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
       }
 
-      auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-3, -2});
+      // This was slow for some reason, part 1/2
+      // std::vector<TensorView*> cached_inputs;
+      // {
+      //   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+      //   for (auto tv : in_tvs) {
+      //     auto cached_tv = tv->cache_after();
+      //     cached_inputs.emplace_back(cached_tv);
+      //   }
+      // }
 
-      scheduler_utils::scheduleReductionComputeAt(
-          red_tv, red_tv_rf, outs_of_red);
+      TransformPropagator::from(red_tv_rf);
 
-      red_tv_rf->axis(-2)->parallelize(ParallelType::Unroll);
+      // This was slow for some reason, part 2/2
+      // for(auto cached_input : cached_inputs){
+      //   auto consumers_of_input_cache =
+      //   scheduler_utils::consumerTvsOf(cached_input);
 
-      if (has_iter_axis) {
-        red_tv->axis(0)->parallelize(ParallelType::BIDx);
-        for (auto iter_tv : outs_of_red) {
-          iter_tv->axis(0)->parallelize(ParallelType::BIDx);
-        }
-        red_tv->axis(1)->parallelize(ParallelType::TIDy);
-        for (auto iter_tv : outs_of_red) {
-          iter_tv->axis(1)->parallelize(ParallelType::TIDy);
-        }
-      }
+      //   for(auto consumer : consumers_of_input_cache){
+      //     cached_input->computeAt(consumer, -3);
+      //     if(consumer != red_tv_rf){
+      //       consumer->computeAt(red_tv_rf, -1, ComputeAtMode::MostInlined);
+      //     }
+      //   }
+      // }
 
-      red_tv->axis(-1)->parallelize(ParallelType::TIDx);
+      scheduler_utils::computeAtInputs(red_tv, -1, ComputeAtMode::MostInlined);
+      scheduler_utils::computeWithOutputs(
+          red_tv, -1, ComputeAtMode::MostInlined);
+      scheduler_utils::parallelizeAllLike(
+          red_tv_rf, scheduler_utils::allTvs(fusion));
 
-      // Bind Inputs to Reduction
-      for (auto input : fusion->inputsOf(red_tv_rf)) {
-        if (input->getValType().value() == ValType::TensorView) {
-          input->as<TensorView>()->computeAt(red_tv_rf, -1);
-        }
-      }
       // Do a cross-warp reduction per block
     } else {
       if (rparams.cross_grid) {
         // Reduction Splits
-        //      [outputs, |rF-Leftover, X-Grid, X-Block, X-Warp, rf-Unroll|]
+        //      [outputs, |rF-Leftover, X-Grid, X-Block, rf-Unroll, X-Warp|]
         // Idx:     0     |   1(-5)      2(-4)    3(-3)   4(-2)     5(-1) |
         //                -------------------------------------------------
         //                Reduction Dimensions
@@ -386,27 +398,22 @@ void scheduleReduction(
         auto red_tv_rf = scheduler_utils::rfactorHelper(
             red_tv, {-5, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
-        scheduler_utils::scheduleReductionComputeAt(
-            red_tv, red_tv_rf, outs_of_red);
-
         red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
+        red_tv_rf->axis(-2)->parallelize(ParallelType::TIDx);
+        red_tv_rf->axis(-3)->parallelize(ParallelType::TIDy);
+        red_tv_rf->axis(-4)->parallelize(ParallelType::BIDy);
 
         if (has_iter_axis) {
-          red_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
-          for (auto iter_tv : outs_of_red) {
-            iter_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
-          }
+          red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
         }
-        red_tv->axis(-1)->parallelize(ParallelType::TIDx);
-        red_tv->axis(-2)->parallelize(ParallelType::TIDy);
-        red_tv->axis(-3)->parallelize(ParallelType::BIDy);
 
-        // Bind Inputs to Reduction
-        for (auto input : fusion->inputsOf(red_tv_rf)) {
-          if (input->getValType().value() == ValType::TensorView) {
-            input->as<TensorView>()->computeAt(red_tv_rf, -1);
-          }
-        }
+        TransformPropagator::from(red_tv_rf);
+        scheduler_utils::computeAtInputs(
+            red_tv, -1, ComputeAtMode::MostInlined);
+        scheduler_utils::computeWithOutputs(
+            red_tv, -1, ComputeAtMode::MostInlined);
+        scheduler_utils::parallelizeAllLike(
+            red_tv_rf, scheduler_utils::allTvs(fusion));
       } else {
         // Reduction Splits
         //      [outputs, |rF-Leftover, X-Block, X-Warp, rf-Unroll|]
@@ -422,27 +429,21 @@ void scheduleReduction(
         auto red_tv_rf = scheduler_utils::rfactorHelper(
             red_tv, {-4, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
-        scheduler_utils::scheduleReductionComputeAt(
-            red_tv, red_tv_rf, outs_of_red);
-
         red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
+        red_tv_rf->axis(-2)->parallelize(ParallelType::TIDx);
+        red_tv_rf->axis(-3)->parallelize(ParallelType::TIDy);
 
         if (has_iter_axis) {
-          red_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
-          for (auto iter_tv : outs_of_red) {
-            iter_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
-          }
+          red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
         }
 
-        red_tv->axis(-1)->parallelize(ParallelType::TIDx);
-        red_tv->axis(-2)->parallelize(ParallelType::TIDy);
-
-        // Bind Inputs to Reduction
-        for (auto input : fusion->inputsOf(red_tv_rf)) {
-          if (input->getValType().value() == ValType::TensorView) {
-            input->as<TensorView>()->computeAt(red_tv_rf, -1);
-          }
-        }
+        TransformPropagator::from(red_tv_rf);
+        scheduler_utils::computeAtInputs(
+            red_tv, -1, ComputeAtMode::MostInlined);
+        scheduler_utils::computeWithOutputs(
+            red_tv, -1, ComputeAtMode::MostInlined);
+        scheduler_utils::parallelizeAllLike(
+            red_tv_rf, scheduler_utils::allTvs(fusion));
       }
     }
   } else {
@@ -457,14 +458,6 @@ void scheduleReduction(
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::BIDy));
         red_tv->split(1, kLoopUnrollSplit);
 
-        // Reordering the Unroll dimension eases applying computeAt()
-        // for preceeding operations and the rFactored Tensor.
-        //                                 |--- Reordered ----|
-        //                                 V                  V
-        //      [outputs, |rF-Leftover, X-Block, X-Grid, rF-Unroll|]
-        // Idx:     0     |   1(-4)      2(-3)   3(-2)     4(-1)  |
-        //                -----------------------------------------
-        //                Reduction Dimensions
         red_tv->reorder({{-1, -3}, {-3, -1}});
 
         // Output Splits
@@ -473,34 +466,24 @@ void scheduleReduction(
         //       ----------------------------
         //       Output Dimensions
         red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
-        for (auto iter_tv : outs_of_red) {
-          iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
-        }
 
         auto red_tv_rf = scheduler_utils::rfactorHelper(
             red_tv, {-4, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
-        scheduler_utils::scheduleReductionComputeAt(
-            red_tv, red_tv_rf, outs_of_red);
-
+        red_tv_rf->axis(-3)->parallelize(ParallelType::TIDy);
+        red_tv_rf->axis(-2)->parallelize(ParallelType::BIDy);
         red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
+        red_tv_rf->axis(1)->parallelize(ParallelType::TIDx);
+        red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
 
-        red_tv->axis(0)->parallelize(ParallelType::BIDx);
-        for (auto iter_tv : outs_of_red) {
-          iter_tv->axis(0)->parallelize(ParallelType::BIDx);
-          iter_tv->axis(1)->parallelize(ParallelType::TIDx);
-        }
+        TransformPropagator::from(red_tv_rf);
+        scheduler_utils::computeAtInputs(
+            red_tv, -1, ComputeAtMode::MostInlined);
+        scheduler_utils::computeWithOutputs(
+            red_tv, -1, ComputeAtMode::MostInlined);
+        scheduler_utils::parallelizeAllLike(
+            red_tv_rf, scheduler_utils::allTvs(fusion));
 
-        red_tv->axis(-3)->parallelize(ParallelType::TIDx);
-        red_tv->axis(-2)->parallelize(ParallelType::TIDy);
-        red_tv->axis(-1)->parallelize(ParallelType::BIDy);
-
-        // Bind Inputs to Reduction
-        for (auto input : fusion->inputsOf(red_tv_rf)) {
-          if (input->getValType().value() == ValType::TensorView) {
-            input->as<TensorView>()->computeAt(red_tv_rf, -1);
-          }
-        }
       } else {
         // Reduction Splits
         //      [outputs, |rF-Leftover, rf-Unroll, X-Block|]
@@ -510,14 +493,6 @@ void scheduleReduction(
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
         red_tv->split(1, kLoopUnrollSplit);
 
-        // Reordering the Unroll dimension eases applying computeAt()
-        // for preceeding operations and the rFactored Tensor.
-        //                               |- Reordered -|
-        //                               V             V
-        //      [outputs, |rF-Leftover, X-Block, rF-Unroll|]
-        // Idx:     0     |   1(-3)      2(-2)     3(-1)  |
-        //                ---------------------------------
-        //                Reduction Dimensions
         red_tv->reorder({{-1, -2}, {-2, -1}});
 
         // Output Splits
@@ -526,53 +501,35 @@ void scheduleReduction(
         //       ----------------------------
         //       Output Dimensions
         red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
-        for (auto iter_tv : outs_of_red) {
-          iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
-        }
 
         auto red_tv_rf = scheduler_utils::rfactorHelper(
             red_tv, {-3, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
-        scheduler_utils::scheduleReductionComputeAt(
-            red_tv, red_tv_rf, outs_of_red);
-
+        red_tv_rf->axis(-2)->parallelize(ParallelType::TIDy);
         red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
+        red_tv_rf->axis(1)->parallelize(ParallelType::TIDx);
+        red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
 
-        red_tv->axis(0)->parallelize(ParallelType::BIDx);
-        for (auto iter_tv : outs_of_red) {
-          iter_tv->axis(0)->parallelize(ParallelType::BIDx);
-          iter_tv->axis(1)->parallelize(ParallelType::TIDx);
-        }
-        red_tv->axis(-2)->parallelize(ParallelType::TIDx);
-        red_tv->axis(-1)->parallelize(ParallelType::TIDy);
-
-        // Bind Inputs to Reduction
-        for (auto input : fusion->inputsOf(red_tv_rf)) {
-          if (input->getValType().value() == ValType::TensorView) {
-            input->as<TensorView>()->computeAt(red_tv_rf, -1);
-          }
-        }
+        TransformPropagator::from(red_tv_rf);
+        scheduler_utils::computeAtInputs(
+            red_tv, -1, ComputeAtMode::MostInlined);
+        scheduler_utils::computeWithOutputs(
+            red_tv, -1, ComputeAtMode::MostInlined);
+        scheduler_utils::parallelizeAllLike(
+            red_tv_rf, scheduler_utils::allTvs(fusion));
       }
     } else {
       red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
-      for (auto iter_tv : outs_of_red) {
-        iter_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
-      }
-
-      scheduler_utils::scheduleReductionComputeAt(red_tv, nullptr, outs_of_red);
 
       red_tv->axis(0)->parallelize(ParallelType::BIDx);
       red_tv->axis(1)->parallelize(ParallelType::TIDx);
-      for (auto iter_tv : outs_of_red) {
-        iter_tv->axis(0)->parallelize(ParallelType::BIDx);
-        iter_tv->axis(1)->parallelize(ParallelType::TIDx);
-      }
 
-      for (auto input : fusion->inputsOf(red_tv)) {
-        if (input->getValType().value() == ValType::TensorView) {
-          input->as<TensorView>()->computeAt(red_tv, -1);
-        }
-      }
+      TransformPropagator::from(red_tv);
+      scheduler_utils::computeAtInputs(red_tv, -1, ComputeAtMode::MostInlined);
+      scheduler_utils::computeWithOutputs(
+          red_tv, -1, ComputeAtMode::MostInlined);
+      scheduler_utils::parallelizeAllLike(
+          red_tv, scheduler_utils::allTvs(fusion));
     }
   }
 }
