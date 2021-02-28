@@ -10,6 +10,8 @@
 
 #include <cuda_runtime.h>
 
+#include <sstream>
+
 #include "utils.h"
 
 using namespace torch::jit::fuser::cuda;
@@ -49,25 +51,6 @@ static std::pair<TensorView*, TensorView*> setupReduction(
   return {tv1, output_of_reduction};
 }
 
-static LaunchParams ScheduleReduction(
-    Fusion* fusion,
-    at::Tensor aten_input,
-    TensorView* reduction_tv,
-    TensorView* output_of_reduction) {
-
-  auto reduction_params =
-      getReductionHeuristics(fusion, {aten_input}, reduction_tv);
-  TORCH_CHECK(reduction_params.has_value(), "Reduction is not found!");
-  std::vector<TensorView*> outputs_of_reduction;
-  if(output_of_reduction != nullptr){
-    outputs_of_reduction.push_back(output_of_reduction);
-  }
-  scheduleReduction(
-      fusion, reduction_params.value(), reduction_tv, outputs_of_reduction);
-
-  return reduction_params.value().lparams;
-}
-
 static void MagicScheduler_Reduction(benchmark::State& benchmark_state,
   DataType dtype,
   int reduction_dim) {
@@ -85,8 +68,41 @@ static void MagicScheduler_Reduction(benchmark::State& benchmark_state,
       (reduction_dim ? at::randn({iter_size, reduction_size}, options)
             : at::randn({reduction_size, iter_size}, options));
 
-  auto lparams = ScheduleReduction(
-      &fusion, aten_input, reduction_tvs.first, reduction_tvs.second);
+  auto reduction_tv = reduction_tvs.first;
+  auto out_of_reduction = reduction_tvs.second;
+
+  auto reduction_params =
+      getReductionHeuristics(&fusion, {aten_input}, reduction_tv);
+
+  TORCH_CHECK(reduction_params.has_value(), "Reduction is not found!");
+  
+  std::vector<TensorView*> outputs_of_reduction;
+  if(out_of_reduction != nullptr){
+    outputs_of_reduction.push_back(out_of_reduction);
+  }
+
+  scheduleReduction(
+      &fusion, reduction_params.value(), reduction_tv, outputs_of_reduction);
+
+  auto lparams = reduction_params.value().lparams;
+
+  std::stringstream ss;
+  if(reduction_params.value().fastest_dim){
+    ss << "Fastest dim";
+  } else {
+    ss << "Slow dim";
+  }
+  if(reduction_params.value().cross_block){
+    ss << "/cross block";
+  }
+  if(reduction_params.value().multiple_reds_per_blk){
+    ss << "/multiple reductions per block ";
+  }
+  if(reduction_params.value().cross_grid){
+    ss << "/cross grid";
+  }
+  benchmark_state.SetLabel(ss.str());
+  
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
@@ -96,6 +112,7 @@ static void MagicScheduler_Reduction(benchmark::State& benchmark_state,
     auto cg_outputs = fe.runFusion({aten_input}, lparams);
     benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
   }
+
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(dtype)));
