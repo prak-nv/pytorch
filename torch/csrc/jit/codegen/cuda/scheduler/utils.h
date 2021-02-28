@@ -75,6 +75,36 @@ void cacheInputs(
     const std::vector<TensorView*>& reduction_tv,
     std::vector<TensorView*>& other_tv);
 
+// TODO: Is there a use for this?
+std::vector<TensorView*> producerTvsOf(TensorView* tv);
+
+// TODO: Is there a use for this?
+std::vector<TensorView*> consumerTvsOf(TensorView* tv);
+
+// TODO: Is there a use for this?
+std::vector<TensorView*> producerTvsOf(std::vector<TensorView*> tvs);
+
+// TODO: Is there a use for this?
+std::vector<TensorView*> consumerTvsOf(std::vector<TensorView*> tvs);
+
+std::vector<TensorView*> allTvs();
+
+void parallelizeAllLike(
+    TensorView* reference_tv,
+    const std::vector<TensorView*>& all_tvs);
+
+void computeAtInputs(
+    TensorView* consumer,
+    int pos,
+    ComputeAtMode mode = ComputeAtMode::Standard);
+
+void computeWithOutputs(
+    TensorView* producer,
+    int pos,
+    ComputeAtMode mode = ComputeAtMode::Standard);
+
+std::vector<TensorView*> allTvs(Fusion* fusion);
+
 } // namespace scheduler_utils
 } // namespace cuda
 } // namespace fuser
