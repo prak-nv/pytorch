@@ -310,7 +310,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // Create a TensorView after the original tensor. A common use case is to
   // read tensor into shared memory or registers. Analogous to TVM Cache_Read
-  TensorView* cache_after();
+  TensorView* cache_after(Expr* use = nullptr, int computeAtpos = 0);
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory

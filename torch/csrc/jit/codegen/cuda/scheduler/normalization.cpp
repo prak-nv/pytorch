@@ -39,6 +39,8 @@ ReductionParams multipleReductionHeuristic(
 
   // Is fastest dimension a reduction dimension?
   if (rparams.fastest_dim) {
+    const int64_t iter_dim_size = std::max(outer_dim_size, inner_dim_size);
+
     const int64_t kMaxThreadsPerCTA =
         at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
 
@@ -56,12 +58,12 @@ ReductionParams multipleReductionHeuristic(
         const int kBatchesPerWarp = 1;
         rparams.batches_per_block = rparams.num_warps * kBatchesPerWarp;
         gdimx = std::max(
-            ceilDiv(outer_dim_size, rparams.batches_per_block), (int64_t)1);
+            ceilDiv(iter_dim_size, rparams.batches_per_block), (int64_t)1);
         bdimx = at::cuda::warp_size();
       } else {
         // rparams.num_warps = 1;
         // rparams.batches_per_block = 1;
-        gdimx = std::max(outer_dim_size, (int64_t)1);
+        gdimx = std::max(iter_dim_size, (int64_t)1);
         bdimx = std::min(reduction_dim_size, kMaxThreadsPerCTA);
       }
       // bdimy is the number of warps per block
@@ -86,7 +88,7 @@ ReductionParams multipleReductionHeuristic(
 
       // Launch at least a single warp - the kernel assumes that.
       bdimx = std::max(bdimx, (int64_t)at::cuda::warp_size());
-      gdimx = std::max(outer_dim_size, (int64_t)1);
+      gdimx = std::max(iter_dim_size, (int64_t)1);
     }
   } else {
     rparams.persistent_kernel = false;
@@ -220,7 +222,7 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getNormalizationHeuristics(
     reduction_elements.push_back(this_reduction_size);
     reduction_outer.push_back(this_outer_size);
     reduction_inner.push_back(this_inner_size);
-    fastest_dim_reduction.push_back(!has_inner);
+    fastest_dim_reduction.push_back(tv->getRootDomain().back()->isReduction());
   }
 
   // Check that the dimensions of the reductions are equal
