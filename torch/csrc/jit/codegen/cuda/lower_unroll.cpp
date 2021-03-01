@@ -165,7 +165,6 @@ void UnrollPass::handle(kir::ForLoop* fl) {
   }
 }
 
-
 bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) const {
   kir::ExpressionEvaluator eval;
   std::vector<kir::ForLoop*> loops({fl});
