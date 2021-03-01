@@ -250,12 +250,6 @@ class IrParser {
               auto out = add(lhs, rhs);
               TORCH_INTERNAL_ASSERT(fusion->hasInput(lhs));
               fusion->aliasOutputToInput(lhs, out);
-std::vector<int> alias_indices = fusion->getInputAliasIndices();
-std::cout << "during parsing, alias indices: ";
-for (const auto& i : alias_indices) {
-  std::cout << i << ", ";
-}
-std::cout << std::endl;
               value_map.emplace(node->output()->unique(), out);
           });
     }
@@ -719,9 +713,7 @@ std::cout << std::endl;
               auto rev_momentum = sub(new Double(1.0), momentum_ptr);
               auto mean_hat = mul(rmean_bcast, rev_momentum);
               auto new_mean_hat = add(mean_hat, current_mean_hat);
-              // TODO: should this go after parsing? Double check on how outputs
-              // are mapped between fusion and PyTorch IR;
-              //fusion->addOutput(new_mean_hat);
+              fusion->aliasOutputToInput(running_mean, new_mean_hat);
 
               auto x_mean_sub = sub(input, x_mean);
               auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
@@ -729,15 +721,14 @@ std::cout << std::endl;
               auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
               auto var = div(var_sum_bcast, num_features);
 
+              // updating running var
               auto num_feature_decrement = sub(num_features, new Int(1));
               auto unbiased_var = div(var_sum_bcast, num_feature_decrement);
               auto current_var_hat = mul(unbiased_var, momentum_ptr);
               auto rvar_bcast = broadcast(running_var, broadcast_mask);
               auto var_hat = mul(rvar_bcast, rev_momentum);
               auto new_var_hat = add(var_hat, current_var_hat);
-              // TODO: should this go after parsing? Double check on how outputs
-              // are mapped between fusion and PyTorch IR;
-              //fusion->addOutput(new_var_hat);
+              fusion->aliasOutputToInput(running_var, new_var_hat);
 
               auto var_eps = add(var, eps_ptr);
               auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
