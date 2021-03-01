@@ -444,9 +444,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
         options.device = c10::Device(DeviceType::CUDA, device_index);
         // We do not need to copy fusion_ because we are not generating
         // multiple kernels for point-wise operations.
-        scheduleFusion(fusion_.get(), inputs);
+        auto fusion_clone = *fusion_;
+        scheduleFusion(&fusion_clone, inputs);
         pw_fusion_executor_cache_[device_index]->compileFusion(
-            fusion_.get(), options);
+            &fusion_clone, options);
       }
       // record new short cut to `FusionExecutor`
       code_to_fe_lookup_[unique_id] =
@@ -585,7 +586,19 @@ std::vector<at::Tensor> FusionSegmentRuntime::runWithInput(
   // Produce final global output
   std::vector<IValue> fusion_outputs;
   for (auto output : segmented_fusion_->outputs()) {
-    fusion_outputs.push_back(tensor_map.at(output));
+    const auto iter = tensor_map.find(output);
+    if (iter != tensor_map.end()) {
+      fusion_outputs.push_back(iter->second);
+    } else {
+      // This is the check for an empty tensor;
+      TORCH_INTERNAL_ASSERT(
+          output->as<TensorView>()->nDims() == 0 &&
+              output->getDataType().has_value() &&
+              output->getDataType().value() == DataType::Float,
+          "Non empty tensor cannot be found at tensor_map in ",
+          __FUNCTION__);
+      fusion_outputs.emplace_back(at::Tensor());
+    }
   }
 
   std::vector<at::Tensor> fusion_output_tensors;

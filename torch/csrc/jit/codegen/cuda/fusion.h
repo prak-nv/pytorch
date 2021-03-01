@@ -239,6 +239,8 @@ class TORCH_CUDA_CU_API Fusion final {
   // Fusion inputs and outputs
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
+
+  std::unordered_map<Val*, Val*> io_val_mapping_;
 };
 
 } // namespace cuda

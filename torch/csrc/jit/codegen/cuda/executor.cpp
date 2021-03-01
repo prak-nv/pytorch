@@ -121,6 +121,7 @@ void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
   fusion_ = *fusion;
   FusionGuard fg(&fusion_);
   options_ = options;
+  c10::DeviceGuard dg(options_.device);
 
   TORCH_INTERNAL_ASSERT(
       options.device.is_cuda(), "Provided device to CUDA fuser is the CPU.");
@@ -485,6 +486,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       launch_params.print();
     }
 
+    executor_utils::validateVectorizedTensors(
+        &fusion_, inputs, outputs, lowered_, expr_eval);
+
     if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
       allocated_outputs = allocOutputs(expr_eval);
     } else {
@@ -578,8 +582,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     const at::ArrayRef<IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
     const LaunchParams& launch_constraints,
-    const c10::optional<size_t>& opt_code,
-    const std::unordered_map<size_t, size_t> io_tensor_mapping) {
+    const c10::optional<size_t>& opt_code) {
   FUSER_PERF_SCOPE("runFusion");
 
   TORCH_INTERNAL_ASSERT(

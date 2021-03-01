@@ -566,9 +566,6 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
   TORCH_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match.");
-  TORCH_CHECK(
-      outer->getParallelType() == inner->getParallelType(),
-      "Merging IterDomains requires that their parallel types match.");
 
   Val* merged_id_size = mul(outer->extent(), inner->extent());
 
@@ -604,12 +601,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   TORCH_CHECK(
       in->start()->isZeroInt(),
       "Splitting IterDomains with starting values that aren't 0 is not supported at this time.");
-
-  if (in->getParallelType() != ParallelType::Serial)
-    TORCH_CHECK(
-        false,
-        "Splitting an axis of non-Serial iteration is not supported at this time."
-        " Parallelization strategy must be set after calling split.");
 
   TORCH_CHECK(factor->isAnInt(), "Cannot split by non-integer value ", factor);
 
@@ -663,15 +654,17 @@ Val* IterDomain::extent() const {
   return extent_;
 }
 
+// TODO: We should change parallelize interface to be on tensorview or at least
+// vectorize should be done on tensorview. This would let us check that we don't
+// vectorize to the left of the computeAt domain, and could allow us to do some
+// simple validation of vectorize as it's inputs are right most and contiguous.
 void IterDomain::parallelize(ParallelType t) {
   parallel_type_ = t;
-
-  TORCH_CHECK(t != ParallelType::Vectorize, "Vectorization not yet supported.");
-
-  if (t == ParallelType::Unroll) {
+  if (t == ParallelType::Unroll || t == ParallelType::Vectorize ||
+      t == ParallelType::Unswitch) {
     TORCH_CHECK(
         start()->isZeroInt() && extent()->isConstScalar(),
-        "Unrolling only supported with start = 0 and extent as a const int, but got ",
+        "Vectorization, unrolling, and unswitching are only supported with start = 0 and extent as a const int, but got ",
         "a start of ",
         start(),
         " and extent ",
