@@ -508,7 +508,7 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getNormalizationHeuristics(
     reduction_elements.push_back(this_reduction_size);
     reduction_outer.push_back(this_outer_size);
     reduction_inner.push_back(this_inner_size);
-    fastest_dim_reduction.push_back(!has_inner);
+    fastest_dim_reduction.push_back(tv->getRootDomain().back()->isReduction());
   }
 
   // Check that the dimensions of the reductions are equal

@@ -13273,8 +13273,8 @@ TEST(NVFuserTest, FusionBN_CUDA) {
   std::vector<int64_t> input_shape{
       100,
       3,
-      32,
-      32};
+      64,
+      64};
 
   // setup fusion
   auto input = TensorViewBuilder()
@@ -13334,48 +13334,83 @@ TEST(NVFuserTest, FusionBN_CUDA) {
   }
 
   const int kNumThreads = 1024;
+  const int kVecSize = 4;
+
+  // Transform all tensorviews
   for (auto expr : fusion.exprs()) {
     auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     for (auto out_tv : out_tvs) {
-      // merge inner reductions together
-      auto inner_merge = out_tv->merge(-2);
+      auto outer_reorder = out_tv->reorder({{0, 1}, {1, 0}});
 
-      // [N, C, H*W] => [N, C, H*W / TDX, TDX]
-      auto inner_split = inner_merge->split(-1, kNumThreads);
+      // merge inner reductions together
+      auto inner_merge = outer_reorder->merge(-2);
+
+      // [N, C, H*W] => [N, C, H*W / (TDX * V), TDX * V]
+      auto inner_split = inner_merge->split(-1, kNumThreads * kVecSize);
+
+      // [N, C, H*W] => [N, C, H*W / (TDX * V), TDX, V]
+      auto vec_split = inner_split->split(-1, kVecSize);
     }
   }
 
+  // Rfactor Reductions
   std::vector<TensorView*> first_rfactor_tvs;
   std::vector<TensorView*> second_rfactor_tvs;
   for (auto reduction_tv : reduction_tvs) {
     // thread reduction first
-    first_rfactor_tvs.push_back(reduction_tv->rFactor({-2}));
+    first_rfactor_tvs.push_back(reduction_tv->rFactor({-3, -1}));
 
     // block reduction
     second_rfactor_tvs.push_back(reduction_tv->rFactor({-1}));
   }
 
-  input->computeAt(reduction_tvs[0], 2, ComputeAtMode::BestEffort);
-  reduction_tvs[0]->computeWith(norm_gamma_bias, 2, ComputeAtMode::BestEffort);
+  /*
+  auto duplicated_tvs = x_mean_sub->duplicate();
+
+  auto c1 = input->cache_after(first_rfactor_tvs[0]->definition());
+  auto c2 = input->cache_after(duplicated_tvs[0]->definition());
+  auto c3 = input->cache_after(x_mean_sub->definition());
+
+  input->computeAt(norm_gamma_bias, 1);
+  first_rfactor_tvs[0]->computeAt(reduction_tvs[0], 2);
+  c1->computeAt(first_rfactor_tvs[0], -2);
+
+  c3->computeAt(x_mean_sub, -2);
+  x_mean_sub->computeAt(norm_gamma_bias, -1);
+  x_mean_sub->computeWith(norm_gamma_bias, -1);
+
+  c2->computeAt(duplicated_tvs[0], -2);
+  duplicated_tvs[0]->computeAt(var_sum, -1);
+  duplicated_tvs[0]->computeWith(var_sum, -1);
+  */
+
+  // Initial ComputeAt
+  input->computeAt(norm_gamma_bias, 1);
+  first_rfactor_tvs[0]->computeAt(reduction_tvs[0], 2);
 
   auto to_duplicate_tvs = findTensorViewsToDuplicate(fusion);
   auto duplicated_tvs = to_duplicate_tvs[0]->duplicate();
-  fusion.printMath();
 
+  // Inline for-loop nests the duplicated tv --- (x-mean)
   to_duplicate_tvs[0]->computeAt(norm_gamma_bias, -1);
   to_duplicate_tvs[0]->computeWith(norm_gamma_bias, -1);
 
   duplicated_tvs[0]->computeAt(var_sum, -1);
   duplicated_tvs[0]->computeWith(var_sum, -1);
 
+  // Create cache-after for vectorization
+  auto c1 = input->cache_after(first_rfactor_tvs[0]->definition(), -2);
+  auto c2 = input->cache_after(duplicated_tvs[0]->definition(), -2);
+  auto c3 = input->cache_after(to_duplicate_tvs[0]->definition(), -2);
+
   auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
   ca_loop_map_.build();
 
   for (auto rf : first_rfactor_tvs) {
-    ca_loop_map_.getConcreteMappedID(rf->axis(1))
+    ca_loop_map_.getConcreteMappedID(rf->axis(0))
         ->parallelize(ParallelType::BIDx);
 
-    ca_loop_map_.getConcreteMappedID(rf->axis(-1))
+    ca_loop_map_.getConcreteMappedID(rf->axis(-2))
         ->parallelize(ParallelType::TIDx);
   }
 
@@ -13389,6 +13424,11 @@ TEST(NVFuserTest, FusionBN_CUDA) {
       id->parallelize(ca_loop_map_.getConcreteMappedID(id)->getParallelType());
     }
   }
+
+  // Apply vectorization
+  c1->axis(-1)->parallelize(ParallelType::Vectorize);
+  c2->axis(-1)->parallelize(ParallelType::Vectorize);
+  c3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   fusion.printMath();
   fusion.printKernel();

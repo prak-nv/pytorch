@@ -168,15 +168,26 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
     }
   }
 
-  const int kNumThreads = 1024;
+  const int kInnerReduction = benchmark_state.range(1) * benchmark_state.range(1);
+  const int kUpperThreshold = 4096;
+  const int kLowerThreshold = 1024;
+  const int kSmallVecSize = (kInnerReduction >= kLowerThreshold) ? 2 : 1;
+  const int kVecSize = (kInnerReduction >= kUpperThreshold) ? 4 : kSmallVecSize;
+  const int kNumThreads = std::min(kInnerReduction / kVecSize, 1024);
+
   for (auto expr : fusion.exprs()) {
     auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     for (auto out_tv : out_tvs) {
-      // merge inner reductions together
-      auto inner_merge = out_tv->merge(-2);
+      auto outer_reorder = out_tv->reorder({{0, 1}, {1, 0}});
 
-      // [N, C, H*W] => [N, C, H*W / TDX, TDX]
-      auto inner_split = inner_merge->split(-1, kNumThreads);
+      // merge inner reductions together
+      auto inner_merge = outer_reorder->merge(-2);
+
+      // [N, C, H*W] => [N, C, H*W / (TDX * V), TDX * V]
+      auto inner_split = inner_merge->split(-1, kNumThreads * kVecSize);
+
+      // [N, C, H*W] => [N, C, H*W / (TDX * V), TDX, V]
+      auto vec_split = inner_split->split(-1, kVecSize);
     }
   }
 
@@ -184,14 +195,15 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
   std::vector<TensorView*> second_rfactor_tvs;
   for (auto reduction_tv : reduction_tensors) {
     // thread reduction first
-    first_rfactor_tvs.push_back(reduction_tv->rFactor({-2}));
+    first_rfactor_tvs.push_back(reduction_tv->rFactor({-3, -1}));
 
     // block reduction
     second_rfactor_tvs.push_back(reduction_tv->rFactor({-1}));
   }
 
-  input->computeAt(reduction_tensors[0], 2, ComputeAtMode::BestEffort);
-  reduction_tensors[0]->computeWith(norm_gamma_bias, 2, ComputeAtMode::BestEffort);
+  // Initial ComputeAt
+  input->computeAt(norm_gamma_bias, 1);
+  first_rfactor_tvs[0]->computeAt(reduction_tensors[0], 2);
 
   auto to_duplicate_tvs = findTensorViewsToDuplicate(fusion);
   auto duplicated_tvs = to_duplicate_tvs[0]->duplicate();
@@ -202,14 +214,23 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
   duplicated_tvs[0]->computeAt(var_sum, -1);
   duplicated_tvs[0]->computeWith(var_sum, -1);
 
+  // Create cache-after for vectorization
+  auto c1 = input->cache_after(first_rfactor_tvs[0]->definition(), -2);
+  auto c2 = input->cache_after(duplicated_tvs[0]->definition(), -2);
+  auto c3 = input->cache_after(to_duplicate_tvs[0]->definition(), -2);
+
+  c1->computeAt(first_rfactor_tvs[0], -2);
+  c2->computeAt(duplicated_tvs[0], -2);
+  c3->computeAt(x_mean_sub, -2);
+
   auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
   ca_loop_map_.build();
 
   for (auto rf : first_rfactor_tvs) {
-    ca_loop_map_.getConcreteMappedID(rf->axis(1))
+    ca_loop_map_.getConcreteMappedID(rf->axis(0))
         ->parallelize(ParallelType::BIDx);
 
-    ca_loop_map_.getConcreteMappedID(rf->axis(-1))
+    ca_loop_map_.getConcreteMappedID(rf->axis(-2))
         ->parallelize(ParallelType::TIDx);
   }
 
@@ -223,6 +244,11 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
       id->parallelize(ca_loop_map_.getConcreteMappedID(id)->getParallelType());
     }
   }
+
+  // Apply vectorization
+  c1->axis(-1)->parallelize(ParallelType::Vectorize);
+  c2->axis(-1)->parallelize(ParallelType::Vectorize);
+  c3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   // inputs
   at::manual_seed(0);
@@ -464,6 +490,12 @@ static void MagicScheduler_BatchNorm_Baseline(
 }
 
 BENCHMARK(MagicScheduler_BatchNorm_Reduction)
+    ->RangeMultiplier(2)
+    ->Ranges({{64, 64}, {8, 64}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(MagicScheduler_BatchNorm)
     ->RangeMultiplier(2)
     ->Ranges({{64, 64}, {8, 64}})
     ->Unit(benchmark::kMicrosecond)

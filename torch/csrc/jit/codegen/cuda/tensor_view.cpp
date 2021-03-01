@@ -633,6 +633,7 @@ std::vector<TensorView*> TensorView::duplicate() {
 
       // Set ComputeAt position for this duplicate TV
       producer->setComputeAt(getComputeAtPosition());
+      producer->setMaxProducer(getMaxProducerPosition());
 
       duplicates.push_back(producer);
     }
@@ -866,7 +867,7 @@ TensorView* TensorView::cache_fork() {
   return new_output;
 }
 
-TensorView* TensorView::cache_after() {
+TensorView* TensorView::cache_after(Expr* use_expr, int computeAtpos) {
   FusionGuard fg(fusion());
 
   const bool kIsFusionInput = fusion()->hasInput(this);
@@ -877,6 +878,15 @@ TensorView* TensorView::cache_after() {
       "Error adding cache_after ",
       this,
       " we restrict using cache_after on an output.");
+
+  if (use_expr != nullptr) {
+    auto uses = fusion()->unordered_uses(this);
+    bool found = uses.find(use_expr) != uses.end();
+    TORCH_CHECK(
+      found,
+      "The use TensorView is not valid"
+    );
+  }
 
   // Create Consumer Domain
   // Keep Broadcast Axis (Permanent)
@@ -902,8 +912,12 @@ TensorView* TensorView::cache_after() {
   // After:  This TV -> [Set Op] -> New CA TV -> [Use Op] -> Next TV
 
   // Expr* consumer_uses =
-  for (auto expr : fusion()->unordered_uses(this)) {
-    createExprProducer(expr, this, consumer);
+  if (use_expr != nullptr) {
+    createExprProducer(use_expr, this, consumer);
+  } else {
+    for (auto expr : fusion()->unordered_uses(this)) {
+      createExprProducer(expr, this, consumer);
+    }
   }
 
   // Expr* consumer_definition =
@@ -913,7 +927,10 @@ TensorView* TensorView::cache_after() {
   // After:  This TV -> New TV (After) -> Next TV
   if (hasComputeAt()) {
     TransformReplay::replayCasP(consumer, producer, -1);
-    consumer->setComputeAt(getComputeAtPosition());
+    auto ca_pos = (computeAtpos == 0) ? getComputeAtPosition() : computeAtpos;
+    auto pa_pos = getMaxProducerPosition();
+    consumer->setComputeAt(ca_pos);
+    consumer->setMaxProducer(pa_pos);
   } else if (kIsFusionInput) {
     bool cache_replayed = false;
     // Check users of this TV for computeAt for cache_after on inputs
@@ -926,11 +943,8 @@ TensorView* TensorView::cache_after() {
             TransformReplay::replayPasC(consumer, output, -1);
             cache_replayed = true;
           }
-          auto output_ca_pos = output->getComputeAtPosition();
-          auto this_pos =
-              TransformReplay::replayPasC(consumer, output, output_ca_pos)
-                  .second;
-          consumer->setComputeAt(this_pos);
+          auto output_ca_pos = (computeAtpos == 0) ? output->getComputeAtPosition() : computeAtpos;
+          consumer->computeAt(output, output_ca_pos);
         }
       }
     }
