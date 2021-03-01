@@ -387,11 +387,16 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
 }
 
 std::vector<at::Tensor> FusionExecutor::allocOutputs(
-    kir::ExpressionEvaluator& expr_eval) {
+    kir::ExpressionEvaluator& expr_eval,
+    int skip_io_aliases) {
   FUSER_PERF_SCOPE("allocOutputs");
   const auto kernel = lowered_.kernel();
   std::vector<at::Tensor> outputs;
   for (auto output : kernel->outputs()) {
+    if (skip_io_aliases > 0) {
+      --skip_io_aliases;
+      continue;
+    }
     TORCH_INTERNAL_ASSERT(
         output->isA<kir::TensorView>(),
         "Cannot allocate outputs that are not tensors.");
@@ -415,7 +420,6 @@ void FusionExecutor::setUsedTVs() {
 std::vector<at::Tensor> FusionExecutor::runFusion(
     const at::ArrayRef<IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
-    const std::unordered_map<size_t, size_t> io_tensor_mapping,
     const LaunchParams& launch_constraints,
     const c10::optional<size_t>& opt_code) {
   FUSER_PERF_SCOPE("runFusion");
@@ -440,12 +444,21 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   GlobalBuffers global_buffers;
   uint64_t rand_offset = 0;
 
+  std::vector<at::Tensor> io_aliases;
+
   if (executor_entry && executor_entry->init) {
     {
       // context manager to disable auto grad for `empty_cuda` calls later
       at::AutoNonVariableTypeMode non_variable_type_mode;
       // take the short-cut for launch if we see a recorded input set again
       launch_params = executor_entry->launch_params;
+      if (!executor_entry->io_alias_indices.empty()) {
+        for (const auto& i : executor_entry->io_alias_indices) {
+          printf("aliasing index: %d\n, tagKind %s", i, inputs[i].tagKind().c_str());
+          TORCH_INTERNAL_ASSERT(inputs[i].isTensor(), "alias only supports tensors");
+          io_aliases.push_back(inputs[i].toTensor());
+        }
+      }
       for (size_t i = 0; i < executor_entry->output_sizes.size(); i++) {
         allocated_outputs.push_back(at::native::empty_cuda(
             executor_entry->output_sizes[i],
@@ -486,12 +499,25 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       launch_params.print();
     }
 
-    executor_utils::validateVectorizedTensors(
-        &fusion_, inputs, outputs, lowered_, expr_eval);
+    std::vector<int> alias_indices = fusion_.getInputAliasIndices();
+    std::cout << "before run, alias indices: ";
+    for (const auto& i : alias_indices) {
+      std::cout << i << ", ";
+    }
+    std::cout << std::endl;
+    if (!alias_indices.empty()) {
+      for (const auto& i : alias_indices) {
+        printf("aliasing index: %d\n, tagKind %s", i, inputs[i].tagKind().c_str());
+        TORCH_INTERNAL_ASSERT(inputs[i].isTensor(), "alias io only supports tensor");
+        io_aliases.push_back(inputs[i].toTensor());
+      }
+    }
 
+    // TODO: Update this as well;
     if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
-      allocated_outputs = allocOutputs(expr_eval);
+      allocated_outputs = allocOutputs(expr_eval, alias_indices.size());
     } else {
+      // TODO: Update this as well;
       executor_utils::validateKernelOutputs(
           &fusion_, allocated_outputs, options_.device);
     }
@@ -517,6 +543,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (executor_entry) {
       // record the the short-cut executor entry for the given input set;
       executor_entry->launch_params = launch_params;
+      executor_entry->io_alias_indices = alias_indices;
       for (const auto& output : allocated_outputs) {
         executor_entry->output_sizes.push_back(output.sizes().vec());
         executor_entry->output_types.push_back(output.scalar_type());
@@ -536,168 +563,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   KernelArgumentHolder kernel_arguments;
   kernel_arguments.push(inputs);
-  kernel_arguments.push(allocated_outputs);
-  kernel_arguments.push(global_buffers.empty_buffers);
-  kernel_arguments.push(global_buffers.zero_buffers);
-  if (lowered_.kernel()->summary().is_stochastic) {
-    kernel_arguments.appendPhiloxRNGSeed(rand_offset);
-  }
-
-  cudaEvent_t start_event = {};
-  cudaEvent_t finish_event = {};
-
-  if (measure_kernel_time_) {
-    cudaEventCreate(&start_event);
-    cudaEventCreate(&finish_event);
-    cudaEventRecord(start_event);
-  }
-
-  if (execute_kernel_) {
-    FUSER_PERF_SCOPE("cuLaunchKernel");
-    AT_CUDA_DRIVER_CHECK(at::globalContext().getNVRTC().cuLaunchKernel(
-        compiled_kernel_.function,
-        launch_params.gdimx(),
-        launch_params.gdimy(),
-        launch_params.gdimz(),
-        launch_params.bdimx(),
-        launch_params.bdimy(),
-        launch_params.bdimz(),
-        launch_params.smem(),
-        stream,
-        kernel_arguments.getBuffer(),
-        nullptr));
-  }
-
-  if (measure_kernel_time_) {
-    cudaEventRecord(finish_event);
-    cudaEventSynchronize(start_event);
-    cudaEventSynchronize(finish_event);
-    cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event);
-  }
-
-  return allocated_outputs;
-}
-
-std::vector<at::Tensor> FusionExecutor::runFusion(
-    const at::ArrayRef<IValue>& inputs,
-    const std::vector<at::Tensor>& outputs,
-    const LaunchParams& launch_constraints,
-    const c10::optional<size_t>& opt_code) {
-  FUSER_PERF_SCOPE("runFusion");
-
-  TORCH_INTERNAL_ASSERT(
-      fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
-  TORCH_INTERNAL_ASSERT(
-      !opt_code.has_value() || outputs.empty(),
-      "short cut input cache is not compatible with pre-allocated output");
-
-  ExecutorEntry* executor_entry = nullptr;
-  if (opt_code.has_value()) {
-    executor_entry = &executor_entry_lookup_[*opt_code];
-  }
-
-  FusionGuard fg(&fusion_);
-  c10::DeviceGuard dg(options_.device);
-  auto stream = at::cuda::getCurrentCUDAStream();
-
-  LaunchParams launch_params;
-  std::vector<at::Tensor> allocated_outputs = outputs;
-  GlobalBuffers global_buffers;
-  uint64_t rand_offset = 0;
-
-  if (executor_entry && executor_entry->init) {
-    {
-      // context manager to disable auto grad for `empty_cuda` calls later
-      at::AutoNonVariableTypeMode non_variable_type_mode;
-      // take the short-cut for launch if we see a recorded input set again
-      launch_params = executor_entry->launch_params;
-      for (size_t i = 0; i < executor_entry->output_sizes.size(); i++) {
-        allocated_outputs.push_back(at::native::empty_cuda(
-            executor_entry->output_sizes[i],
-            executor_entry->output_types[i],
-            c10::nullopt,
-            options_.device,
-            c10::nullopt));
-      }
-      for (size_t i = 0; i < executor_entry->empty_buffer_sizes.size(); i++) {
-        global_buffers.empty_buffers.push_back(at::native::empty_cuda(
-            executor_entry->empty_buffer_sizes[i],
-            executor_entry->empty_buffer_types[i],
-            c10::nullopt,
-            options_.device,
-            c10::nullopt));
-      }
-    }
-    for (size_t i = 0; i < executor_entry->zero_buffer_sizes.size(); i++) {
-      auto tensor_options = at::TensorOptions()
-                                .dtype(executor_entry->zero_buffer_types[i])
-                                .device(options_.device);
-      global_buffers.zero_buffers.push_back(
-          at::zeros(executor_entry->zero_buffer_sizes[i], tensor_options));
-    }
-    rand_offset = executor_entry->rand_offset;
-  } else {
-    // code path to take when either:
-    //   1. no opt_code is provided or
-    //   2. `executor_entry` is not initialized
-    executor_utils::validateKernelInputs(&fusion_, inputs, options_.device);
-
-    const auto kernel = lowered_.kernel();
-
-    auto expr_eval = executor_utils::bindKernelInputs(inputs, kernel);
-
-    launch_params = computeLaunchParams(launch_constraints, expr_eval);
-    if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
-      launch_params.print();
-    }
-
-    if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
-      allocated_outputs = allocOutputs(expr_eval);
-    } else {
-      executor_utils::validateKernelOutputs(
-          &fusion_, allocated_outputs, options_.device);
-    }
-
-    global_buffers = allocGlobalVals(expr_eval);
-
-    if (kernel->summary().is_stochastic) {
-      // NOTE: this is how we map offset to PW kernels in order to have
-      // identical random number generator to match native PyTorch results.
-      // But it doesn't really work as it takes assumption how threads are
-      // binded but is not generally how we handle that in scheduler.
-      // Refer to `Philox` in generated kernel to understand how the mapping
-      // works.
-      rand_offset = 4 *
-          (std::ceil(
-               allocated_outputs[0].numel() /
-               (4.0 * 128 * launch_params.gdimx())) + // NOLINT
-           1);
-    }
-
-    // This is the entry when we have provided `opt_code` but the entry has not
-    // been initialized yet.
-    if (executor_entry) {
-      // record the the short-cut executor entry for the given input set;
-      executor_entry->launch_params = launch_params;
-      for (const auto& output : allocated_outputs) {
-        executor_entry->output_sizes.push_back(output.sizes().vec());
-        executor_entry->output_types.push_back(output.scalar_type());
-      }
-      for (const auto& buffer : global_buffers.empty_buffers) {
-        executor_entry->empty_buffer_sizes.push_back(buffer.sizes().vec());
-        executor_entry->empty_buffer_types.push_back(buffer.scalar_type());
-      }
-      for (const auto& buffer : global_buffers.zero_buffers) {
-        executor_entry->zero_buffer_sizes.push_back(buffer.sizes().vec());
-        executor_entry->zero_buffer_types.push_back(buffer.scalar_type());
-      }
-      executor_entry->rand_offset = rand_offset;
-      executor_entry->init = true;
-    }
-  }
-
-  KernelArgumentHolder kernel_arguments;
-  kernel_arguments.push(inputs);
+  kernel_arguments.push(io_aliases);
   kernel_arguments.push(allocated_outputs);
   kernel_arguments.push(global_buffers.empty_buffers);
   kernel_arguments.push(global_buffers.zero_buffers);

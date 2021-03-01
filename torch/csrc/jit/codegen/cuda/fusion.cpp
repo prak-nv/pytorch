@@ -50,6 +50,8 @@ TORCH_CUDA_CU_API void swap(Fusion& a, Fusion& b) noexcept {
   swap(a.inputs_, b.inputs_);
   swap(a.outputs_, b.outputs_);
 
+  swap(a.io_alias_, b.io_alias_);
+
   // Fixup the Statement::fusion_ links for a
   for (auto val : a.val_set_) {
     val->fusion_ = &a;
@@ -111,6 +113,9 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->inputs_ = ir_cloner.clone(from->inputs_);
   to->outputs_ = ir_cloner.clone(from->outputs_);
 
+  // TODO: put this into ir_cloner instead
+  to->io_alias_ = from->io_alias_;
+
   return ir_cloner;
 }
 
@@ -165,6 +170,8 @@ void Fusion::clear() noexcept {
 
   inputs_.clear();
   outputs_.clear();
+
+  io_alias_.clear();
 }
 
 void Fusion::removeExpr(Expr* expr) {
@@ -564,6 +571,21 @@ std::vector<Val*> Fusion::getTerminatingOutputs() {
     terminating_outputs.push_back(out);
   }
   return terminating_outputs;
+}
+
+void Fusion::aliasOutputToInput(const Val* input, Val* output) {
+  TORCH_INTERNAL_ASSERT(outputs_.size() == io_alias_.size(), "alias needs to be added to output before any real outputs");
+  addOutput(output);
+  TORCH_INTERNAL_ASSERT(hasInput(input) && hasOutput(output), "alias only allows from output to input");
+  for (int i = 0; i < inputs_.size(); i++) {
+    if (inputs_[i] == input) {
+      io_alias_.push_back(i);
+    }
+  }
+}
+
+std::vector<int> Fusion::getInputAliasIndices() const {
+  return io_alias_;
 }
 
 } // namespace cuda

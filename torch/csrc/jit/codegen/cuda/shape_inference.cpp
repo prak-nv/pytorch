@@ -113,6 +113,7 @@ class NaiveTypePropagator {
       // add/sub could be ternary op and the third argument does not contribute
       // to neither type promoteion nor shape.
       case aten::add:
+      case aten::add_: // TODO: remove this!
       case aten::sub: {
         const auto promoted_type = binary_broadcast_type(
             node->input(0)->type()->cast<TensorType>(),

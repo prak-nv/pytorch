@@ -120,6 +120,12 @@ class IrParser {
         has_reduction = true;
       }
     }
+    auto alias_indices = fusion->getInputAliasIndices();
+    std::cout << "after parsing, alias indices: ";
+    for (const auto& i : alias_indices) {
+      std::cout << i << ", ";
+    }
+    std::cout << std::endl;
 
     // mark output;
     for (auto jit_output : block->outputs()) {
@@ -225,6 +231,34 @@ class IrParser {
     // Register parse-function for each JIT operator;
     // This is a one-time look up, our hash registry indexes on the pointer in
     // OperatorRegistry.
+
+    // TODO: this doesn't work, remove it afterwards
+    {
+      auto ptr_op = getOperatorForLiteral(
+        "aten::add_(Tensor self, Tensor other, *, Scalar alpha) -> Tensor");
+      registerParseRule(
+          ptr_op,
+          [](const Node* node,
+             std::unordered_map<size_t, CgValue>& value_map) -> void {
+            auto lhs = value_map[node->inputs()[0]->unique()];
+            auto rhs = value_map[node->inputs()[1]->unique()];
+            auto alpha = value_map[node->inputs()[2]->unique()];
+
+            auto fusion = FusionGuard::getCurFusion();
+
+            TORCH_INTERNAL_ASSERT(alpha->isOneInt());
+              auto out = add(lhs, rhs);
+              TORCH_INTERNAL_ASSERT(fusion->hasInput(lhs));
+              fusion->aliasOutputToInput(lhs, out);
+std::vector<int> alias_indices = fusion->getInputAliasIndices();
+std::cout << "during parsing, alias indices: ";
+for (const auto& i : alias_indices) {
+  std::cout << i << ", ";
+}
+std::cout << std::endl;
+              value_map.emplace(node->output()->unique(), out);
+          });
+    }
 
     std::array<const char*, kNumBinaryOpsWithAlpha> BinaryOpWithAlpha = {
         "aten::add(Tensor self, Tensor other, *, Scalar alpha) -> Tensor",
@@ -603,6 +637,9 @@ class IrParser {
               auto input =
                   value_map[node->input(0)->unique()]->as<TensorView>();
 
+              // TODO: it feels quite sketchy to modify fusion from parser
+              auto fusion = FusionGuard::getCurFusion();
+
               TensorView* weight = nullptr;
               if (!node->input(1)->type()->isSubtypeOf(
                       static_cast<c10::TypePtr>(NoneType::get()))) {
@@ -620,6 +657,8 @@ class IrParser {
                       static_cast<c10::TypePtr>(NoneType::get()))) {
                 running_mean =
                     value_map[node->input(3)->unique()]->as<TensorView>();
+                TORCH_INTERNAL_ASSERT(fusion->hasInput(running_mean),
+                    "IO_tensor `batch_norm::running_mean` can only be input tensor to fusion");
               }
 
               TensorView* running_var = nullptr;
@@ -627,6 +666,8 @@ class IrParser {
                       static_cast<c10::TypePtr>(NoneType::get()))) {
                 running_var =
                     value_map[node->input(4)->unique()]->as<TensorView>();
+                TORCH_INTERNAL_ASSERT(fusion->hasInput(running_var),
+                    "IO_tensor `batch_norm::running_var` can only be input tensor to fusion");
               }
 
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
@@ -672,10 +713,15 @@ class IrParser {
               auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
               auto x_mean = div(x_sum_bcast, num_features);
 
-              // auto current_mean_hat = mul(x_mean, new Double(kMomentum));
-              // auto rmean_bcast = broadcast(running_mean, broadcast_mask);
-              // auto mean_hat = mul(rmean_bcast, new Double(1.0 - kMomentum));
-              // auto new_mean_hat = add(mean_hat, current_mean_hat);
+              // updating running mean
+              auto current_mean_hat = mul(x_mean, momentum_ptr);
+              auto rmean_bcast = broadcast(running_mean, broadcast_mask);
+              auto rev_momentum = sub(new Double(1.0), momentum_ptr);
+              auto mean_hat = mul(rmean_bcast, rev_momentum);
+              auto new_mean_hat = add(mean_hat, current_mean_hat);
+              // TODO: should this go after parsing? Double check on how outputs
+              // are mapped between fusion and PyTorch IR;
+              //fusion->addOutput(new_mean_hat);
 
               auto x_mean_sub = sub(input, x_mean);
               auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
@@ -683,13 +729,15 @@ class IrParser {
               auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
               auto var = div(var_sum_bcast, num_features);
 
-              // auto num_feature_decrement = sub(num_features, new Int(1));
-              // auto unbiased_var = div(var_sum_bcast, num_feature_decrement);
-              // auto current_var_hat = mul(unbiased_var, new
-              // Double(kMomentum)); auto rvar_bcast = broadcast(running_var,
-              // broadcast_mask); auto var_hat = mul(rvar_bcast, new Double(1.0
-              // - kMomentum)); auto new_var_hat = add(var_hat,
-              // current_var_hat);
+              auto num_feature_decrement = sub(num_features, new Int(1));
+              auto unbiased_var = div(var_sum_bcast, num_feature_decrement);
+              auto current_var_hat = mul(unbiased_var, momentum_ptr);
+              auto rvar_bcast = broadcast(running_var, broadcast_mask);
+              auto var_hat = mul(rvar_bcast, rev_momentum);
+              auto new_var_hat = add(var_hat, current_var_hat);
+              // TODO: should this go after parsing? Double check on how outputs
+              // are mapped between fusion and PyTorch IR;
+              //fusion->addOutput(new_var_hat);
 
               auto var_eps = add(var, eps_ptr);
               auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);

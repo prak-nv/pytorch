@@ -37,13 +37,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> runFusion(
       const at::ArrayRef<IValue>& inputs,
       const std::vector<at::Tensor>& outputs,
-      const std::unordered_map<size_t, size_t> io_tensor_mapping,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      const c10::optional<size_t>& opt_code = c10::nullopt);
-
-  std::vector<at::Tensor> runFusion(
-      const at::ArrayRef<IValue>& inputs,
-      const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       const c10::optional<size_t>& opt_code = c10::nullopt);
 
@@ -73,6 +66,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   struct ExecutorEntry {
     bool init = false;
     LaunchParams launch_params;
+    std::vector<int> io_alias_indices;
     std::vector<std::vector<int64_t>> output_sizes;
     std::vector<at::ScalarType> output_types;
     std::vector<std::vector<int64_t>> empty_buffer_sizes;
@@ -151,7 +145,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // not initialized, while the second vector contains zero-initiliazed tensors
   GlobalBuffers allocGlobalVals(kir::ExpressionEvaluator& expr_eval);
 
-  std::vector<at::Tensor> allocOutputs(kir::ExpressionEvaluator& expr_eval);
+  std::vector<at::Tensor> allocOutputs(kir::ExpressionEvaluator& expr_eval, int skip_io_aliases=0);
 
   void setUsedTVs();
 

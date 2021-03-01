@@ -207,6 +207,9 @@ class TORCH_CUDA_CU_API Fusion final {
   bool hasInput(const Val* val) const;
   bool hasOutput(const Val* val) const;
 
+  void aliasOutputToInput(const Val* input, Val* output);
+  std::vector<int> getInputAliasIndices() const;
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
@@ -240,7 +243,7 @@ class TORCH_CUDA_CU_API Fusion final {
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
 
-  std::unordered_map<Val*, Val*> io_val_mapping_;
+  std::vector<int> io_alias_;
 };
 
 } // namespace cuda
