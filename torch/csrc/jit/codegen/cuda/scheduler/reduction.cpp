@@ -69,10 +69,13 @@ ReductionParams reductionHeuristic(
     bdimx = ceilDiv(num_elems_in_reduction, rparams.loop_unroll);
     bdimy = num_outputs_for_reduction;
   } else {
-    // if (num_outputs_for_reduction < 128) {
+    // if (num_outputs_for_reduction > 32) {
+    //   rparams.loop_unroll =
+    //       std::min(num_outputs_for_reduction / 32,
+    //       (int64_t)rparams.loop_unroll);
+    // } else {
     //   rparams.loop_unroll = 1;
     // }
-    // bdimx = ceilDiv(num_outputs_for_reduction, rparams.loop_unroll);
     bdimx = num_outputs_for_reduction;
     bdimy = num_elems_in_reduction;
   }
@@ -612,21 +615,19 @@ void scheduleReduction(
     if (rparams.cross_block) {
       if (rparams.cross_grid) {
         // Reduction Splits
-        //      [outputs, |rF-Leftover, rf-Unroll, X-Grid, X-Block|]
-        // Idx:     0     |   1(-4)       2(-3)     3(-2)   4(-1) |
-        //                -----------------------------------------
-        //                Reduction Dimensions
+        // Output Dimensions
+        // [x-BIDx, x-TIDx,
+        //  0         1
+        //
+        // Reduction Dimensions
+        // rF-Leftover, rF-Unroll, r-BIDy, r-TIDy]
+        // 2(-4)        3(-3)      4(-2)   5(-1)
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::BIDy));
         red_tv->split(1, kLoopUnrollSplit);
 
         red_tv->reorder({{-1, -3}, {-3, -1}});
 
-        // Output Splits
-        //      [|Out-Leftover, Out-PerBlock|, <Reduction Dims>]
-        // Idx:  |     0             1      |   2(-4) -- 5(-1)
-        //       ----------------------------
-        //       Output Dimensions
         red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
 
         auto red_tv_rf = scheduler_utils::rfactorHelper(
@@ -648,20 +649,18 @@ void scheduleReduction(
 
       } else {
         // Reduction Splits
-        //      [outputs, |rF-Leftover, rf-Unroll, X-Block|]
-        // Idx:     0     |   1(-3)       2(-2)     3(-1) |
-        //                ---------------------------------
-        //                Reduction Dimensions
+        // Output Dimensions
+        // [x-BIDx, x-TIDx,
+        //  0       1
+        //
+        // Reduction Dimensions
+        // rF-Leftover, rF-Unroll, r-TIDy]
+        // 2(-3)        3(-2)      4(-1)
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
         red_tv->split(1, kLoopUnrollSplit);
 
         red_tv->reorder({{-1, -2}, {-2, -1}});
 
-        // Output Splits
-        //      [|Out-Leftover, Out-PerBlock|, <Reduction Dims>]
-        // Idx:  |     0             1      |   2(-3) -- 4(-1)
-        //       ----------------------------
-        //       Output Dimensions
         red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
 
         auto red_tv_rf = scheduler_utils::rfactorHelper(
@@ -676,6 +675,14 @@ void scheduleReduction(
         reduction_tv = red_tv;
       }
     } else {
+      // Reduction Splits
+      // Output Dimensions
+      // [x-BIDx, x-TIDx,
+      //  0       1
+      //
+      // Reduction Dimensions
+      // r-Leftover]
+      // 2(-1)
       red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
 
       red_tv->axis(0)->parallelize(ParallelType::BIDx);
