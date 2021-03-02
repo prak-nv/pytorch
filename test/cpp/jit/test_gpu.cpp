@@ -22,7 +22,7 @@
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/mutator.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
-#include <torch/csrc/jit/codegen/cuda/scheduler.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler/all_schedulers.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 #include <torch/csrc/jit/codegen/cuda/transform_rfactor.h>
 
@@ -43,6 +43,7 @@ namespace torch {
 namespace jit {
 
 using namespace torch::jit::fuser::cuda;
+using namespace at::indexing;
 
 namespace {
 
@@ -1194,12 +1195,12 @@ TEST(NVFuserTest, FusionParser_CUDA) {
   // strides are not yet supported in the irparser.
   for (auto val : g->block()->inputs()) {
     if (val->isCompleteTensor())
-      val->setType(val->type()->cast<TensorType>()->contiguous());
+      val->setType(val->type()->castRaw<TensorType>()->contiguous());
   }
   for (auto node : g->block()->nodes()) {
     for (auto val : node->outputs()) {
       if (val->isCompleteTensor())
-        val->setType(val->type()->cast<TensorType>()->contiguous());
+        val->setType(val->type()->castRaw<TensorType>()->contiguous());
     }
   }
 
@@ -2350,6 +2351,11 @@ TEST(NVFuserTest, FusionComputeAtCommonConsumer1_CUDA) {
     tv->axis(-1)->parallelize(ParallelType::TIDx);
   }
 
+  // Transform tv5 to make it look like the rest
+  tv5->split(0, 128);
+  tv5->axis(1)->parallelize(ParallelType::TIDx);
+  tv5->axis(0)->parallelize(ParallelType::BIDx);
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor aten_input = at::randn({1000}, options);
@@ -2577,10 +2583,10 @@ TEST(NVFuserTest, FusionComputeAtNoCommonConsumer_CUDA) {
   computeAtTarget->split(0, 128);
   tv1->computeAt(computeAtTarget, 1);
 
-  TensorView* affected_tensors[] = {tv1, tv2, tv3, tv4, tv6};
+  TensorView* affected_tensors[] = {tv1, tv2, tv3, tv4, tv5, tv6};
   for (auto tv : affected_tensors) {
     TORCH_CHECK(tv->nDims() == computeAtTarget->nDims());
-    if (tv == tv6) {
+    if (tv == tv6 || tv == tv5) {
       TORCH_CHECK(tv->getComputeAtPosition() == 0);
     } else {
       TORCH_CHECK(tv->getComputeAtPosition() == 1);
@@ -12951,7 +12957,213 @@ TEST(NVFuserTest, FusionBroadcastAcrossComputeAt_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t3}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionSizeOneLoop_CUDA) {
+TEST(NVFuserTest, FusionVectorization1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(1, 16);
+  tv2->split(1, 64);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
+  auto c2 = tv2->cache_before();
+
+  c0->computeAt(tv2, -2);
+  c1->computeAt(tv2, -2);
+
+  std::vector<TensorView*> vectorized_tvs = {c0, c1, tv2};
+  for (auto tv : vectorized_tvs) {
+    tv->split(-1, 4);
+    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 128;
+  const int by = 2048;
+  at::Tensor t0 = at::randn({bx, by}, options);
+  at::Tensor t1 = at::randn({bx, by}, options);
+
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0 + t1;
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionVectorization2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(1, 16);
+  tv2->split(1, 64);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
+  auto c2 = tv2->cache_before();
+
+  c0->computeAt(tv2, -2);
+  c1->computeAt(tv2, -2);
+
+  std::vector<TensorView*> vectorized_tvs = {c0, c1, tv2};
+  for (auto tv : vectorized_tvs) {
+    tv->split(-1, 4);
+    // Vectorize the wrong dimension
+    tv->axis(-2)->parallelize(ParallelType::Vectorize);
+  }
+
+  FusionExecutor fe;
+  // Make sure compilation fails
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion));
+}
+
+TEST(NVFuserTest, FusionVectorization3_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(1, 16);
+  tv2->split(1, 64);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
+  auto c2 = tv2->cache_before();
+
+  c0->computeAt(tv2, -2);
+  c1->computeAt(tv2, -2);
+
+  std::vector<TensorView*> vectorized_tvs = {c0, c1, tv2};
+  for (auto tv : vectorized_tvs) {
+    tv->split(-1, 4);
+    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 128;
+  const int by = 2049;
+  at::Tensor t0 = at::randn({bx, by}, options);
+  at::Tensor t1 = at::randn({bx, by}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  std::vector<IValue> aten_inputs = {t0, t1};
+  ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
+
+  aten_inputs[0] = t0.index({"...", Slice(1)});
+  aten_inputs[1] = t1.index({"...", Slice(1)});
+  ASSERT_ANY_THROW(fe.runFusion(aten_inputs));
+
+  t0 = at::randn({bx, 2048}, options).index({"...", Slice(4)});
+  t1 = at::randn({bx, 2048}, options).index({"...", Slice(4)});
+  aten_inputs = {t0, t1};
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0 + t1;
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+
+  auto tv3 = sum(tv2, {-1});
+
+  fusion.addOutput(tv3);
+
+  tv3->split(-1, 128 * 4);
+  tv3->split(-1, 4);
+  // Reduce outer dim first
+  auto tv4 = tv3->rFactor({-3, -1});
+  // Tv3 will reduce threads
+
+  tv0->computeAt(tv3, 1);
+  tv1->computeAt(tv3, 1);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+
+  tv0->computeAt(tv4, -2);
+  tv1->computeAt(tv4, -2);
+
+  auto tv6 = tv0->cache_after();
+  auto tv7 = tv1->cache_after();
+
+  tv6->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv7->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  tv4->axis(-2)->parallelize(ParallelType::TIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 128;
+  const int by = 2048;
+  at::Tensor t0 = at::randn({bx, by}, options);
+  at::Tensor t1 = at::randn({bx, by}, options);
+
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0.add(t1).sum(1);
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+
+  auto t3 = t0.add(t1).sum(1);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {t3}, __LINE__, __FILE__);
+}
+
+// Unswitched loops with extent one may omit else clause.
+TEST(NVFuserTest, FusionSizeOneLoop1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -13011,10 +13223,162 @@ TEST(NVFuserTest, FusionSizeOneLoop_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion);
   auto cg_outputs = fe.runFusion(aten_inputs);
-
   auto t6 = (t0.unsqueeze(-1) + t1).unsqueeze(0) + t2;
 
   testValidate(&fusion, cg_outputs, aten_inputs, {t6}, __LINE__, __FILE__);
+}
+
+// The unswitched loop has extent one but inner loops don't. The else
+// part should not be omitted.
+TEST(NVFuserTest, FusionSizeOneLoop2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int x = 15;
+  auto tv0 = makeConcreteTensor({x});
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1));
+  fusion.addOutput(tv1);
+
+  tv1->split(-1, 4);
+  tv1->split(-2, 1);
+
+  tv1->axis(-2)->parallelize(ParallelType::Unswitch);
+
+  // Make sure the size-one unswitched loop does not omit the else clause.
+  GpuLower gpulw(&fusion);
+  for (const auto& kir_node : gpulw.kernel()->irNodes()) {
+    if (auto fl = dynamic_cast<kir::ForLoop*>(kir_node.get())) {
+      if (fl->iter_domain()->parallelType() != ParallelType::Unswitch) {
+        continue;
+      }
+      if (auto pred = dynamic_cast<kir::IfThenElse*>(fl->parentScope())) {
+        TORCH_CHECK(pred->hasElse());
+      }
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({x}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+  auto t1 = t0 + 1;
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionValidateParallelize1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = add(tv1, new Double(1));
+  fusion.addOutput(tv2);
+
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->axis(-1)->parallelize(ParallelType::TIDy);
+
+  // Invalid as tv1 and tv2 do have the same ParallelType
+  FusionExecutor fe;
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion));
+}
+
+TEST(NVFuserTest, FusionValidateParallelize2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = add(tv1, new Double(1));
+  fusion.addOutput(tv2);
+
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->axis(-1)->parallelize(ParallelType::TIDy);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  // tv1 and tv2 do have the same ParallelType, but tv1 is on shared
+  // memory, so it is valid
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+}
+
+TEST(NVFuserTest, FusionValidateParallelize3_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = add(tv1, new Double(1));
+  fusion.addOutput(tv2);
+
+  tv1->split(-1, 4);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->split(-1, 4);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->setMemoryType(MemoryType::Global);
+
+  // tv1 and tv2 have the same shape and ParallelType
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+}
+
+TEST(NVFuserTest, FusionValidateParallelize4_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = add(tv1, new Double(1));
+  fusion.addOutput(tv2);
+
+  tv1->split(-1, 4);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->split(-1, 8);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  tv1->setMemoryType(MemoryType::Global);
+
+  // tv1 and tv2 do not have the same shape
+  FusionExecutor fe;
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion));
+}
+
+TEST(NVFuserTest, FusionValidateParallelize5_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1));
+  auto tv2 = add(tv1, new Double(1));
+  fusion.addOutput(tv2);
+
+  tv1->split(-1, 4);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv2->split(-1, 8);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // tv1 and tv2 do not have the same shape, but tv1 is on shared
+  // memory, so it is valid
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
 }
 
 } // namespace jit

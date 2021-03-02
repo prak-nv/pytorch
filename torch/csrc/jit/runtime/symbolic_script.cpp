@@ -512,11 +512,14 @@ const std::vector<std::string> functions = {
             result = torch.lerp(self, end, weight)
             self_size = torch._size_if_not_equal(self.size(), result.size())
             end_size = torch._size_if_not_equal(end.size(), result.size())
+            weight_size = torch._size_if_not_equal(weight.size(), result.size())
 
             def backward(grad_output):
                 grad_self = (grad_output * (1 - weight))._grad_sum_to_size(self_size)
                 grad_end = (grad_output * weight)._grad_sum_to_size(end_size)
-                return grad_self, grad_end, None
+                grad_weight = (grad_output * (end - self))._grad_sum_to_size(weight_size)
+                return grad_self, grad_end, grad_weight
+
             return result, backward
 
         def reshape(self,
@@ -779,6 +782,31 @@ const std::vector<std::string> functions = {
                 return grad_output / other, None
             return self / other, backward
 
+        def div_2(self, other, *, rounding_mode: str):
+            result = torch.div(self, other, rounding_mode=rounding_mode)
+            self_size, other_size = AD_sizes_if_not_equal_multi_0(self, other, result)
+            def backward(grad_output):
+                if rounding_mode == "true":
+                    grad_self = (grad_output / other)._grad_sum_to_size(self_size)
+                    grad_other = (-grad_output * self / (other * other))._grad_sum_to_size(other_size)
+                else:
+                    grad_self = torch.zeros_like(self)
+                    grad_other = torch.zeros_like(other)
+
+                return grad_self, grad_other, None
+
+            return result, backward
+
+        def div_3(self, other: number, *,  rounding_mode: str):
+            result = torch.div(self, other, rounding_mode=rounding_mode)
+            def backward(grad_output):
+                if rounding_mode == "true":
+                    grad_self = (grad_output / other)
+                else:
+                    grad_self = torch.zeros_like(self, memory_format=1)
+                return grad_self, None, None
+            return result, backward
+
         def max(self, other):
             result = torch.max(self, other)
             self_size, other_size = AD_sizes_if_not_equal_multi_0(self, other, result)
@@ -1037,7 +1065,6 @@ const std::vector<std::string> functions = {
 
             return output, backward
 
-        # disable the layernorm AD temporarily because of bug in https://github.com/pytorch/pytorch/issues/19769
         def layer_norm(input : Tensor,
                        normalized_shape : List[int],
                        weight : Optional[Tensor],
@@ -1048,20 +1075,8 @@ const std::vector<std::string> functions = {
             output, mean, rstd = torch.native_layer_norm(input, normalized_shape, weight, bias, eps)
 
             def backward(grad_output):
-                if weight is not None:
-                    x_hat = (input - mean) * rstd
-                    grad_weight = (grad_output * x_hat)._grad_sum_to_size(weight.size())
-                else:
-                    grad_weight = None
-
-                if bias is not None:
-                    grad_bias = grad_output._grad_sum_to_size(bias.size())
-                else:
-                    grad_bias = None
-
-                # TODO: grad_bias and grad_weight are disabled in NvFuser because we are missing multiple kernel support
-                output_mask = [True, False, False]
-                grad_input, jit_grad_weight, jit_grad_bias = torch.native_layer_norm_backward(grad_output, input, normalized_shape, mean, rstd, weight, bias, output_mask)
+                output_mask = [True, weight is not None, bias is not None]
+                grad_input, grad_weight, grad_bias = torch.native_layer_norm_backward(grad_output, input, normalized_shape, mean, rstd, weight, bias, output_mask)
                 return grad_input, None, grad_weight, grad_bias, None, None
             return output, backward
 

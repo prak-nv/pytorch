@@ -3,8 +3,8 @@
 #include <torch/csrc/jit/codegen/cuda/executor.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/fusion_segmenter.h>
-#include <torch/csrc/jit/codegen/cuda/scheduler.h>
-#include <torch/csrc/jit/codegen/cuda/scheduler_registry.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler/all_schedulers.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler/registry.h>
 
 #include <c10/util/ArrayRef.h>
 #include <torch/csrc/WindowsTorchApiMacro.h>
@@ -23,7 +23,7 @@ class SegmentHeuristics;
 
 //! Implementation of a graph runtime with simple scheduling to support
 //! multi-kernel fusion
-class TORCH_CUDA_API FusionSegmentRuntime {
+class TORCH_CUDA_CU_API FusionSegmentRuntime {
  public:
   //! Type notations within FusionSegmentRuntime Context
   using HashType = size_t;
@@ -101,7 +101,7 @@ class TORCH_CUDA_API FusionSegmentRuntime {
 };
 
 //! Object holding cache entries for segmented fusion
-class TORCH_CUDA_API FusionSegmentRuntimeCache {
+class TORCH_CUDA_CU_API FusionSegmentRuntimeCache {
  public:
   explicit FusionSegmentRuntimeCache() = default;
 
@@ -281,7 +281,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
 //!
 //!
-class TORCH_CUDA_API FusionExecutorCache {
+class TORCH_CUDA_CU_API FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes;
