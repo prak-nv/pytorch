@@ -650,7 +650,7 @@ bool TransformPropagator::replayPasC(
 
   if (replayed_pos.find(producer_tv) != replayed_pos.end()) {
     if (producerAsC.second <= replayed_pos.at(producer_tv)) {
-      return false;
+      return false; // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
     }
   }
 
@@ -672,7 +672,7 @@ bool TransformPropagator::replayCasP(
 
   if (replayed_pos.find(consumer_tv) != replayed_pos.end()) {
     if (consumerAsP.second <= replayed_pos.at(consumer_tv)) {
-      return false;
+      return false; // NOLINT(clang-analyzer-cplusplus.NewDeleteLeaks)
     }
   }
 
