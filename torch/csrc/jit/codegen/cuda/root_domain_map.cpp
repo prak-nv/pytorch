@@ -513,33 +513,6 @@ std::unordered_set<IterDomain*> ComputeAtRootDomainMap::getMappableDims(
   return mappable_ids;
 }
 
-// We could also do this with the below implementation: Uncertain if there's a
-// preference std::unordered_set<IterDomain*>
-// ComputeAtRootDomainMap::getMappableDims(
-//     const TensorDomain* producer,
-//     const TensorDomain* consumer,
-//     bool producer_to_consumer) const {
-//   std::unordered_set<IterDomain*> root_dims_to_map;
-//   if (producer_to_consumer) {
-//     root_dims_to_map = std::unordered_set<IterDomain*>(
-//         producer->getMaybeRFactorDomain().begin(),
-//         producer->getMaybeRFactorDomain().end());
-//   } else {
-//     root_dims_to_map = std::unordered_set<IterDomain*>(
-//         consumer->getRootDomain().begin(), consumer->getRootDomain().end());
-//   }
-//   auto mapped = map(producer, consumer, root_dims_to_map,
-//   producer_to_consumer);
-
-//   std::unordered_set<IterDomain*> mappable_ids;
-
-//   for (auto& entry : mapped) {
-//     mappable_ids.emplace(entry.first);
-//     mappable_ids.emplace(entry.second);
-//   }
-//   return mappable_ids;
-// }
-
 std::string toString(const ComputeAtRootDomainMap& root_map) {
   std::stringstream ss;
   root_map.eq_set_.print(ss);
