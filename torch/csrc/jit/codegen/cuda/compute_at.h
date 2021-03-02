@@ -43,10 +43,6 @@ class ComputeAt {
   unsigned int producer_position_ = 0;
   ComputeAtRootDomainMap root_map_;
 
-  // Mode during propagation of computeAt, standard will throw an error if
-  // computeAt position provided can't be satisfied, best effort will lower the
-  // computeAt position as needed during traversal, most inlined will increase
-  // the compute at position to maximum possible through traversal.
   ComputeAtMode mode_ = ComputeAtMode::Standard;
 
   // Runs replayPasC and sets producer computeAt settings. Returns
