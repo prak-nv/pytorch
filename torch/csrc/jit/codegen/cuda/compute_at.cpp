@@ -101,17 +101,13 @@ unsigned int getReplayablePosCasP(
         {producer->domain()->domain().begin(),
          producer->domain()->domain().begin() + producer_pos});
 
-    bool mappable = true;
-
-    for (auto root_dim : producer->getMaybeRFactorDomain()) {
-      if (all_vals.find(root_dim) != all_vals.end()) {
-        if (mappable_roots.find(root_dim) == mappable_roots.end()) {
-          mappable = false;
-          continue;
-        }
-      }
-    }
-    if (!mappable) {
+    if (std::any_of(
+            producer->getMaybeRFactorDomain().begin(),
+            producer->getMaybeRFactorDomain().end(),
+            [&mappable_roots, &all_vals](IterDomain* root_id) {
+              return all_vals.find(root_id) != all_vals.end() &&
+                  mappable_roots.find(root_id) == mappable_roots.end();
+            })) {
       continue;
     }
     return producer_pos;
