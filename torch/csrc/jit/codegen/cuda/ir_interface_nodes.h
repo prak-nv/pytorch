@@ -112,7 +112,7 @@ class TORCH_CUDA_CU_API Int : public Val {
 //! computeAt position provided can't be satisfied, best effort will lower the
 //! computeAt position as needed during traversal, most inlined will increase
 //! the compute at position to maximum possible through traversal.
-enum class TORCH_CUDA_API ComputeAtMode { Standard, BestEffort, MostInlined };
+enum class ComputeAtMode { Standard, BestEffort, MostInlined };
 
 class ComputeAt;
 class TransformReplay;
