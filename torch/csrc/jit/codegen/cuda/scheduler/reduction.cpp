@@ -18,13 +18,15 @@ namespace cuda {
 
 namespace {
 // Largest Power of 2 less-than n
-constexpr int lastPow2(int n) {
+constexpr int64_t lastPow2(int64_t n) {
+  TORCH_INTERNAL_ASSERT(n >= 0);
   n |= (n >> 1);
   n |= (n >> 2);
   n |= (n >> 4);
   n |= (n >> 8); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   n |= (n >> 16); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-  return std::max(1, n - (n >> 1));
+  n |= (n >> 32); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  return std::max((int64_t)1, n - (n >> 1));
 }
 } // namespace
 
@@ -42,7 +44,8 @@ ReductionParams reductionHeuristic(
   rparams.loop_unroll = 16 / (int64_t)max_input_size;
 
   rparams.loop_unroll = ceilDiv(
-      rparams.loop_unroll, std::max((lastPow2(n_tensor_inputs) >> 1), 1));
+      rparams.loop_unroll,
+      std::max((lastPow2((int64_t)n_tensor_inputs) >> 1), (int64_t)1));
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
