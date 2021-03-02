@@ -671,6 +671,8 @@ class IrParser {
                   "The training (bool) parameter is required.");
               const bool kTraining = training.value();
 
+// TODO: open an issue here for codegen error
+#if false
               Val* momentum_ptr = nullptr;
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
               if (auto momentum = constant_as<float>(node->input(6))) {
@@ -679,6 +681,12 @@ class IrParser {
                 // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
                 momentum_ptr = value_map[node->input(6)->unique()];
               }
+              auto rev_momentum = sub(new Double(1.0), momentum_ptr);
+#else
+              auto momentum = constant_as<float>(node->input(6));
+              auto momentum_ptr = new Double(momentum.value());
+              auto rev_momentum = new Double(1 - momentum.value());
+#endif
 
               Val* eps_ptr = nullptr;
               // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers)
@@ -709,11 +717,16 @@ class IrParser {
 
               // updating running mean
               auto current_mean_hat = mul(x_mean, momentum_ptr);
+#if false
               auto rmean_bcast = broadcast(running_mean, broadcast_mask);
-              auto rev_momentum = sub(new Double(1.0), momentum_ptr);
               auto mean_hat = mul(rmean_bcast, rev_momentum);
               auto new_mean_hat = add(mean_hat, current_mean_hat);
               fusion->aliasOutputToInput(running_mean, new_mean_hat);
+#else
+              auto mean_hat = mul(running_mean, rev_momentum);
+              auto new_mean_hat = add(mean_hat, current_mean_hat);
+              fusion->aliasOutputToInput(running_mean, new_mean_hat);
+#endif
 
               auto x_mean_sub = sub(input, x_mean);
               auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
@@ -721,6 +734,7 @@ class IrParser {
               auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
               auto var = div(var_sum_bcast, num_features);
 
+#if false
               // updating running var
               auto num_feature_decrement = sub(num_features, new Int(1));
               auto unbiased_var = div(var_sum_bcast, num_feature_decrement);
@@ -729,6 +743,15 @@ class IrParser {
               auto var_hat = mul(rvar_bcast, rev_momentum);
               auto new_var_hat = add(var_hat, current_var_hat);
               fusion->aliasOutputToInput(running_var, new_var_hat);
+#else
+              // updating running var
+              auto num_feature_decrement = sub(num_features, new Int(1));
+              auto unbiased_var = div(var_sum, num_feature_decrement);
+              auto current_var_hat = mul(unbiased_var, momentum_ptr);
+              auto var_hat = mul(running_var, rev_momentum);
+              auto new_var_hat = add(var_hat, current_var_hat);
+              fusion->aliasOutputToInput(running_var, new_var_hat);
+#endif
 
               auto var_eps = add(var, eps_ptr);
               auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
