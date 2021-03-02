@@ -19,22 +19,11 @@ namespace cuda {
 namespace {
 // Largest Power of 2 less-than n
 constexpr int lastPow2(int n) {
-  TORCH_INTERNAL_ASSERT(n >= 0);
   n |= (n >> 1);
   n |= (n >> 2);
   n |= (n >> 4);
   n |= (n >> 8); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   n |= (n >> 16); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-  return std::max(1, n - (n >> 1));
-}
-// Largest Power of 2 less-than n
-constexpr size_t lastPow2(size_t n) {
-  n |= (n >> 1);
-  n |= (n >> 2);
-  n |= (n >> 4);
-  n |= (n >> 8); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-  n |= (n >> 16); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-  n |= (n >> 32); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   return std::max(1, n - (n >> 1));
 }
 } // namespace
@@ -43,7 +32,7 @@ ReductionParams reductionHeuristic(
     int64_t num_elems_in_reduction,
     int64_t num_outputs_for_reduction,
     bool fastest_dim_reduction,
-    size_t n_inputs,
+    size_t n_tensor_inputs,
     size_t max_input_size) {
   ReductionParams rparams;
 
@@ -51,11 +40,9 @@ ReductionParams reductionHeuristic(
 
   // Set unroll to 128b, don't unroll if we have many inputs
   rparams.loop_unroll = 16 / (int64_t)max_input_size;
-  if (n_inputs > 4) {
-    rparams.loop_unroll = 1;
-  }
-  rparams.loop_unroll =
-      std::max(1, rparams.loop_unroll / (lastPow2(n_inputs) << 1));
+
+  rparams.loop_unroll = ceilDiv(
+      rparams.loop_unroll, std::max((lastPow2(n_tensor_inputs) >> 1), 1));
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
@@ -299,16 +286,24 @@ TORCH_CUDA_API c10::optional<ReductionParams> getReductionHeuristics(
   }
 
   size_t max_dtype_size = 1;
+  size_t n_tensor_inputs = 0;
   for (auto inp : fusion->inputs()) {
-    max_dtype_size =
-        std::max(max_dtype_size, dataTypeSize(inp->getDataType().value()));
+    if (inp->isA<TensorView>()) {
+      max_dtype_size =
+          std::max(max_dtype_size, dataTypeSize(inp->getDataType().value()));
+      n_tensor_inputs++;
+    }
   }
+
+  TORCH_INTERNAL_ASSERT(
+      n_tensor_inputs > 0,
+      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
   return reductionHeuristic(
       red_elements,
       num_outputs_for_reduction,
       fastest_dim_reduction,
-      fusion->inputs().size(),
+      n_tensor_inputs,
       max_dtype_size);
 }
 
