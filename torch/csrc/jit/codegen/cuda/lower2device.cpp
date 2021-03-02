@@ -117,6 +117,9 @@ void GpuLower::lower() {
   ca_parallel_map_ = ComputeAtMap(ComputeAtMap::MappingMode::PARALLEL);
   ca_parallel_map_.build();
 
+  // Want to run this after parallel map is created
+  validateVectorize(fusion_);
+
   // Generate mappings to generate indices
   ca_index_map_ = ComputeAtMap(ComputeAtMap::MappingMode::INDEX);
   ca_index_map_.build();
@@ -124,6 +127,8 @@ void GpuLower::lower() {
   // Generate mappings to generate and map to loop nests
   ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
   ca_loop_map_.build();
+
+  validateParallelize(fusion_);
 
   // Compute thread predicates
   ThreadPredicateMap preds(fusion_);
