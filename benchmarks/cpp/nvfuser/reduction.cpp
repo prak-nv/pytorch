@@ -157,3 +157,28 @@ BENCHMARK(MagicScheduler_fp16_Inner_Reduction)
     ->Ranges({{1, 1024 * 1024}, {160, 320}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
+
+BENCHMARK(MagicScheduler_fp32_Outer_Reduction)
+    ->RangeMultiplier(4)
+    ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(MagicScheduler_fp32_Inner_Reduction)
+    ->RangeMultiplier(4)
+    ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(MagicScheduler_fp16_Outer_Reduction)
+    ->RangeMultiplier(4)
+    ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(MagicScheduler_fp16_Inner_Reduction)
+    ->RangeMultiplier(4)
+    ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+    
