@@ -22,7 +22,28 @@ class TORCH_CUDA_CU_API LaunchParams {
         gdimz_(gdimz),
         bdimx_(bdimx),
         bdimy_(bdimy),
-        bdimz_(bdimz) {}
+        bdimz_(bdimz) {
+    assertValid();
+  }
+
+  void assertValid() {
+    TORCH_INTERNAL_ASSERT(
+        bdimx() * bdimz() * bdimz() > 0 && bdimx() * bdimz() * bdimz() < 1024,
+        "Selected invalid number of threads for cuda: ",
+        bdimx() * bdimz() * bdimz());
+    TORCH_INTERNAL_ASSERT(
+        gdimx() > 0 && gdimx() < (std::uint64_t(1) << 32) - 1,
+        "Invalid number of blocks in x direction: ",
+        gdimx());
+    TORCH_INTERNAL_ASSERT(
+        gdimy() > 0 && gdimy() <= std::uint64_t(1) << 17,
+        "Invalid number of blocks in y direction: ",
+        gdimy());
+    TORCH_INTERNAL_ASSERT(
+        gdimz() > 0 && gdimz() <= std::uint64_t(1) << 17,
+        "Invalid number of blocks in y direction: ",
+        gdimz());
+  }
 
   void setSmem(int64_t smem) {
     smem_ = smem;
