@@ -19,11 +19,22 @@ namespace cuda {
 namespace {
 // Largest Power of 2 less-than n
 constexpr int lastPow2(int n) {
+  TORCH_INTERNAL_ASSERT(n >= 0);
   n |= (n >> 1);
   n |= (n >> 2);
   n |= (n >> 4);
   n |= (n >> 8); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   n |= (n >> 16); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  return std::max(1, n - (n >> 1));
+}
+// Largest Power of 2 less-than n
+constexpr size_t lastPow2(size_t n) {
+  n |= (n >> 1);
+  n |= (n >> 2);
+  n |= (n >> 4);
+  n |= (n >> 8); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  n |= (n >> 16); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  n |= (n >> 32); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
   return std::max(1, n - (n >> 1));
 }
 } // namespace
@@ -39,10 +50,12 @@ ReductionParams reductionHeuristic(
   rparams.fastest_dim = fastest_dim_reduction;
 
   // Set unroll to 128b, don't unroll if we have many inputs
-  // rparams.loop_unroll = 16 / max_input_size;
-  // if (n_inputs > 4) {
-  //   rparams.loop_unroll = 1;
-  // }
+  rparams.loop_unroll = 16 / (int64_t)max_input_size;
+  if (n_inputs > 4) {
+    rparams.loop_unroll = 1;
+  }
+  rparams.loop_unroll =
+      std::max(1, rparams.loop_unroll / (lastPow2(n_inputs) << 1));
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
@@ -57,15 +70,12 @@ ReductionParams reductionHeuristic(
 
   // 2. Initial Definition of Block Dimensions
   if (rparams.fastest_dim) {
-    if (num_elems_in_reduction < rparams.loop_unroll) {
+    if (num_elems_in_reduction > 32) {
+      rparams.loop_unroll =
+          std::min(num_elems_in_reduction / 32, (int64_t)rparams.loop_unroll);
+    } else {
       rparams.loop_unroll = 1;
     }
-    // if (num_elems_in_reduction > 32) {
-    //   rparams.loop_unroll =
-    //       std::min(num_elems_in_reduction / 32, (int64_t)rparams.loop_unroll);
-    // } else {
-    //   rparams.loop_unroll = 1;
-    // }
     bdimx = ceilDiv(num_elems_in_reduction, rparams.loop_unroll);
     bdimy = num_outputs_for_reduction;
   } else {
@@ -173,6 +183,25 @@ ReductionParams reductionHeuristic(
     }
   }
 
+  if (rparams.fastest_dim && rparams.multiple_reds_per_blk &&
+      gdimx < device_multiprocessor_count) {
+    // Not enough parallelization, keep a full warp but push parallelization
+    // back into grid from block
+    rparams.multiple_reds_per_blk = false;
+    auto threads = bdimy * bdimx;
+    if (threads > 32) {
+      auto grid_desired_factor = device_multiprocessor_count / gdimx;
+      auto threads_max_factor = ceilDiv(threads, 32);
+      threads_max_factor = std::min(bdimy, threads_max_factor);
+      auto factor = threads_max_factor > grid_desired_factor
+          ? grid_desired_factor
+          : threads_max_factor;
+
+      bdimy = ceilDiv(bdimy, factor);
+      gdimx *= factor;
+    }
+  }
+
   // Don't parallelize over ydim for multiple reductions if we don't at least
   // have a full GPU of blocks
   // if (!rparams.fastest_dim && rparams.multiple_reds_per_blk &&
@@ -195,6 +224,7 @@ ReductionParams reductionHeuristic(
               << "Recommended Blocking:" << std::endl
               << "\tGridX: " << gdimx << " GridY: " << gdimy
               << " BlckX: " << bdimx << " BlckY: " << bdimy << std::endl
+              << " Loop unroll: " << rparams.loop_unroll << std::endl
               << "====================================" << std::endl;
   }
 
