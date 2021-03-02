@@ -114,6 +114,7 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
   auto input = TensorViewBuilder()
                    .ndims(input_shape.size())
                    .dtype(DataType::Float)
+                   .contiguity(std::vector<bool>(input_shape.size(), true))
                    .build();
   fusion.addInput(input);
   auto weight = TensorViewBuilder().ndims(1).dtype(DataType::Float).build();
@@ -214,9 +215,9 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
   duplicated_tvs[0]->computeWith(var_sum, -1);
 
   // Create cache-after for vectorization
-  auto c1 = input->cache_after(first_rfactor_tvs[0]->definition(), -2);
-  auto c2 = input->cache_after(duplicated_tvs[0]->definition(), -2);
-  auto c3 = input->cache_after(to_duplicate_tvs[0]->definition(), -2);
+  auto c1 = input->cache_after(first_rfactor_tvs[0]->definition());
+  auto c2 = input->cache_after(duplicated_tvs[0]->definition());
+  auto c3 = input->cache_after(to_duplicate_tvs[0]->definition());
 
   c1->computeAt(first_rfactor_tvs[0], -2);
   c2->computeAt(duplicated_tvs[0], -2);
@@ -271,6 +272,13 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
     benchmark_state.SetIterationTime(executor.kernelTimeMs() / 1000.0);
     cudaDeviceSynchronize();
   }
+
+  const size_t iter_size = input_shape[1];
+  const size_t reduction_size = input_shape[0] * input_shape[2] * input_shape[3];
+
+  benchmark_state.SetBytesProcessed(
+      int64_t(benchmark_state.iterations()) *
+      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(DataType::Float)));
 }
 
 /*
@@ -312,6 +320,7 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
   auto input = TensorViewBuilder()
                    .ndims(input_shape.size())
                    .dtype(DataType::Float)
+                   .contiguity(std::vector<bool>(input_shape.size(), true))
                    .build();
   fusion.addInput(input);
 
@@ -399,6 +408,7 @@ static void MagicScheduler_BatchNorm(benchmark::State& benchmark_state) {
   auto input = TensorViewBuilder()
                    .ndims(input_shape.size())
                    .dtype(DataType::Float)
+                   .contiguity(std::vector<bool>(input_shape.size(), true))
                    .build();
   auto weight = TensorViewBuilder().ndims(1).dtype(DataType::Float).build();
   auto bias = TensorViewBuilder().ndims(1).dtype(DataType::Float).build();
@@ -443,6 +453,13 @@ static void MagicScheduler_BatchNorm(benchmark::State& benchmark_state) {
     benchmark_state.SetIterationTime(executor.kernelTimeMs() / 1000.0);
     cudaDeviceSynchronize();
   }
+
+  const size_t iter_size = input_shape[1];
+  const size_t reduction_size = input_shape[0] * input_shape[2] * input_shape[3];
+
+  benchmark_state.SetBytesProcessed(
+      int64_t(benchmark_state.iterations()) *
+      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(DataType::Float)));
 }
 
 static void MagicScheduler_BatchNorm_Baseline(
@@ -486,6 +503,13 @@ static void MagicScheduler_BatchNorm_Baseline(
     benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
     cudaDeviceSynchronize();
   }
+
+  const size_t iter_size = input_shape[1];
+  const size_t reduction_size = input_shape[0] * input_shape[2] * input_shape[3];
+
+  benchmark_state.SetBytesProcessed(
+      int64_t(benchmark_state.iterations()) *
+      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(DataType::Float)));
 }
 
 BENCHMARK(MagicScheduler_BatchNorm_Reduction)

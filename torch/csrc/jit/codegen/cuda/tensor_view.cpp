@@ -678,7 +678,7 @@ int getMappedConsumerAxis(
 
 } // namespace
 
-TensorView* TensorView::cache_before() {
+TensorView* TensorView::cache_before(bool transform) {
   FusionGuard fg(fusion());
 
   TORCH_CHECK(
@@ -752,74 +752,10 @@ TensorView* TensorView::cache_before() {
     TransformReplay::replayCasP(consumer, producer, -1);
   }
 
-  // Make the cache tensor computed at the consumer if the
-  // consumer is computed at another tensor. The position is
-  // the same as this position of the consumer. Note that since
-  // the consumer is computed at another tensor at this position,
-  // there must not be reduction domains in domains until this
-  // position, so the removal of reduction domains should not affect
-  // position indices.
-  // First, make the cache tensor needs look like the consumer. The
-  // minimum number of axes to share is getComputeAtPosition(), but
-  // it's safe to fully replay.
-
-  // Before: This TV -> Next TV
-  // After:  New TV (CB) -> This TV -> Next TV
-  if (hasComputeAt()) {
+  if (transform) {
     if (!cache_replayed) {
       TransformReplay::replayPasC(producer, consumer, -1);
       cache_replayed = true;
-    }
-    producer->setComputeAt(getComputeAtPosition());
-  }
-
-  // If the consumer was the target of computeAt by producer's inputs,
-  // change the computeAt target to the cache tensor.
-
-  // Before: Prev TV -> This TV
-  // After:  Prev TV -> New TV (CB) -> This TV
-  // Iterate over definition expression inputs for cache_before on outputs
-  size_t producer_this_pos = producer->getComputeAtPosition();
-  for (TensorView* producer_of_producer :
-       ir_utils::filterByType<TensorView>(expr_inputs)) {
-    if (producer_of_producer->hasComputeAt()) {
-      if (!cache_replayed) {
-        TransformReplay::replayPasC(producer, consumer, -1);
-        cache_replayed = true;
-      }
-      TORCH_INTERNAL_ASSERT(producer_of_producer->getComputeAtPosition() > 0);
-      size_t producer_pos =
-          getMappedConsumerAxis(
-              producer_of_producer,
-              int(producer_of_producer->getComputeAtPosition()) - 1,
-              producer) +
-          1;
-      producer_this_pos = std::max(producer_this_pos, producer_pos);
-    }
-  }
-
-  // Finally, make the cache tensor computed at the consumer. The
-  // position is set at the deepest position among the position where
-  // its inputs are computed at. If that position is equal or smaller
-  // than the position already set by the case where the consumer has
-  // computeAt, nothing needs to be done.
-  // Note that this step isn't strictly necessary in terms of the
-  // Fusion IR semantics, but it's likely what users would want to do
-  // anyway.
-  if (producer_this_pos > producer->getComputeAtPosition()) {
-    // The relative position at the consumer must not include the
-    // reduction domains.
-    for (size_t i = 0; i < producer_this_pos; ++i) {
-      if (i < producer->getComputeAtPosition()) {
-        // No CA axes can be reduction.
-        TORCH_INTERNAL_ASSERT(!producer->axis(i)->isReduction());
-      } else if (producer->axis(i)->isReduction()) {
-        producer_this_pos = i;
-        break;
-      }
-    }
-    if (producer_this_pos > producer->getComputeAtPosition()) {
-      producer->setComputeAt(producer_this_pos);
     }
   }
 
@@ -866,10 +802,8 @@ TensorView* TensorView::cache_fork() {
   return new_output;
 }
 
-TensorView* TensorView::cache_after(Expr* use_expr, int computeAtpos) {
+TensorView* TensorView::cache_after(Expr* use_expr, bool transform) {
   FusionGuard fg(fusion());
-
-  const bool kIsFusionInput = fusion()->hasInput(this);
 
   // Get all the uses for this Tensorview
   TORCH_CHECK(
@@ -906,6 +840,14 @@ TensorView* TensorView::cache_after(Expr* use_expr, int computeAtpos) {
   // Set domain of producer - No Change
   TensorView* producer = this;
 
+  // Transform cache consumer like the input producer.
+  if (transform) {
+    if (consumer->nDims() == producer->getRootDomain().size()) {
+      consumer->setDomain(TransformReplay::fullSelfReplay(
+        consumer->domain(), producer->domain()));
+    }
+  }
+
   // Insert consumer - Cache_After (CA) - after this TV.
   // Before: This TV -> [Use Op] -> Next TV
   // After:  This TV -> [Set Op] -> New CA TV -> [Use Op] -> Next TV
@@ -921,33 +863,6 @@ TensorView* TensorView::cache_after(Expr* use_expr, int computeAtpos) {
 
   // Expr* consumer_definition =
   new UnaryOp(UnaryOpType::Set, consumer, producer);
-
-  // Before: This TV -> Next TV
-  // After:  This TV -> New TV (After) -> Next TV
-  if (hasComputeAt()) {
-    TransformReplay::replayCasP(consumer, producer, -1);
-    auto ca_pos = (computeAtpos == 0) ? getComputeAtPosition() : computeAtpos;
-    auto pa_pos = getMaxProducerPosition();
-    consumer->setComputeAt(ca_pos);
-    consumer->setMaxProducer(pa_pos);
-  } else if (kIsFusionInput) {
-    bool cache_replayed = false;
-    // Check users of this TV for computeAt for cache_after on inputs
-    for (const auto& expr : fusion()->unordered_uses(consumer)) {
-      for (TensorView* output :
-           ir_utils::filterByType<TensorView>(expr->outputs())) {
-        if (output->hasComputeAt()) {
-          if (!cache_replayed) {
-            // Completely transform consumer according to output
-            TransformReplay::replayPasC(consumer, output, -1);
-            cache_replayed = true;
-          }
-          auto output_ca_pos = (computeAtpos == 0) ? output->getComputeAtPosition() : computeAtpos;
-          consumer->computeAt(output, output_ca_pos);
-        }
-      }
-    }
-  }
 
   return consumer;
 }

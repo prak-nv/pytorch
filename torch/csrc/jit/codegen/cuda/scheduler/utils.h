@@ -69,12 +69,6 @@ Expr* isCasted(TensorView* tv);
 
 void handleCastBroadcastInput(Fusion* fusion, TensorView* input);
 
-void cacheInputs(
-    Fusion* fusion,
-    const ReductionParams& rparams,
-    const std::vector<TensorView*>& reduction_tv,
-    std::vector<TensorView*>& other_tv);
-
 } // namespace scheduler_utils
 } // namespace cuda
 } // namespace fuser

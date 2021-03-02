@@ -337,32 +337,6 @@ void handleCastBroadcastInput(Fusion* fusion, TensorView* input) {
   }
 }
 
-void cacheInputs(
-    Fusion* fusion,
-    const ReductionParams& rparams,
-    const std::vector<TensorView*>& reduction_tv,
-    std::vector<TensorView*>& other_tv) {
-  if (rparams.fastest_dim) {
-    const bool kHasOuterAxis = reduction_tv.front()->nDims() > 1;
-    if (rparams.persistent_kernel && kHasOuterAxis) {
-      // Fusion input castOp replaces cache_after
-      // Determine if there are any casts or broadcast on fusion
-      // inputs
-      const auto& in_tv = ir_utils::filterByType<TensorView>(fusion->inputs());
-      for (const auto input : in_tv) {
-        if (input->getRootDomain().size() > 1) {
-          // If pseudo-cache, skip cache after
-          bool hasBroadcast = isBroadcasted(input) != nullptr;
-          bool hasCast = isCasted(input) != nullptr;
-          if (!hasBroadcast && !hasCast) {
-            other_tv.push_back(input->cache_after());
-          }
-        }
-      }
-    }
-  }
-}
-
 } // namespace scheduler_utils
 } // namespace cuda
 } // namespace fuser

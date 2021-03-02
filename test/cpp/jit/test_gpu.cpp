@@ -7134,12 +7134,11 @@ TEST(NVFuserTest, FusionCacheBefore_CUDA) {
   // After:  TV3 = TV1 * 3;
   //         TV2 = TV3;
 
+  tv2->cache_before();
+
   constexpr int BSX = 32;
   tv2->split(-1, BSX);
   tv0->computeAt(tv2, -1);
-
-  // cache_before automatically applies ComputeAt to the cache TensorView
-  tv2->cache_before();
 
   // Thread and Block binding
   tv2->axis(0)->parallelize(ParallelType::BIDx);
@@ -7173,12 +7172,11 @@ TEST(NVFuserTest, FusionCacheAfter_CUDA) {
   // After:  TV3 = TV0;
   //         TV1 = TV3 + 1
 
+  tv0->cache_after();
+
   constexpr int BSX = 32;
   tv2->split(-1, BSX);
   tv0->computeAt(tv2, -1);
-
-  // cache_after automatically applies ComputeAt to the cache TensorView
-  tv0->cache_after();
 
   // Thread and Block binding
   tv2->axis(0)->parallelize(ParallelType::BIDx);
@@ -7268,12 +7266,12 @@ TEST(NVFuserTest, FusionCacheIndirect_CUDA) {
   // t6 = ((t1 + (t2 - t3)) - t0)
 
   // cache_after on inputs placed before schedule
+  tv5->cache_after();
+  tv5->cache_before();
+
   constexpr int BSX = 32;
   tv6->split(-1, BSX);
   tv2->computeAt(tv6, -1);
-
-  tv5->cache_after();
-  tv5->cache_before();
 
   // Thread and Block binding
   tv6->axis(0)->parallelize(ParallelType::BIDx);
@@ -7312,15 +7310,6 @@ TEST(NVFuserTest, FusionCacheBcast_CUDA) {
   fusion.addInput(tv2);
   fusion.addOutput(tv4);
 
-  constexpr int BSX = 128;
-  tv4->split(0, BSX);
-  tv4->split(-1, BSX);
-  tv4->reorder({{0, 0}, {1, 2}, {2, 1}, {3, 3}});
-  // M/BSX, N/BSY, BSX, BSY
-  tv0->computeAt(tv4, 2);
-  tv2->computeAt(tv4, 2);
-  // 0, 1 | 2, 3, 4
-
   // Case 1
   tv0->cache_after();
 
@@ -7332,6 +7321,15 @@ TEST(NVFuserTest, FusionCacheBcast_CUDA) {
 
   // Case 4
   TensorView* tv8 = tv4->cache_before();
+
+  constexpr int BSX = 128;
+  tv4->split(0, BSX);
+  tv4->split(-1, BSX);
+  tv4->reorder({{0, 0}, {1, 2}, {2, 1}, {3, 3}});
+  // M/BSX, N/BSY, BSX, BSY
+  tv0->computeAt(tv4, 2);
+  tv2->computeAt(tv4, 2);
+  // 0, 1 | 2, 3, 4
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::BIDy);
@@ -7371,16 +7369,14 @@ TEST(NVFuserTest, FusionCacheMultiConsumer_CUDA) {
   fusion.addOutput(tv2);
   fusion.addOutput(tv4);
 
+  auto tv5 = tv1->cache_before();
+  auto tv6 = tv3->cache_before();
+
   tv1->computeAt(tv2, -1);
   tv3->computeAt(tv4, -1);
 
-  auto tv5 = tv1->cache_before();
-  auto tv6 = tv3->cache_before();
   tv5->setMemoryType(MemoryType::Shared);
   tv6->setMemoryType(MemoryType::Shared);
-
-  // Fails because tensor must be recomputed twice
-  // auto tv7 = tv0->cache_after();
 
   constexpr int N = 800;
 
@@ -12987,9 +12983,9 @@ TEST(NVFuserTest, FusionVectorization1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
 
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -13036,9 +13032,9 @@ TEST(NVFuserTest, FusionVectorization2_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
 
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -13074,9 +13070,9 @@ TEST(NVFuserTest, FusionVectorization3_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
 
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -13132,9 +13128,9 @@ TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
 
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -13143,6 +13139,9 @@ TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
   auto tv3 = sum(tv2, {-1});
 
   fusion.addOutput(tv3);
+
+  auto tv6 = tv0->cache_after();
+  auto tv7 = tv1->cache_after();
 
   tv3->split(-1, 128 * 4);
   tv3->split(-1, 4);
@@ -13157,9 +13156,6 @@ TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
 
   tv0->computeAt(tv4, -2);
   tv1->computeAt(tv4, -2);
-
-  auto tv6 = tv0->cache_after();
-  auto tv7 = tv1->cache_after();
 
   tv6->axis(-1)->parallelize(ParallelType::Vectorize);
   tv7->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -13528,6 +13524,7 @@ TEST(NVFuserTest, FusionBN_CUDA) {
   auto input = TensorViewBuilder()
                    .ndims(input_shape.size())
                    .dtype(DataType::Float)
+                   .contiguity(std::vector<bool>(input_shape.size(), true))
                    .build();
   auto weight = makeSymbolicTensor(1);
   auto bias = makeSymbolicTensor(1);
@@ -13647,9 +13644,13 @@ TEST(NVFuserTest, FusionBN_CUDA) {
   duplicated_tvs[0]->computeWith(var_sum, -1);
 
   // Create cache-after for vectorization
-  auto c1 = input->cache_after(first_rfactor_tvs[0]->definition(), -2);
-  auto c2 = input->cache_after(duplicated_tvs[0]->definition(), -2);
-  auto c3 = input->cache_after(to_duplicate_tvs[0]->definition(), -2);
+  auto c1 = input->cache_after(first_rfactor_tvs[0]->definition());
+  auto c2 = input->cache_after(duplicated_tvs[0]->definition());
+  auto c3 = input->cache_after(to_duplicate_tvs[0]->definition());
+
+  c1->computeAt(first_rfactor_tvs[0], -2);
+  c2->computeAt(duplicated_tvs[0], -2);
+  c3->computeAt(to_duplicate_tvs[0], -2);
 
   auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
   ca_loop_map_.build();

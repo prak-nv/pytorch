@@ -266,10 +266,6 @@ void scheduleNormalization(
   const auto& in_tv = ir_utils::filterByType<TensorView>(fusion->inputs());
   const auto& out_tv = ir_utils::filterByType<TensorView>(fusion->outputs());
 
-  if (rparams.fastest_dim && rparams.persistent_kernel) {
-    scheduler_utils::cacheInputs(fusion, rparams, reduction_tv, other_tv);
-  }
-
   std::vector<TensorView*> all_tv;
   for (auto input : in_tv) {
     if (input->getRootDomain().size() ==
@@ -295,6 +291,24 @@ void scheduleNormalization(
   if (rparams.fastest_dim) {
     const bool kHasOuterAxis = reduction_tv.front()->nDims() > 1;
     if (rparams.persistent_kernel) {
+      if (kHasOuterAxis) {
+        // Fusion input castOp replaces cache_after
+        // Determine if there are any casts or broadcast on fusion inputs
+        const auto& in_tv =
+            ir_utils::filterByType<TensorView>(fusion->inputs());
+        for (const auto input : in_tv) {
+          if (input->getRootDomain().size() > 1) {
+            // If pseudo-cache, skip cache after
+            bool hasBroadcast =
+                scheduler_utils::isBroadcasted(input) != nullptr;
+            bool hasCast = scheduler_utils::isCasted(input) != nullptr;
+            if (!hasBroadcast && !hasCast) {
+              other_tv.push_back(input->cache_after(nullptr, true));
+            }
+          }
+        }
+      }
+
       // 1) Apply heuristics to each reduction
       std::vector<TensorView*> rfactor_tv;
       for (auto tv : reduction_tv) {
