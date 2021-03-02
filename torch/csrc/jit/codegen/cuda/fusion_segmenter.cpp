@@ -903,7 +903,9 @@ inline void inferGroupInputs(
     } else if (v != nullptr && v->isAnInt()) {
       copyValue(v, ee, local_ee);
     } else {
-      TORCH_INTERNAL_ASSERT(false, "unreachable");
+      // we don't necessarily need to error out here?
+      // Tagging @Shiming to verify if it's safe to remove this
+      //TORCH_INTERNAL_ASSERT(false, "unreachable");
     }
   }
 }
