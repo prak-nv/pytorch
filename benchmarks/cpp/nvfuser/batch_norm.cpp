@@ -100,6 +100,171 @@ std::vector<TensorView*> findTensorViewsToDuplicate(Fusion& fusion) {
   return duplicate_tv;
 }
 
+static void MagicScheduler_BatchNorm_Welford(benchmark::State& benchmark_state) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> input_shape{
+      32,
+      benchmark_state.range(0),
+      benchmark_state.range(1),
+      benchmark_state.range(1)};
+
+  // setup fusion
+  auto input = TensorViewBuilder()
+                   .ndims(input_shape.size())
+                   .dtype(DataType::Float)
+                   .contiguity(std::vector<bool>(input_shape.size(), true))
+                   .build();
+  fusion.addInput(input);
+  auto weight = TensorViewBuilder().ndims(1).dtype(DataType::Float).build();
+  auto bias = TensorViewBuilder().ndims(1).dtype(DataType::Float).build();
+  fusion.addInput(weight);
+  fusion.addInput(bias);
+
+  const int kNumberOfDims = input_shape.size();
+  std::vector<int> reduction_axes;
+  std::vector<bool> broadcast_mask(kNumberOfDims, false);
+  for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
+    if (axis != 1) {
+      reduction_axes.push_back(axis);
+      broadcast_mask[axis] = true;
+    }
+  }
+
+  auto welford = Welford(input, reduction_axes);
+  auto x_mean = welford.avg;
+  auto var_sum = welford.var;
+  auto num_features = welford.n;
+
+  auto x_mean_bcast = broadcast(x_mean, broadcast_mask);
+  auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
+  auto num_features_bcast = broadcast(num_features, broadcast_mask);
+  auto N = castOp(DataType::Float, num_features_bcast);
+
+  const float kEps = 1e-5;
+  auto var = div(var_sum_bcast, N);
+  auto var_eps = add(var, new Double(kEps));
+  auto rvar = unaryOp(UnaryOpType::Rsqrt, var_eps);
+  auto x_mean_sub = sub(input, x_mean_bcast);
+  auto norm = mul(x_mean_sub, rvar);
+
+  auto weight_bcast = broadcast(weight, broadcast_mask);
+  auto bias_bcast = broadcast(bias, broadcast_mask);
+  auto norm_gamma = mul(norm, weight_bcast);
+  auto norm_gamma_bias = add(norm_gamma, bias_bcast);
+  fusion.addOutput(norm_gamma_bias);
+
+  std::vector<TensorView*> welford_tvs({
+    x_mean,
+    var_sum,
+    num_features
+  });
+
+  std::vector<TensorView*> other_tvs(
+      {x_mean_sub,
+       x_mean_bcast,
+       var_sum_bcast,
+       num_features_bcast,
+       N,
+       var,
+       var_eps,
+       rvar,
+       norm,
+       weight_bcast,
+       bias_bcast,
+       norm_gamma,
+       norm_gamma_bias});
+
+  const int kNumThreads = 1024;
+  const int kVecSize = 4;
+
+  // Transform all tensorviews
+  for (auto tv : welford_tvs) {
+      auto outer_reorder = tv->reorder({{0, 1}, {1, 0}});
+
+      // merge inner reductions together
+      auto inner_merge = tv->merge(-2);
+
+      // [N, C, H*W] => [N, C, H*W / (TDX * V), TDX * V]
+      auto inner_split = inner_merge->split(-1, kNumThreads);
+  }
+
+  for (auto tv : other_tvs) {
+      auto outer_reorder = tv->reorder({{0, 1}, {1, 0}});
+
+      // merge inner reductions together
+      auto inner_merge = tv->merge(-2);
+
+      // [N, C, H*W] => [N, C, H*W / (TDX * V), TDX * V]
+      auto inner_split = inner_merge->split(-1, kNumThreads * kVecSize);
+
+      // [N, C, H*W] => [N, C, H*W / (TDX * V), TDX, V]
+      auto vec_split = inner_split->split(-1, kVecSize);
+  }
+
+  x_mean_sub->computeAt(norm_gamma_bias, -1);
+
+  auto c1 = input->cache_after(x_mean_sub->definition());
+  c1->computeAt(x_mean_sub, -2);
+
+  auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
+  ca_loop_map_.build();
+
+  auto key_tv = x_mean_sub;
+  ca_loop_map_.getConcreteMappedID(x_mean_sub->axis(0))
+      ->parallelize(ParallelType::BIDx);
+
+  ca_loop_map_.getConcreteMappedID(x_mean_sub->axis(-2))
+      ->parallelize(ParallelType::TIDx);
+
+  for (auto tv : other_tvs) {
+    for (auto id : tv->domain()->domain()) {
+      id->parallelize(ca_loop_map_.getConcreteMappedID(id)->getParallelType());
+    }
+  }
+
+  c1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  x_mean->axis(0)->parallelize(ParallelType::BIDx);
+  var_sum->axis(0)->parallelize(ParallelType::BIDx);
+  num_features->axis(0)->parallelize(ParallelType::BIDx);
+
+  x_mean->axis(-1)->parallelize(ParallelType::TIDx);
+  var_sum->axis(-1)->parallelize(ParallelType::TIDx);
+  num_features->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // inputs
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  at::Tensor at_weight = at::ones({input_shape[1]}, options);
+  at::Tensor at_bias = at::zeros({input_shape[1]}, options);
+  std::vector<c10::IValue> inputs({at_x, at_weight, at_bias});
+
+  // outputs
+  std::vector<at::Tensor> outputs;
+
+  FusionExecutor executor;
+  executor.setMeasureKernelTimeFlag(true);
+  executor.compileFusion(&fusion);
+
+  cudaDeviceSynchronize();
+  for (auto _ : benchmark_state) {
+    outputs = executor.runFusion(
+        c10::ArrayRef<c10::IValue>(inputs));
+    benchmark_state.SetIterationTime(executor.kernelTimeMs() / 1000.0);
+    cudaDeviceSynchronize();
+  }
+
+  const size_t iter_size = input_shape[1];
+  const size_t reduction_size = input_shape[0] * input_shape[2] * input_shape[3];
+
+  benchmark_state.SetBytesProcessed(
+      int64_t(benchmark_state.iterations()) *
+      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(DataType::Float)));
+}
+
 static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -511,6 +676,12 @@ static void MagicScheduler_BatchNorm_Baseline(
       int64_t(benchmark_state.iterations()) *
       (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(DataType::Float)));
 }
+
+BENCHMARK(MagicScheduler_BatchNorm_Welford)
+    ->RangeMultiplier(2)
+    ->Ranges({{64, 64}, {8, 64}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 
 BENCHMARK(MagicScheduler_BatchNorm_Reduction)
     ->RangeMultiplier(2)
