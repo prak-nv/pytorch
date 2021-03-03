@@ -1,6 +1,6 @@
 import torch
 
-from . import _functional as F
+from . import functional as F
 from .optimizer import Optimizer
 
 

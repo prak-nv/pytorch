@@ -8,7 +8,7 @@
 namespace at {
 namespace ${dispatch_namespace} {
 
-${dispatch_namespaced_declarations}
+${dispatch_declarations}
 
 } // namespace ${dispatch_namespace}
 } // namespace at

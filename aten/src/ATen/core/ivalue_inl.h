@@ -355,22 +355,6 @@ struct C10_EXPORT ivalue::Future : c10::intrusive_ptr_target {
    * Explicitly mark the future as completed with the output value.
    */
   void markCompleted(IValue value) {
-    markCompletedWithDataPtrs(std::move(value));
-  }
-
-  /**
-   * Explicitly mark the future as completed with the output value and DataPtrs.
-   * The data_ptrs contains storage pointers for all tensors in IValue, which
-   * will be passed to postMarkCompletedHook. Some subclass, like CUDAFuture,
-   * uses these DataPtrs to synchronize CUDA streams. You only need to provide
-   * data_ptrs when 1) DataPtrs cannot be extracted through
-   * IValue::getSubValues() or 2) customized DataPtrs extraction is more
-   * efficient.
-   */
-  void markCompletedWithDataPtrs(
-      IValue value,
-      c10::optional<std::vector<std::reference_wrapper<const at::DataPtr>>>
-          data_ptrs = c10::nullopt) {
     std::unique_lock<std::mutex> lock(mutex_);
     TORCH_CHECK(
         !completed(),
@@ -379,7 +363,7 @@ struct C10_EXPORT ivalue::Future : c10::intrusive_ptr_target {
     completed_ = true;
     value_ = std::move(value);
 
-    postMarkCompletedHook(value_, std::move(data_ptrs));
+    postMarkCompletedHook(value_);
 
     std::vector<std::function<void(void)>> cbs;
     cbs.swap(callbacks_);
@@ -506,13 +490,13 @@ struct C10_EXPORT ivalue::Future : c10::intrusive_ptr_target {
     return type_;
   }
 
-  // This method should be overridden by subclasses so that they can produce an
-  // instace of their own type.
+ protected:
+  // This hook is called by this class's then() method when it prepares the
+  // instance it returns to the caller. It should be overridden by subclasses so
+  // that they can produce an instace of their own type.
   virtual c10::intrusive_ptr<Future> createInstance(at::TypePtr type) {
     return c10::make_intrusive<Future>(type);
   }
-
- protected:
 
   // This hook will be called by this class (the superclass) when the future is
   // marked completed _with a value_ (hence not in case of error). This is done
@@ -520,12 +504,7 @@ struct C10_EXPORT ivalue::Future : c10::intrusive_ptr_target {
   // It allows subclasses to further update their state if they so need. For
   // example the CUDAFuture subclass uses it to determine what devices the value
   // resides on and record an event in those devices' current streams.
-  // The data_ptrs field contains storage pointers of all tensors in the value,
-  // which is used by the CUDAFuture subclass to synchronize streams.
-  virtual void postMarkCompletedHook(
-      const at::IValue& value,
-      c10::optional<std::vector<std::reference_wrapper<const at::DataPtr>>>
-          data_ptrs) {}
+  virtual void postMarkCompletedHook(const at::IValue& value) {}
 
   // This hook will be called by the addCallback() and the then() methods before
   // storing the callback for later execution (or before running it inline if
@@ -765,13 +744,13 @@ inline const ivalue::Object& IValue::toObjectRef() const {
 // toX method to IValue. These named methods are much more discoverable
 // than the to templated function.
 
-#define DEFINE_TO(T, method_name)          \
+#define DEFINE_TO(type, method_name)       \
   template <>                              \
-  inline T IValue::to<T>()&& {             \
+  inline type IValue::to<type>()&& {       \
     return std::move(*this).method_name(); \
   }                                        \
   template <>                              \
-  inline c10::detail::ivalue_to_const_ref_overload_return<T>::type IValue::to<T>() const& { \
+  inline type IValue::to<type>() const& {  \
     return this->method_name();            \
   }
 
@@ -797,7 +776,6 @@ DEFINE_TO(c10::intrusive_ptr<ivalue::Object>, toObject)
 DEFINE_TO(at::Scalar, toScalar)
 DEFINE_TO(c10::List<int64_t>, toIntList)
 DEFINE_TO(c10::List<double>, toDoubleList)
-DEFINE_TO(c10::List<c10::complex<double>>, toComplexDoubleList)
 DEFINE_TO(c10::List<bool>, toBoolList)
 DEFINE_TO(c10::List<at::Tensor>, toTensorList)
 DEFINE_TO(c10::impl::GenericList, toList)
@@ -1014,7 +992,7 @@ inline T IValue::to() && {
 }
 
 template <typename T>
-inline typename c10::detail::ivalue_to_const_ref_overload_return<T>::type IValue::to() const& {
+inline T IValue::to() const& {
   return generic_to(*this, _fake_type<T>{});
 }
 
@@ -1048,22 +1026,6 @@ inline std::vector<double> IValue::toDoubleVector() const {
       payload.u.as_intrusive_ptr != c10::UndefinedTensorImpl::singleton(),
       "called toDoubleVector on null intrusive_ptr IValue");
   return createVectorFromList<double>(
-      static_cast<const c10::detail::ListImpl*>(payload.u.as_intrusive_ptr));
-}
-inline c10::List<c10::complex<double>> IValue::toComplexDoubleList() && {
-  AT_ASSERT(isComplexDoubleList(), "Expected ComplexDoubleList but got ", tagKind());
-  return c10::List<c10::complex<double>>(moveToIntrusivePtr<c10::detail::ListImpl>());
-}
-inline c10::List<c10::complex<double>> IValue::toComplexDoubleList() const& {
-  AT_ASSERT(isComplexDoubleList(), "Expected ComplexDoubleList but got ", tagKind());
-  return c10::List<c10::complex<double>>(toIntrusivePtr<c10::detail::ListImpl>());
-}
-inline std::vector<c10::complex<double>> IValue::toComplexDoubleVector() const {
-  AT_ASSERT(isComplexDoubleList(), "Expected ComplexDoubleList but got ", tagKind());
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
-      payload.u.as_intrusive_ptr != c10::UndefinedTensorImpl::singleton(),
-      "called toComplexDoubleVector on null intrusive_ptr IValue");
-  return createVectorFromList<c10::complex<double>>(
       static_cast<const c10::detail::ListImpl*>(payload.u.as_intrusive_ptr));
 }
 inline c10::List<bool> IValue::toBoolList() && {
@@ -1152,9 +1114,7 @@ inline IValue::IValue(c10::impl::GenericList v)
 }
 
 template <class T, IValue::enable_if_ivalue_constructible<T>>
-inline IValue::IValue(c10::List<T>&& v) : IValue(impl::toList<T>(std::move(v))) {}
-template <class T, IValue::enable_if_ivalue_constructible<T>>
-inline IValue::IValue(const c10::List<T>& v) : IValue(impl::toList<T>(v)) {}
+inline IValue::IValue(c10::List<T> v) : IValue(impl::toList<T>(std::move(v))) {}
 template <class T, IValue::enable_if_ivalue_constructible<T>>
 inline IValue::IValue(at::ArrayRef<T> v) : IValue(c10::List<T>()) {
   auto list = to<c10::List<T>>();
@@ -1365,15 +1325,15 @@ namespace ivalue {
 namespace detail {
 
 template <typename T>
-IValue from_(T&& x, std::true_type) {
+IValue from_(T x, std::true_type) {
   return IValue(std::move(x));
 }
 template <typename T>
 IValue from_(c10::intrusive_ptr<T> x, std::false_type) {
-  return IValue(std::move(x));
+  return IValue(x);
 }
 template <typename T>
-IValue from_(T&& x, std::false_type) {
+IValue from_(T x, std::false_type) {
   static_assert(
       guts::false_t<T>::value,
       "You are calling from with a type that it doesn't support, and isn't a potential custom class (ie: is an intrusive_ptr)");
@@ -1382,9 +1342,9 @@ IValue from_(T&& x, std::false_type) {
 } // namespace detail
 
 template <typename T>
-IValue from(T&& x) {
+IValue from(T x) {
   return detail::from_(
-      std::forward<T>(x), typename std::is_constructible<IValue, T>::type{});
+      std::move(x), typename std::is_constructible<IValue, T>::type{});
 }
 
 } // namespace ivalue

@@ -682,11 +682,10 @@ Tensor nanmedian_cpu(const Tensor& self) {
   return median_impl(self, /*ignore_nan=*/true);
 }
 
-std::tuple<Tensor&, Tensor&> sort_out_cpu_stable(
+std::tuple<Tensor&, Tensor&> sort_out_cpu(
     Tensor& values,
     Tensor& indices,
     const Tensor& self,
-    c10::optional<bool> stable,
     int64_t dim,
     bool descending) {
   values.resize_(self.sizes()).copy_(self);
@@ -698,37 +697,18 @@ std::tuple<Tensor&, Tensor&> sort_out_cpu_stable(
     return std::forward_as_tuple(values, indices);
   }
 
-  TORCH_INTERNAL_ASSERT(stable.has_value(), "sort_out(): c10::optional<bool> for stable has to have value.");
-  sort_stub(kCPU, values, indices, dim, descending, stable.value());
+  sort_stub(kCPU, values, indices, dim, descending);
 
   return std::forward_as_tuple(values, indices);
-}
-
-std::tuple<Tensor&, Tensor&> sort_out_cpu(
-    Tensor& values,
-    Tensor& indices,
-    const Tensor& self,
-    int64_t dim,
-    bool descending) {
-  return sort_out_cpu_stable(values, indices, self, /*stable=*/false, dim, descending);
-}
-
-std::tuple<Tensor, Tensor> sort_cpu_stable(
-    const Tensor& self,
-    c10::optional<bool> stable,
-    int64_t dim,
-    bool descending) {
-  TORCH_CHECK(!self.is_complex(), "sort(): input tensor must be of non-complex type");
-  Tensor values = at::empty({0}, self.options());
-  Tensor indices = at::empty({0}, self.options().dtype(kLong));
-  return sort_out_cpu_stable(values, indices, self, stable, dim, descending);
 }
 
 std::tuple<Tensor, Tensor> sort_cpu(
     const Tensor& self,
     int64_t dim,
     bool descending) {
-  return sort_cpu_stable(self, /*stable=*/false, dim, descending);
+  Tensor values = at::empty({0}, self.options());
+  Tensor indices = at::empty({0}, self.options().dtype(kLong));
+  return sort_out_cpu(values, indices, self, dim, descending);
 }
 
 Tensor& msort_out(Tensor& values, const Tensor& self) {
@@ -740,11 +720,6 @@ Tensor& msort_out(Tensor& values, const Tensor& self) {
 Tensor msort(const Tensor& self) {
   return std::get<0>(at::sort(self, 0, false));
 }
-
-Tensor argsort(const Tensor & self, int64_t dim, bool descending) {
-  return std::get<1>(at::sort(self, dim, descending));
-}
-
 
 } // namespace native
 } // namespace at

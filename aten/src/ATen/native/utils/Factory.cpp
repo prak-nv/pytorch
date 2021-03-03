@@ -1,7 +1,6 @@
 #include <ATen/NamedTensorUtils.h>
 #include <ATen/native/utils/Factory.h>
 #include <c10/core/CPUAllocator.h>
-#include <c10/util/accumulate.h>
 
 namespace at {
 namespace native {
@@ -13,7 +12,7 @@ Tensor empty_with_tail_padding(
     const c10::MemoryFormat memory_format,
     const DimnameList maybe_names) {
   auto* const allocator_ptr = c10::GetDefaultMobileCPUAllocator();
-  const int64_t nelements = c10::multiply_integers(size);
+  const int64_t nelements = prod_intlist(size);
   size_t size_bytes = nelements * dtype.itemsize();
 
   Tensor tensor(c10::make_intrusive<c10::TensorImpl>(

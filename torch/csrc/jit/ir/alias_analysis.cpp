@@ -53,12 +53,12 @@ class MutableTypePtrHelper {
         // == T
         return unshapedType(type);
       case TypeKind::OptionalType:
-        return getMutableType(type->castRaw<OptionalType>()->getElementType());
+        return getMutableType(type->cast<OptionalType>()->getElementType());
       case TypeKind::AnyType:
         return type;
       case TypeKind::FutureType: {
         if (auto elem =
-                getMutableType(type->castRaw<FutureType>()->getElementType())) {
+                getMutableType(type->cast<FutureType>()->getElementType())) {
           return FutureType::create(*elem);
         }
         return c10::nullopt;
@@ -981,10 +981,6 @@ bool AliasDb::functionalNonEscapingListUse(const Use& use) const {
     case aten::hstack:
     case aten::dstack:
       return true;
-  }
-  auto op = use.user->maybeOperator();
-  if (op && op->aliasAnalysisKind() == AliasAnalysisKind::PURE_FUNCTION) {
-    return true;
   }
 
   return false;

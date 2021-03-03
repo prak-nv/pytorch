@@ -336,7 +336,6 @@ void DeformConvOpBase<DType, Context>::DeformableIm2col(
           col_shape[1],
           col_shape[2],
           data_col);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 /*!
@@ -470,7 +469,6 @@ void DeformConvOpBase<DType, Context>::DeformableCol2im(
           col_shape[1],
           col_shape[2],
           grad_im);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 /*!
@@ -619,7 +617,6 @@ void DeformConvOpBase<DType, Context>::DeformableCol2imCoord(
           col_shape[1],
           col_shape[2],
           grad_offset);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 REGISTER_CUDA_OPERATOR(DeformConv, DeformConvOp<float, CUDAContext>);

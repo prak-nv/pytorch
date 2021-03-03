@@ -3,8 +3,7 @@
 Broadcasting semantics
 ======================
 
-Many PyTorch operations support NumPy's broadcasting semantics.
-See https://numpy.org/doc/stable/user/basics.broadcasting.html for details.
+Many PyTorch operations support :any:`NumPy Broadcasting Semantics <numpy.doc.broadcasting>`.
 
 In short, if a PyTorch operation supports broadcast, then its Tensor arguments can be
 automatically expanded to be of equal sizes (without making copies of the data).

@@ -1,9 +1,10 @@
+
 import torch
 import torch.nn as nn
 import torch.nn.quantized as nnq
 import torch.nn.quantized.dynamic as nnqd
 from torch.quantization import prepare
-from typing import Dict, List, Optional, Any, Union, Callable, Set
+from typing import Dict
 
 from .quantization_mappings import (
     get_default_compare_output_module_list,
@@ -17,10 +18,7 @@ NON_LEAF_MODULE_TO_ADD_OBSERVER_ALLOW_LIST = {
 }
 
 
-def _find_match(
-    str_list: Union[Dict[str, Any], List[str]], key_str: str,
-    postfix: str,
-) -> Optional[str]:
+def _find_match(str_list, key_str, postfix):
     split_str = key_str.split(".")
     if split_str[-1] == postfix:
         match_string = "".join(key_str.split(".")[0:-1])
@@ -44,14 +42,11 @@ def _find_match(
                     return s2
                 if match_string == pattern2:
                     return s2
-        return None
     else:
         return None
 
 
-def compare_weights(
-    float_dict: Dict[str, Any], quantized_dict: Dict[str, Any]
-) -> Dict[str, Dict[str, torch.Tensor]]:
+def compare_weights(float_dict, quantized_dict):
     r"""Compare the weights of the float module with its corresponding quantized
     module. Return a dict with key corresponding to module names and each entry being
     a dictionary with two keys 'float' and 'quantized', containing the float and
@@ -110,10 +105,7 @@ def compare_weights(
     return weight_dict
 
 
-def _get_logger_dict_helper(
-    mod: nn.Module, target_dict: Dict[str, Any],
-    prefix: str = "",
-) -> None:
+def _get_logger_dict_helper(mod, target_dict, prefix=""):
     r"""This is the helper function for get_logger_dict
 
     Args:
@@ -135,7 +127,7 @@ def _get_logger_dict_helper(
         _get_logger_dict_helper(child, target_dict, module_prefix)
 
 
-def get_logger_dict(mod: nn.Module, prefix: str = "") -> Dict[str, Dict]:
+def get_logger_dict(mod, prefix=""):
     r"""Traverse the modules and save all logger stats into target dict.
     This is mainly used for quantization accuracy debug.
 
@@ -165,10 +157,6 @@ class Logger(nn.Module):
     def __init__(self):
         super(Logger, self).__init__()
         self.stats = {}
-        # We only insert observer if the op is quantized with static quantization,
-        # which is identified by activation_observer.dtype == quint8.  This is needed
-        # when attaching Logger as observer for FX mode
-        self.dtype = torch.quint8
 
     def forward(self, x):
         pass
@@ -207,11 +195,11 @@ class OutputLogger(Logger):
         return x
 
 
-def _convert_tuple_to_list(t: Any) -> Any:
+def _convert_tuple_to_list(t):
     return list(_convert_tuple_to_list(x) for x in t) if type(t) is tuple else t
 
 
-def _dequantize_tensor_list(t: Any) -> Any:
+def _dequantize_tensor_list(t):
     return (
         list(_dequantize_tensor_list(x) for x in t)
         if type(t) is list
@@ -229,18 +217,18 @@ class Shadow(nn.Module):
     Args:
         q_module: module quantized from float_module that we want to shadow
         float_module: float module used to shadow q_module
-        logger_cls: type of logger used to process the outputs of q_module and
+        Logger: type of logger used to process the outputs of q_module and
             float_module. ShadowLogger or custom loggers can be used.
     """
 
-    def __init__(self, q_module, float_module, logger_cls):
+    def __init__(self, q_module, float_module, Logger):
         super(Shadow, self).__init__()
         self.orig_module = q_module
         self.shadow_module = float_module
         self.dequant = nnq.DeQuantize()
-        self.logger = logger_cls()
+        self.logger = Logger()
 
-    def forward(self, *x) -> torch.Tensor:
+    def forward(self, *x):
         xl = _convert_tuple_to_list(x)
         output = self.orig_module(*xl)
         xl_float = _dequantize_tensor_list(xl)
@@ -248,7 +236,7 @@ class Shadow(nn.Module):
         self.logger(output, shadow_output)
         return output
 
-    def add(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def add(self, x, y):
         output = self.orig_module.add(x, y)
         x = x.dequantize()
         y = y.dequantize()
@@ -256,14 +244,14 @@ class Shadow(nn.Module):
         self.logger(output, shadow_output)
         return output
 
-    def add_scalar(self, x: torch.Tensor, y: float) -> torch.Tensor:
+    def add_scalar(self, x, y):
         output = self.orig_module.add_scalar(x, y)
         x = x.dequantize()
         shadow_output = self.shadow_module.add_scalar(x, y)
         self.logger(output, shadow_output)
         return output
 
-    def mul(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def mul(self, x, y):
         output = self.orig_module.mul(x, y)
         x = x.dequantize()
         y = y.dequantize()
@@ -271,21 +259,21 @@ class Shadow(nn.Module):
         self.logger(output, shadow_output)
         return output
 
-    def mul_scalar(self, x: torch.Tensor, y: float) -> torch.Tensor:
+    def mul_scalar(self, x, y):
         output = self.orig_module.mul_scalar(x, y)
         x = x.dequantize()
         shadow_output = self.shadow_module.mul_scalar(x, y)
         self.logger(output, shadow_output)
         return output
 
-    def cat(self, x: List[torch.Tensor], dim: int = 0) -> torch.Tensor:
+    def cat(self, x, dim=0):
         output = self.orig_module.cat(x, dim)
         x = [y.dequantize() for y in x]
         shadow_output = self.shadow_module.cat(x, dim)
         self.logger(output, shadow_output)
         return output
 
-    def add_relu(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def add_relu(self, x, y):
         output = self.orig_module.add_relu(x, y)
         x = x.dequantize()
         y = y.dequantize()
@@ -294,10 +282,7 @@ class Shadow(nn.Module):
         return output
 
 
-def prepare_model_with_stubs(
-    float_module: nn.Module, q_module: nn.Module,
-    module_swap_list: Set[type], logger_cls: Callable,
-) -> None:
+def prepare_model_with_stubs(float_module, q_module, module_swap_list, Logger):
     r"""Prepare the model by attaching the float module to its matching quantized
     module as the shadow if the float module type is in module_swap_list.
 
@@ -310,7 +295,7 @@ def prepare_model_with_stubs(
         float_module: float module used to generate the q_module
         q_module: module quantized from float_module
         module_swap_list: list of float module types to attach the shadow
-        logger_cls: type of logger to be used in shadow module to process the outputs of
+        Logger: type of logger to be used in shadow module to process the outputs of
             quantized module and its float shadow module
     """
     torch._C._log_api_usage_once("quantization_api._numeric_suite.prepare_model_with_stubs")
@@ -321,35 +306,24 @@ def prepare_model_with_stubs(
 
     reassign = {}
     for name, mod in q_module.named_children():
-
         if name not in float_module_children:
             continue
 
         float_mod = float_module_children[name]
 
         if type(float_mod) not in module_swap_list:
-            prepare_model_with_stubs(float_mod, mod, module_swap_list, logger_cls)
+            prepare_model_with_stubs(float_mod, mod, module_swap_list, Logger)
 
-        # Insert shadow module only if the module is not of the same type as
-        # the floating point module
-        if type(float_mod) in module_swap_list and not _is_identical_module_type(mod, float_mod):
-            reassign[name] = Shadow(mod, float_mod, logger_cls)
+        if type(float_mod) in module_swap_list:
+            reassign[name] = Shadow(mod, float_mod, Logger)
 
     for key, value in reassign.items():
         q_module._modules[key] = value
 
-def _is_identical_module_type(mod1, mod2):
-    # Compare if two modules have the same dtype
-    mod1_module_types = [type(mod) for mod in mod1.modules()]
-    mod2_module_types = [type(mod) for mod in mod2.modules()]
-    return mod1_module_types == mod2_module_types
-
-
 
 def compare_model_stub(
-    float_model: nn.Module, q_model: nn.Module, module_swap_list: Set[type],
-    *data, logger_cls=ShadowLogger
-) -> Dict[str, Dict]:
+    float_model, q_model, module_swap_list, *data, Logger=ShadowLogger
+):
     r"""Compare quantized module in a model with its floating point counterpart,
     feeding both of them the same input. Return a dict with key corresponding to
     module names and each entry being a dictionary with two keys 'float' and
@@ -377,19 +351,17 @@ def compare_model_stub(
         module_swap_list: list of float module types at which shadow modules will
             be attached.
         data: input data used to run the prepared q_model
-        logger_cls: type of logger to be used in shadow module to process the outputs of
+        Logger: type of logger to be used in shadow module to process the outputs of
             quantized module and its float shadow module
     """
     torch._C._log_api_usage_once("quantization_api._numeric_suite.compare_model_stub")
-    prepare_model_with_stubs(float_model, q_model, module_swap_list, logger_cls)
+    prepare_model_with_stubs(float_model, q_model, module_swap_list, Logger)
     q_model(*data)
     ob_dict = get_logger_dict(q_model)
     return ob_dict
 
 
-def get_matching_activations(
-    float_module: nn.Module, q_module: nn.Module,
-) -> Dict[str, Dict[str, torch.Tensor]]:
+def get_matching_activations(float_module, q_module):
     r"""Find the matching activation between float and quantized modules.
 
     Args:
@@ -415,28 +387,28 @@ def get_matching_activations(
 
 
 def prepare_model_outputs(
-    float_module: nn.Module,
-    q_module: nn.Module,
-    logger_cls=OutputLogger,
+    float_module,
+    q_module,
+    Logger=OutputLogger,
     allow_list=None
-) -> None:
+):
     r"""Prepare the model by attaching the logger to both float module
     and quantized module if they are in the allow_list.
 
     Args:
         float_module: float module used to generate the q_module
         q_module: module quantized from float_module
-        logger_cls: type of logger to be attached to float_module and q_module
+        Logger: type of logger to be attached to float_module and q_module
         allow_list: list of module types to attach logger
     """
     torch._C._log_api_usage_once("quantization_api._numeric_suite.prepare_model_outputs")
     if allow_list is None:
         allow_list = get_default_compare_output_module_list()
 
-    qconfig_debug = torch.quantization.QConfig(activation=logger_cls, weight=None)
-    float_module.qconfig = qconfig_debug  # type: ignore
+    qconfig_debug = torch.quantization.QConfig(activation=Logger, weight=None)
+    float_module.qconfig = qconfig_debug
     prepare(float_module, inplace=True, allow_list=allow_list)
-    q_module.qconfig = qconfig_debug  # type: ignore
+    q_module.qconfig = qconfig_debug
     prepare(
         q_module,
         inplace=True,
@@ -446,12 +418,12 @@ def prepare_model_outputs(
 
 
 def compare_model_outputs(
-    float_model: nn.Module,
-    q_model: nn.Module,
+    float_model,
+    q_model,
     *data,
-    logger_cls=OutputLogger,
+    Logger=OutputLogger,
     allow_list=None
-) -> Dict[str, Dict[str, torch.Tensor]]:
+):
     r"""Compare output activations between float and quantized models at
     corresponding locations for the same input. Return a dict with key corresponding
     to quantized module names and each entry being a dictionary with two keys
@@ -468,7 +440,7 @@ def compare_model_outputs(
         float_model: float model used to generate the q_model
         q_model: model quantized from float_model
         data: input data used to run the prepared float_model and q_model
-        logger_cls: type of logger to be attached to float_module and q_module
+        Logger: type of logger to be attached to float_module and q_module
         allow_list: list of module types to attach logger
 
     Return:
@@ -479,7 +451,7 @@ def compare_model_outputs(
     torch._C._log_api_usage_once("quantization_api._numeric_suite.compare_model_outputs")
     if allow_list is None:
         allow_list = get_default_compare_output_module_list()
-    prepare_model_outputs(float_model, q_model, logger_cls, allow_list)
+    prepare_model_outputs(float_model, q_model, Logger, allow_list)
     float_model(*data)
     q_model(*data)
     act_compare_dict = get_matching_activations(float_model, q_model)

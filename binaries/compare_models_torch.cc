@@ -224,7 +224,6 @@ int main(int argc, char** argv) {
   float tolerance = 0;
   ss >> tolerance;
 
-  at::AutoNonVariableTypeMode nonVarTypeModeGuard(true);
   torch::autograd::AutoGradMode guard(false);
   torch::jit::GraphOptimizerEnabledGuard no_optimizer_guard(false);
   auto module = torch::jit::load(FLAGS_model);

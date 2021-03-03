@@ -78,10 +78,7 @@ class CheckpointFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *args):
         if not torch.autograd._is_checkpoint_valid():
-            raise RuntimeError(
-                "Checkpointing is not compatible with .grad() or when an `inputs` parameter"
-                " is passed to .backward(). Please use .backward() and do not pass its `inputs`"
-                " argument.")
+            raise RuntimeError("Checkpointing is not compatible with .grad(), please use .backward() if possible")
         inputs = ctx.saved_tensors
         # Stash the surrounding rng state, and mimic the state that was
         # present at this time during forward.  Restore the surrounding state
@@ -136,9 +133,8 @@ def checkpoint(function, *args, **kwargs):
     the gradients are calculated using these activation values.
 
     .. warning::
-        Checkpointing currently only supports :func:`torch.autograd.backward`
-        and only if its `inputs` argument is not passed. :func:`torch.autograd.grad`
-        is not supported.
+        Checkpointing doesn't work with :func:`torch.autograd.grad`, but only
+        with :func:`torch.autograd.backward`.
 
     .. warning::
         If :attr:`function` invocation during backward does anything different
@@ -194,9 +190,8 @@ def checkpoint_sequential(functions, segments, input, **kwargs):
     See :func:`~torch.utils.checkpoint.checkpoint` on how checkpointing works.
 
     .. warning::
-        Checkpointing currently only supports :func:`torch.autograd.backward`
-        and only if its `inputs` argument is not passed. :func:`torch.autograd.grad`
-        is not supported.
+        Checkpointing doesn't work with :func:`torch.autograd.grad`, but only
+        with :func:`torch.autograd.backward`.
 
     .. warning:
         At least one of the inputs needs to have :code:`requires_grad=True` if

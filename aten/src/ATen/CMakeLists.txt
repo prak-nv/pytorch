@@ -339,20 +339,9 @@ if(USE_CUDA AND NOT USE_ROCM)
   if(CAFFE2_USE_CUDNN)
     list(APPEND ATen_CUDA_DEPENDENCY_LIBS ${CUDNN_LIBRARIES})
   endif()
-  if($ENV{ATEN_STATIC_CUDA})
-    list(APPEND ATen_CUDA_DEPENDENCY_LIBS "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libculibos.a")
-    list(APPEND ATen_CUDA_DEPENDENCY_LIBS "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libcudart_static.a")
-  endif($ENV{ATEN_STATIC_CUDA})
-endif()
-
 
   if(USE_MAGMA)
-    if(USE_CUDA)
-      list(APPEND ATen_CUDA_DEPENDENCY_LIBS ${MAGMA_LIBRARIES})
-    endif(USE_CUDA)
-    if(USE_ROCM)
-      list(APPEND ATen_HIP_DEPENDENCY_LIBS ${MAGMA_LIBRARIES})
-    endif(USE_ROCM)
+    list(APPEND ATen_CUDA_DEPENDENCY_LIBS ${MAGMA_LIBRARIES})
     if(MSVC)
       if($ENV{TH_BINARY_BUILD})
         # Do not do this on Linux: see Note [Extra MKL symbols for MAGMA in torch_cpu]
@@ -362,6 +351,11 @@ endif()
       endif($ENV{TH_BINARY_BUILD})
     endif(MSVC)
   endif(USE_MAGMA)
+  if($ENV{ATEN_STATIC_CUDA})
+    list(APPEND ATen_CUDA_DEPENDENCY_LIBS "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libculibos.a")
+    list(APPEND ATen_CUDA_DEPENDENCY_LIBS "${CUDA_TOOLKIT_ROOT_DIR}/lib64/libcudart_static.a")
+  endif($ENV{ATEN_STATIC_CUDA})
+endif()
 
 # NB: We're relying on cmake/Dependencies.cmake to appropriately setup HIP dependencies.
 # In principle we could duplicate them, but handling the rocblas
@@ -441,8 +435,6 @@ install(FILES ${CMAKE_BINARY_DIR}/aten/src/ATen/Declarations.yaml
 
 if(ATEN_NO_TEST)
   message("disable test because ATEN_NO_TEST is set")
-elseif(BUILD_LITE_INTERPRETER)
-  message("disable aten test when BUILD_LITE_INTERPRETER is enabled")
 else()
   add_subdirectory(test)
 endif()

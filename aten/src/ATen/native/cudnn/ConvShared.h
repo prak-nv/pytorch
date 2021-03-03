@@ -19,8 +19,7 @@ struct ConvolutionParams
 {
   cudnnDataType_t dataType;
   int input_size[2 + max_dim];
-  uint8_t input_dim;
-  at::MemoryFormat memory_format;
+  int input_stride[2 + max_dim];
   int weight_size[2 + max_dim];
   int padding[max_dim];
   int stride[max_dim];
@@ -30,6 +29,20 @@ struct ConvolutionParams
   bool allow_tf32;
   // NB: transposed purposely omitted: transposed just swaps
   // forward and backward, so you can reuse the benchmark entry,
+};
+
+// Convenience struct for passing around descriptors and data
+// pointers
+struct ConvolutionArgs {
+  cudnnHandle_t handle;
+  ConvolutionParams params;
+  TensorDescriptor idesc, odesc;
+  FilterDescriptor wdesc;
+  const Tensor& input, output, weight;
+  ConvolutionDescriptor cdesc;
+
+  ConvolutionArgs(const Tensor& input, const Tensor& output, const Tensor& weight) : input(input), output(output), weight(weight) {
+  }
 };
 
 std::ostream& operator<<(std::ostream & out, const ConvolutionParams& params);
@@ -45,8 +58,9 @@ void setConvolutionParams(
     IntArrayRef padding, IntArrayRef stride, IntArrayRef dilation,
     int64_t groups, bool deterministic, bool allow_tf32);
 
-std::string repro_from_args(const ConvolutionParams& args);
+std::string repro_from_args(const ConvolutionArgs& args);
 
+std::ostream& operator<<(std::ostream & out, const ConvolutionArgs& args);
 
 // ---------------------------------------------------------------------
 //

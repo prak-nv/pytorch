@@ -92,7 +92,6 @@ Pooling layers
     nn.AvgPool2d
     nn.AvgPool3d
     nn.FractionalMaxPool2d
-    nn.FractionalMaxPool3d
     nn.LPPool1d
     nn.LPPool2d
     nn.AdaptiveMaxPool1d
@@ -177,9 +176,6 @@ Normalization Layers
     nn.BatchNorm1d
     nn.BatchNorm2d
     nn.BatchNorm3d
-    nn.LazyBatchNorm1d
-    nn.LazyBatchNorm2d
-    nn.LazyBatchNorm3d
     nn.GroupNorm
     nn.SyncBatchNorm
     nn.InstanceNorm1d

@@ -1430,7 +1430,7 @@ def all_gather_object(object_list, obj, group=None):
             size of the group for this collective and will contain the output.
         object (Any): Pickable Python object to be broadcast from current process.
         group (ProcessGroup, optional): The process group to work on. If None,
-            the default process group will be used. Default is ``None``.
+            the default process group will be used.
 
     Returns:
         None. If the calling rank is part of this group, the output of the
@@ -1521,7 +1521,7 @@ def gather_object(obj, object_gather_list=None, dst=0, group=None):
             ranks. (default is ``None``)
         dst (int, optional): Destination rank. (default is 0)
         group: (ProcessGroup, optional): The process group to work on. If None,
-            the default process group will be used. Default is ``None``.
+            the default process group will be used.
 
     Returns:
         None. On the ``dst`` rank, ``object_gather_list`` will contain the
@@ -1607,7 +1607,7 @@ def gather_object(obj, object_gather_list=None, dst=0, group=None):
         object_gather_list[i] = _tensor_to_object(tensor, tensor_size)
 
 
-def broadcast_object_list(object_list, src=0, group=None):
+def broadcast_object_list(object_list, src, group=None):
     """
     Broadcasts picklable objects in ``object_list`` to the whole group. Similar
     to :func:`broadcast`, but Python objects can be passed in.
@@ -1620,7 +1620,7 @@ def broadcast_object_list(object_list, src=0, group=None):
             be broadcast, but each rank must provide lists of equal sizes.
         src (int): Source rank from which to broadcast ``object_list``.
         group: (ProcessGroup, optional): The process group to work on. If None,
-            the default process group will be used. Default is ``None``.
+            the default process group will be used.
 
     Returns:
         ``None``. If rank is part of the group, ``object_list`` will contain the
@@ -1700,7 +1700,7 @@ def broadcast_object_list(object_list, src=0, group=None):
 
 
 def scatter_object_list(
-    scatter_object_output_list, scatter_object_input_list, src=0, group=None
+    scatter_object_output_list, scatter_object_input_list, src=0, group=group.WORLD
 ):
     """
     Scatters picklable objects in ``scatter_object_input_list`` to the whole
@@ -1717,8 +1717,7 @@ def scatter_object_list(
             be scattered, and the argument can be ``None`` for non-src ranks.
         src (int): Source rank from which to scatter
             ``scatter_object_input_list``.
-        group: (ProcessGroup, optional): The process group to work on. If None,
-            the default process group will be used. Default is ``None``.
+        group: (ProcessGroup, optional): The process group to work on.
 
     Returns:
         ``None``. If rank is part of the group, ``scatter_object_output_list``

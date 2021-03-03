@@ -31,8 +31,6 @@ struct KinetoObserverContext : public at::ObserverContext {
   uint64_t fwdThreadId;
   uint8_t recFunScope;
   c10::optional<std::vector<std::string>> stack;
-  // Extra arguments for computing op flops
-  c10::optional<std::unordered_map<std::string, c10::IValue>> extraArgs;
 };
 
 struct TORCH_API KinetoEvent {
@@ -60,10 +58,6 @@ struct TORCH_API KinetoEvent {
 
   const std::vector<std::vector<int64_t>>& shapes() const {
     return *shapes_;
-  }
-
-  uint64_t flops() const {
-    return flops_;
   }
 
   int64_t sequenceNr() const {
@@ -99,11 +93,6 @@ struct TORCH_API KinetoEvent {
 
   KinetoEvent& shapes(const std::vector<std::vector<int64_t>>& shapes) {
     shapes_ = shapes;
-    return *this;
-  }
-
-  KinetoEvent& flops(uint64_t flops) {
-    flops_ = flops;
     return *this;
   }
 
@@ -170,7 +159,6 @@ struct TORCH_API KinetoEvent {
   uint8_t activity_type_;
   c10::optional<std::vector<std::vector<int64_t>>> shapes_;
   c10::optional<std::vector<std::string>> stack_;
-  uint64_t flops_ = 0;
 
   std::string name_;
   uint64_t device_index_ = 0;
@@ -219,13 +207,7 @@ TORCH_API void prepareProfiler(
     const std::set<ActivityType>& activities);
 #endif // USE_KINETO
 
-TORCH_API constexpr bool kinetoAvailable() {
-#ifdef USE_KINETO
-  return true;
-#else
-  return false;
-#endif // USE_KINETO
-}
+TORCH_API bool kinetoAvailable();
 
 } // namespace profiler
 }} // namespace torch::autograd

@@ -182,6 +182,11 @@ std::pair<IValue, c10::optional<IValue>> getFunctionTuple(
       }
     } else {
       TORCH_CHECK(
+          ins.op != CREATE_OBJECT,
+          "CREATE_OBJECT is not supported in mobile module. ",
+          "Workaround: instead of using arbitrary class type (class Foo()), ",
+          "define a pytorch class (class Foo(torch.nn.Module)).");
+      TORCH_CHECK(
           isOpSupportedInMobile(ins.op),
           toString(ins.op),
           " is not supported in mobile module.");
@@ -214,67 +219,21 @@ std::pair<IValue, c10::optional<IValue>> getFunctionTuple(
   // types
   std::vector<IValue> types;
   types.reserve(code.type_table().size());
-  static const std::string torch_prefix("__torch__");
-  static const std::string class_prefix("__torch__.torch.classes");
   for (const TypePtr& t : code.type_table()) {
-    auto type_str = t->annotation_str();
-    if (type_str.find(torch_prefix) == 0) {
-      TORCH_CHECK(
-          type_str.find(class_prefix) == 0,
-          "__torch__ types other than torchbind (__torch__.torch.classes)"
-          "are not supported in lite interpreter. ",
-          "Workaround: instead of using arbitrary class type (class Foo()), ",
-          "define a pytorch class (class Foo(torch.nn.Module)).");
-    }
-    types.emplace_back(type_str);
+    types.emplace_back(t->annotation_str());
   }
 
   // since the register location is embedded into the bytecode, pass the
   // register size
   auto register_size = static_cast<int>(code.register_size());
 
-  auto codeTable = Table(
+  auto table = Table(
       {{"instructions", Tup(instructions)},
        {"operators", Tup(operators)},
        {"constants", Tup(constants)},
        {"types", Tup(types)},
        {"register_size", register_size}});
-
-  // schema
-  const auto& schema = func.getSchema();
-  TORCH_CHECK(
-      schema.overload_name().empty(), // @TODO: is this check correct?
-      "Overloads are not supported in mobile modules.");
-  TORCH_CHECK(
-      !schema.is_vararg(), "Python *args are not supported in mobile modules.");
-  TORCH_CHECK(
-      !schema.is_varret(),
-      "A variable number of return values is not supported in mobile modules.");
-  auto makeArgTuple = [](const std::vector<Argument>& args) {
-    std::vector<IValue> argTables;
-    for (auto&& arg : args) {
-      TORCH_CHECK(
-          !arg.N(),
-          "Arguments with known list lengths are not supported in mobile modules.");
-      TORCH_CHECK(
-          !arg.kwarg_only(),
-          "Keyword-only arguments are not supported in mobile modules.");
-      argTables.emplace_back(Table({
-          {"name", arg.name()},
-          {"type", arg.type()->annotation_str()},
-          {"default_value", arg.default_value()},
-      }));
-    }
-    return Tup(argTables);
-  };
-  auto schemaTable = Table({
-      {"arguments", makeArgTuple(schema.arguments())},
-      {"returns", makeArgTuple(schema.returns())},
-  });
-
-  // function tuple
-  auto bytecode_vals =
-      Tup({func.qualname().qualifiedName(), codeTable, schemaTable});
+  auto bytecode_vals = Tup({func.qualname().qualifiedName(), table});
 
   c10::optional<IValue> debug_info_vals;
   if (save_mobile_debug_info) {
@@ -325,7 +284,7 @@ void setstateTuple(
 
 void moduleMethodsTuple(
     const Module& module,
-    std::vector<c10::IValue>& elements, // note: appended to in-place
+    std::vector<c10::IValue>& elements,
     c10::optional<std::vector<c10::IValue>>& debug_info_elements,
     bool save_mobile_debug_info) {
   auto methods = module.get_methods();

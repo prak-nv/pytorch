@@ -16,19 +16,14 @@ class Categorical(Distribution):
 
     Samples are integers from :math:`\{0, \ldots, K-1\}` where `K` is ``probs.size(-1)``.
 
-    If `probs` is 1-dimensional with length-`K`, each element is the relative probability
-    of sampling the class at that index.
+    If :attr:`probs` is 1-dimensional with length-`K`, each element is the relative
+    probability of sampling the class at that index.
 
-    If `probs` is N-dimensional, the first N-1 dimensions are treated as a batch of
+    If :attr:`probs` is N-dimensional, the first N-1 dimensions are treated as a batch of 
     relative probability vectors.
 
-    .. note:: The `probs` argument must be non-negative, finite and have a non-zero sum,
-              and it will be normalized to sum to 1 along the last dimension. attr:`probs`
-              will return this normalized value.
-              The `logits` argument will be interpreted as unnormalized log probabilities
-              and can therefore be any real number. It will likewise be normalized so that
-              the resulting probabilities sum to 1 along the last dimension. attr:`logits`
-              will return this normalized value.
+    .. note:: :attr:`probs` must be non-negative, finite and have a non-zero sum,
+              and it will be normalized to sum to 1 along the last dimension.
 
     See also: :func:`torch.multinomial`
 
@@ -40,7 +35,7 @@ class Categorical(Distribution):
 
     Args:
         probs (Tensor): event probabilities
-        logits (Tensor): event log probabilities (unnormalized)
+        logits (Tensor): event log-odds
     """
     arg_constraints = {'probs': constraints.simplex,
                        'logits': constraints.real_vector}
@@ -81,7 +76,7 @@ class Categorical(Distribution):
     def _new(self, *args, **kwargs):
         return self._param.new(*args, **kwargs)
 
-    @constraints.dependent_property(is_discrete=True, event_dim=0)
+    @constraints.dependent_property(is_discrete=True)
     def support(self):
         return constraints.integer_interval(0, self._num_events - 1)
 

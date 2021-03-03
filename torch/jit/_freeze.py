@@ -10,7 +10,7 @@ import torch
 from torch.jit._script import RecursiveScriptModule, ScriptModule
 
 
-def freeze(mod, preserved_attrs: Optional[List[str]] = None, optimize_numerics: bool = True):
+def freeze(mod, preserved_attrs: Optional[List[str]] = None, optimize: bool = True):
     r"""
     Freezing a :class:`ScriptModule` will clone it and attempt to inline the cloned
     module's submodules, parameters, and attributes as constants in the TorchScript IR Graph.
@@ -26,8 +26,10 @@ def freeze(mod, preserved_attrs: Optional[List[str]] = None, optimize_numerics: 
         preserved_attrs (Optional[List[str]]): a list of attributes to preserve in addition to the forward method.
         Attributes modified in preserved methods will also be preserved.
 
-        optimize_numerics (bool): If ``True``, a set of optimization passes will be run that does not strictly 
-        preserve numerics. Full details of optimization can be found at `torch.jit.optimize_frozen_module`.
+        optimize (bool): If ``True``, a set of optimization passes will be run to prepare the graph for inference,
+        in addition to the graph cleanup that already occurs. The details of the optimizations can be found in
+        `torch.jit.optimize_frozen_module.`
+
 
     Returns:
         Frozen :class:`ScriptModule`.
@@ -100,28 +102,22 @@ def freeze(mod, preserved_attrs: Optional[List[str]] = None, optimize_numerics: 
 
     out = RecursiveScriptModule(torch._C._freeze_module(mod._c, preserved_attrs))
     RecursiveScriptModule._finalize_scriptmodule(out)
-    optimize_frozen_module(out, optimize_numerics)
+    if optimize:
+        optimize_frozen_module(out)
 
     return out
 
 
-def optimize_frozen_module(mod, optimize_numerics: bool = True):
+def optimize_frozen_module(mod):
     r"""
     Runs a series of optimizations looking for patterns that occur in frozen graphs.
     The current set of optimizations is:
-        - Dropout Removal
         - Conv -> Batchnorm folding
         - Conv -> Add/Sub folding
         - Conv -> Mul/Div folding
 
     Args:
         mod (:class:`ScriptModule`): a frozen module to be optimized
-
-        optimize_numerics (bool): If ``True``, a set of optimization passes will be run that does not strictly 
-        preserve numerics. These optimizations preserve default rtol and atol of `torch.testing.assert_allclose` 
-        when applied on a single transformation, however in a module where many transformations are applied 
-        the rtol or atol may no longer fall within the default `assert_allclose` tolerance. Conv -> Batchnorm folding, 
-        Conv-Add/Sub, and Conv -> Mul/Div folding all may alter numerics.
 
     Returns:
         None
@@ -144,12 +140,4 @@ def optimize_frozen_module(mod, optimize_numerics: bool = True):
         assert "batch_norm" not in str(frozen_mod.graph)
 
     """
-    # xxx: keep in sync with frozen_graph_optimization.cpp
-    # intentionally duplicated to make to make it easier to create custom optimization sequence
-    torch._C._jit_pass_remove_dropout(mod._c)
-    if optimize_numerics:
-        # run a couple times to capture Conv -> Mul -> Add etc
-        for _ in range(2):
-            torch._C._jit_pass_fold_frozen_conv_bn(mod.graph)
-            torch._C._jit_pass_fold_frozen_conv_add_or_sub(mod.graph)
-            torch._C._jit_pass_fold_frozen_conv_mul_or_div(mod.graph)
+    torch._C._jit_pass_optimize_frozen_graph(mod.graph)

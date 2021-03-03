@@ -50,7 +50,6 @@ struct CudaPowFunctor {
            CAFFE_CUDA_NUM_THREADS,
            0,
            context->cuda_stream()>>>(a, b, e, out, n);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   template <typename T1, typename T2, typename R>
   void RunWithBroadcast(
@@ -65,7 +64,6 @@ struct CudaPowFunctor {
            CAFFE_CUDA_NUM_THREADS,
            0,
            context->cuda_stream()>>>(a, b, out, pre, n);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   template <typename T1, typename T2, typename R>
   void RunWithBroadcast2(
@@ -81,7 +79,6 @@ struct CudaPowFunctor {
            CAFFE_CUDA_NUM_THREADS,
            0,
            context->cuda_stream()>>>(a, b, out, pre, n, post);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 };
 REGISTER_CUDA_OPERATOR(

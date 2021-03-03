@@ -247,7 +247,6 @@ bool PackSegmentsOp<CUDAContext>::DoRunWithType2() {
       padding,
       presence_mask_data,
       out_ptr);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return true;
 }
@@ -338,8 +337,6 @@ bool UnpackSegmentsOp<CUDAContext>::DoRunWithType2() {
       num_seq,
       cell_size,
       out_ptr);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

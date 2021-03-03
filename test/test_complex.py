@@ -4,6 +4,7 @@ from torch.testing._internal.common_utils import TestCase, run_tests
 
 devices = (torch.device('cpu'), torch.device('cuda:0'))
 
+
 class TestComplexTensor(TestCase):
     @dtypes(*torch.testing.get_all_complex_dtypes())
     def test_to_list(self, device, dtype):

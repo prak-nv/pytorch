@@ -83,7 +83,6 @@ void ReversePackedSegsOp<CUDAContext>::DoRunWithLengthType() {
         lengths_ptr,
         data_ptr,
         rev_data_ptr);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 REGISTER_CUDA_OPERATOR(ReversePackedSegs, ReversePackedSegsOp<CUDAContext>);

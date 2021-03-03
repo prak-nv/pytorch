@@ -133,9 +133,6 @@ class Handle final {
 //
 
 template<typename Type, typename Deleter>
-constexpr Type Handle<Type, Deleter>::kNull;
-
-template<typename Type, typename Deleter>
 inline Handle<Type, Deleter>::Handle(const Type payload, Deleter deleter)
   : payload_(payload),
     deleter_(std::move(deleter)) {

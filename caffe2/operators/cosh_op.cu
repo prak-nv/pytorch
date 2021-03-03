@@ -1,10 +1,9 @@
 #include "caffe2/operators/cosh_op.h"
 
-#include <c10/util/accumulate.h>
-#include "caffe2/core/context_gpu.h"
-
 #include <algorithm>
 #include <functional>
+
+#include "caffe2/core/context_gpu.h"
 
 namespace caffe2 {
 
@@ -35,14 +34,13 @@ bool CoshGradientFunctor<CUDAContext>::Forward(
     const T* X,
     T* dX,
     CUDAContext* context) const {
-  const auto size = c10::multiply_integers(X_dims.cbegin(), X_dims.cend());
+  const int size = std::accumulate(
+      X_dims.cbegin(), X_dims.cend(), 1, std::multiplies<int>());
   CoshGradientCUDAKernel<<<
       CAFFE_GET_BLOCKS(size),
       CAFFE_CUDA_NUM_THREADS,
       0,
       context->cuda_stream()>>>(size, dY, X, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

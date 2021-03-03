@@ -94,7 +94,6 @@ class BooleanUnmaskOp<CUDAContext> final : public Operator<CUDAContext> {
         0,
         context_.cuda_stream()>>>(
         numMasks, maskSize, indicesData, masks_.data<bool*>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     auto* valueSizesData = valueSizes_.mutable_data<int>();
     FillValuesKernel<<<
@@ -109,7 +108,6 @@ class BooleanUnmaskOp<CUDAContext> final : public Operator<CUDAContext> {
         values_.data<char*>(),
         valueSizesData,
         dest);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     return true;
   }

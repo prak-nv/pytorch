@@ -85,7 +85,6 @@ void ComputeMomentsGradientCUDAImpl(
           X,
           mean,
           dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 } // namespace

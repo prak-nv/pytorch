@@ -267,8 +267,8 @@ void Runtime::Debug::operator()(
           instance_, "vkDestroyDebugReportCallbackEXT");
 
       TORCH_CHECK(
-          vkDestroyDebugReportCallbackEXT,
-          "Could not load vkDestroyDebugReportCallbackEXT");
+        vkDestroyDebugReportCallbackEXT,
+        "Could not load vkDestroyDebugReportCallbackEXT");
 
       vkDestroyDebugReportCallbackEXT(
           instance_, debug_report_callback, nullptr);
@@ -305,11 +305,11 @@ Adapter Runtime::select(const Selector& selector) {
       "Vulkan: no adapter was selected as part of device enumeration!");
 }
 
-Runtime* runtime() {
+Runtime* initialize() {
   static const std::unique_ptr<Runtime> runtime([]() -> Runtime* {
 #ifdef USE_VULKAN_WRAPPER
     if (!InitVulkan()) {
-      TORCH_WARN("Vulkan: Failed to initialize Vulkan Wrapper!");
+      TORCH_WARN("Vulkan: Wrapper Failed to InitVulkan!");
       return nullptr;
     }
 #endif
@@ -317,25 +317,22 @@ Runtime* runtime() {
     try {
       return new Runtime(Configuration::kRuntime);
     }
-    catch (const std::exception& e) {
-      TORCH_WARN(
-          "Vulkan: Failed to initialize runtime! Error: ",
-          e.what());
-    }
     catch (...) {
-      TORCH_WARN(
-          "Vulkan: Failed to initialize runtime! "
-          "Error: Unknown");
+      return nullptr;
     }
-
-    return nullptr;
   }());
 
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
-      runtime,
-      "Invalid Vulkan runtime!");
-
   return runtime.get();
+}
+
+Runtime* runtime() {
+  Runtime* const runtime = initialize();
+  TORCH_CHECK(
+      runtime,
+      "Vulkan: Backend not available on this platform!"
+      "Calls to api::runtime() must have been guarded by api::available().");
+
+  return runtime;
 }
 
 } // namespace api

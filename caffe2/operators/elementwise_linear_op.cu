@@ -78,8 +78,6 @@ bool ElementwiseLinearOp<float, CUDAContext>::RunOnDevice(){
       a.data<float>(),
       b.data<float>(),
       Y->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -120,8 +118,6 @@ bool ElementwiseLinearGradientOp<float, CUDAContext>::RunOnDevice(){
       g_X->template mutable_data<float>(),
       g_a_data,
       g_b_data);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

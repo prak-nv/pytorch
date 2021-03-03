@@ -50,8 +50,6 @@ operator()(const int N, const T* X, T* Y, CUDAContext* context) const {
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(N, n, X, Y);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -71,8 +69,6 @@ bool ReluNGradientFunctor<CUDAContext>::Forward(
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(size, n, dY, Y, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

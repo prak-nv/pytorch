@@ -1,4 +1,5 @@
 import torch
+import torch._six
 from typing import Optional, List, DefaultDict
 import warnings
 from collections import defaultdict
@@ -174,12 +175,6 @@ def _rebuild_sparse_tensor(layout, data):
 
 
 def _rebuild_xla_tensor(data, dtype, device, requires_grad):
-    tensor = torch.from_numpy(data).to(dtype=dtype, device=device)
-    tensor.requires_grad = requires_grad
-    return tensor
-
-
-def _rebuild_mlc_tensor(data, dtype, device, requires_grad):
     tensor = torch.from_numpy(data).to(dtype=dtype, device=device)
     tensor.requires_grad = requires_grad
     return tensor

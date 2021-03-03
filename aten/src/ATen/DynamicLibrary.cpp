@@ -25,16 +25,9 @@ static void* checkDL(void* x) {
 
   return x;
 }
-DynamicLibrary::DynamicLibrary(const char* name, const char* alt_name) {
+DynamicLibrary::DynamicLibrary(const char* name) {
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
-  handle = dlopen(name, RTLD_LOCAL | RTLD_NOW);
-  if (!handle) {
-    if (alt_name) {
-      handle = checkDL(dlopen(alt_name, RTLD_LOCAL | RTLD_NOW));
-    } else {
-        AT_ERROR("Error in dlopen or dlsym: ", dlerror());
-    }
-  }
+  handle = checkDL(dlopen(name, RTLD_LOCAL | RTLD_NOW));
 }
 
 void* DynamicLibrary::sym(const char* name) {
@@ -52,7 +45,7 @@ DynamicLibrary::~DynamicLibrary() {
 
 // Windows
 
-DynamicLibrary::DynamicLibrary(const char* name, const char* alt_name) {
+DynamicLibrary::DynamicLibrary(const char* name) {
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
   HMODULE theModule;
   bool reload = true;

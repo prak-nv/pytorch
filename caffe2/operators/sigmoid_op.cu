@@ -47,8 +47,6 @@ operator()(const int N, const T* X, T* Y, CUDAContext* context) const {
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(N, X, Y);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -68,8 +66,6 @@ bool SigmoidGradientFunctor<CUDAContext>::Forward(
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(size, dY, Y, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

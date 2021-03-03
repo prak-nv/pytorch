@@ -37,9 +37,9 @@ TEST(PackedtensoraccessorTest, PackedtensoraccessorTestCUDA) {
   auto stream = at::cuda::getCurrentCUDAStream();
 
   test_tensor_packed_accessor_kernel<<<1, 1, 0, stream>>>(resa, t1a, t2a);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
-  ASSERT_TRUE(cudaSuccess == cudaDeviceSynchronize());
+  cudaError_t err = cudaDeviceSynchronize();
+  bool isEQ = err == cudaSuccess;
+  ASSERT_TRUE(isEQ);
 
   auto expected = mv(t1, t2);
 

@@ -72,7 +72,7 @@ class TORCH_API ProcessGroupAgent : public RpcAgent {
 
   std::vector<WorkerInfo> getWorkerInfos() const override;
 
-  void join(bool shutdown = false) override;
+  void join() override;
 
   void sync() override;
 
@@ -91,9 +91,7 @@ class TORCH_API ProcessGroupAgent : public RpcAgent {
   std::shared_ptr<JitFuture> send(
       const WorkerInfo& to,
       Message&& message,
-      const float rpcTimeoutSeconds = kUnsetRpcTimeout,
-      const std::unordered_map<c10::DeviceIndex, c10::DeviceIndex>& deviceMap =
-          {}) override;
+      const float rpcTimeoutSeconds = kUnsetRpcTimeout) override;
 
   // put SendWork into a queue and notify the worker thread
   virtual void enqueueSend(SendWork work);

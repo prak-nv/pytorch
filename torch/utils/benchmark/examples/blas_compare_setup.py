@@ -4,8 +4,7 @@ import shutil
 import subprocess
 
 try:
-    # no type stub for conda command line interface
-    import conda.cli.python_api  # type: ignore[import]
+    import conda.cli.python_api
     from conda.cli.python_api import Commands as conda_commands
 except ImportError:
     # blas_compare.py will fail to import these when it's inside a conda env,

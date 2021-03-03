@@ -14,7 +14,7 @@ bool is_pinned(const Tensor& self) {
 }
 
 Tensor pin_memory(const Tensor& self) {
-  if (!self.device().is_cpu()) {
+  if (self.options().backend() != Backend::CPU) {
     AT_ERROR("cannot pin '", self.toString(), "' only dense CPU tensors can be pinned");
   }
   if (self.is_pinned()) {

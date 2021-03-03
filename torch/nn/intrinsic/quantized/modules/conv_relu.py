@@ -2,12 +2,9 @@
 import torch
 import torch.nn.intrinsic
 import torch.nn.intrinsic.qat
-import torch.nn.functional as F
 import torch.nn.quantized as nnq
 
 from torch.nn.utils import fuse_conv_bn_weights
-
-_reverse_repeat_padding = nnq.modules.conv._reverse_repeat_padding
 
 class ConvReLU1d(nnq.Conv1d):
     r"""
@@ -34,11 +31,6 @@ class ConvReLU1d(nnq.Conv1d):
         # https://github.com/pytorch/pytorch/issues/23890
         if len(input.shape) != 3:
             raise ValueError("Input shape must be `(N, C, L)`!")
-        if self.padding_mode != 'zeros':
-            # Padding in Conv1d is stored as (p, p), need to get (p,)
-            _reversed_padding_repeated_twice = _reverse_repeat_padding(self.padding[:1])
-            input = F.pad(input, _reversed_padding_repeated_twice,
-                          mode=self.padding_mode)
         return torch.ops.quantized.conv1d_relu(
             input, self._packed_params, self.scale, self.zero_point)
 
@@ -78,10 +70,6 @@ class ConvReLU2d(nnq.Conv2d):
         # https://github.com/pytorch/pytorch/issues/23890
         if len(input.shape) != 4:
             raise ValueError("Input shape must be `(N, C, H, W)`!")
-        if self.padding_mode != 'zeros':
-            _reversed_padding_repeated_twice = _reverse_repeat_padding(self.padding)
-            input = F.pad(input, _reversed_padding_repeated_twice,
-                          mode=self.padding_mode)
         return torch.ops.quantized.conv2d_relu(
             input, self._packed_params, self.scale, self.zero_point)
 
@@ -111,7 +99,6 @@ class ConvReLU3d(nnq.Conv3d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True,
                  padding_mode='zeros'):
-        assert padding_mode != 'reflect', "Conv3d does not support reflection padding"
         super(ConvReLU3d, self).__init__(
             in_channels, out_channels, kernel_size, stride=stride,
             padding=padding, dilation=dilation, groups=groups, bias=bias,
@@ -122,10 +109,6 @@ class ConvReLU3d(nnq.Conv3d):
         # https://github.com/pytorch/pytorch/issues/23890
         if len(input.shape) != 5:
             raise ValueError("Input shape must be `(N, C, D, H, W)`!")
-        if self.padding_mode != 'zeros':
-            _reversed_padding_repeated_twice = _reverse_repeat_padding(self.padding)
-            input = F.pad(input, _reversed_padding_repeated_twice,
-                          mode=self.padding_mode)
         return torch.ops.quantized.conv3d_relu(
             input, self._packed_params, self.scale, self.zero_point)
 

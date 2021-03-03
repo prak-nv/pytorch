@@ -219,7 +219,6 @@ bool PiecewiseLinearTransformOp<float, CUDAContext>::TransformGeneral() {
       intercepts_device_.data<float>(),
       X.data<float>(),
       Y->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return true;
 }
@@ -256,7 +255,6 @@ bool PiecewiseLinearTransformOp<float, CUDAContext>::TransformBinary() {
         intercepts_device_.data<float>(),
         X.data<float>(),
         Y->template mutable_data<float>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     // don't want N*M threads, only N*M/2
     PieceWiseLinearTransformBinaryKernel2<<<
@@ -273,7 +271,6 @@ bool PiecewiseLinearTransformOp<float, CUDAContext>::TransformBinary() {
         intercepts_device_.data<float>(),
         X.data<float>(),
         Y->template mutable_data<float>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 
   return true;

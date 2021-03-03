@@ -1,7 +1,13 @@
-#include <ATen/Utils.h>
-#include <c10/util/accumulate.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <cstring>
+#include <functional>
+#include <iostream>
+#include <numeric>
+
 #include <c10/util/ArrayRef.h>
 #include <c10/util/Exception.h>
+#include <ATen/Utils.h>
 
 #ifdef USE_VULKAN_WRAPPER
 #include <vulkan_wrapper.h>
@@ -18,14 +24,6 @@
 #else
 #include <ATen/native/vulkan/spv.h>
 #endif
-
-#include <cstring>
-#include <functional>
-#include <iostream>
-#include <numeric>
-#include <stdio.h>
-#include <unistd.h>
-
 
 #define VK_CHECK(f)                                                \
   {                                                                \
@@ -1171,7 +1169,7 @@ class VulkanTensor::Impl final {
   explicit Impl(std::vector<int64_t> sizes)
       : sizes_(std::move(sizes)),
         strides_(std::vector<int64_t>(sizes_.size())),
-        numel_(c10::multiply_integers(sizes_)) {
+        numel_(prod_intlist(sizes_)) {
     TORCH_CHECK(
         initVulkanContextOnce(), "Vulkan Failed to create Vulkan Context");
   }
@@ -1274,7 +1272,7 @@ class VulkanTensor::Impl final {
 
   VkDeviceSize buffer_size_for_sizes(std::vector<int64_t> sizes) const {
     const auto d = sizes.size();
-    const auto numel = c10::multiply_integers(sizes);
+    const auto numel = prod_intlist(sizes);
     VkDeviceSize bufferSize{sizeof(float) * numel};
     // alignment to be able to copy between image and buffer
     if (d == 4) {

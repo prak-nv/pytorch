@@ -93,7 +93,6 @@ bool AffineChannelGradientOp<float, CUDAContext>::RunOnDeviceWithOrderNCHW() {
             X_data,
             dscale->template mutable_data<float>(),
             dbias->template mutable_data<float>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   return true;
 }
@@ -138,7 +137,6 @@ bool AffineChannelGradientOp<float, CUDAContext>::RunOnDeviceWithOrderNHWC() {
             X_data,
             dscale->template mutable_data<float>(),
             dbias->template mutable_data<float>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   return true;
 }

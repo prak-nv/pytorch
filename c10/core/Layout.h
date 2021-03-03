@@ -35,7 +35,7 @@ inline std::ostream& operator<<(std::ostream& stream, at::Layout layout) {
     case at::kMkldnn:
       return stream << "Mkldnn";
     default:
-      TORCH_CHECK(false, "Unknown layout");
+      AT_ERROR("Unknown layout");
   }
 }
 

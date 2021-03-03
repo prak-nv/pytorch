@@ -34,11 +34,7 @@ Tensor& relu_(Tensor& input);
 
 Tensor sigmoid(const Tensor& input);
 
-Tensor& hardsigmoid_(Tensor& input);
-
 Tensor& hardtanh_(Tensor& input, Scalar min_val, Scalar max_val);
-
-Tensor& hardswish_(Tensor& input);
 
 Tensor t(const Tensor& input);
 
@@ -64,8 +60,6 @@ Tensor upsample_nearest2d_vec(
     c10::optional<ArrayRef<double>> scale_factors);
 
 Tensor flatten_using_ints(const Tensor & input, int64_t start_dim, int64_t end_dim);
-
-Tensor cat(const TensorList tensors, int64_t dim);
 
 Tensor copy_to_host(const Tensor& input);
 

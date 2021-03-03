@@ -106,7 +106,6 @@ void BatchSparseToDenseOp<float, CUDAContext>::FillInDenseValues(
       values_data,
       len_prefix_sum_.data<int64_t>(),
       output_data);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 template <>
@@ -135,7 +134,6 @@ void BatchDenseToSparseOp<float, CUDAContext>::FillInSparseValues(
       dense_data,
       len_prefix_sum_.data<int64_t>(),
       output_data);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 REGISTER_CUDA_OPERATOR(

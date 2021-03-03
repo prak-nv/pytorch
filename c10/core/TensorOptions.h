@@ -629,14 +629,12 @@ inline DispatchKey computeDispatchKey(c10::optional<ScalarType> dtype, c10::opti
             return DispatchKey::MSNPU;
           case DeviceType::XLA:
             return DispatchKey::XLA;
-          case DeviceType::MLC:
-            return DispatchKey::MLC;
           case DeviceType::Vulkan:
             return DispatchKey::Vulkan;
           case DeviceType::Metal:
             return DispatchKey::Metal;
           default:
-            TORCH_CHECK(false, "Unsupported device type for dense layout: ", device_.type());
+            AT_ERROR("Unsupported device type for dense layout: ", device_.type());
         }
       }
       case Layout::Sparse:
@@ -650,17 +648,17 @@ inline DispatchKey computeDispatchKey(c10::optional<ScalarType> dtype, c10::opti
           case DeviceType::XPU:
             return DispatchKey::SparseXPU;
           default:
-            TORCH_CHECK(false, "Unsupported device type for sparse layout: ", device_.type());
+            AT_ERROR("Unsupported device type for sparse layout: ", device_.type());
         }
       case Layout::Mkldnn:
         switch (device_.type()) {
           case DeviceType::CPU:
             return DispatchKey::MkldnnCPU;
           default:
-            TORCH_CHECK(false, "Unsupported device type for mkldnn layout: ", device_.type());
+            AT_ERROR("Unsupported device type for mkldnn layout: ", device_.type());
         }
       default:
-        TORCH_CHECK(false, "Unsupported layout: ", layout_);
+        AT_ERROR("Unsupported layout: ", layout_);
     }
 }
 
@@ -689,8 +687,6 @@ inline DeviceType computeDeviceType(DispatchKey tid) {
     return DeviceType::MSNPU;
   } else if (tid == DispatchKey::XLA) {
     return DeviceType::XLA;
-  } else if (tid == DispatchKey::MLC) {
-    return DeviceType::MLC;
   } else if (tid == DispatchKey::SparseCPU) {
     return DeviceType::CPU;
   } else if (tid == DispatchKey::SparseCUDA) {
@@ -712,7 +708,7 @@ inline DeviceType computeDeviceType(DispatchKey tid) {
   } else if (tid == DispatchKey::QuantizedXPU) {
     return DeviceType::XPU;
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Unknown DispatchKey: ", tid);
+    AT_ASSERTM(false, "Unknown DispatchKey: ", tid);
   }
 }
 

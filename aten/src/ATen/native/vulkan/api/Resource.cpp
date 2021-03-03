@@ -413,14 +413,13 @@ Resource::Pool::~Pool() {
     }
   }
   catch (const std::exception& e) {
-    TORCH_WARN(
-        "Vulkan: Resource pool destructor raised an exception! Error: ",
-        e.what());
+    LOG(WARNING)
+        << "Vulkan: Resource pool destructor raised an exception!  Error: "
+        << e.what();
   }
   catch (...) {
-    TORCH_WARN(
-        "Vulkan: Resource pool destructor raised an exception! "
-        "Error: Unknown");
+    LOG(WARNING)
+        << "Vulkan: Resource pool destructor raised an unknown exception!";
   }
 }
 

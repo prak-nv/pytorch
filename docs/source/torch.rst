@@ -298,8 +298,6 @@ Pointwise Ops
     exp
     exp2
     expm1
-    fake_quantize_per_channel_affine
-    fake_quantize_per_tensor_affine
     fix
     float_power
     floor
@@ -342,7 +340,6 @@ Pointwise Ops
     rsqrt
     sigmoid
     sign
-    sgn
     signbit
     sin
     sinc
@@ -472,7 +469,6 @@ Other Operations
     diag_embed
     diagflat
     diagonal
-    diff
     einsum
     flatten
     flip
@@ -563,7 +559,5 @@ Utilities
     promote_types
     use_deterministic_algorithms
     are_deterministic_algorithms_enabled
-    set_warn_always
-    is_warn_always_enabled
     vmap
     _assert

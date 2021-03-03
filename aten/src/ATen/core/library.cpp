@@ -1,7 +1,5 @@
 #include <torch/library.h>
 
-#include <ATen/core/dispatch/Dispatcher.h>
-
 namespace torch {
 
 namespace {

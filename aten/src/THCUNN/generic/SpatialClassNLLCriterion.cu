@@ -91,7 +91,6 @@ void THNN_(SpatialClassNLLCriterion_updateOutput)(
         toDeviceTensor<scalar_t, 3>(state, output),
         weights ? THCTensor_(data)(state, weights) : NULL,
         ignore_index);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     if (weights) {
       THCTensor_(free)(state, weights);
@@ -132,13 +131,13 @@ void THNN_(SpatialClassNLLCriterion_updateOutput)(
         blocks_per_sample,
         ignore_index
     );
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    THCudaCheck(cudaGetLastError());
   }
   if (reduction == at::Reduction::Mean) {
     cunn_SpatialClassNLLCriterion_sizeAverage_kernel<<<1, 1, 0, c10::cuda::getCurrentCUDAStream()>>>(
       output_data, total_weight_data, THCTensor_(nElement)(state, input)
     );
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    THCudaCheck(cudaGetLastError());
   }
 
   if (weights)
@@ -196,7 +195,6 @@ void THNN_(SpatialClassNLLCriterion_updateGradInput)(
         toDeviceTensor<scalar_t, 4>(state, gradInput),
         weights ? THCTensor_(data)(state, weights) : NULL,
         ignore_index);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     if (weights) {
       THCTensor_(free)(state, weights);
@@ -235,7 +233,7 @@ void THNN_(SpatialClassNLLCriterion_updateGradInput)(
         blocks_per_sample,
         ignore_index
     );
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    THCudaCheck(cudaGetLastError());
   }
 
   if (weights)

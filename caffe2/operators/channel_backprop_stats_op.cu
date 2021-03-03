@@ -190,7 +190,6 @@ bool ChannelBackpropStatsOp<CUDAContext>::RunOnDevice() {
           invStddevArr,
           dBiasScratch_.mutable_data<float>(),
           dScaleScratch_.mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   ChannelBackpropStatsFinalSumsKernel<CAFFE_CUDA_NUM_THREADS>
       <<<C, CAFFE_CUDA_NUM_THREADS, 0, context_.cuda_stream()>>>(
@@ -201,7 +200,6 @@ bool ChannelBackpropStatsOp<CUDAContext>::RunOnDevice() {
           dScaleScratch_.data<float>(),
           dBias->template mutable_data<float>(),
           dScale->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 
   return true;
 }

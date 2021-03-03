@@ -352,6 +352,17 @@ void IRPrinter::visit(const ReduceOp* v) {
   os() << *v->body() << ", ";
 
   bool first = true;
+  os() << "out_args={";
+  for (auto* d : v->output_args()) {
+    if (!first) {
+      os() << ", ";
+    }
+    os() << *d;
+    first = false;
+  }
+  os() << "}, ";
+
+  first = true;
   os() << "reduce_args={";
   for (auto* d : v->reduce_args()) {
     if (!first) {
@@ -429,9 +440,8 @@ void IRPrinter::visit(const Block* v) {
 
 void IRPrinter::visit(const Allocate* v) {
   emitIndent();
-  os() << "Allocate(" << *v->buffer_var()
-       << "); // dtype=" << v->dtype().ToCppString();
-  os() << ", dims=[";
+  os() << "Allocate(" << *v->buffer_var() << ", " << v->dtype().ToCppString();
+  os() << ", {";
   const std::vector<const Expr*>& dims = v->dims();
   for (size_t i = 0; i < dims.size(); i++) {
     if (i != 0) {
@@ -439,7 +449,7 @@ void IRPrinter::visit(const Allocate* v) {
     }
     os() << *dims[i];
   }
-  os() << "]" << std::endl;
+  os() << "});" << std::endl;
 }
 
 void IRPrinter::visit(const Free* v) {
@@ -494,30 +504,6 @@ void IRPrinter::visit(const AtomicAdd* v) {
 void IRPrinter::visit(const SyncThreads* v) {
   emitIndent();
   os() << "__syncthreads();\n";
-}
-
-void IRPrinter::visit(const ExternalCall* v) {
-  emitIndent();
-  os() << *v->buf() << " = " << v->func_name() << "(";
-
-  os() << "buf_args={";
-  int i = 0;
-  for (const Buf* buf_arg : v->buf_args()) {
-    if (i++ > 0) {
-      os() << ", ";
-    }
-    os() << *buf_arg;
-  }
-
-  os() << "}, args={";
-  i = 0;
-  for (const Expr* arg : v->args()) {
-    if (i++ > 0) {
-      os() << ", ";
-    }
-    os() << *arg;
-  }
-  os() << "})" << std::endl;
 }
 
 void IRPrinter::emitIndent() {
@@ -610,15 +596,19 @@ std::string to_string(const Tensor* t) {
     return "(null tensor)\n";
   }
   std::ostringstream oss;
-  // TODO: move this to Buf printer
-  oss << "Tensor " << t->buf()->name_hint() << "[";
-  for (size_t i = 0; i < t->buf()->ndim(); i++) {
+  if (!t->body()) {
+    oss << "Tensor " << t->buf()->name_hint() << " = " << *t->ElementStmt()
+        << "\n";
+    return oss.str();
+  }
+  oss << "Tensor " << t->buf()->name_hint() << "(";
+  for (size_t i = 0; i < t->ndim(); i++) {
     if (i != 0) {
       oss << ", ";
     }
-    oss << *t->buf()->dim(i);
+    oss << *t->arg(i) << "[" << *t->dim(i) << "]";
   }
-  oss << "]:\n" << *t->stmt() << "\n";
+  oss << ") = " << *t->body() << "\n";
   return oss.str();
 }
 } // namespace std

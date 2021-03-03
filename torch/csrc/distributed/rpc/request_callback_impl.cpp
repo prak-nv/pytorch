@@ -348,10 +348,7 @@ void RequestCallbackImpl::processPythonRemoteCall(
   c10::intrusive_ptr<OwnerRRef> ownerRRef;
   if (rrefId == forkId) {
     // Creating an owner RRef on self, should already exist in owners map
-    ownerRRef =
-        fromRRefInterface(ctx.getOwnerRRef(rrefId, /* forceCreated */ true)
-                              ->constValue()
-                              .toRRef());
+    ownerRRef = ctx.getOwnerRRef(rrefId, /* forceCreated */ true)->constValue();
   } else {
     ownerRRef = ctx.getOrCreateOwnerRRef(rrefId, PyObjectType::get());
   }
@@ -463,20 +460,18 @@ void RequestCallbackImpl::processPythonRRefFetchCall(
   auto& ctx = RRefContext::getInstance();
 
   auto futureOwner = ctx.getOwnerRRef(prf.rrefId());
-  if (futureOwner->completed()) {
-    auto rref = fromRRefInterface(futureOwner->constValue().toRRef());
-    if (rref->hasValue()) {
-      // optional fast-path, the OwnerRRef has been created
-      postProcessing(rref, messageId);
-      return;
-    }
+
+  if (futureOwner->completed() && futureOwner->constValue()->hasValue()) {
+    // optional fast-path, the OwnerRRef has been created
+    postProcessing(futureOwner->constValue(), messageId);
+    return;
   }
 
   futureOwner->addCallback([messageId,
                             futureOwner,
                             postProcessing{
                                 std::move(postProcessing)}]() mutable {
-    const auto& rref = fromRRefInterface(futureOwner->constValue().toRRef());
+    const auto& rref = futureOwner->constValue();
 
     // Our response is satisfied when the the rpc.remote() request
     // finishes executing on the owner.
@@ -542,7 +537,7 @@ void RequestCallbackImpl::processRRefBackward(
                             futureOwner,
                             autogradContextId,
                             retainGraph]() {
-    const auto& rref = fromRRefInterface(futureOwner->constValue().toRRef());
+    const auto& rref = futureOwner->constValue();
     auto whenValueSet = rref->getFuture();
 
     whenValueSet->addCallback([responseFuture,

@@ -85,7 +85,6 @@ void spaceToBatch<CUDAContext>(
       block_size,
       input.data<float>(),
       output->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 
@@ -172,7 +171,6 @@ void batchToSpace(
       block_size,
       input.data<float>(),
       output->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 REGISTER_CUDA_OPERATOR(SpaceToBatch, SpaceToBatchOp<CUDAContext>);

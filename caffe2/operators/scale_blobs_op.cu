@@ -73,7 +73,6 @@ bool ScaleBlobsOp<CUDAContext>::DoRunWithType() {
             blobSizes_.data<int>(),
             inputs_.mutable_data<T*>(),
             outputs_.mutable_data<T*>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     ScaleBlobsCUDAKernel<T>
         <<<CAFFE_GET_BLOCKS(maxSize),
@@ -85,7 +84,6 @@ bool ScaleBlobsOp<CUDAContext>::DoRunWithType() {
             blobSizes_.data<int>(),
             inputs_.mutable_data<T*>(),
             outputs_.mutable_data<T*>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   return true;
 }
@@ -148,8 +146,6 @@ REGISTER_CUDA_OPERATOR(ScaleBlobs, ScaleBlobsOp<CUDAContext>);
    context_.cuda_stream()>>>(
      scale_, numBlobs, coorArrSize, dStartCoorArr, dSizeArr, dInputArr,
      dOutputArr);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   cudaFree(dStartCoorArr);
 */
 

@@ -95,8 +95,6 @@ bool SumElementsGradientOp<float, CUDAContext>::RunOnDevice() {
           X.numel(),
           dY.data<float>(),
           dX->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -127,7 +125,6 @@ bool MaxReductionGradientOp<T, Context, ROWWISE>::RunOnDevice() {
         0,
         context_.cuda_stream()>>>(
         batch_size, M, N, Xdata, Ydata, dYdata, dXdata);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     colwise_max_gradient_kernel<<<
         CAFFE_GET_BLOCKS(batch_size * input_size),
@@ -135,7 +132,6 @@ bool MaxReductionGradientOp<T, Context, ROWWISE>::RunOnDevice() {
         0,
         context_.cuda_stream()>>>(
         batch_size, M, N, Xdata, Ydata, dYdata, dXdata);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   return true;
 }

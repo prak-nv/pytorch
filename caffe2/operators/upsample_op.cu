@@ -190,8 +190,6 @@ bool UpsampleBilinearOp<float, CUDAContext>::RunOnDevice() {
       width_scale_,
       X.data<float>(),
       Y->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 template <>
@@ -237,8 +235,6 @@ bool UpsampleBilinearGradientOp<float, CUDAContext>::RunOnDevice() {
       width_scale_,
       dY.data<float>(),
       dX->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 REGISTER_CUDA_OPERATOR(

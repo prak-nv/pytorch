@@ -16,10 +16,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import _reduction as _Reduction
 from torch.testing._internal.common_utils import TestCase, to_gpu, freeze_rng_state, is_iterable, \
-    TEST_WITH_ROCM, gradcheck, gradgradcheck
+    TEST_WITH_ROCM
 from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_device_type import expectedAlertNondeterministic
-from torch.autograd.gradcheck import get_numerical_jacobian, iter_tensors
+from torch.autograd.gradcheck import get_numerical_jacobian, iter_tensors, \
+    gradcheck, gradgradcheck
 from torch.autograd import Variable
 from torch.types import _TensorOrTensors
 import torch.backends.cudnn
@@ -1323,6 +1324,7 @@ new_module_tests = [
         cudnn=True,
         check_eval=True,
         desc='affine',
+        test_cuda=(not TEST_WITH_ROCM),
     ),
     dict(
         module_name='BatchNorm1d',
@@ -1341,6 +1343,7 @@ new_module_tests = [
         cudnn=True,
         check_eval=True,
         desc='affine_simple_average',
+        test_cuda=(not TEST_WITH_ROCM),
     ),
     dict(
         module_name='BatchNorm1d',
@@ -1360,6 +1363,7 @@ new_module_tests = [
         cudnn=True,
         check_eval=True,
         desc='not_tracking_stats',
+        test_cuda=(not TEST_WITH_ROCM),
     ),
     dict(
         module_name='BatchNorm1d',
@@ -2660,7 +2664,7 @@ new_module_tests = [
         fullname='interpolate_linear_1d_alert_nondeterministic',
         pickle=False,
         test_cpu=False,
-        decorator=expectedAlertNondeterministic('upsample_linear1d_backward_out_cuda', fn_has_device_arg=False)
+        decorator=expectedAlertNondeterministic('upsample_linear1d_backward_cuda', fn_has_device_arg=False)
     ),
     dict(
         constructor=wrap_functional(F.interpolate, size=(4, ), scale_factor=None, mode='linear', align_corners=False),
@@ -2789,7 +2793,7 @@ new_module_tests = [
         fullname='interpolate_bilinear_2d_alert_nondeterministic',
         pickle=False,
         test_cpu=False,
-        decorator=expectedAlertNondeterministic('upsample_bilinear2d_backward_out_cuda', fn_has_device_arg=False)
+        decorator=expectedAlertNondeterministic('upsample_bilinear2d_backward_cuda', fn_has_device_arg=False)
     ),
     dict(
         constructor=wrap_functional(F.interpolate, size=12, scale_factor=None, mode='bilinear', align_corners=False),
@@ -2895,7 +2899,7 @@ new_module_tests = [
         fullname='interpolate_bicubic_2d_alert_nondeterministic',
         pickle=False,
         test_cpu=False,
-        decorator=expectedAlertNondeterministic('upsample_bicubic2d_backward_out_cuda', fn_has_device_arg=False)
+        decorator=expectedAlertNondeterministic('upsample_bicubic2d_backward_cuda', fn_has_device_arg=False)
     ),
     dict(
         constructor=wrap_functional(F.interpolate, size=12, scale_factor=None, mode='bicubic', align_corners=False),
@@ -3040,7 +3044,7 @@ new_module_tests = [
         fullname='interpolate_trilinear_3d_alert_nondeterministic',
         pickle=False,
         test_cpu=False,
-        decorator=expectedAlertNondeterministic('upsample_trilinear3d_backward_out_cuda', fn_has_device_arg=False)
+        decorator=expectedAlertNondeterministic('upsample_trilinear3d_backward_cuda', fn_has_device_arg=False)
     ),
     dict(
         constructor=wrap_functional(F.interpolate, size=12, scale_factor=None, mode='trilinear', align_corners=False),
@@ -3338,6 +3342,7 @@ new_module_tests = [
         input_size=(2, 128, 2, 2),  # trigger special case of spatial CUDA algo
         fullname='softmax_spatial_special',
         pickle=False,
+        test_cuda=(not TEST_WITH_ROCM)
     ),
     dict(
         constructor=wrap_functional(F.softmax, dim=1),
@@ -3391,6 +3396,7 @@ new_module_tests = [
         input_size=(2, 128, 2, 2),  # trigger special case of spatial CUDA algo
         fullname='log_softmax_spatial_special',
         pickle=False,
+        test_cuda=(not TEST_WITH_ROCM)
     ),
     dict(
         constructor=wrap_functional(F.log_softmax, dim=1),
@@ -5186,9 +5192,6 @@ class NewModuleTest(InputVariableMixin, ModuleTest):  # type: ignore[misc]
             if input.grad is not None:
                 with torch.no_grad():
                     input.grad.zero_()
-            if input_ip.grad is not None:
-                with torch.no_grad():
-                    input_ip.grad.zero_()
             output.backward(grad)
             output_ip.backward(grad)
             test_case.assertEqual(input.grad, input_ip.grad)
@@ -5321,7 +5324,6 @@ class CriterionTest(InputVariableMixin, TestBase):  # type: ignore[misc]
         self.test_cpu = kwargs.get('test_cpu', True)
         self.with_tf32 = kwargs.get('with_tf32', True)
         self.tf32_precision = kwargs.get('tf32_precision', 0.001)
-        self.check_batched_grad = kwargs.get('check_batched_grad', True)
 
     def __call__(self, test_case):
         module = self.constructor(*self.constructor_args)
@@ -5354,10 +5356,10 @@ class CriterionTest(InputVariableMixin, TestBase):  # type: ignore[misc]
             def apply_fn(input1, input2, target, *params):  # type: ignore[misc]
                 return module(input1, input2, target)
 
-        gradcheck(apply_fn, inputs, check_batched_grad=self.check_batched_grad)
+        gradcheck(apply_fn, inputs)
 
         if self.check_gradgrad:
-            gradgradcheck(apply_fn, inputs, check_batched_grad=self.check_batched_grad)
+            gradgradcheck(apply_fn, inputs)
 
     def test_cuda(self, test_case, dtype, extra_args=None):
         def convert_dtype(obj, dtype, requires_grad=False):

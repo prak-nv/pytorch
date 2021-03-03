@@ -75,7 +75,6 @@ void ComputeReduceMinMaxGradientCUDAImpl(
           X_data,
           Y_data,
           dX_data);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 } // namespace

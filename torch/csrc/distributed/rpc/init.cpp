@@ -120,10 +120,7 @@ PyObject* rpc_init(PyObject* _unused, PyObject* noargs) {
   auto rpcAgent =
       shared_ptr_class_<RpcAgent>(module, "RpcAgent")
           .def(
-              "join",
-              &RpcAgent::join,
-              py::call_guard<py::gil_scoped_release>(),
-              py::arg("shutdown") = false)
+              "join", &RpcAgent::join, py::call_guard<py::gil_scoped_release>())
           .def(
               "sync", &RpcAgent::sync, py::call_guard<py::gil_scoped_release>())
           .def(
@@ -405,17 +402,13 @@ PyObject* rpc_init(PyObject* _unused, PyObject* noargs) {
               // retrieve cached type py::object
               &PyRRef::getRRefType,
               py::arg("timeout") = kUnsetRpcTimeout,
-              py::arg("blocking") = true,
               R"(
-                  If ``blocking=True``, returns the type of the data object
-                  referenced by this ``RRef``. On the owner, this is same as
-                  ``type(rref.local_value())``. Otherwise, returns a future to
-                  this result. On a user, this will trigger an RPC to fetch the
-                  ``type`` object from the owner. After this function is run
-                  once, the ``type`` object is cached by the ``RRef``, and
-                  subsequent invocations no longer trigger RPC. Note that this is
-                  true regardless of the ``blocking`` argument of subsequent
-                  calls.
+                  Returns the type of the data object referenced by this
+                  ``RRef``. On the owner, this is same as
+                  ``type(rref.local_value())``. On a user, this will trigger an
+                  RPC to fetch the ``type`` object from the owner. After this
+                  function is run once, the ``type`` object is cached by the
+                  ``RRef``, and subsequent invocations no longer trigger RPC.
 
                   Args:
                     rref (torch.distributed.rpc.RRef): The RRef to get type of.
@@ -424,10 +417,6 @@ PyObject* rpc_init(PyObject* _unused, PyObject* noargs) {
                           this timeframe, an exception indicating so will be
                           raised. If this argument is not provided, the default
                           RPC timeout will be used.
-                    blocking (bool, optional): Whether to synchronously wait on
-                          the RPC triggered by the first call and return the
-                          type. If ``False``, will return a future. Default is
-                          ``True``.
               )")
           .def(
               "_get_future",
@@ -576,8 +565,7 @@ PyObject* rpc_init(PyObject* _unused, PyObject* noargs) {
       .def(
           "join",
           &ProcessGroupAgent::join,
-          py::call_guard<py::gil_scoped_release>(),
-          py::arg("shutdown") = false)
+          py::call_guard<py::gil_scoped_release>())
       .def(
           "shutdown",
           &ProcessGroupAgent::shutdown,
@@ -650,8 +638,7 @@ PyObject* rpc_init(PyObject* _unused, PyObject* noargs) {
       .def(
           "join",
           &TensorPipeAgent::join,
-          py::call_guard<py::gil_scoped_release>(),
-          py::arg("shutdown") = false)
+          py::call_guard<py::gil_scoped_release>())
       .def(
           "shutdown",
           &TensorPipeAgent::shutdown,

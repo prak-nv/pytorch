@@ -59,13 +59,9 @@ bool MultiClassAccuracyOp<float, CUDAContext>::RunOnDevice() {
   MultiClassAccuracyKernel<<<CAFFE_GET_BLOCKS(N), CAFFE_CUDA_NUM_THREADS,
                               0, context_.cuda_stream()>>>(
       N, D, Xdata, labeldata, accuracies, amounts);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   MultiClassAccuracyDivideKernel<<<CAFFE_GET_BLOCKS(D), CAFFE_CUDA_NUM_THREADS,
                                   0, context_.cuda_stream()>>>(
     D, accuracies, amounts);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

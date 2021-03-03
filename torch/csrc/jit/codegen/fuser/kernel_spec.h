@@ -66,9 +66,7 @@ struct TORCH_API KernelSpec {
         inputChunks_{},
         has_random_{false},
         kernels_{} {
-    // No need to iterate over reference since n is pointer
-    for (const auto n : graph_->nodes()) {
-      static_assert(std::is_pointer<decltype(n)>::value, "n must be a pointer");
+    for (const auto& n : graph_->nodes()) {
       if (n->kind() == aten::rand_like) {
         has_random_ = true;
         break;

@@ -69,7 +69,7 @@ class TORCH_API Blob final : public c10::intrusive_ptr_target {
   // TODO(jerryzh): add a Get(DeviceType) function?
   template <class T>
   const T& Get() const {
-    TORCH_INTERNAL_ASSERT(
+    AT_ASSERTM(
         IsType<T>(),
         "wrong type for the Blob instance. Blob contains ",
         meta_.name(),

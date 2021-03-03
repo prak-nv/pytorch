@@ -39,15 +39,15 @@ namespace vec256 {
 // static means something different in the context of classes).
 namespace {
 
- C10_UNUSED std::ostream& operator<<(std::ostream& stream, const c10::qint32& val) {
+ std::ostream& operator<<(std::ostream& stream, const c10::qint32& val) {
      stream << val.val_;
      return stream;
  }
- C10_UNUSED std::ostream& operator<<(std::ostream& stream, const c10::qint8& val) {
+ std::ostream& operator<<(std::ostream& stream, const c10::qint8& val) {
      stream << static_cast<int>(val.val_);
      return stream;
  }
- C10_UNUSED std::ostream& operator<<(std::ostream& stream, const c10::quint8& val) {
+ std::ostream& operator<<(std::ostream& stream, const c10::quint8& val) {
      stream << static_cast<unsigned int>(val.val_);
      return stream;
  }

@@ -2,13 +2,14 @@
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/util/Exception.h>
-#include <c10/util/irange.h>
 
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <vector>
+
+#include <iostream>
 
 namespace c10 {
 namespace cuda {
@@ -174,7 +175,7 @@ static StreamId CUDAStream_getStreamId(const LeakyStreamInternals* ptr) {
         StreamIdType::HIGH, ptr - high_priority_streams[device_index].data());
   }
 
-  TORCH_INTERNAL_ASSERT(
+  AT_ASSERTM(
       0,
       "Could not compute stream ID for ",
       ptr,
@@ -196,7 +197,7 @@ static void initGlobalStreamState() {
   num_gpus = device_count();
   // Check if the number of GPUs matches the expected compile-time max number
   // of GPUs.
-  TORCH_CHECK(
+  AT_ASSERTM(
       num_gpus <= C10_COMPILE_TIME_MAX_GPUS,
       "Number of CUDA devices on the machine is larger than the compiled "
       "max number of gpus expected (",
@@ -204,7 +205,7 @@ static void initGlobalStreamState() {
       "). Increase that and recompile.");
 
   // Initializes default streams
-  for (const auto i: c10::irange(num_gpus)) {
+  for (auto i = decltype(num_gpus){0}; i < num_gpus; ++i) {
     default_streams[i].device_index = i;
     low_priority_counters[i] = 0;
     high_priority_counters[i] = 0;
@@ -218,7 +219,7 @@ static void initDeviceStreamState(DeviceIndex device_index) {
   // with it.
   CUDAGuard device_guard{device_index};
 
-  for (const auto i: c10::irange(kStreamsPerPool)) {
+  for (auto i = decltype(kStreamsPerPool){0}; i < kStreamsPerPool; ++i) {
     auto& lowpri_stream = low_priority_streams[device_index][i];
     auto& hipri_stream = high_priority_streams[device_index][i];
 
@@ -244,7 +245,7 @@ static void initCUDAStreamsOnce() {
   // Inits current streams (thread local) to default streams
   current_streams =
       (LeakyStreamInternals**)malloc(num_gpus * sizeof(LeakyStreamInternals*));
-  for (const auto i: c10::irange(num_gpus)) {
+  for (auto i = decltype(num_gpus){0}; i < num_gpus; ++i) {
     current_streams[i] = &default_streams[i];
   }
 }
@@ -268,7 +269,7 @@ LeakyStreamInternals* CUDAStream_internals(CUDAStream s) {
   size_t si = streamIdIndex(s.unwrap().id());
   switch (st) {
     case StreamIdType::DEFAULT:
-      TORCH_INTERNAL_ASSERT(
+      AT_ASSERTM(
           si == 0,
           "Unrecognized stream ",
           s.unwrap(),
@@ -283,7 +284,7 @@ LeakyStreamInternals* CUDAStream_internals(CUDAStream s) {
     case StreamIdType::HIGH:
       return &high_priority_streams[device_index][si];
     default:
-      TORCH_INTERNAL_ASSERT(
+      AT_ASSERTM(
           0,
           "Unrecognized stream ",
           s.unwrap(),

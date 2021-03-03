@@ -15,5 +15,3 @@ API Reference
   :members:
 
 .. autofunction:: torch.profiler.schedule
-
-.. autofunction:: torch.profiler.tensorboard_trace_handler

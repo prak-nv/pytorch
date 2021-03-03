@@ -1,12 +1,11 @@
 #include "caffe2/contrib/tensorrt/tensorrt_op_trt.h"
 
-#include <c10/util/accumulate.h>
+#include <numeric>
+#include <unordered_map>
+
 #include "caffe2/contrib/tensorrt/tensorrt_tranformer.h"
 #include "caffe2/core/logging.h"
 #include "onnx/onnx_pb.h"
-
-#include <unordered_map>
-#include <numeric>
 
 namespace caffe2 {
 
@@ -135,8 +134,13 @@ void TensorRTOp::MaybeAdjustOutputShape(
   const auto it = output_size_hints_.find(output_idx);
   if (it != output_size_hints_.end()) {
     const auto& dims_hint = it->second;
-    const auto total_trt = c10::multiply_integers(*dims);
-    const auto total_c2 = c10::multiply_integers(*dims_hint);
+    auto total_trt = std::accumulate(
+        dims->begin(), dims->end(), (int64_t)(1), std::multiplies<int64_t>());
+    auto total_c2 = std::accumulate(
+        dims_hint.begin(),
+        dims_hint.end(),
+        (int64_t)(1),
+        std::multiplies<int64_t>());
     CAFFE_ENFORCE_EQ(
         total_trt,
         total_c2,

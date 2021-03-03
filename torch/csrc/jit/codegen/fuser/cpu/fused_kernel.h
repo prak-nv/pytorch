@@ -9,18 +9,13 @@
 #include <memory>
 #include <string>
 
-// Forward declare DynamicLibrary
-namespace at {
-struct DynamicLibrary;
-}
-
 namespace torch {
 namespace jit {
 namespace fuser {
 namespace cpu {
 
 // Represents a compiled CPU kernel and the metadata necessary to run it
-struct TORCH_API FusedKernelCPU : public FusedKernel {
+struct TORCH_API FusedKernelCPU : public ::torch::jit::fuser::FusedKernel {
   FusedKernelCPU(
       std::string name,
       std::string code,

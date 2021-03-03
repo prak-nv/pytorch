@@ -49,9 +49,7 @@ c10::intrusive_ptr<RRef> finishCreatingOwnerRRef(
     // We expect to run this callback only after the OwnerRRef has been created,
     // since this is only invoked when sending to self.
     auto rref_ptr =
-        fromRRefInterface(ctx.getOwnerRRef(rrefId, /* foreCreated */ true)
-                              ->constValue()
-                              .toRRef());
+        ctx.getOwnerRRef(rrefId, /* ensure created */ true)->constValue();
     auto errorType = getRPCErrorType(jitFuture);
     rref_ptr->handleError(errorType, jitFuture);
     // OwnerRRefs do not have a forkId, so don't need to assert here.
@@ -324,15 +322,14 @@ c10::intrusive_ptr<OwnerRRef> RRefContext::getOrCreateOwnerRRef(
     owners_[rref->rrefId()] = rref;
     const auto pendingOwnerIter = pendingOwners_.find(rrefId);
     if (pendingOwnerIter != pendingOwners_.end()) {
-      // cast to RRefInterface to hold it into IValue
-      auto rrefPtr = fromOwnerRRef(rref);
-      pendingOwnerIter->second->markCompleted(IValue(rrefPtr));
+      pendingOwnerIter->second->markCompleted(rref);
       pendingOwners_.erase(pendingOwnerIter);
     }
     return rref;
   } else {
     // Scenario (2) retrieving an existing RRef
-    auto ownerRRef = fromRRefInterface(iter->second);
+    auto ownerRRef =
+        c10::static_intrusive_pointer_cast<OwnerRRef>(iter->second);
     // Now double check if the two types match
     //
     // Why we are special casing the check for tensor type here?
@@ -375,9 +372,8 @@ c10::intrusive_ptr<OwnerRRef> RRefContext::createOwnerRRef(
       getWorkerId(), genGloballyUniqueId(), type);
 }
 
-c10::intrusive_ptr<JitFuture> RRefContext::getOwnerRRef(
-    const RRefId& rrefId,
-    bool forceCreated) {
+std::shared_ptr<Future<c10::intrusive_ptr<OwnerRRef>>> RRefContext::
+    getOwnerRRef(const RRefId& rrefId, bool forceCreated) {
   std::unique_lock<std::mutex> lock(mutex_);
   const auto iter = owners_.find(rrefId);
   if (iter == owners_.end()) {
@@ -389,11 +385,8 @@ c10::intrusive_ptr<JitFuture> RRefContext::getOwnerRRef(
     // Scenario (1) RRef is used before it is created
     const auto pendingOwnerIter = pendingOwners_.find(rrefId);
     if (pendingOwnerIter == pendingOwners_.end()) {
-      // Note: The type passed into RRefType::create() does not matter here, as
-      // the future is marked as completed with the RRef of the specific type
-      // in getOrCreateOwnerRRef().
       auto futureOwner =
-          c10::make_intrusive<JitFuture>(RRefType::create(c10::AnyType::get()));
+          std::make_shared<Future<c10::intrusive_ptr<OwnerRRef>>>();
       pendingOwners_[rrefId] = futureOwner;
       return futureOwner;
     } else {
@@ -401,14 +394,12 @@ c10::intrusive_ptr<JitFuture> RRefContext::getOwnerRRef(
     }
   } else {
     // Scenario (2) retrieving an existing RRef
-    // Marks IValue Future as completed with the RRef IValue.
-    auto owner = iter->second;
-    auto rrefPtr = fromOwnerRRef(owner);
-
-    auto futureOwner =
-        c10::make_intrusive<JitFuture>(RRefType::create(owner->type()));
-    futureOwner->markCompleted(IValue(rrefPtr));
-    return futureOwner;
+    // NB: This assumes passing value to the Future constructor implicitly
+    // marks the Future as completed. This is true for utils::Future, but
+    // not so for ivalue::Future. Hence, when merging the two Future
+    // implementations later, we might need to modify code here as well.
+    return std::make_shared<Future<c10::intrusive_ptr<OwnerRRef>>>(
+        c10::static_intrusive_pointer_cast<OwnerRRef>(iter->second));
   }
 }
 
@@ -662,25 +653,26 @@ void RRefContext::recordThreadLocalPendingRRefs() {
   recording_ = true;
 }
 
-c10::intrusive_ptr<JitFuture> RRefContext::waitForThreadLocalPendingRRefs() {
-  auto jitFuturePtr = c10::make_intrusive<JitFuture>(BoolType::get());
+std::shared_ptr<Future<bool>> RRefContext::waitForThreadLocalPendingRRefs() {
+  std::shared_ptr<Future<bool>> future;
   if (userTable_.empty()) {
-    jitFuturePtr->markCompleted(true);
+    future = std::make_shared<Future<bool>>(true);
   } else {
+    future = std::make_shared<Future<bool>>();
     auto remainingRRefs =
         std::make_shared<std::atomic<uint64_t>>(userTable_.size());
     for (auto& state : userTable_) {
-      state->confirmationFuture_->addCallback([jitFuturePtr, remainingRRefs]() {
+      state->future_.addCallback([future, remainingRRefs]() {
         auto localCount = remainingRRefs->fetch_sub(1);
         if (localCount == 1) {
-          jitFuturePtr->markCompleted(true);
+          future->markCompleted(true);
         }
       });
     }
     userTable_.clear();
   }
   recording_ = false;
-  return jitFuturePtr;
+  return future;
 }
 
 void RRefContext::clearRecordedPendingRRefsOnError() {

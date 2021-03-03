@@ -1,5 +1,3 @@
-#include <c10/util/accumulate.h>
-
 #include "caffe2/operators/elementwise_mul_op.h"
 
 #include <algorithm>
@@ -23,9 +21,12 @@ void ComputeMulGradient(
     TGrad* dA,
     TGrad* dB,
     CPUContext* context) {
-  const auto A_size = c10::multiply_integers(A_dims, A_dims + ndim);
-  const auto B_size = c10::multiply_integers(B_dims, B_dims + ndim);
-  const auto C_size = c10::multiply_integers(C_dims, C_dims + ndim);
+  const int A_size =
+      std::accumulate(A_dims, A_dims + ndim, 1, std::multiplies<int>());
+  const int B_size =
+      std::accumulate(B_dims, B_dims + ndim, 1, std::multiplies<int>());
+  const int C_size =
+      std::accumulate(C_dims, C_dims + ndim, 1, std::multiplies<int>());
   math::Set<TGrad, CPUContext>(A_size, TGrad(0), dA, context);
   math::Set<TGrad, CPUContext>(B_size, TGrad(0), dB, context);
   std::vector<int> index(ndim, 0);
@@ -95,7 +96,8 @@ bool MulFunctor<CPUContext>::Backward(
     TGrad* dB,
     CPUContext* context) const {
   if (A_dims == B_dims) {
-    const auto size = c10::multiply_integers(A_dims);
+    const int size = std::accumulate(
+        A_dims.cbegin(), A_dims.cend(), 1, std::multiplies<int>());
     math::Mul(size, dC, B, dA, context);
     math::Mul(size, dC, A, dB, context);
     return true;
@@ -124,8 +126,10 @@ bool MulFunctor<CPUContext>::Backward(
       1,
       std::multiplies<int>());
   if (C_size == 0) {
-    const auto A_size = c10::multiply_integers(A_dims);
-    const auto B_size = c10::multiply_integers(B_dims);
+    const int A_size = std::accumulate(
+        A_dims.cbegin(), A_dims.cend(), 1, std::multiplies<int>());
+    const int B_size = std::accumulate(
+        B_dims.cbegin(), B_dims.cend(), 1, std::multiplies<int>());
     math::Set<TGrad, CPUContext>(A_size, TGrad(0), dA, context);
     math::Set<TGrad, CPUContext>(B_size, TGrad(0), dB, context);
     return true;

@@ -8,6 +8,24 @@ namespace vulkan {
 namespace api {
 namespace {
 
+Context* initialize() {
+  static const std::unique_ptr<Context> context([]() -> Context* {
+    try {
+      const Adapter adapter = runtime()->select([](const Adapter& adapter) {
+        // Select the first adapter.
+        return true;
+      });
+
+      return new Context(adapter);
+    }
+    catch (...) {
+      return nullptr;
+    }
+  }());
+
+  return context.get();
+}
+
 VkDevice create_device(
     const VkPhysicalDevice physical_device,
     const uint32_t compute_queue_family_index) {
@@ -118,14 +136,12 @@ Context::~Context() {
     flush();
   }
   catch (const std::exception& e) {
-    TORCH_WARN(
-        "Vulkan: Context destructor raised an exception! Error: ",
-        e.what());
+    LOG(WARNING)
+        << "Vulkan: Context destructor raised an exception!  Error: "
+        << e.what();
   }
   catch (...) {
-    TORCH_WARN(
-        "Vulkan: Context destructor raised an exception! "
-        "Error: Unknown");
+    LOG(WARNING) << "Vulkan: Context destructor raised an unknown exception!";
   }
 }
 
@@ -142,37 +158,16 @@ bool available() {
 }
 
 Context* context() {
-  static const std::unique_ptr<Context> context([]() -> Context* {
-    try {
-      const Adapter adapter = runtime()->select([](const Adapter& adapter) {
-        // Select the first adapter.
-        return true;
-      });
+  Context* const context = initialize();
+  TORCH_CHECK(context, "Vulkan: Backend not available on this platform!");
 
-      return new Context(adapter);
-    }
-    catch (const std::exception& e) {
-      TORCH_WARN("Vulkan: Failed to initialize context! Error: ", e.what());
-    }
-    catch (...) {
-      TORCH_WARN("Vulkan: Failed to initialize context! Error: Unknown");
-    }
-
-    return nullptr;
-  }());
-
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
-      context,
-      "Invalid Vulkan context!");
-
-  return context.get();
+  return context;
 }
 
 Descriptor::Set dispatch_prologue(
     Command::Buffer& command_buffer,
     const Shader::Layout::Signature& shader_layout_signature,
-    const Shader::Descriptor& shader_descriptor,
-    const Shader::WorkGroup& local_work_group_size) {
+    const Shader::Descriptor& shader_descriptor) {
   Context* const context = api::context();
   const GPU gpu = context->gpu();
   Descriptor& descriptor = context->descriptor();
@@ -190,7 +185,7 @@ Descriptor::Set dispatch_prologue(
           shader_layout.handle,
         }),
         shader.cache.retrieve(shader_descriptor),
-        local_work_group_size,
+        gpu.adapter->local_work_group_size(),
       }));
 
   return descriptor.pool.allocate(shader_layout);

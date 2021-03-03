@@ -1195,12 +1195,12 @@ TEST(NVFuserTest, FusionParser_CUDA) {
   // strides are not yet supported in the irparser.
   for (auto val : g->block()->inputs()) {
     if (val->isCompleteTensor())
-      val->setType(val->type()->castRaw<TensorType>()->contiguous());
+      val->setType(val->type()->cast<TensorType>()->contiguous());
   }
   for (auto node : g->block()->nodes()) {
     for (auto val : node->outputs()) {
       if (val->isCompleteTensor())
-        val->setType(val->type()->castRaw<TensorType>()->contiguous());
+        val->setType(val->type()->cast<TensorType>()->contiguous());
     }
   }
 
@@ -13341,8 +13341,7 @@ TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t3}, __LINE__, __FILE__);
 }
 
-// Unswitched loops with extent one may omit else clause.
-TEST(NVFuserTest, FusionSizeOneLoop1_CUDA) {
+TEST(NVFuserTest, FusionSizeOneLoop_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -13446,6 +13445,7 @@ TEST(NVFuserTest, FusionIOTensor_CUDA) {
       }
     }
   }
+
   const int x = 11;
   const int y = 12;
   const int z = 13;

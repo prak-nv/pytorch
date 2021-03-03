@@ -95,7 +95,6 @@ PyObject* THPAutograd_initExtension(PyObject* _unused, PyObject *unused) {
       .value("FPGA", c10::DeviceType::FPGA)
       .value("MSNPU", c10::DeviceType::MSNPU)
       .value("XLA", c10::DeviceType::XLA)
-      .value("MLC", c10::DeviceType::MLC)
       .value("Vulkan", c10::DeviceType::Vulkan)
       .value("Metal", c10::DeviceType::Metal);
 
@@ -160,11 +159,7 @@ PyObject* THPAutograd_initExtension(PyObject* _unused, PyObject *unused) {
         return e.deviceType();
       })
       // correlation id of a linked event
-      .def("linked_correlation_id", &KinetoEvent::linkedCorrelationId)
-      // compute flops
-      .def("flops", [](const KinetoEvent& e) {
-        return e.flops();
-      });
+      .def("linked_correlation_id", &KinetoEvent::linkedCorrelationId);
 
   py::class_<ProfilerResult>(m, "ProfilerResult")
     .def("events", &ProfilerResult::events)

@@ -15,23 +15,14 @@ Persistent* persistent() {
           },
         };
       }
-      catch (const std::exception& e) {
-        TORCH_WARN(
-            "Vulkan: Failed to initialize persistent resource pool! Error: ",
-            e.what());
-      }
       catch (...) {
-        TORCH_WARN(
-            "Vulkan: Failed to initialize persistent resource pool! "
-            "Error: Unknown");
+        return nullptr;
       }
-
-      return nullptr;
     }());
 
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
+  TORCH_CHECK(
       persistent,
-      "Vulkan: Invalid persistent pool!");
+      "Vulkan: Failed to initialize the persistent resource pool!");
 
   return persistent.get();
 }

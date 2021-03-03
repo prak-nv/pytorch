@@ -25,9 +25,7 @@ const DispatchKeySet always_included{DispatchKey::BackendSelect};
 //
 // Unlike Tensor::key_set(), the value of this on a tensor can change depending
 // on TLS.
-//
-// NB: If there is no valid dispatch key, this will return Undefined
-static inline DispatchKeySet computeDispatchKeySet(
+static inline DispatchKey dispatchTypeId(
     DispatchKeySet ks,
     // The key mask lets us eliminate (by zero entries) keys which should not
     // be considered for dispatch.  There are two cases when we use this:
@@ -49,7 +47,7 @@ static inline DispatchKeySet computeDispatchKeySet(
   // it's a bit troublesome, because fastpath TLS access requires the type of
   // the TLS in question to be zero-initialized, so you don't actually win
   // anyting in that case.
-  return (((ks | local.included_ | always_included) - local.excluded_) & key_mask);
+  return (((ks | local.included_ | always_included) - local.excluded_) & key_mask).highestPriorityTypeId();
 }
 
 }
@@ -122,7 +120,7 @@ public:
     dispatch_arg_indices_reverse_ = c10::utils::bitset();
   }
 
-  DispatchKeySet getDispatchKeySetBoxed(const torch::jit::Stack* stack) const {
+  DispatchKey getDispatchKeyBoxed(const torch::jit::Stack* stack) const {
     DispatchKeySet ks;
     dispatch_arg_indices_reverse_.for_each_set_bit([&] (size_t reverse_arg_index) {
       const auto& ivalue = torch::jit::peek(*stack, 0, reverse_arg_index + 1);
@@ -136,15 +134,13 @@ public:
         }
       }
     });
-    // Keys that are fallthrough should be skipped
-    return impl::computeDispatchKeySet(ks, nonFallthroughKeys_);
+    return dispatchKeySetToDispatchKey_(DispatchKeySet::FULL, ks);
   }
 
   template<class... Args>
-  DispatchKeySet getDispatchKeySetUnboxed(DispatchKeySet eligibleKeys, const Args&... args) const {
+  DispatchKey getDispatchKeyUnboxed(DispatchKeySet eligibleKeys, const Args&... args) const {
     auto ks = detail::multi_dispatch_key_set(args...);
-    // Keys that are fallthrough should be skipped
-    return impl::computeDispatchKeySet(ks, nonFallthroughKeys_ & eligibleKeys);
+    return dispatchKeySetToDispatchKey_(eligibleKeys, ks);
   }
 
   void setOperatorHasFallthroughForKey(DispatchKey k, bool has_fallthrough);
@@ -164,6 +160,20 @@ private:
       }
     }
     return dispatch_arg_indices_reverse;
+  }
+
+  // NB: If there is no valid dispatch key, this will return Undefined
+  DispatchKey dispatchKeySetToDispatchKey_(
+      // This is often known statically to be all ones; IN OPTIMIZER WE TRUST
+      DispatchKeySet eligibleKeys,
+      DispatchKeySet ks
+  ) const {
+    return impl::dispatchTypeId(ks,
+      // Keys that are fallthrough should be skipped
+        nonFallthroughKeys_
+      // Regardless of fallthrough behavior, only accept keys which are eligible
+      // for dispatch, as requested by the user
+      & eligibleKeys);
   }
 
   explicit DispatchKeyExtractor(c10::utils::bitset dispatch_arg_indices_reverse)

@@ -108,12 +108,7 @@ using ExportModuleMobileInfoConverter =
 TORCH_API void SetExportModuleMobileInfoConverter(
     ExportModuleMobileInfoConverter converter);
 
-/**
- * Generates new bytecode for a Script module and returns what the op list
- * would be for a LiteScriptModule based off the current code base. If you
- * have a LiteScriptModule and want to get the currently present
- * list of ops call _export_operator_list instead.
- */
+// Returns a list of names of all operators in the module and its submodules.
 TORCH_API std::vector<std::string> export_opnames(const Module& m);
 
 namespace mobile {

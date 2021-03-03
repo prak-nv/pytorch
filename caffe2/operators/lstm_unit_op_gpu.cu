@@ -138,7 +138,6 @@ void LSTMUnit<float, CUDAContext>(
       C,
       H,
       forget_bias);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 template <>
@@ -171,7 +170,6 @@ void LSTMUnit<at::Half, CUDAContext>(
       C,
       H,
       forget_bias);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 template <>
@@ -212,7 +210,6 @@ void LSTMUnitGradient<float, CUDAContext>(
       C_prev_diff,
       X_diff,
       forget_bias);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 template <>
@@ -253,7 +250,6 @@ void LSTMUnitGradient<at::Half, CUDAContext>(
       C_prev_diff,
       X_diff,
       forget_bias);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 }
 

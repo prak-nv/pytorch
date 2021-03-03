@@ -1,13 +1,12 @@
 #include "caffe2/operators/pool_op.h"
 
-#include <c10/util/accumulate.h>
-#include "caffe2/core/context_gpu.h"
-#include "caffe2/utils/math.h"
-
 #include <array>
 #include <functional>
 #include <limits>
 #include <numeric>
+
+#include "caffe2/core/context_gpu.h"
+#include "caffe2/utils/math.h"
 
 namespace caffe2 {
 
@@ -768,8 +767,6 @@ bool AveragePoolFunctor<CUDAContext>::Forward<float, StorageOrder::NCHW>(
               count_include_pad,
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 2: {
@@ -789,8 +786,6 @@ bool AveragePoolFunctor<CUDAContext>::Forward<float, StorageOrder::NCHW>(
               count_include_pad,
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 3: {
@@ -815,8 +810,6 @@ bool AveragePoolFunctor<CUDAContext>::Forward<float, StorageOrder::NCHW>(
               count_include_pad,
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     default: {
@@ -842,7 +835,8 @@ bool AveragePoolFunctor<CUDAContext>::Forward<float, StorageOrder::NHWC>(
     CUDAContext* context) const {
   // Each CUDA block handles one point, one thread per channel.
   const int ndim = X_dims.size();
-  const auto Y_HxW = c10::multiply_integers(Y_dims.cbegin(), Y_dims.cend());
+  const int Y_HxW = std::accumulate(
+      Y_dims.cbegin(), Y_dims.cend(), 1, std::multiplies<int>());
   switch (ndim) {
     case 1: {
       AveragePool1DForwardNHWCCUDAKernel<float>
@@ -856,8 +850,6 @@ bool AveragePoolFunctor<CUDAContext>::Forward<float, StorageOrder::NHWC>(
               count_include_pad,
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 2: {
@@ -877,8 +869,6 @@ bool AveragePoolFunctor<CUDAContext>::Forward<float, StorageOrder::NHWC>(
               count_include_pad,
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 3: {
@@ -903,8 +893,6 @@ bool AveragePoolFunctor<CUDAContext>::Forward<float, StorageOrder::NHWC>(
               count_include_pad,
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     default: {
@@ -931,8 +919,6 @@ bool AveragePoolFunctor<CUDAContext>::
   GlobalAveragePoolingBackwardNCHWCUDAKernel<float>
       <<<N * C * K, CAFFE_CUDA_NUM_THREADS, 0, context->cuda_stream()>>>(
           K, HxW, scale, dY, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -952,8 +938,6 @@ bool AveragePoolFunctor<CUDAContext>::
   GlobalAveragePoolingBackwardNHWCCUDAKernel<float>
       <<<N * HxW, CAFFE_CUDA_NUM_THREADS, 0, context->cuda_stream()>>>(
           C, HxW, scale, dY, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -963,11 +947,9 @@ bool AveragePoolFunctor<CUDAContext>::
     if (cond) {                                                             \
       Func<T, true>                                                         \
           <<<num_blocks, threads_per_block, 0, cuda_stream>>>(__VA_ARGS__); \
-      C10_CUDA_KERNEL_LAUNCH_CHECK();                                       \
     } else {                                                                \
       Func<T, false>                                                        \
           <<<num_blocks, threads_per_block, 0, cuda_stream>>>(__VA_ARGS__); \
-      C10_CUDA_KERNEL_LAUNCH_CHECK();                                       \
     }                                                                       \
   } while (false)
 
@@ -1082,7 +1064,8 @@ bool AveragePoolFunctor<CUDAContext>::Backward<float, StorageOrder::NHWC>(
     float* dX,
     CUDAContext* context) const {
   const int ndim = X_dims.size();
-  const auto X_HxW = c10::multiply_integers(X_dims.cbegin(), X_dims.cend());
+  const int X_HxW = std::accumulate(
+      X_dims.cbegin(), X_dims.cend(), 1, std::multiplies<int>());
   const int num_blocks = N * X_HxW;
   switch (ndim) {
     case 1: {
@@ -1818,8 +1801,6 @@ bool MaxPoolFunctor<CUDAContext>::Forward<float, StorageOrder::NCHW>(
       MaxPool1DForwardNCHWCUDAKernel<float>
           <<<num_blocks, CAFFE_CUDA_NUM_THREADS, 0, context->cuda_stream()>>>(
               X_dims[0], Y_dims[0], kernel[0], stride[0], pads[0], X, Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 2: {
@@ -1838,8 +1819,6 @@ bool MaxPoolFunctor<CUDAContext>::Forward<float, StorageOrder::NCHW>(
               pads[1],
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 3: {
@@ -1863,8 +1842,6 @@ bool MaxPoolFunctor<CUDAContext>::Forward<float, StorageOrder::NCHW>(
               pads[2],
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     default: {
@@ -1890,14 +1867,13 @@ bool MaxPoolFunctor<CUDAContext>::Forward<float, StorageOrder::NHWC>(
     CUDAContext* context) const {
   // Each CUDA block handles one point, one thread per channel.
   const int ndim = X_dims.size();
-  const auto Y_HxW = c10::multiply_integers(Y_dims.cbegin(), Y_dims.cend());
+  const int Y_HxW = std::accumulate(
+      Y_dims.cbegin(), Y_dims.cend(), 1, std::multiplies<int>());
   switch (ndim) {
     case 1: {
       MaxPool1DForwardNHWCCUDAKernel<float>
           <<<N * Y_HxW, CAFFE_CUDA_NUM_THREADS, 0, context->cuda_stream()>>>(
               C, X_dims[0], Y_dims[0], kernel[0], stride[0], pads[0], X, Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 2: {
@@ -1916,8 +1892,6 @@ bool MaxPoolFunctor<CUDAContext>::Forward<float, StorageOrder::NHWC>(
               pads[1],
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 3: {
@@ -1941,8 +1915,6 @@ bool MaxPoolFunctor<CUDAContext>::Forward<float, StorageOrder::NHWC>(
               pads[2],
               X,
               Y);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     default: {
@@ -1968,8 +1940,6 @@ bool MaxPoolFunctor<CUDAContext>::
   GlobalMaxPoolingBackwardNCHWCUDAKernel<float>
       <<<N * C * K, CAFFE_CUDA_NUM_THREADS, 0, context->cuda_stream()>>>(
           K, HxW, dY, X, Y, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -1988,8 +1958,6 @@ bool MaxPoolFunctor<CUDAContext>::
   GlobalMaxPoolingBackwardNHWCCUDAKernel<float>
       <<<N * HxW, CAFFE_CUDA_NUM_THREADS, 0, context->cuda_stream()>>>(
           C, HxW, dY, X, Y, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -2024,8 +1992,6 @@ bool MaxPoolFunctor<CUDAContext>::Backward<float, StorageOrder::NCHW>(
               X,
               Y,
               dX);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 2: {
@@ -2046,8 +2012,6 @@ bool MaxPoolFunctor<CUDAContext>::Backward<float, StorageOrder::NCHW>(
               X,
               Y,
               dX);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 3: {
@@ -2073,8 +2037,6 @@ bool MaxPoolFunctor<CUDAContext>::Backward<float, StorageOrder::NCHW>(
               X,
               Y,
               dX);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     default: {
@@ -2101,7 +2063,8 @@ bool MaxPoolFunctor<CUDAContext>::Backward<float, StorageOrder::NHWC>(
     float* dX,
     CUDAContext* context) const {
   const int ndim = X_dims.size();
-  const auto X_HxW = c10::multiply_integers(X_dims.cbegin(), X_dims.cend());
+  const int X_HxW = std::accumulate(
+      X_dims.cbegin(), X_dims.cend(), 1, std::multiplies<int>());
   switch (ndim) {
     case 1: {
       MaxPool1DBackwardNHWCCUDAKernel<float>
@@ -2116,8 +2079,6 @@ bool MaxPoolFunctor<CUDAContext>::Backward<float, StorageOrder::NHWC>(
               X,
               Y,
               dX);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 2: {
@@ -2138,8 +2099,6 @@ bool MaxPoolFunctor<CUDAContext>::Backward<float, StorageOrder::NHWC>(
               X,
               Y,
               dX);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     case 3: {
@@ -2165,8 +2124,6 @@ bool MaxPoolFunctor<CUDAContext>::Backward<float, StorageOrder::NHWC>(
               X,
               Y,
               dX);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
-
       return true;
     }
     default: {

@@ -1,9 +1,6 @@
 #include <gtest/gtest.h>
 
 #include <ATen/ATen.h>
-#include <ATen/Utils.h>
-#include <c10/util/accumulate.h>
-
 #include <algorithm>
 #include <iostream>
 #include <numeric>
@@ -56,7 +53,8 @@ void test(DeprecatedTypeProperties &T) {
     ASSERT_EQ((size_t)t.ndimension(), s->size());
     ASSERT_TRUE(t.sizes().equals(*s));
     ASSERT_EQ(t.strides().size(), s->size());
-    const auto numel = c10::multiply_integers(s->begin(), s->end());
+    auto numel =
+        std::accumulate(s->begin(), s->end(), 1, std::multiplies<int64_t>());
     ASSERT_EQ(t.numel(), numel);
     // verify we can output
     std::stringstream ss;

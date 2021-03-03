@@ -14,17 +14,17 @@ namespace at {
 namespace native {
 
 Tensor channel_shuffle(const Tensor& self, int64_t groups) {
-  TORCH_CHECK(self.dim() > 2,
-              "channel_shuffle expects input with > 2 dims, but got input with sizes ",
-              self.sizes());
+  AT_ASSERTM(self.dim() > 2,
+      "channel_shuffle expects input with > 2 dims, but got input with sizes ",
+      self.sizes());
   int64_t b = self.size(0);
   int64_t c = self.size(1);
-  TORCH_CHECK(groups > 0,
-              "Number of groups to divide channels in must be positive.",
-              " Value of groups:", groups);
-  TORCH_CHECK((c % groups) == 0,
-              "Number of channels must be divisible by groups. Got ",
-              c, " channels and ", groups, " groups.");
+  AT_ASSERTM(groups > 0,
+      "Number of groups to divide channels in must be positive.",
+      " Value of groups:", groups);
+  AT_ASSERTM((c % groups) == 0,
+             "Number of channels must be divisible by groups. Got ",
+             c, " channels and ", groups, " groups.");
 
 #if defined(C10_MOBILE) && defined(USE_XNNPACK)
   if (self.is_contiguous(MemoryFormat::ChannelsLast) &&

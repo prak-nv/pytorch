@@ -67,7 +67,6 @@ namespace caffe2 {
         sparse_values_vec,
         output_data
     );
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
 
     return true;
   }

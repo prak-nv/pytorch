@@ -334,9 +334,7 @@ static IValue addInput(
     if (state->hasValue(input)) {
       input_tensor = input_tensor.view(input_tensor.sizes());
     }
-    if (!value->hasDebugName()) {
-      value->setDebugName(name);
-    }
+    value->setDebugName(name);
     state->setValue(input_tensor, value);
     return input_tensor;
   } else if (auto tuple_type = type->cast<TupleType>()) {
@@ -442,8 +440,7 @@ std::pair<std::shared_ptr<TracingState>, Stack> trace(
     std::function<std::string(const Variable&)> var_name_lookup_fn,
     bool strict,
     bool force_outplace,
-    Module* self,
-    const std::vector<std::string>& argument_names) {
+    Module* self) {
   try {
     // Start tracing, treating 'inputs' as inputs to the trace, which can be
     // varied on subsequent invocations of the trace.  Any other variables
@@ -462,26 +459,9 @@ std::pair<std::shared_ptr<TracingState>, Stack> trace(
       gatherParametersAndBuffers(state, self_value, *self, {"__module"});
     }
 
-    // When enough argument name hints are provided, use them as debug names
-    // for traced function/modules.
-    // Here argument_names is allowed to have more names than needed because
-    // some arguments may have valid default values, therefore they don't need
-    // example inputs.
-    if (argument_names.size() >= inputs.size()) {
-      for (size_t i = 0, e = inputs.size(); i < e; ++i) {
-        IValue& input = inputs[i];
-        input = addInput(
-            state,
-            input,
-            input.type(),
-            state->graph->addInput(argument_names[i]));
-      }
-    } else {
-      for (IValue& input : inputs) {
-        input = addInput(state, input, input.type(), state->graph->addInput());
-      }
+    for (IValue& input : inputs) {
+      input = addInput(state, input, input.type(), state->graph->addInput());
     }
-
     auto graph = state->graph;
 
     getTracingState()->lookup_var_name_fn = std::move(var_name_lookup_fn);

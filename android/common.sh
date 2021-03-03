@@ -24,7 +24,20 @@ check_android_sdk() {
 }
 
 check_gradle() {
-  GRADLE_PATH=$PYTORCH_DIR/android/gradlew
+  GRADLE_PATH=gradle
+  GRADLE_NOT_FOUND_MSG="Unable to find gradle, please add it to PATH or set GRADLE_HOME"
+
+  if [ ! -x "$(command -v gradle)" ]; then
+    if [ -z "$GRADLE_HOME" ]; then
+      echo "$GRADLE_NOT_FOUND_MSG"
+      exit 1
+    fi
+    GRADLE_PATH=$GRADLE_HOME/bin/gradle
+    if [ ! -f "$GRADLE_PATH" ]; then
+      echo "$GRADLE_NOT_FOUND_MSG"
+      exit 1
+    fi
+  fi
   echo "GRADLE_PATH:$GRADLE_PATH"
 }
 

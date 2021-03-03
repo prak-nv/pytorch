@@ -102,7 +102,6 @@ class BooleanMaskOp<CUDAContext> final : public Operator<CUDAContext> {
           indicesData,
           srcData,
           destData);
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
 
       if (OutputSize() == 2) {
         Output(1)->CopyFrom(indices_, /* async */ true);
@@ -359,7 +358,6 @@ bool SequenceMaskOp<CUDAContext>::DoRunWithType() {
           sequence_lengths->data<int>(),
           fill_val,
           output->template mutable_data<T>());
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
     } else {
       sequenceMaskKernel<<<
           CAFFE_GET_BLOCKS(left * right),
@@ -373,7 +371,6 @@ bool SequenceMaskOp<CUDAContext>::DoRunWithType() {
           sequence_lengths->data<int>(),
           fill_val,
           output->template mutable_data<T>());
-      C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
   } else if (mode_ == "window") {
     windowMaskKernel<<<
@@ -389,7 +386,6 @@ bool SequenceMaskOp<CUDAContext>::DoRunWithType() {
         radius_,
         fill_val,
         output->template mutable_data<T>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (mode_ == "upper") {
     upperMaskKernel<<<
         CAFFE_GET_BLOCKS(left * right),
@@ -402,7 +398,6 @@ bool SequenceMaskOp<CUDAContext>::DoRunWithType() {
         input->data<T>(),
         fill_val,
         output->template mutable_data<T>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (mode_ == "lower") {
     lowerMaskKernel<<<
         CAFFE_GET_BLOCKS(left * right),
@@ -415,7 +410,6 @@ bool SequenceMaskOp<CUDAContext>::DoRunWithType() {
         input->data<T>(),
         fill_val,
         output->template mutable_data<T>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (mode_ == "upperdiag") {
     upperDiagMaskKernel<<<
         CAFFE_GET_BLOCKS(left * right),
@@ -428,7 +422,6 @@ bool SequenceMaskOp<CUDAContext>::DoRunWithType() {
         input->data<T>(),
         fill_val,
         output->template mutable_data<T>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (mode_ == "lowerdiag") {
     lowerDiagMaskKernel<<<
         CAFFE_GET_BLOCKS(left * right),
@@ -441,7 +434,6 @@ bool SequenceMaskOp<CUDAContext>::DoRunWithType() {
         input->data<T>(),
         fill_val,
         output->template mutable_data<T>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     CAFFE_ENFORCE(false, "Unsupported mode for SequenceMaskOp!");
   }

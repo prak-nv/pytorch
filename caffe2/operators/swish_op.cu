@@ -45,8 +45,6 @@ operator()(const int N, const T* X, T* Y, CUDAContext* context) const {
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(N, X, Y);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -71,8 +69,6 @@ bool SwishGradientOp<CUDAContext>::DoRunWithType() {
          CAFFE_CUDA_NUM_THREADS,
          0,
          context_.cuda_stream()>>>(n, x, y, dy, dx);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

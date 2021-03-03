@@ -59,16 +59,10 @@ BUILD_ROOT = os.path.join(
 #   analysis and the shims no longer justify their maintenance and code
 #   complexity costs) back testing paths will be removed.
 
-CXX_FLAGS: Optional[List[str]]
 if hasattr(torch.__config__, "_cxx_flags"):
-    try:
-        CXX_FLAGS = torch.__config__._cxx_flags().strip().split()
-        if CXX_FLAGS is not None and "-g" not in CXX_FLAGS:
-            CXX_FLAGS.append("-g")
-
-    except RuntimeError:
-        # We are in FBCode.
-        CXX_FLAGS = None
+    CXX_FLAGS = torch.__config__._cxx_flags().strip().split()
+    if "-g" not in CXX_FLAGS:
+        CXX_FLAGS.append("-g")
 else:
     # FIXME: Remove when back testing is no longer required.
     CXX_FLAGS = ["-O2", "-fPIC", "-g"]

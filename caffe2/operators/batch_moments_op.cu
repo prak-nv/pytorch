@@ -86,8 +86,6 @@ bool BatchMomentsOp<float, CUDAContext>::ComputeBatchMomentsNCHW(
          CAFFE_CUDA_NUM_THREADS,
          0,
          context_.cuda_stream()>>>(N, C, HxW, X, mu, var);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -105,8 +103,6 @@ bool BatchMomentsOp<float, CUDAContext>::ComputeBatchMomentsNHWC(
          CAFFE_CUDA_NUM_THREADS,
          0,
          context_.cuda_stream()>>>(N, C, HxW, X, mu, var);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -126,8 +122,6 @@ bool BatchMomentsGradientOp<float, CUDAContext>::
          CAFFE_CUDA_NUM_THREADS,
          0,
          context_.cuda_stream()>>>(N, C, HxW, dmu, dvar, X, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -147,8 +141,6 @@ bool BatchMomentsGradientOp<float, CUDAContext>::
          CAFFE_CUDA_NUM_THREADS,
          0,
          context_.cuda_stream()>>>(N, C, HxW, dmu, dvar, X, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

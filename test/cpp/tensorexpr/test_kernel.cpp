@@ -19,14 +19,7 @@ namespace jit {
 using namespace torch::indexing;
 using namespace torch::jit::tensorexpr;
 
-class Kernel : public ::testing::Test {
- public:
-  void SetUp() {
-    getTEMustUseLLVMOnCPU() = false;
-  }
-};
-
-TEST_F(Kernel, InliningIntermediates) {
+TEST(Kernel, InliningIntermediates) {
   // here, each mul has only one use, so it should be completely inlined
   {
     const auto graph_string = R"IR(
@@ -85,7 +78,7 @@ TEST_F(Kernel, InliningIntermediates) {
   }
 }
 
-TEST_F(Kernel, _1) {
+TEST(Kernel, _1) {
   KernelScope kernel_scope;
 
   const auto graph_string = R"IR(
@@ -124,7 +117,7 @@ TEST_F(Kernel, _1) {
   }
 }
 
-TEST_F(Kernel, _2) {
+TEST(Kernel, _2) {
   KernelScope kernel_scope;
 
   const auto graph_string = R"IR(
@@ -164,7 +157,7 @@ TEST_F(Kernel, _2) {
   }
 }
 
-TEST_F(Kernel, _3) {
+TEST(Kernel, _3) {
   KernelScope kernel_scope;
 
   const auto graph_string = R"IR(
@@ -204,7 +197,7 @@ TEST_F(Kernel, _3) {
   }
 }
 
-TEST_F(Kernel, DISABLED_Shape_Inference) {
+TEST(Kernel, DISABLED_Shape_Inference) {
   // disabled: doesn't do stride propagation, and isn't being used currently
 
   // Test TensorExpr shape inference capabilities: it should only require shapes
@@ -453,7 +446,7 @@ TEST_F(Kernel, DISABLED_Shape_Inference) {
   }
 }
 
-TEST_F(Kernel, CatInputTypesPromotion) {
+TEST(Kernel, CatInputTypesPromotion) {
   {
     // Test that we properly promote input types for aten::cat
     KernelScope kernel_scope;
@@ -533,7 +526,7 @@ at::Tensor iotaTensor(IntArrayRef sizes, const at::TensorOptions& options) {
 
 } // namespace
 
-TEST_F(Kernel, DISABLED_SumAllAxes) {
+TEST(Kernel, DISABLED_SumAllAxes) {
   // [zero-dim tensors]
   // NNC does not yet handle zero-dim tensors. aten::sum with no axis
   // input returns a zero-dim tensors, so these tests must be disabled
@@ -598,7 +591,7 @@ std::string li_to_str(at::ArrayRef<int64_t> li) {
   return out.str();
 }
 
-TEST_F(Kernel, SumOneAxis) {
+TEST(Kernel, SumOneAxis) {
   // Test lowering of sum on one axis.
   const auto graph_template = R"IR(
       graph(%0 : Float(5, 3, strides=[3, 1], device=cpu)):
@@ -661,7 +654,7 @@ TEST_F(Kernel, SumOneAxis) {
   }
 }
 
-TEST_F(Kernel, SumMultipleAxes) {
+TEST(Kernel, SumMultipleAxes) {
   // Test lowering of sum on multiple axes.
   const auto graph_template = R"IR(
       graph(%0 : Float(2, 3, 2, 3, strides=[18, 6, 3, 1], device=cpu)):
@@ -727,7 +720,7 @@ TEST_F(Kernel, SumMultipleAxes) {
 // This test and the following ones testing Softmax only tests with dim set
 // to one of the valid input dimensions. It does not test with dim=None
 // because that is supposed to be deprecated.
-TEST_F(Kernel, Softmax2D) {
+TEST(Kernel, Softmax2D) {
   const auto graph_template = R"IR(
       graph(%0 : Float(5, 3, strides=[3, 1], device=cpu)):
         %1 : int = prim::Constant[value=${dim}]()
@@ -794,7 +787,7 @@ TEST_F(Kernel, Softmax2D) {
   }
 }
 
-TEST_F(Kernel, Softmax3D) {
+TEST(Kernel, Softmax3D) {
   const auto graph_template = R"IR(
       graph(%0 : Float(3, 4, 5, strides=[20, 5, 1], device=cpu)):
         %1 : int = prim::Constant[value=${dim}]()
@@ -873,7 +866,7 @@ TEST_F(Kernel, Softmax3D) {
   }
 }
 
-TEST_F(Kernel, Softmax4D) {
+TEST(Kernel, Softmax4D) {
   const auto graph_template = R"IR(
       graph(%0 : Float(2, 3, 2, 3, strides=[18, 6, 3, 1], device=cpu)):
         %1 : int = prim::Constant[value=${dim}]()
@@ -956,7 +949,7 @@ TEST_F(Kernel, Softmax4D) {
   }
 }
 
-TEST_F(Kernel, DISABLED_InlineProducerIntoReduction) {
+TEST(Kernel, DISABLED_InlineProducerIntoReduction) {
   // see : [zero-dim tensors]
   KernelScope kernel_scope;
 
@@ -996,7 +989,7 @@ TEST_F(Kernel, DISABLED_InlineProducerIntoReduction) {
   ASSERT_TRUE(at::allclose(o, ref));
 }
 
-TEST_F(Kernel, DISABLED_InlineReductionIntoConsumer) {
+TEST(Kernel, DISABLED_InlineReductionIntoConsumer) {
   // see : [zero-dim tensors]
 
   KernelScope kernel_scope;

@@ -4,7 +4,6 @@
 
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/VulkanOpaqueTensorImpl.h>
-#include <c10/util/accumulate.h>
 
 namespace at {
 namespace native {
@@ -508,7 +507,7 @@ inline IntArrayRef vTensor::sizes() const {
 
 inline size_t vTensor::nbytes() const {
   return c10::elementSize(c10::typeMetaToScalarType(options().dtype())) *
-         c10::multiply_integers(sizes());
+         prod_intlist(sizes());
 }
 
 inline IntArrayRef vTensor::strides() const {

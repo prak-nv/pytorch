@@ -2,10 +2,9 @@
 
 #include <ATen/ATen.h>
 #include <ATen/Dispatch.h>
-#include <ATen/native/Fill.h>
 #include <ATen/native/TensorIterator.h>
+#include <ATen/native/Fill.h>
 #include <ATen/Utils.h>
-#include <c10/util/accumulate.h>
 
 namespace at {
 namespace native {
@@ -105,7 +104,7 @@ Tensor& zero_cpu_(Tensor &self, int64_t nelements) {
 }
 
 Tensor& zero_(Tensor &self) {
-  int64_t nelements = c10::multiply_integers(self.sizes());
+  int64_t nelements = at::prod_intlist(self.sizes());
   if (self.device() == at::kCPU &&
       self.is_non_overlapping_and_dense() &&
       nelements < internal::GRAIN_SIZE) {

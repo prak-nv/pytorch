@@ -193,8 +193,6 @@ def memory_stats(device: Union[Device, int] = None) -> Dict[str, Any]:
 
 def memory_stats_as_nested_dict(device: Union[Device, int] = None) -> Dict[str, Any]:
     r"""Returns the result of :func:`~torch.cuda.memory_stats` as a nested dictionary."""
-    if not is_initialized():
-        return {}
     device = _get_device_index(device, optional=True)
     return torch._C._cuda_memoryStats(device)
 
@@ -305,7 +303,7 @@ def memory_allocated(device: Union[Device, int] = None) -> int:
         needs to be created on GPU. See :ref:`cuda-memory-management` for more
         details about GPU memory management.
     """
-    return memory_stats(device=device).get("allocated_bytes.all.current", 0)
+    return memory_stats(device=device)["allocated_bytes.all.current"]
 
 
 def max_memory_allocated(device: Union[Device, int] = None) -> int:
@@ -327,7 +325,7 @@ def max_memory_allocated(device: Union[Device, int] = None) -> int:
         See :ref:`cuda-memory-management` for more details about GPU memory
         management.
     """
-    return memory_stats(device=device).get("allocated_bytes.all.peak", 0)
+    return memory_stats(device=device)["allocated_bytes.all.peak"]
 
 
 def memory_reserved(device: Union[Device, int] = None) -> int:
@@ -343,7 +341,7 @@ def memory_reserved(device: Union[Device, int] = None) -> int:
         See :ref:`cuda-memory-management` for more details about GPU memory
         management.
     """
-    return memory_stats(device=device).get("reserved_bytes.all.current", 0)
+    return memory_stats(device=device)["reserved_bytes.all.current"]
 
 
 def max_memory_reserved(device: Union[Device, int] = None) -> int:
@@ -365,7 +363,7 @@ def max_memory_reserved(device: Union[Device, int] = None) -> int:
         See :ref:`cuda-memory-management` for more details about GPU memory
         management.
     """
-    return memory_stats(device=device).get("reserved_bytes.all.peak", 0)
+    return memory_stats(device=device)["reserved_bytes.all.peak"]
 
 
 def memory_cached(device: Union[Device, int] = None) -> int:

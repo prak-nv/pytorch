@@ -1,5 +1,5 @@
 import torch
-from . import _functional as F
+from . import functional as F
 from .optimizer import Optimizer
 
 
@@ -116,5 +116,6 @@ class Adam(Optimizer):
                    beta2,
                    group['lr'],
                    group['weight_decay'],
-                   group['eps'])
+                   group['eps']
+                   )
         return loss

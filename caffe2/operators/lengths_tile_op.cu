@@ -73,7 +73,6 @@ bool LengthsTileOp<CUDAContext>::RunOnDevice() {
         data.data<float>(),
         output->mutable_data<float>(),
         rowMappingDevice_.data<int32_t>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (data.template IsType<int>()) {
     lengthsTileKernel<<<
         numBlocks,
@@ -85,7 +84,6 @@ bool LengthsTileOp<CUDAContext>::RunOnDevice() {
         data.data<int>(),
         output->mutable_data<int>(),
         rowMappingDevice_.data<int32_t>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else if (data.template IsType<int64_t>()) {
     lengthsTileKernel<<<
         numBlocks,
@@ -97,7 +95,6 @@ bool LengthsTileOp<CUDAContext>::RunOnDevice() {
         data.data<int64_t>(),
         output->mutable_data<int64_t>(),
         rowMappingDevice_.data<int32_t>());
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     CAFFE_THROW(
         "LengthsTile operator only supports 32-bit float, int and int64_t"

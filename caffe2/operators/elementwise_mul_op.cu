@@ -139,7 +139,6 @@ void ComputeMulGradientCUDAImpl(
             dY,
             W,
             dX);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     int threads = std::min(inner_size, CAFFE_CUDA_NUM_THREADS);
     ComputeMulGradientCUDAKernel<TGrad, TIn, D>
@@ -156,7 +155,6 @@ void ComputeMulGradientCUDAImpl(
             dY,
             W,
             dX);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 }
 

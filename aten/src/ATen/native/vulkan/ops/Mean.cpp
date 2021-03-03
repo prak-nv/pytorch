@@ -59,13 +59,16 @@ Tensor mean(
       const struct Block final {
         uvec3 extents;
         int32_t range;
-        uvec3 iextents;
+        ivec2 iextents;
       } block {
         v_output.extents(),
         safe_downcast<int32_t>(
             v_input_sizes[Layout::Activation4D::width] *
             v_input_sizes[Layout::Activation4D::height]),
-        v_input.extents()
+        {
+          safe_downcast<int32_t>(v_input_sizes[Layout::Activation4D::width]),
+          safe_downcast<int32_t>(v_input_sizes[Layout::Activation4D::height]),
+        },
       };
 
       context->dispatch(
@@ -76,8 +79,7 @@ Tensor mean(
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
           },
           keepdim ? VK_KERNEL(mean) : VK_KERNEL(mean2d),
-          v_input.extents(),
-          context->gpu().adapter->local_work_group_size(),
+          v_output.extents(),
           // Write-only access bypasses synchronization but inserts appropriate
           // barriers if necessary.
           v_output.image(

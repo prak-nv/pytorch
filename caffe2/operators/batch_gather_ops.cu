@@ -119,8 +119,7 @@ bool BatchGatherGradientOp<CUDAContext>::DoRunWithType2() {
       gathered_batch_size,
       block_size,
       src_indexing_axis_dim,
-      false);
-  C10_CUDA_KERNEL_LAUNCH_CHECK(); // TBD: Add proper index wrapping support to Gather gradients.
+      false); // TBD: Add proper index wrapping support to Gather gradients.
 
   return true;
 }

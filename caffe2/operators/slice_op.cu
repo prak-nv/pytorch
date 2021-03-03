@@ -180,7 +180,6 @@ bool SliceImplGpu(
         dst_block_size_bytes,
         itemsize,
         num_blocks);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   } else {
     char* src_bytes = (char*)go->raw_data();
     char* dst_bytes = (char*)gdata->raw_mutable_data(go->meta());
@@ -226,7 +225,6 @@ bool SliceImplGpu(
         src_block_size_bytes,
         itemsize,
         num_blocks);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 
   return true;

@@ -111,60 +111,40 @@ int main(int argc, char* argv[]) {
     // Let's construct a simple load:
     BufHandle A("A", {ExprHandle(64), ExprHandle(32)}, kInt);
     ExprHandle i = Var::make("i", kInt), j = Var::make("j", kInt);
-    ExprHandle load = Load::make(A.dtype(), A, {i, j});
+    ExprHandle load = Load::make(A.dtype(), A, {i, j}, /* mask= */ 1);
     std::cout << "Tensor expression: " << *load.node() << std::endl;
     // Prints: Tensor expression: A[i, j]
   }
 
   std::cout << "*** Tensors, Functions, and Placeholders ***" << std::endl;
   {
-    // A tensor computation is represented by Tensor class objects and
+    // A tensor computation is represented by objects of Tensor class and
     // consists of the following pieces:
     //   - domain, which is specified by a Buf expression
-    //   - a tensor statement, specified by a Stmt object, that computation to
-    //   be performed in this domain
-
-    // Let's start with defining a domain. We do this by creating a Buf object.
-
-    // First, let's specify the sizes:
+    //   - an expression (or several expressions if we want to perform several
+    //   independent computations over the same domain) for its elements, as a
+    //   function of indices
+    //
+    // TODO: Update this section once Tensor/Function cleanup is done
     std::vector<const Expr*> dims = {
         new IntImm(64), new IntImm(32)}; // IntImm stands for Integer Immediate
                                          // and represents an integer constant
 
-    // Now we can create a Buf object by providing a name, dimensions, and a
-    // data type of the elements:
-    const Buf* buf = new Buf("X", dims, kInt);
-
-    // Next we need to spefify the computation. We can do that by either
-    // constructing a complete tensor statement for it (statements are
-    // examined in details in subsequent section), or by using a convenience
-    // method where we could specify axis and an element expression for the
-    // computation. In the latter case a corresponding statement would be
-    // constructed automatically.
-
-    // Let's define two variables, i and j - they will be axis in our
-    // computation.
+    // Next we need to create arguments. The arguments are Vars, and they play
+    // role of placeholders. The computation that the tensor would describe
+    // would use these arguments.
     const Var* i = new Var("i", kInt);
     const Var* j = new Var("j", kInt);
     std::vector<const Var*> args = {i, j};
 
     // Now we can define the body of the tensor computation using these
-    // variables. What this means is that values in our tensor are:
-    //   X[i, j] = i * j
+    // arguments.
     Expr* body = new Mul(i, j);
 
     // Finally, we pass all these pieces together to Tensor constructor:
-    Tensor* X = new Tensor(buf, args, body);
+    Tensor* X = new Tensor("X", dims, args, body);
     std::cout << "Tensor computation: " << *X << std::endl;
-    // Prints:
-    // Tensor computation: Tensor X[64, 32]:
-    // for (int i = 0; i < 64; i++) {
-    //   for (int j = 0; j < 32; j++) {
-    //     X[i, j] = i * j;
-    //   }
-    // }
-
-    // TODO: Add an example of constructing a Tensor with a complete Stmt.
+    // Prints: Tensor computation: Tensor X(i[64], j[32]) = i * j
 
     // Similarly to how we provide a more convenient way of using handles for
     // constructing Exprs, Tensors also have a more convenient API for
@@ -175,17 +155,11 @@ int main(int argc, char* argv[]) {
         {{64, "i"}, {32, "j"}},
         [](const VarHandle& i, const VarHandle& j) { return i / j; });
     std::cout << "Tensor computation: " << *Z << std::endl;
-    // Prints:
-    // Tensor computation: Tensor Z[64, 32]:
-    // for (int i = 0; i < 64; i++) {
-    //   for (int j = 0; j < 32; j++) {
-    //     Z[i, j] = i / j;
-    //   }
-    // }
+    // Prints: Tensor computation: Tensor Z(i[64], j[32]) = i / j
 
     // Tensors might access other tensors and external placeholders in their
     // expressions. It can be done like so:
-    Placeholder P("P", kInt, {64, 32});
+    Placeholder P("P", kFloat, {64, 32});
     Tensor* R = Compute(
         "R",
         {{64, "i"}, {32, "j"}},
@@ -193,13 +167,7 @@ int main(int argc, char* argv[]) {
           return Z->call(i, j) * P.load(i, j);
         });
     std::cout << "Tensor computation: " << *R << std::endl;
-    // Prints:
-    // Tensor computation: Tensor R[64, 32]:
-    // for (int i = 0; i < 64; i++) {
-    //   for (int j = 0; j < 32; j++) {
-    //     R[i, j] = (Z(i, j)) * (P[i, j]);
-    //   }
-    // }
+    // Prints: Tensor computation: Tensor R(i[64], j[32]) = Z(i, j) * P[i, j]
 
     // Placeholders could be thought of as external tensors, i.e. tensors for
     // which we don't have the element expression. In other words, for `Tensor`
@@ -243,19 +211,8 @@ int main(int argc, char* argv[]) {
     std::cout << "Tensor computation X: " << *X
               << "Tensor computation Y: " << *Y << std::endl;
     // Prints:
-    // Tensor computation X: Tensor X[64, 32]:
-    // for (int i = 0; i < 64; i++) {
-    //   for (int j = 0; j < 32; j++) {
-    //     X[i, j] = (A[i, j]) + (B[i, j]);
-    //   }
-    // }
-
-    // Tensor computation Y: Tensor Y[64, 32]:
-    // for (int i = 0; i < 64; i++) {
-    //   for (int j = 0; j < 32; j++) {
-    //     Y[i, j] = sigmoid(X(i, j));
-    //   }
-    // }
+    // Tensor computation X: Tensor X(i[64], j[32]) = (A[i, j]) + (B[i, j])
+    // Tensor computation Y: Tensor Y(i[64], j[32]) = sigmoid(X(i, j))
 
     // Creating a loop nest is as quite simple, we just need to specify what are
     // the output tensors in our computation and LoopNest object will

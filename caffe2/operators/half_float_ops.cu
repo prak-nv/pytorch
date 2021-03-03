@@ -32,8 +32,6 @@ bool FloatToHalfOp<CUDAContext>::RunOnDevice() {
       X.numel(),
       X.data<float>(),
       reinterpret_cast<half*>(Y->template mutable_data<at::Half>()));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -50,8 +48,6 @@ bool HalfToFloatOp<CUDAContext>::RunOnDevice() {
       X.numel(),
       reinterpret_cast<const half*>(X.data<at::Half>()),
       Y->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -81,7 +77,6 @@ bool Float16UniformFillOp<CUDAContext>::RunOnDevice() {
       rowsz,
       temp_data,
       reinterpret_cast<half*>(out + i * rowsz));
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
 
   return true;

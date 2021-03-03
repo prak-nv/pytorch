@@ -48,11 +48,9 @@ class TORCH_API PytorchLLVMJIT {
   PytorchLLVMJIT();
   ~PytorchLLVMJIT();
 
-  void addModule(std::unique_ptr<Module> M, std::unique_ptr<LLVMContext> C);
+  Error addModule(std::unique_ptr<Module> M, std::unique_ptr<LLVMContext> C);
 
   JITSymbol findSymbol(const std::string Name);
-
-  bool hasSymbol(const std::string& Name);
 
   TargetMachine& getTargetMachine();
 

@@ -39,8 +39,6 @@ operator()(const int N, const T* X, T* Y, CUDAContext* context) const {
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(N, X, eps_, Y);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -61,8 +59,6 @@ bool LogitGradientOp<float, CUDAContext>::RunOnDevice() {
       dY.data<float>(),
       eps_,
       dX->template mutable_data<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

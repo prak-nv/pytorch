@@ -1,5 +1,6 @@
 #pragma once
 
+#include <torch/csrc/utils/future.h>
 #include <torch/types.h>
 #include <vector>
 

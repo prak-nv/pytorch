@@ -239,8 +239,6 @@ bool PoolOp<float, CUDAContext, LpPoolFunctor>::RunOnDeviceWithOrderNCHW() {
           pad_l(),
           Y->template mutable_data<float>(),
           OperatorBase::GetSingleArgument<float>("p", 2.0));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -271,8 +269,6 @@ bool PoolOp<float, CUDAContext, LpPoolFunctor>::RunOnDeviceWithOrderNHWC() {
           pad_l(),
           Y->template mutable_data<float>(),
           OperatorBase::GetSingleArgument<float>("p", 2.0));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -309,8 +305,6 @@ bool PoolGradientOp<float, CUDAContext, LpPoolFunctor>::
           pad_l(),
           dX->template mutable_data<float>(),
           OperatorBase::GetSingleArgument<float>("p", 2.0));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -347,8 +341,6 @@ bool PoolGradientOp<float, CUDAContext, LpPoolFunctor>::
           pad_l(),
           dX->template mutable_data<float>(),
           OperatorBase::GetSingleArgument<float>("p", 2.0));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

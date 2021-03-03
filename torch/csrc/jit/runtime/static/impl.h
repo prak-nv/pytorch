@@ -71,6 +71,12 @@ struct TORCH_API InferenceModule {
   std::shared_ptr<torch::jit::Graph> graph;
   std::unique_ptr<c10::FunctionSchema> schema;
 
+  std::unordered_map<Value*, size_t> value_to_reg;
+  std::vector<Value*> values; // useful for debugging
+  std::vector<size_t> input_regs; // inputs to the graph
+  std::vector<size_t> output_regs; // outputs of the graph
+  std::vector<size_t> internals;
+  size_t reused_regs = 0;
   InferenceModuleOptions opts;
 
  private:
@@ -127,11 +133,8 @@ class TORCH_API StaticRuntime {
       const int main_runs);
 
   struct IndividualMetrics {
-    float setup_time{0.0};
-    float memory_alloc_time{0.0};
-    float memory_dealloc_time{0.0};
-    float output_dealloc_time{0.0};
-    float total_time{0.0};
+    float setup_time;
+    float total_time;
     std::vector<float> time_per_node;
     std::unordered_map<std::string, float> time_per_node_type;
     std::unordered_map<std::string, float> percent_per_node_type;
@@ -156,25 +159,22 @@ class TORCH_API StaticRuntime {
     return nodes_;
   }
 
-  size_t num_inputs() const {
-    return inputs_.size();
+  const std::vector<IValue>& get_registers() {
+    return reg_;
   }
 
-  size_t num_outputs() const {
-    return outputs_.size();
-  }
+  size_t num_outputs() const;
 
   inline const std::vector<IValue*>& outputs() const {
     return outputs_;
   }
-
-  void check_for_memory_leak(bool output_returned = true);
 
  private:
   // Static runtime states
   std::shared_ptr<InferenceModule> module_;
   StaticRuntimeOptions opts_;
   // IValue table (including inputs, outputs, intermediates, and weights)
+  std::vector<IValue> reg_;
   std::vector<IValue> constants_;
   std::vector<IValue> inputs_;
   std::vector<IValue*> outputs_;

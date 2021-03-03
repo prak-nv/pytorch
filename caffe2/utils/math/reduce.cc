@@ -1,5 +1,11 @@
 #include "caffe2/utils/math/reduce.h"
 
+#include <algorithm>
+#include <cstring>
+#include <functional>
+#include <numeric>
+#include <vector>
+
 #ifdef CAFFE2_USE_ACCELERATE
 #include <Accelerate/Accelerate.h>
 #endif // CAFFE2_USE_ACCELERATE
@@ -8,18 +14,11 @@
 #include <mkl.h>
 #endif // CAFFE2_USE_MKL
 
-#include <c10/util/accumulate.h>
 #include "caffe2/core/context.h"
 #include "caffe2/utils/eigen_utils.h"
 #include "caffe2/utils/math.h"
 #include "caffe2/utils/math/elementwise.h"
 #include "caffe2/utils/math/utils.h"
-
-#include <algorithm>
-#include <cstring>
-#include <functional>
-#include <numeric>
-#include <vector>
 
 namespace caffe2 {
 namespace math {
@@ -266,8 +265,10 @@ void ReduceTensorImpl(
     const T* X,
     T* Y,
     CPUContext* context) {
-  const auto X_size = c10::multiply_integers(X_dims, X_dims + ndim);
-  const auto Y_size = c10::multiply_integers(Y_dims, Y_dims + ndim);
+  const int X_size =
+      std::accumulate(X_dims, X_dims + ndim, 1, std::multiplies<int>());
+  const int Y_size =
+      std::accumulate(Y_dims, Y_dims + ndim, 1, std::multiplies<int>());
   Set<T, CPUContext>(Y_size, init, Y, context);
   std::vector<int> index(ndim, 0);
   for (int X_index = 0; X_index < X_size; ++X_index) {
@@ -295,7 +296,8 @@ void ReduceMinImpl(
       X,
       Y,
       context);
-  const auto Y_size = c10::multiply_integers(Y_dims, Y_dims + ndim);
+  const int Y_size =
+      std::accumulate(Y_dims, Y_dims + ndim, 1, std::multiplies<int>());
   Scale<T, T, CPUContext>(Y_size, alpha, Y, Y, context);
 }
 
@@ -317,7 +319,8 @@ void ReduceMaxImpl(
       X,
       Y,
       context);
-  const auto Y_size = c10::multiply_integers(Y_dims, Y_dims + ndim);
+  const int Y_size =
+      std::accumulate(Y_dims, Y_dims + ndim, 1, std::multiplies<int>());
   Scale<T, T, CPUContext>(Y_size, alpha, Y, Y, context);
 }
 
@@ -331,7 +334,8 @@ void ReduceSumImpl(
     T* Y,
     CPUContext* context) {
   ReduceTensorImpl(ndim, X_dims, Y_dims, std::plus<T>(), T(0), X, Y, context);
-  const auto Y_size = c10::multiply_integers(Y_dims, Y_dims + ndim);
+  const int Y_size =
+      std::accumulate(Y_dims, Y_dims + ndim, 1, std::multiplies<int>());
   Scale<T, T, CPUContext>(Y_size, alpha, Y, Y, context);
 }
 
@@ -345,8 +349,10 @@ void ReduceMeanImpl(
     T* Y,
     CPUContext* context) {
   ReduceTensorImpl(ndim, X_dims, Y_dims, std::plus<T>(), T(0), X, Y, context);
-  const auto X_size = c10::multiply_integers(X_dims, X_dims + ndim);
-  const auto Y_size = c10::multiply_integers(Y_dims, Y_dims + ndim);
+  const int X_size =
+      std::accumulate(X_dims, X_dims + ndim, 1, std::multiplies<int>());
+  const int Y_size =
+      std::accumulate(Y_dims, Y_dims + ndim, 1, std::multiplies<int>());
   Scale<T, T, CPUContext>(
       Y_size,
       alpha * static_cast<T>(Y_size) / static_cast<T>(X_size),
@@ -373,7 +379,8 @@ void ReduceL1Impl(
       X,
       Y,
       context);
-  const auto Y_size = c10::multiply_integers(Y_dims, Y_dims + ndim);
+  const int Y_size =
+      std::accumulate(Y_dims, Y_dims + ndim, 1, std::multiplies<int>());
   Scale<T, T, CPUContext>(Y_size, alpha, Y, Y, context);
 }
 
@@ -395,7 +402,8 @@ void ReduceL2Impl(
       X,
       Y,
       context);
-  const auto Y_size = c10::multiply_integers(Y_dims, Y_dims + ndim);
+  const int Y_size =
+      std::accumulate(Y_dims, Y_dims + ndim, 1, std::multiplies<int>());
   EigenVectorArrayMap<T> Y_arr(Y, Y_size);
   Y_arr = Y_arr.sqrt() * alpha;
 }
@@ -471,8 +479,10 @@ void MomentsImpl(
     T* mean,
     T* var,
     CPUContext* /* context */) {
-  const auto X_size = c10::multiply_integers(X_dims, X_dims + ndim);
-  const auto Y_size = c10::multiply_integers(Y_dims, Y_dims + ndim);
+  const int X_size =
+      std::accumulate(X_dims, X_dims + ndim, 1, std::multiplies<int>());
+  const int Y_size =
+      std::accumulate(Y_dims, Y_dims + ndim, 1, std::multiplies<int>());
   if (X_size == 0) {
     std::memset(mean, 0, sizeof(T) * Y_size);
     std::memset(var, 0, sizeof(T) * Y_size);

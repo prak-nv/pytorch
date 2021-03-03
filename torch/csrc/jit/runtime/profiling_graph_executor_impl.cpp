@@ -33,13 +33,11 @@
 #include <torch/csrc/jit/passes/update_differentiable_graph_requires_grad.h>
 #include <torch/csrc/jit/passes/utils/subgraph_utils.h>
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 C10_DEFINE_bool(
     torch_jit_enable_new_executor,
     true,
     "If this flag is set to false TorchScript will be using the legacy/original executor");
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 C10_DEFINE_bool(
     torch_jit_disable_warning_prints,
     false,
@@ -48,12 +46,10 @@ C10_DEFINE_bool(
 constexpr size_t kDefaultNumProfiledRuns = 1;
 constexpr size_t kDefaultBailoutDepth = 20;
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 C10_DEFINE_int64(
     torch_jit_num_profiled_runs,
     kDefaultNumProfiledRuns,
     "Number of profiling runs");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 C10_DEFINE_int64(
     torch_jit_bailout_depth,
     kDefaultBailoutDepth,
@@ -63,20 +59,14 @@ namespace torch {
 namespace jit {
 
 #if defined(C10_MOBILE)
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static std::atomic<bool> executor_mode{true};
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static std::atomic<bool> profiling_mode{false};
 #else
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static std::atomic<bool> executor_mode{true};
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static std::atomic<bool> profiling_mode{true};
 #endif
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static std::atomic<size_t> num_profiled_runs{kDefaultNumProfiledRuns};
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static std::atomic<size_t> bailout_depth{kDefaultBailoutDepth};
 
 std::atomic<bool>& getProfilingMode() {
@@ -462,14 +452,13 @@ void ProfilingGraphExecutorImpl::runProfilingOptimizations(
       GRAPH_DEBUG("After guardDifferentiableGraph:\n", *copy);
       auto diff_graph = std::move(dnode->g(attr::Subgraph));
       Gradient gradient = differentiate(diff_graph);
-      RemoveTensorTypeSpecializations(gradient.f);
-      RemoveProfilingNodes(gradient.f);
       GRAPH_DEBUG("Forward graph:\n", *(gradient.f));
       GRAPH_DEBUG("Backward graph:\n", *(gradient.df));
       // just like inside autograd.Functions, the forward of a differentiable
       // graph is essentially in a torch.no_grad context.
       UpdateDifferentiableGraphRequiresGrad(gradient.f, false);
       GRAPH_DEBUG("After UpdateDifferentiableGraphRequiresGrad ", *gradient.f);
+      runDiffGraphPasses(gradient.f);
       // replaces fallback graphs inserted by TE Fuser
       replaceFallbackGraphWithFallbackFunction(gradient.f->block());
       packGradient(gradient, dnode);

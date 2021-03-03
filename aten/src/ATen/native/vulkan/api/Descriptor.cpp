@@ -342,14 +342,13 @@ Descriptor::Pool::~Pool() {
     }
   }
   catch (const std::exception& e) {
-    TORCH_WARN(
-        "Vulkan: Descriptor pool destructor raised an exception! Error: ",
-        e.what());
+    LOG(WARNING)
+        << "Vulkan: Descriptor pool destructor raised an exception!  Error: "
+        << e.what();
   }
   catch (...) {
-    TORCH_WARN(
-        "Vulkan: Descriptor pool destructor raised an exception! "
-        "Error: Unknown");
+    LOG(WARNING)
+        << "Vulkan: Descriptor pool destructor raised an unknown exception!";
   }
 }
 

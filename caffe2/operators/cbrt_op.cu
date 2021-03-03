@@ -39,8 +39,6 @@ bool CbrtGradientFunctor<CUDAContext>::Forward(
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(size, dY, Y, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

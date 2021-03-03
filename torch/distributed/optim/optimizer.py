@@ -1,5 +1,4 @@
 from typing import List, Optional
-import logging
 
 import torch.distributed.rpc as rpc
 import torch.optim as optim
@@ -19,7 +18,6 @@ import torch.distributed.autograd as dist_autograd
 from collections import defaultdict
 from threading import Lock
 
-logger = logging.getLogger(__name__)
 
 # XXX: we define a _ScriptModuleOptimizer here to explicitly
 # compile the FunctionalOptimizer class into TorchScript
@@ -150,13 +148,6 @@ class DistributedOptimizer:
     to the latest forward pass executed on a given worker. Also, there is no
     guaranteed ordering across workers.
 
-    `DistributedOptimizer` creates the local optimizer with TorchScript enabled
-    by default, so that optimizer updates are not blocked by the Python Global
-    Interpreter Lock (GIL) during multithreaded training (e.g. Distributed Model
-    Parallel). This feature is currently in beta stage, enabled for optimizers
-    including `Adagrad`, `Adam`, `SGD`, `RMSprop`, `AdamW` and `Adadelta`. We
-    are increasing the coverage to all optimizers in future releases.
-
     Args:
         optimizer_class (optim.Optimizer): the class of optimizer to
             instantiate on each worker.
@@ -216,13 +207,6 @@ class DistributedOptimizer:
         if self.is_functional_optim:
             optimizer_new_func = _new_script_local_optimizer
         else:
-            logger.warn(
-                f"Creating the optimizer {optimizer_class} without TorchScript support, "
-                "this might result in slow computation time in multithreading environment"
-                "(i.e. Distributed Model Parallel training on CPU) due to the Python's "
-                "Global Interpreter Lock (GIL). Please file an issue if you need this "
-                "optimizer in TorchScript. "
-            )
             optimizer_new_func = _new_local_optimizer
 
         remote_optim_futs = []

@@ -1158,13 +1158,6 @@ floor_divide_(value) -> Tensor
 In-place version of :meth:`~Tensor.floor_divide`
 """)
 
-add_docstr_all('diff',
-               r"""
-diff(n=1, dim=-1, prepend=None, append=None) -> Tensor
-
-See :func:`torch.diff`
-""")
-
 add_docstr_all('digamma',
                r"""
 digamma() -> Tensor
@@ -1194,25 +1187,25 @@ See :func:`torch.dist`
 """)
 
 add_docstr_all('div', r"""
-div(value, *, rounding_mode=None) -> Tensor
+div(value) -> Tensor
 
 See :func:`torch.div`
 """)
 
 add_docstr_all('div_', r"""
-div_(value, *, rounding_mode=None) -> Tensor
+div_(value) -> Tensor
 
 In-place version of :meth:`~Tensor.div`
 """)
 
 add_docstr_all('divide', r"""
-divide(value, *, rounding_mode=None) -> Tensor
+divide(value) -> Tensor
 
 See :func:`torch.divide`
 """)
 
 add_docstr_all('divide_', r"""
-divide_(value, *, rounding_mode=None) -> Tensor
+divide_(value) -> Tensor
 
 In-place version of :meth:`~Tensor.divide`
 """)
@@ -1759,15 +1752,15 @@ Example::
 
 add_docstr_all('index_fill_',
                r"""
-index_fill_(dim, index, value) -> Tensor
+index_fill_(dim, index, val) -> Tensor
 
-Fills the elements of the :attr:`self` tensor with value :attr:`value` by
+Fills the elements of the :attr:`self` tensor with value :attr:`val` by
 selecting the indices in the order given in :attr:`index`.
 
 Args:
     dim (int): dimension along which to index
     index (LongTensor): indices of :attr:`self` tensor to fill in
-    value (float): the value to fill with
+    val (float): the value to fill with
 
 Example::
     >>> x = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=torch.float)

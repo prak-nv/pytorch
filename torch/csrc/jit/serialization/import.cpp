@@ -45,8 +45,7 @@ void postSetStateValidate(const IValue& v) {
     // const auto attrType = objType->getAttribute(i);
     // Verify that all the non-optional attributes have been initialized
     // TODO: Issue #20497
-    if (attrType->kind() != TypeKind::OptionalType &&
-        attrType->kind() != TypeKind::NoneType) {
+    if (attrType->kind() != TypeKind::OptionalType) {
       TORCH_CHECK(
           !slot.isNone(),
           fmt::format(

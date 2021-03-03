@@ -22,8 +22,6 @@ _(aten, __xor__) \
 _(aten, _abs) \
 _(aten, _addmv) \
 _(aten, _addr) \
-_(aten, _amp_foreach_non_finite_check_and_unscale_) \
-_(aten, _amp_update_scale) \
 _(aten, _arange) \
 _(aten, _argmax) \
 _(aten, _argmin) \
@@ -292,7 +290,6 @@ _(aten, diag_embed) \
 _(aten, diagflat) \
 _(aten, diagonal) \
 _(aten, fill_diagonal_) \
-_(aten, diff) \
 _(aten, digamma) \
 _(aten, dim) \
 _(aten, dist) \
@@ -399,7 +396,6 @@ _(aten, is_coalesced) \
 _(aten, is_complex) \
 _(aten, is_contiguous) \
 _(aten, is_cuda) \
-_(aten, is_mlc) \
 _(aten, is_distributed) \
 _(aten, is_floating_point) \
 _(aten, is_nonzero) \

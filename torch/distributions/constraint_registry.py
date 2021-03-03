@@ -160,16 +160,12 @@ def _transform_to_real(constraint):
 
 @biject_to.register(constraints.independent)
 def _biject_to_independent(constraint):
-    base_transform = biject_to(constraint.base_constraint)
-    return transforms.IndependentTransform(
-        base_transform, constraint.reinterpreted_batch_ndims)
+    return biject_to(constraint.base_constraint)
 
 
 @transform_to.register(constraints.independent)
 def _transform_to_independent(constraint):
-    base_transform = transform_to(constraint.base_constraint)
-    return transforms.IndependentTransform(
-        base_transform, constraint.reinterpreted_batch_ndims)
+    return transform_to(constraint.base_constraint)
 
 
 @biject_to.register(constraints.positive)

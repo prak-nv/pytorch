@@ -53,8 +53,6 @@ operator()(const int N, const T* X, T* Y, CUDAContext* context) const {
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(N, alpha, X, Y);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 
@@ -74,8 +72,6 @@ bool EluGradientFunctor<CUDAContext>::Forward(
          CAFFE_CUDA_NUM_THREADS,
          0,
          context->cuda_stream()>>>(size, alpha, dY, Y, dX);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-
   return true;
 }
 

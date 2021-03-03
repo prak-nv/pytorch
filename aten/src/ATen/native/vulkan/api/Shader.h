@@ -236,9 +236,7 @@ inline Shader::Descriptor::Descriptor(const char* const glsl)
       0u,
     },
    } {
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
-      glsl,
-      "Invalid shader source code!");
+  TORCH_CHECK(glsl, "Invalid shader source code!");
 }
 
 inline Shader::Descriptor::Descriptor(
@@ -251,9 +249,7 @@ inline Shader::Descriptor::Descriptor(
       size,
     },
    } {
-  TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
-      code && (0u != size),
-      "Invalid shader binary!");
+  TORCH_CHECK(code && (0u != size), "Invalid shader binary!");
 }
 
 inline bool operator==(

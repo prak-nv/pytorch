@@ -44,7 +44,6 @@ Streams and events
 Memory management
 -----------------
 .. autofunction:: empty_cache
-.. autofunction:: list_gpu_processes
 .. autofunction:: memory_stats
 .. autofunction:: memory_summary
 .. autofunction:: memory_snapshot
@@ -53,7 +52,6 @@ Memory management
 .. autofunction:: reset_max_memory_allocated
 .. autofunction:: memory_reserved
 .. autofunction:: max_memory_reserved
-.. autofunction:: set_per_process_memory_fraction
 .. FIXME The following doesn't seem to exist. Is it supposed to?
    https://github.com/pytorch/pytorch/issues/27785
    .. autofunction:: reset_max_memory_reserved

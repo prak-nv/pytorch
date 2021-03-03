@@ -13,9 +13,7 @@
 namespace torch {
 namespace jit {
 
-TORCH_API void OptimizeFrozenGraph(
-    std::shared_ptr<Graph>& graph,
-    bool optimize_numerics = true);
+TORCH_API void OptimizeFrozenGraph(std::shared_ptr<Graph>& graph);
 
 } // namespace jit
 } // namespace torch

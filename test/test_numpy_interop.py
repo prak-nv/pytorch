@@ -142,7 +142,7 @@ class TestNumPyInterop(TestCase):
         self.assertEqual(x.dtype, torch.bool)
 
         y = x.numpy()
-        self.assertEqual(y.dtype, np.bool_)
+        self.assertEqual(y.dtype, np.bool)
         for i in range(len(x)):
             self.assertEqual(x[i], y[i])
 
@@ -150,13 +150,13 @@ class TestNumPyInterop(TestCase):
         self.assertEqual(x.dtype, torch.bool)
 
         y = x.numpy()
-        self.assertEqual(y.dtype, np.bool_)
+        self.assertEqual(y.dtype, np.bool)
         self.assertEqual(x[0], y[0])
 
     def test_from_numpy(self, device) -> None:
         dtypes = [
             np.double,
-            np.float64,
+            np.float,
             np.float16,
             np.complex64,
             np.complex128,
@@ -166,7 +166,7 @@ class TestNumPyInterop(TestCase):
             np.int8,
             np.uint8,
             np.longlong,
-            np.bool_,
+            np.bool,
         ]
         complex_dtypes = [
             np.complex64,
@@ -229,20 +229,20 @@ class TestNumPyInterop(TestCase):
     def test_ctor_with_numpy_scalar_ctor(self, device) -> None:
         dtypes = [
             np.double,
-            np.float64,
+            np.float,
             np.float16,
             np.int64,
             np.int32,
             np.int16,
             np.uint8,
-            np.bool_,
+            np.bool,
         ]
         for dtype in dtypes:
             self.assertEqual(dtype(42), torch.tensor(dtype(42)).item())
 
     @onlyCPU
     def test_numpy_index(self, device):
-        i = np.array([0, 1, 2], dtype=np.int32)
+        i = np.int32([0, 1, 2])
         x = torch.randn(5, 5)
         for idx in i:
             self.assertFalse(isinstance(idx, int))
@@ -269,8 +269,7 @@ class TestNumPyInterop(TestCase):
             np.uint8,
         ]
         for tp, dtype in zip(types, dtypes):
-            # Only concrete class can be given where "Type[number[_64Bit]]" is expected
-            if np.dtype(dtype).kind == 'u':  # type: ignore[misc]
+            if np.dtype(dtype).kind == 'u':
                 # .type expects a XxxTensor, which have no type hints on
                 # purpose, so ignore during mypy type checking
                 x = torch.Tensor([1, 2, 3, 4]).type(tp)  # type: ignore
@@ -298,8 +297,7 @@ class TestNumPyInterop(TestCase):
             x = torch.IntTensor([1, -2, 3, -4])
             asarray = np.asarray(x, dtype=dtype)
             self.assertEqual(asarray.dtype, dtype)
-            # Only concrete class can be given where "Type[number[_64Bit]]" is expected
-            if np.dtype(dtype).kind == 'u':  # type: ignore[misc]
+            if np.dtype(dtype).kind == 'u':
                 wrapped_x = np.array([1, -2, 3, -4], dtype=dtype)
                 for i in range(len(x)):
                     self.assertEqual(asarray[i], wrapped_x[i])
@@ -335,9 +333,7 @@ class TestNumPyInterop(TestCase):
     def test_multiplication_numpy_scalar(self, device) -> None:
         for np_dtype in [np.float32, np.float64, np.int32, np.int64, np.int16, np.uint8]:
             for t_dtype in [torch.float, torch.double]:
-                # mypy raises an error when np.floatXY(2.0) is called
-                # even though this is valid code
-                np_sc = np_dtype(2.0)  # type: ignore
+                np_sc = np_dtype(2.0)
                 t = torch.ones(2, requires_grad=True, dtype=t_dtype)
                 r1 = t * np_sc
                 self.assertIsInstance(r1, torch.Tensor)
@@ -350,9 +346,8 @@ class TestNumPyInterop(TestCase):
 
     @onlyCPU
     def test_parse_numpy_int(self, device):
-        # Only concrete class can be given where "Type[number[_64Bit]]" is expected
         self.assertRaisesRegex(RuntimeError, "Overflow",
-                               lambda: torch.mean(torch.randn(1, 1), np.uint64(-1)))  # type: ignore[call-overload]
+                               lambda: torch.mean(torch.randn(1, 1), np.uint64(-1)))
         # https://github.com/pytorch/pytorch/issues/29252
         for nptype in [np.int16, np.int8, np.uint8, np.int32, np.int64]:
             scalar = 3
