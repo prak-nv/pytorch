@@ -216,10 +216,7 @@ void ComputeAtMap::mapIds(IterDomain* id0, IterDomain* id1) {
   }
 }
 
-void ComputeAtMap::build() {
-  Fusion* fusion = FusionGuard::getCurFusion();
-  TORCH_INTERNAL_ASSERT(fusion != nullptr);
-
+void ComputeAtMap::build(Fusion* fusion, GpuLower* gpu_lower) {
   // Consumers can only show up once in an expression, keep track of all of them
   std::vector<TensorView*> consumer_tvs;
 
@@ -360,16 +357,14 @@ void ComputeAtMap::build() {
     }
   }
 
-  convertToKir();
+  if (gpu_lower != nullptr) {
+    convertToKir(fusion, gpu_lower);
+  }
 }
 
-void ComputeAtMap::convertToKir() {
-  Fusion* fusion = FusionGuard::getCurFusion();
+void ComputeAtMap::convertToKir(Fusion* fusion, GpuLower* gpu_lower) {
   TORCH_INTERNAL_ASSERT(fusion != nullptr);
-  auto gpu_lower = GpuLower::current();
-  if (gpu_lower == nullptr) {
-    return;
-  }
+  TORCH_INTERNAL_ASSERT(gpu_lower != nullptr);
 
   has_lowered_kir_ = true;
 

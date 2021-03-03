@@ -115,18 +115,18 @@ void GpuLower::lower() {
   // propagate the parallel strategy in some instances, we need to do it before
   // lowering.
   ca_parallel_map_ = ComputeAtMap(ComputeAtMap::MappingMode::PARALLEL);
-  ca_parallel_map_.build();
+  ca_parallel_map_.build(fusion_, current());
 
   // Want to run this after parallel map is created
   validateVectorize(fusion_);
 
   // Generate mappings to generate indices
   ca_index_map_ = ComputeAtMap(ComputeAtMap::MappingMode::INDEX);
-  ca_index_map_.build();
+  ca_index_map_.build(fusion_, current());
 
   // Generate mappings to generate and map to loop nests
   ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
-  ca_loop_map_.build();
+  ca_loop_map_.build(fusion_, current());
 
   validateParallelize(fusion_);
 

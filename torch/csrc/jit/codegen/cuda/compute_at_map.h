@@ -11,6 +11,8 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
+class GpuLower;
+
 class TORCH_CUDA_CU_API ComputeAtMap {
  public:
   // There's three modes of these iter domain mappings. For indexing, for loop
@@ -45,7 +47,9 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   ComputeAtMap() = default;
   ComputeAtMap(MappingMode mapping_mode) : mapping_mode_(mapping_mode) {}
 
-  void build();
+  //! Builds all valid mappings. When gpu_lower is not nullptr,
+  //! equivalent mappings for KIR are also created.
+  void build(Fusion* fusion, GpuLower* gpu_lower = nullptr);
 
   //! Returns if id0 and id1 are mapped to eachother, meaning they represent the
   //! same loop nest in the lowered code
@@ -77,7 +81,7 @@ class TORCH_CUDA_CU_API ComputeAtMap {
 
   //! Convert everything to lowered structures (kernel ir), as we will use
   //! this class frequently during lowering.
-  void convertToKir();
+  void convertToKir(Fusion* fusion, GpuLower* gpu_lower);
 
  private:
   MappingMode mapping_mode_ = MappingMode::LOOP;
