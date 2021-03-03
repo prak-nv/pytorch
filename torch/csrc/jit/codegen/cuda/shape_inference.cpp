@@ -202,13 +202,16 @@ class NaiveTypePropagator {
       }
       case aten::native_batch_norm: {
         auto out_type = node->input(0)->type()->cast<TensorType>();
+        TORCH_CHECK(
+            hasTypeAndDevice(out_type),
+            "Type and device propagation has failed, or was not provided enough information.");
         node->output(0)->setType(out_type);
 
         auto mean_rstd_type = TensorType::create(
             *out_type->scalarType(),
             *out_type->device(),
-            *out_type->dim(),
-            out_type->requires_grad());
+            c10::nullopt,
+            c10::nullopt);
 
         node->output(1)->setType(mean_rstd_type);
         node->output(2)->setType(mean_rstd_type);

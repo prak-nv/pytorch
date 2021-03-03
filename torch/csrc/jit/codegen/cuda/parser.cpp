@@ -687,6 +687,8 @@ class IrParser {
               auto momentum = constant_as<float>(node->input(6));
               auto momentum_ptr = new Double(momentum.value());
               auto rev_momentum = new Double(1 - momentum.value());
+              auto momentum_ptr2 = new Double(momentum.value());
+              auto rev_momentum2 = new Double(1 - momentum.value());
 #endif
 
               Val* eps_ptr = nullptr;
@@ -723,11 +725,12 @@ class IrParser {
               auto mean_hat = mul(rmean_bcast, rev_momentum);
               auto new_mean_hat = add(mean_hat, current_mean_hat);
 #else
-              //auto mean_hat = mul(running_mean, rev_momentum);
-              //auto new_mean_hat = add(mean_hat, current_mean_hat);
+              // updating running mean
+              auto mean_hat = mul(running_mean, rev_momentum);
+              auto new_mean_hat = add(mean_hat, current_mean_hat);
 #endif
-              //fusion->addOutput(new_mean_hat);
-              //fusion->aliasOutputToInput(new_mean_hat, running_mean);
+              fusion->addOutput(new_mean_hat);
+              fusion->aliasOutputToInput(new_mean_hat, running_mean);
 
               auto x_mean_sub = sub(input, x_mean);
               auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
@@ -739,20 +742,20 @@ class IrParser {
               // updating running var
               auto num_feature_decrement = sub(num_features, new Int(1));
               auto unbiased_var = div(var_sum_bcast, num_feature_decrement);
-              auto current_var_hat = mul(unbiased_var, momentum_ptr);
+              auto current_var_hat = mul(unbiased_var, momentum_ptr2);
               auto rvar_bcast = broadcast(running_var, broadcast_mask);
-              auto var_hat = mul(rvar_bcast, rev_momentum);
+              auto var_hat = mul(rvar_bcast, rev_momentum2);
               auto new_var_hat = add(var_hat, current_var_hat);
 #else
               // updating running var
-              //auto num_feature_decrement = sub(num_features, new Int(1));
-              //auto unbiased_var = div(var_sum, num_feature_decrement);
-              //auto current_var_hat = mul(unbiased_var, momentum_ptr);
-              //auto var_hat = mul(running_var, rev_momentum);
-              //auto new_var_hat = add(var_hat, current_var_hat);
+              auto num_feature_decrement = sub(num_features, new Int(1));
+              auto unbiased_var = div(var_sum, num_feature_decrement);
+              auto current_var_hat = mul(unbiased_var, momentum_ptr2);
+              auto var_hat = mul(running_var, rev_momentum2);
+              auto new_var_hat = add(var_hat, current_var_hat);
 #endif
-              //fusion->addOutput(new_var_hat);
-              //fusion->aliasOutputToInput(new_var_hat, running_var);
+              fusion->addOutput(new_var_hat);
+              fusion->aliasOutputToInput(new_var_hat, running_var);
 
               auto var_eps = add(var, eps_ptr);
               auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
