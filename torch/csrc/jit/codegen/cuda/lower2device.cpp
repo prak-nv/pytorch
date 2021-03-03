@@ -159,8 +159,10 @@ void GpuLower::lower() {
   // Insert read after write smem syncs
   const auto raw_sync_exprs = insertRawThreadSynchronization(alloced_exprs);
 
+std::cout<<"Before unroll"<<std::endl;
   const auto unrolled_loops =
       UnrollPass::runPass(fusion_, raw_sync_exprs, preds);
+std::cout<<"After unroll"<<std::endl;
 
   // Reuse memory locations if:
   // TensorView is dynamic shared memory
