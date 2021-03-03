@@ -311,6 +311,7 @@ bool canSchedule(ScheduleHeuristic sh, Fusion* fusion) {
     case ScheduleHeuristic::Reduction:
       return SingleReductionScheduler::canSchedule(fusion);
     case ScheduleHeuristic::Normalization:
+      return false; // temporary disable normalization fusion
       return NormalizationScheduler::canSchedule(fusion);
     default:
       TORCH_INTERNAL_ASSERT(false, "unreachable");

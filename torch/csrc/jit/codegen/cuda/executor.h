@@ -66,7 +66,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   struct ExecutorEntry {
     bool init = false;
     LaunchParams launch_params;
-    std::vector<int> io_alias_indices;
+    std::vector<std::pair<int, int>> io_alias_indices;
     std::vector<std::vector<int64_t>> output_sizes;
     std::vector<at::ScalarType> output_types;
     std::vector<std::vector<int64_t>> empty_buffer_sizes;

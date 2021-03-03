@@ -444,28 +444,27 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   GlobalBuffers global_buffers;
   uint64_t rand_offset = 0;
 
-  std::vector<at::Tensor> io_aliases;
-
   if (executor_entry && executor_entry->init) {
     {
       // context manager to disable auto grad for `empty_cuda` calls later
       at::AutoNonVariableTypeMode non_variable_type_mode;
       // take the short-cut for launch if we see a recorded input set again
       launch_params = executor_entry->launch_params;
-      if (!executor_entry->io_alias_indices.empty()) {
-        for (const auto& i : executor_entry->io_alias_indices) {
-          printf("aliasing index: %d\n, tagKind %s", i, inputs[i].tagKind().c_str());
-          TORCH_INTERNAL_ASSERT(inputs[i].isTensor(), "alias only supports tensors");
-          io_aliases.push_back(inputs[i].toTensor());
+      if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
+        for (size_t i = 0; i < executor_entry->output_sizes.size(); i++) {
+          allocated_outputs.push_back(at::native::empty_cuda(
+              executor_entry->output_sizes[i],
+              executor_entry->output_types[i],
+              c10::nullopt,
+              options_.device,
+              c10::nullopt));
         }
-      }
-      for (size_t i = 0; i < executor_entry->output_sizes.size(); i++) {
-        allocated_outputs.push_back(at::native::empty_cuda(
-            executor_entry->output_sizes[i],
-            executor_entry->output_types[i],
-            c10::nullopt,
-            options_.device,
-            c10::nullopt));
+        std::cout << "\ncached before run, alias indices: \n";
+        for (const auto& entry : executor_entry->io_alias_indices) {
+          printf("    aliasing: %d->%d\n", entry.first, entry.second);
+          TORCH_INTERNAL_ASSERT(inputs[entry.second].isTensor(), "alias io only supports tensor");
+          allocated_outputs[entry.first] = inputs[entry.second].toTensor();
+        }
       }
       for (size_t i = 0; i < executor_entry->empty_buffer_sizes.size(); i++) {
         global_buffers.empty_buffers.push_back(at::native::empty_cuda(
@@ -499,23 +498,18 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       launch_params.print();
     }
 
-    std::vector<int> alias_indices = fusion_.getInputAliasIndices();
-    std::cout << "before run, alias indices: ";
-    for (const auto& i : alias_indices) {
-      std::cout << i << ", ";
-    }
-    std::cout << std::endl;
-    if (!alias_indices.empty()) {
-      for (const auto& i : alias_indices) {
-        printf("aliasing index: %d\n, tagKind %s", i, inputs[i].tagKind().c_str());
-        TORCH_INTERNAL_ASSERT(inputs[i].isTensor(), "alias io only supports tensor");
-        io_aliases.push_back(inputs[i].toTensor());
-      }
-    }
+    auto alias_indices = fusion_.getInputAliasIndices();
 
     // TODO: Update this as well;
     if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
-      allocated_outputs = allocOutputs(expr_eval, alias_indices.size());
+      allocated_outputs = allocOutputs(expr_eval);
+
+      std::cout << "\nbefore run, alias indices: \n";
+      for (const auto& entry : alias_indices) {
+        printf("    aliasing: %d->%d\n", entry.first, entry.second);
+        TORCH_INTERNAL_ASSERT(inputs[entry.second].isTensor(), "alias io only supports tensor");
+        allocated_outputs[entry.first] = inputs[entry.second].toTensor();
+      }
     } else {
       // TODO: Update this as well;
       executor_utils::validateKernelOutputs(
@@ -563,7 +557,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   KernelArgumentHolder kernel_arguments;
   kernel_arguments.push(inputs);
-  kernel_arguments.push(io_aliases);
   kernel_arguments.push(allocated_outputs);
   kernel_arguments.push(global_buffers.empty_buffers);
   kernel_arguments.push(global_buffers.zero_buffers);

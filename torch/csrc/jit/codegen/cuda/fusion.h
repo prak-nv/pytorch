@@ -207,8 +207,8 @@ class TORCH_CUDA_CU_API Fusion final {
   bool hasInput(const Val* val) const;
   bool hasOutput(const Val* val) const;
 
-  void aliasOutputToInput(const Val* input, Val* output);
-  std::vector<int> getInputAliasIndices() const;
+  void aliasOutputToInput(Val* output, Val* input);
+  std::vector<std::pair<int, int>> getInputAliasIndices() const;
 
  protected:
   friend SegmentCandidateFinder;
@@ -243,7 +243,8 @@ class TORCH_CUDA_CU_API Fusion final {
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
 
-  std::vector<int> io_alias_;
+  // io alias pointing from output to input
+  std::unordered_map<Val*, Val*> io_alias_;
 };
 
 } // namespace cuda
