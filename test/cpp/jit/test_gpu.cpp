@@ -13427,8 +13427,10 @@ TEST(NVFuserTest, FusionBNRepro_CUDA) {
   
   // updating running mean
   auto current_mean_hat = mul(x_mean, momentum_ptr);
-  auto mean_hat = mul(running_mean, rev_momentum_ptr);
+  auto run_mean_bcast = broadcast(running_mean, broadcast_mask);
+  auto mean_hat = mul(run_mean_bcast, rev_momentum_ptr);
   auto new_mean_hat = add(mean_hat, current_mean_hat);
+  auto new_running_mean = sum(new_mean_hat, reduction_axes);
   fusion.addOutput(new_mean_hat);
   //fusion->aliasOutputToInput(new_mean_hat, running_mean);
   
@@ -13438,13 +13440,14 @@ TEST(NVFuserTest, FusionBNRepro_CUDA) {
   auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
   auto var = div(var_sum_bcast, num_features);
   
-  
   // updating running var
   auto num_feature_decrement = sub(num_features, new Int(1));
-  auto unbiased_var = div(var_sum, num_feature_decrement);
+  auto unbiased_var = div(var_sum_bcast, num_feature_decrement);
   auto current_var_hat = mul(unbiased_var, momentum_ptr);
-  auto var_hat = mul(running_var, rev_momentum_ptr);
+  auto run_var_bcast = broadcast(running_var, broadcast_mask);
+  auto var_hat = mul(run_var_bcast, rev_momentum_ptr);
   auto new_var_hat = add(var_hat, current_var_hat);
+  auto new_running_var = sum(new_var_hat, reduction_axes);
   fusion.addOutput(new_var_hat);
   //fusion->aliasOutputToInput(new_var_hat, running_var);
   
