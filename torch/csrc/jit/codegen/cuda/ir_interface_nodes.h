@@ -107,7 +107,6 @@ class TORCH_CUDA_CU_API Int : public Val {
  private:
   const c10::optional<ScalarType> maybe_value_;
 };
-enum class TORCH_CUDA_API ComputeAtMode { Standard, BestEffort, MostInlined };
 
 //! Mode during propagation of computeAt, standard will throw an error if
 //! computeAt position provided can't be satisfied, best effort will lower the

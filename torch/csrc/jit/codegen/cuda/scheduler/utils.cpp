@@ -425,7 +425,7 @@ void parallelizeAllLike(
   FusionGuard fg(reference_tv->fusion());
 
   auto ca_loop_map = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
-  ca_loop_map.build();
+  ca_loop_map.build(FusionGuard::getCurFusion());
   for (auto id : reference_tv->domain()->domain()) {
     ca_loop_map.getConcreteMappedID(id)->parallelize(id->getParallelType());
   }
