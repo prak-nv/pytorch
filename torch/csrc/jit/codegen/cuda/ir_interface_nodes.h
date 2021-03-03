@@ -108,9 +108,16 @@ class TORCH_CUDA_CU_API Int : public Val {
   const c10::optional<ScalarType> maybe_value_;
 };
 
+//! Mode during propagation of computeAt, standard will throw an error if
+//! computeAt position provided can't be satisfied, best effort will lower the
+//! computeAt position as needed during traversal, most inlined will increase
+//! the compute at position to maximum possible through traversal.
+enum class ComputeAtMode { Standard, BestEffort, MostInlined };
+
 class ComputeAt;
-class TransformReplay;
+class TransformPropagator;
 class TransformIter;
+class TransformReplay;
 class OptOutMutator;
 
 namespace ir_utils {
@@ -202,14 +209,26 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return max_producer_pos_;
   }
 
-  // Compute this TensorView relative to a consumer relative to consumer
-  // position, -1 will compute tensors inline with eachother, 0 doesn't share
-  // any loop nests between the tensors
-  TensorView* computeAt(TensorView* consumer, int position);
+  //! Compute this TensorView relative to a consumer position, -1 will
+  //! compute tensors inline with each other, 0 doesn't share
+  //! any loop nests between the tensors. It's an error when the given
+  //! position is not legally viable. Alternatively, when the mode
+  //! parameter is ComputeAtMode::BestEffort, the position is lowered
+  //! one by one until a valid position is found. When
+  //! ComputeAtMode::MostInlined is given, the position parameter is
+  //! ignored, and the deepest possible position is searched.
+  TensorView* computeAt(
+      TensorView* consumer,
+      int position,
+      ComputeAtMode mode = ComputeAtMode::Standard);
 
-  // Compute this tensor to consumer, at local position, -1 will compute tensors
-  // inline with eachother, 0 doesn't share any loop nests between the tensors
-  TensorView* computeWith(TensorView* consumer, int position);
+  //! Compute this tensor to consumer, at local position, -1 will compute
+  //! tensors inline with eachother, 0 doesn't share any loop nests between the
+  //! tensors. The mode parameter can be used in the same manner as computeAt.
+  TensorView* computeWith(
+      TensorView* consumer,
+      int position,
+      ComputeAtMode mode = ComputeAtMode::Standard);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -313,6 +332,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return axes_to_swizzle_;
   }
 
+  friend TORCH_CUDA_CU_API TransformPropagator;
   friend TORCH_CUDA_CU_API TransformReplay;
   friend TORCH_CUDA_CU_API OptOutMutator;
   friend ComputeAt;

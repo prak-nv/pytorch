@@ -1195,12 +1195,12 @@ TEST(NVFuserTest, FusionParser_CUDA) {
   // strides are not yet supported in the irparser.
   for (auto val : g->block()->inputs()) {
     if (val->isCompleteTensor())
-      val->setType(val->type()->cast<TensorType>()->contiguous());
+      val->setType(val->type()->castRaw<TensorType>()->contiguous());
   }
   for (auto node : g->block()->nodes()) {
     for (auto val : node->outputs()) {
       if (val->isCompleteTensor())
-        val->setType(val->type()->cast<TensorType>()->contiguous());
+        val->setType(val->type()->castRaw<TensorType>()->contiguous());
     }
   }
 
@@ -1218,13 +1218,13 @@ TEST(NVFuserTest, FusionParser_CUDA) {
 __global__ void CUDAGeneratedKernel(Tensor<float, 1> T0, Tensor<float, 1> T1, Tensor<float, 1> T3) {
   float T2[1];
   if ((((((blockIdx.x * 1) + (1 - 1)) * 128) + threadIdx.x) < T0.size[0])) {
-    for(size_t ki38 = 0; ki38 < 1; ++ki38) {
-      T2[ki38]
-        = T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
-        * T1[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
-      T3[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)]
-        = T2[ki38]
-        * T0[((((blockIdx.x * 1) + ki38) * 128) + threadIdx.x)];
+    for(size_t ki58 = 0; ki58 < 1; ++ki58) {
+      T2[ki58]
+        = T0[((((blockIdx.x * 1) + ki58) * 128) + threadIdx.x)]
+        * T1[((((blockIdx.x * 1) + ki58) * 128) + threadIdx.x)];
+      T3[((((blockIdx.x * 1) + ki58) * 128) + threadIdx.x)]
+        = T2[ki58]
+        * T0[((((blockIdx.x * 1) + ki58) * 128) + threadIdx.x)];
     }
   }
 }
@@ -13341,7 +13341,8 @@ TEST(NVFuserTest, FusionVectorizationRFactor_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t3}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionSizeOneLoop_CUDA) {
+// Unswitched loops with extent one may omit else clause.
+TEST(NVFuserTest, FusionSizeOneLoop1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
