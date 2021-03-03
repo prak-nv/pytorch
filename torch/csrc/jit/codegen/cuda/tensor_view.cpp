@@ -26,11 +26,14 @@ DataType aten_opt_type_map(const c10::optional<at::ScalarType>& scalar_type) {
 
 TensorView::TensorView(TensorDomain* domain, DataType dtype, MemoryType mtype)
     : Val(ValType::TensorView, dtype), domain_(domain), memory_type_(mtype) {
-  // Mark the size-1 axes as broadcast to support implicit broadcast semantic
-  for (auto* id : domain_->domain()) {
-    if (!id->isBroadcast() && !id->isReduction() &&
-        id->rawExtent()->isOneInt()) {
-      id->convertToBroadcast();
+  // Don't do this after transforms
+  if (domain_->domain() == domain_->getRootDomain()) {
+    // Mark the size-1 axes as broadcast to support implicit broadcast semantic
+    for (auto* id : domain_->domain()) {
+      if (!id->isBroadcast() && !id->isReduction() &&
+          id->rawExtent()->isOneInt()) {
+        id->convertToBroadcast();
+      }
     }
   }
 }

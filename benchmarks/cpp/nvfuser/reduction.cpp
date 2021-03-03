@@ -101,6 +101,9 @@ static void MagicScheduler_Reduction(benchmark::State& benchmark_state,
   if(reduction_params.value().cross_grid){
     ss << "/cross grid";
   }
+  if(reduction_params.value().loop_unroll > 1){
+    ss << "/unroll " << reduction_params.value().loop_unroll;
+  }
   benchmark_state.SetLabel(ss.str());
   
 

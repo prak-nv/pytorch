@@ -108,6 +108,7 @@ class TORCH_CUDA_CU_API LaunchParams {
         ". Cannot create negative threads.");
     if (class_val == UNINITIALIZED_VAL) {
       class_val = incoming_val;
+      assertValid();
     }
   }
 

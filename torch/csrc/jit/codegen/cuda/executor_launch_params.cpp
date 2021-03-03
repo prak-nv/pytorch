@@ -31,7 +31,6 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
           "Tried to bind invalid parallel type in launch config: ",
           p_type);
   }
-  assertValid();
 }
 
 int64_t LaunchParams::getDim(ParallelType p_type) const {

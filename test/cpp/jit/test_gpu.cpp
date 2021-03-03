@@ -7015,9 +7015,8 @@ TEST(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
 }
 
 TEST(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::Double, DataType::Float, DataType::Half};
-  std::vector<int> red_axis = {1, 0};
+  std::vector<DataType> dtypes = {DataType::Half};
+  std::vector<int> red_axis = {0};
   std::vector<int> output_dims = {160, 320};
   std::vector<int> red_dims;
 
@@ -7026,6 +7025,13 @@ TEST(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
   for (int i = 1; i <= 1024 * 1024; i <<= 2) {
     red_dims.push_back(i);
   }
+
+  // std::vector<int> output_dims = {2, 4, 8, 16};
+  // // std::vector<int> output_dims = {16};
+  // std::vector<int> red_dims;
+  // for (int i = 32768; i <= 64 * 1024 * 1024; i <<= 1) {
+  //   red_dims.push_back(i);
+  // }
 
   for (auto dtype : dtypes) {
     at::ScalarType aten_dtype = data_type_to_aten(dtype);
@@ -13379,6 +13385,23 @@ TEST(NVFuserTest, FusionValidateParallelize5_CUDA) {
   // memory, so it is valid
   FusionExecutor fe;
   fe.compileFusion(&fusion);
+}
+
+TEST(NVFuserTest, FusionUnswitchBug_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({15});
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, new Double(1));
+  fusion.addOutput(tv1);
+
+  tv1->split(-1, 4);
+  tv1->split(-2, 1);
+  tv1->axis(-1)->parallelize(ParallelType::Unroll);
+
+  fusion.printKernel();
 }
 
 } // namespace jit

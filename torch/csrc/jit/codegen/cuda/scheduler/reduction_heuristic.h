@@ -19,9 +19,10 @@ struct ReductionParams {
   // Reduce across the grid?
   bool cross_grid = false;
   // Perform multiple reductions per block?
+  // TODO: This is only relevant for fastest_dim reductions
   bool multiple_reds_per_blk = false;
   // Unrolling factor
-  int64_t loop_unroll = 4;
+  int64_t loop_unroll = 1;
   // Number of batches for each block
   int64_t batches_per_block = 1;
   // Number of warps per block
