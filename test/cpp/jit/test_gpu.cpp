@@ -13374,6 +13374,7 @@ TEST(NVFuserTest, FusionValidateParallelize5_CUDA) {
 
   tv2->split(-1, 8);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
   // tv1 and tv2 do not have the same shape, but tv1 is on shared
   // memory, so it is valid
   FusionExecutor fe;

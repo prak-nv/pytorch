@@ -903,7 +903,7 @@ inline void inferGroupInputs(
     } else if (v != nullptr && v->isAnInt()) {
       copyValue(v, ee, local_ee);
     } else {
-      TORCH_INTERNAL_ASSERT(false, "unreachable");
+      //TORCH_INTERNAL_ASSERT(false, "unreachable");
     }
   }
 }
