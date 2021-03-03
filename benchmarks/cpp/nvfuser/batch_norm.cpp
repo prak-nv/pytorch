@@ -56,50 +56,6 @@ static TensorView* setupBatchNorm(
   return norm_gamma_bias;
 }
 
-bool canDuplicate(const Expr* expr) {
-  return expr->outputs().size() == 1 &&
-      expr->output(0)->getValType().value() == ValType::TensorView &&
-      (expr->getExprType().value() == ExprType::BinaryOp ||
-       expr->getExprType().value() == ExprType::UnaryOp ||
-       expr->getExprType().value() == ExprType::TernaryOp ||
-       expr->getExprType().value() == ExprType::BroadcastOp);
-}
-
-bool isConstantAllocation(const TensorView* tv) {
-  if (!tv->hasComputeAt()) {
-    // We cannot determine allocation size without computeAt structure.
-    // Assume Non-Constant Allocation
-    return false;
-  }
-
-  bool constant_allocation = true;
-  auto domain = tv->domain()->domain();
-  for (size_t axis = tv->getComputeAtPosition(); axis < domain.size(); ++axis) {
-    if (!domain[axis]->isBroadcast() && !domain[axis]->isReduction() &&
-        !domain[axis]->isParallelized()) {
-      constant_allocation &= domain[axis]->extent()->isConstScalar();
-    }
-  }
-  return constant_allocation;
-}
-
-//! Find all TensorViews that require duplication to avoid recompute
-//! computeAt error when applying inline ComputeAt
-std::vector<TensorView*> findTensorViewsToDuplicate(Fusion& fusion) {
-  std::vector<TensorView*> duplicate_tv;
-  for (auto expr : fusion.exprs()) {
-    if (expr->getExprType().value() != ExprType::ReductionOp) {
-      auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
-      for (auto out_tv : out_tvs) {
-        if (!out_tv->hasReduction() && out_tv->uses().size() > 1 && !fusion.hasOutput(out_tv)) {
-          duplicate_tv.push_back(out_tv);
-        }
-      }
-    }
-  }
-  return duplicate_tv;
-}
-
 static void MagicScheduler_BatchNorm_Welford(benchmark::State& benchmark_state) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -265,7 +221,52 @@ static void MagicScheduler_BatchNorm_Welford(benchmark::State& benchmark_state) 
       (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(DataType::Float)));
 }
 
-static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state) {
+bool canDuplicate(const Expr* expr) {
+  return expr->outputs().size() == 1 &&
+      expr->output(0)->getValType().value() == ValType::TensorView &&
+      (expr->getExprType().value() == ExprType::BinaryOp ||
+       expr->getExprType().value() == ExprType::UnaryOp ||
+       expr->getExprType().value() == ExprType::TernaryOp ||
+       expr->getExprType().value() == ExprType::BroadcastOp);
+}
+
+bool isConstantAllocation(const TensorView* tv) {
+  if (!tv->hasComputeAt()) {
+    // We cannot determine allocation size without computeAt structure.
+    // Assume Non-Constant Allocation
+    return false;
+  }
+
+  bool constant_allocation = true;
+  auto domain = tv->domain()->domain();
+  for (size_t axis = tv->getComputeAtPosition(); axis < domain.size(); ++axis) {
+    if (!domain[axis]->isBroadcast() && !domain[axis]->isReduction() &&
+        !domain[axis]->isParallelized()) {
+      constant_allocation &= domain[axis]->extent()->isConstScalar();
+    }
+  }
+  return constant_allocation;
+}
+
+//! Find all TensorViews that require duplication to avoid recompute
+//! computeAt error when applying inline ComputeAt
+std::vector<TensorView*> findTensorViewsToDuplicate(Fusion& fusion) {
+  std::vector<TensorView*> duplicate_tv;
+  for (auto expr : fusion.exprs()) {
+    if (expr->getExprType().value() != ExprType::ReductionOp) {
+      auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+      for (auto out_tv : out_tvs) {
+        if (!out_tv->hasReduction() && out_tv->uses().size() > 1 && !fusion.hasOutput(out_tv)) {
+          duplicate_tv.push_back(out_tv);
+        }
+      }
+    }
+  }
+  return duplicate_tv;
+}
+
+
+static void MagicScheduler_BatchNorm_New(benchmark::State& benchmark_state) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -446,120 +447,9 @@ static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state
       (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(DataType::Float)));
 }
 
-/*
-static TensorView* setupBatchNormReduction(
-    Fusion* fusion,
-    TensorView* input,
-    const int kNumberOfDims) {
-  FusionGuard fg(fusion);
-
-  std::vector<int> reduction_axes;
-  std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  torch::jit::fuser::cuda::Val* num_features = new Double(1);
-  for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
-    if (axis != 1) {
-      reduction_axes.push_back(axis);
-      broadcast_mask[axis] = true;
-      num_features =
-          mul(num_features, input->domain()->domain()[axis]->extent());
-    }
-  }
-
-  auto x_sum = sum(input, reduction_axes);
-  auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
-  auto x_mean = div(x_sum_bcast, num_features);
-  return x_mean;
-}
-
-static void MagicScheduler_BatchNorm_Reduction(benchmark::State& benchmark_state) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  std::vector<int64_t> input_shape{
-      32,
-      benchmark_state.range(0),
-      benchmark_state.range(1),
-      benchmark_state.range(1)};
-
-  // setup fusion
-  auto input = TensorViewBuilder()
-                   .ndims(input_shape.size())
-                   .dtype(DataType::Float)
-                   .contiguity(std::vector<bool>(input_shape.size(), true))
-                   .build();
-  fusion.addInput(input);
-
-  const int kNumberOfDims = input_shape.size();
-  std::vector<int> reduction_axes;
-  std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  torch::jit::fuser::cuda::Val* num_features = new Double(1);
-  for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
-    if (axis != 1) {
-      reduction_axes.push_back(axis);
-      broadcast_mask[axis] = true;
-      num_features =
-          mul(num_features, input->domain()->domain()[axis]->extent());
-    }
-  }
-
-  auto x_sum = sum(input, reduction_axes);
-  //auto output =
-      //setupBatchNormReduction(&fusion, input, input_shape.size());
-  fusion.addOutput(x_sum);
-
-  std::vector<TensorView*> reduction_tensors;
-  std::vector<TensorView*> other_tensors;
-  analyzeFusion(&fusion, reduction_tensors, other_tensors);
-
-  const int kNumThreads = 1024;
-
-  auto first_reduction_tv = reduction_tensors[0];
-
-  // merge inner reductions together
-  auto inner_merge = first_reduction_tv->merge(-2);
-
-  // each thread contributes to the reduction
-  auto inner_split = inner_merge->split(-1, kNumThreads);
-
-  // thread reduction first
-  auto inner_rfactor1 = inner_split->rFactor({-2});
-
-  // block reduction next
-  auto inner_rfactor2 = inner_split->rFactor({-1});
-
-  input->computeAt(x_sum, 2);
-
-  inner_rfactor1->axis(-1)->parallelize(ParallelType::TIDx);
-  inner_rfactor2->axis(-1)->parallelize(ParallelType::TIDx);
-  x_sum->axis(-1)->parallelize(ParallelType::TIDx);
-  x_sum->axis(1)->parallelize(ParallelType::BIDx);
-
-  // inputs
-  at::manual_seed(0);
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at_x = at::randn(input_shape, options);
-  std::vector<c10::IValue> inputs({at_x});
-
-  // outputs
-  std::vector<at::Tensor> outputs;
-
-  FusionExecutor executor;
-  executor.setMeasureKernelTimeFlag(true);
-  executor.compileFusion(&fusion);
-
-  cudaDeviceSynchronize();
-  for (auto _ : benchmark_state) {
-    outputs = executor.runFusion(
-        c10::ArrayRef<c10::IValue>(inputs));
-    benchmark_state.SetIterationTime(executor.kernelTimeMs() / 1000.0);
-    cudaDeviceSynchronize();
-  }
-}
-*/
-
 //------------------------------------------------------------------------------
 
-static void MagicScheduler_BatchNorm(benchmark::State& benchmark_state) {
+static void MagicScheduler_BatchNorm_Softmax(benchmark::State& benchmark_state) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -679,30 +569,17 @@ static void MagicScheduler_BatchNorm_Baseline(
 
 BENCHMARK(MagicScheduler_BatchNorm_Welford)
     ->RangeMultiplier(2)
-    ->Ranges({{64, 64}, {8, 64}})
+    ->Ranges({{64, 512}, {8, 64}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-BENCHMARK(MagicScheduler_BatchNorm_Reduction)
+BENCHMARK(MagicScheduler_BatchNorm_New)
     ->RangeMultiplier(2)
-    ->Ranges({{64, 64}, {8, 64}})
+    ->Ranges({{64, 512}, {8, 64}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-BENCHMARK(MagicScheduler_BatchNorm)
-    ->RangeMultiplier(2)
-    ->Ranges({{64, 64}, {8, 64}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-BENCHMARK(MagicScheduler_BatchNorm_Baseline)
-    ->RangeMultiplier(2)
-    ->Ranges({{64, 64}, {8, 64}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-/*
-BENCHMARK(MagicScheduler_BatchNorm)
+BENCHMARK(MagicScheduler_BatchNorm_Softmax)
     ->RangeMultiplier(2)
     ->Ranges({{64, 512}, {8, 64}})
     ->Unit(benchmark::kMicrosecond)
@@ -713,4 +590,3 @@ BENCHMARK(MagicScheduler_BatchNorm_Baseline)
     ->Ranges({{64, 512}, {8, 64}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
-*/
