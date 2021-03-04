@@ -53,6 +53,12 @@ class LocalSyncInserter {
   void handle(kir::Expr* expr) {
     if (ir_utils::isTVOp(expr)) {
       // For this SyncInserter
+      if (auto tv = blockReduceOut(expr)) {
+        initial_.insert(tv);
+        final_.insert(tv);
+        initial_sync_ = true;
+      }
+
       initial_sync_ ? addInputSmemTvs(expr, final_)
                     : addOutputSmemTvs(expr, initial_);
 
@@ -172,6 +178,22 @@ class LocalSyncInserter {
       }
     }
     return false;
+  }
+
+  static kir::TensorView* blockReduceOut(const kir::Expr* expr) {
+    if (auto red = dynamic_cast<const kir::ReductionOp*>(expr)) {
+      auto tv = red->out()->as<kir::TensorView>();
+      if (tv->domain()->hasBlockReduction()) {
+        return tv;
+      }
+    }
+    if (auto wel = dynamic_cast<const kir::WelfordOp*>(expr)) {
+      auto tv = wel->out()->as<kir::TensorView>();
+      if (tv->domain()->hasBlockReduction()) {
+        return tv;
+      }
+    }
+    return nullptr;
   }
 
   static void addOutputSmemTvs(const kir::Expr* expr, TvSet& set) {

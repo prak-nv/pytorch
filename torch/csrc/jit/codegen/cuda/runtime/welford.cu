@@ -116,9 +116,13 @@ __inline__ __device__ void blockWelford(
     __syncthreads();
   }
   if (should_write && read_write_pred) {
-    out_M2 = shared_mem_M2[linear_tid];
-    out_avg = shared_mem_avg[linear_tid];
-    out_N = shared_mem_N[linear_tid];
+    welfordCombine(
+        out_M2,
+        out_avg,
+        out_N,
+        shared_mem_M2[linear_tid],
+        shared_mem_avg[linear_tid],
+        shared_mem_N[linear_tid]);
   }
 }
 // -----------------------------------------------------------------------------------------------
@@ -278,10 +282,13 @@ __device__ void gridWelfordLastBlock(
   if (rem_size > 1) {
     const int rblock_offset = tid % rblock_size;
     const int rblock_idx = tid / rblock_size;
+    T inp_M2_tmp = init_val;
+    T inp_avg_tmp = init_val;
+    TN inp_N_tmp = 0;
     blockWelford<false, true, false>(
-        inp_M2,
-        inp_avg,
-        inp_N,
+        inp_M2_tmp,
+        inp_avg_tmp,
+        inp_N_tmp,
         inp_M2,
         inp_avg,
         inp_N,
@@ -294,9 +301,9 @@ __device__ void gridWelfordLastBlock(
         init_val);
     __syncthreads();
     if (tid < rblock_size) {
-      shared_buf_M2[tid] = inp_M2;
-      shared_buf_avg[tid] = inp_avg;
-      shared_buf_N[tid] = inp_N;
+      shared_buf_M2[tid] = inp_M2_tmp;
+      shared_buf_avg[tid] = inp_avg_tmp;
+      shared_buf_N[tid] = inp_N_tmp;
     }
     __syncthreads();
     if (should_write) {
@@ -310,9 +317,7 @@ __device__ void gridWelfordLastBlock(
   }
 
   if (should_write && read_write_pred) {
-    out_M2 = inp_M2;
-    out_avg = inp_avg;
-    out_N = inp_N;
+    welfordCombine(out_M2, out_avg, out_N, inp_M2, inp_avg, inp_N);
   }
 }
 

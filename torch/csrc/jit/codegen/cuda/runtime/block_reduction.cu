@@ -100,5 +100,5 @@ __device__ void blockReduce(
   }
 
   if (should_write && read_write_pred)
-    out = shared_mem[linear_tid];
+    reduction_op(out, shared_mem[linear_tid]);
 }
