@@ -8593,7 +8593,7 @@ TEST(NVFuserTest, FusionSmemDynamicReductionSymbolic_CUDA) {
       __FILE__,
       "",
       lparams);
-  // TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
+  TORCH_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
 }
 
 TEST(NVFuserTest, FusionSmemDynamicReductionSymbolicArg_CUDA) {
