@@ -201,19 +201,18 @@ ReductionParams reductionHeuristic(
     // Default to no unrolling
     rparams.loop_unroll = 1;
 
-    if(!rparams.cross_grid){
+    if (!rparams.cross_grid) {
       // If we're not doing a grid reduction try to unroll the non-reduction
       // axis as it's the inner most dim and is more efficient
       if (outputs_produced_per_block_iter > 1) {
         auto available_unroll_grid =
             std::max(gdimx / device_multiprocessor_count, (int64_t)1);
-        rparams.loop_unroll =
-            std::min(max_unroll, available_unroll_grid);
+        rparams.loop_unroll = std::min(max_unroll, available_unroll_grid);
         rparams.reduction_unroll = false;
       }
-      if(rparams.loop_unroll == 1){
+      if (rparams.loop_unroll == 1) {
         // Try unrolling reduction dimension
-        if(red_elems_per_thread > 1){
+        if (red_elems_per_thread > 1) {
           rparams.loop_unroll = std::min(max_unroll, red_elems_per_thread);
         }
         rparams.reduction_unroll = true;
