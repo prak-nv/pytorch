@@ -320,9 +320,12 @@ class TestAutocast(JitTestCase):
         @torch.jit.script
         def fn(a, b):
             return torch.mm(a, b)
-        with autocast(enabled=True):
-            result = fn(self.a_fp32, self.b_fp32)
-        self.assertEqual(result.dtype, torch.float16)
+        for i in range(8):
+            use_autocast = (i % 2 == 0)
+            expected_dtype = torch.float16 if use_autocast else torch.float32
+            with autocast(enabled=use_autocast):
+                result = fn(self.a_fp32, self.b_fp32)
+            self.assertEqual(result.dtype, expected_dtype)
 
     # traced inside scripting
     def test_script_and_tracing(self):
