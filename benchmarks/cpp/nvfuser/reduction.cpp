@@ -158,6 +158,7 @@ BENCHMARK(MagicScheduler_fp16_Inner_Reduction)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+// TODO: flip dimensions below and retune
 BENCHMARK(MagicScheduler_fp32_Outer_Reduction)
     ->RangeMultiplier(4)
     ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
@@ -181,4 +182,3 @@ BENCHMARK(MagicScheduler_fp16_Inner_Reduction)
     ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
-    
