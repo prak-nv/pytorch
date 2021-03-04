@@ -121,7 +121,7 @@ struct TORCH_API GraphFunction : public Function {
   enum SpecializationKey {
     AutocastOff,
     AutocastOn,
-    
+
     // This provides the number of specializations
     // (Must be last entry)
     TotalCount
@@ -145,8 +145,8 @@ struct TORCH_API GraphFunction : public Function {
   // (e.g. optimized_graph() from get_executor()).
   mutable std::recursive_mutex compile_mutex;
 
-   // executor_[0] - autocast off
-   // executor_[1] - autocast on
+  // executor_[0] - autocast off
+  // executor_[1] - autocast on
   GraphExecutor executors_[SpecializationKey::TotalCount];
 
   // an optional function that actually creates the method when
