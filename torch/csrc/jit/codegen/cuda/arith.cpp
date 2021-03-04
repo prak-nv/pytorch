@@ -733,8 +733,8 @@ WelfordResult Welford(
   // Initial values for welford op are tensors, so their dims have to match the
   // output dim,
   // i.e. original_dims - dims_to_be_reduced
-  Val* init_var_val;
-  Val* init_avg_val;
+  Val* init_var_val = nullptr;
+  Val* init_avg_val = nullptr;
 
   if (!init_N->isZeroInt()) {
     TORCH_CHECK(
