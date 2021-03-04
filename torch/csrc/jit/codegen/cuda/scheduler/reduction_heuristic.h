@@ -21,7 +21,9 @@ struct ReductionParams {
   // Perform multiple reductions per block?
   bool multiple_reds_per_blk = false;
   // Unrolling factor
-  int64_t loop_unroll = 4;
+  int64_t loop_unroll = 1;
+  // Should unrolling be done on reduction dimension
+  bool reduction_unroll = true;
   // Number of batches for each block
   int64_t batches_per_block = 1;
   // Number of warps per block

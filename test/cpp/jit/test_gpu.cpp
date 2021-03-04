@@ -7023,7 +7023,7 @@ TEST(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
 
   // Tried to cut down the number iterations with just
   // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 2) {
+  for (int i = 1; i <= 1024 * 1024; i <<= 1) {
     red_dims.push_back(i);
   }
 
