@@ -76,7 +76,7 @@ c10::AliasAnalysisKind aliasAnalysisInternalSpecialCase() {
 // for debugging it is helpful to be able to force autodiff subgraphs
 // to be created, to check their correctness, even when the
 // size of the of the subgraph is too small to be profitable.
-thread_local bool autodiff_subgraph_inlining = true;
+thread_local bool autodiff_subgraph_inlining = true; // NOLINT
 void debugSetAutodiffSubgraphInlining(bool state) {
   autodiff_subgraph_inlining = state;
 }
@@ -87,7 +87,7 @@ bool getAutodiffSubgraphInlining() {
 
 // for debugging it is helpful to be able to force fusion groups
 // to be created
-static std::atomic<bool> fusion_group_inlining(true);
+static std::atomic<bool> fusion_group_inlining(true); // NOLINT
 void debugSetFusionGroupInlining(bool state) {
   fusion_group_inlining = state;
 }
@@ -96,7 +96,7 @@ bool getFusionGroupInlining() {
   return fusion_group_inlining;
 }
 
-thread_local std::weak_ptr<Graph> last_executed_optimized_graph;
+thread_local std::weak_ptr<Graph> last_executed_optimized_graph; // NOLINT
 std::shared_ptr<Graph> lastExecutedOptimizedGraph() {
   return last_executed_optimized_graph.lock();
 }
@@ -495,7 +495,7 @@ Gradient getGradient(const Node* n) {
 }
 } // anonymous namespace
 
-RegisterOperators reg_graph_executor_ops({Operator(
+RegisterOperators reg_graph_executor_ops({Operator( // NOLINT
     prim::DifferentiableGraph,
     [](const Node* n) -> Operation {
       return DifferentiableGraphOp(getGradient(n));
@@ -733,14 +733,14 @@ struct GraphExecutorImpl : public GraphExecutorImplBase {
 
   ~GraphExecutorImpl() override = default;
 
-  ArgumentSpecCreator arg_spec_creator_;
+  ArgumentSpecCreator arg_spec_creator_; // NOLINT
   // Populated only when optimize is false (and in that case plan_cache will be
   // unused). The compiled version of graph.
-  ExecutionPlan fallback;
+  ExecutionPlan fallback; // NOLINT
 
   // Mapping from argument configurations to optimized versions of the graph
   // that are specialized to the spec.
-  std::unordered_map<ArgumentSpec, ExecutionPlan> plan_cache;
+  std::unordered_map<ArgumentSpec, ExecutionPlan> plan_cache; // NOLINT
 };
 
 GraphExecutor::GraphExecutor(
