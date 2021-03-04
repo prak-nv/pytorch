@@ -720,10 +720,11 @@ class IrParser {
 
               // updating running mean
               auto current_mean_hat = mul(x_mean, momentum_ptr);
-#if false
+#if true
               auto rmean_bcast = broadcast(running_mean, broadcast_mask);
               auto mean_hat = mul(rmean_bcast, rev_momentum);
-              auto new_mean_hat = add(mean_hat, current_mean_hat);
+              auto new_mean_hat_bcast = add(mean_hat, current_mean_hat);
+              auto new_mean_hat = sum(new_mean_hat_bcast, reduction_axes);
 #else
               // updating running mean
               auto mean_hat = mul(running_mean, rev_momentum);
@@ -738,14 +739,15 @@ class IrParser {
               auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
               auto var = div(var_sum_bcast, num_features);
 
-#if false
+#if true
               // updating running var
               auto num_feature_decrement = sub(num_features, new Int(1));
               auto unbiased_var = div(var_sum_bcast, num_feature_decrement);
               auto current_var_hat = mul(unbiased_var, momentum_ptr2);
               auto rvar_bcast = broadcast(running_var, broadcast_mask);
               auto var_hat = mul(rvar_bcast, rev_momentum2);
-              auto new_var_hat = add(var_hat, current_var_hat);
+              auto new_var_hat_bcast = add(var_hat, current_var_hat);
+              auto new_var_hat = sum(new_var_hat_bcast, reduction_axes);
 #else
               // updating running var
               auto num_feature_decrement = sub(num_features, new Int(1));
