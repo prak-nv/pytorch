@@ -579,22 +579,10 @@ std::vector<Val*> Fusion::getTerminatingOutputs() {
 
 void Fusion::aliasOutputToInput(Val* output, Val* input) {
   TORCH_INTERNAL_ASSERT(hasInput(input) && hasOutput(output), "alias only allows from output to input");
-  printf("aliasing output %p to input %p\n", output, input);
   io_alias_[output] = input;
 }
 
 std::vector<std::pair<int, int>> Fusion::getInputAliasIndices() const {
-  //TORCH_INTERNAL_ASSERT(outputs_.size() == io_alias_.size(), "alias needs to be added to output before any real outputs");
-  for (int i = 0; i < inputs_.size(); i++) {
-    printf("   - input %d: %p\n", i, inputs_[i]);
-  }
-  for (int i = 0; i < outputs_.size(); i++) {
-    printf("   - output %d: %p\n", i, outputs_[i]);
-  }
-  for (const auto& entry : io_alias_) {
-    printf("   - io alias: %p to %p\n", entry.first, entry.second);
-  }
-
   std::vector<std::pair<int, int>> alias_indices;
   for (int i = 0; i < outputs_.size(); i++) {
     if (io_alias_.count(outputs_[i]) != 0) {
@@ -610,7 +598,6 @@ std::vector<std::pair<int, int>> Fusion::getInputAliasIndices() const {
     }
   }
   // can't assert here, we could have segmented fusion where not all alias outputs are present
-  //TORCH_INTERNAL_ASSERT(alias_indices.size() == io_alias_.size(), "io_alias_ mapping failure, alias output ");
   
   return alias_indices;
 }

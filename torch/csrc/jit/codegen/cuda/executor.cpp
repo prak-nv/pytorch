@@ -459,9 +459,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               options_.device,
               c10::nullopt));
         }
-        std::cout << "\ncached before run, alias indices: \n";
         for (const auto& entry : executor_entry->io_alias_indices) {
-          printf("    aliasing: %d->%d\n", entry.first, entry.second);
           TORCH_INTERNAL_ASSERT(inputs[entry.second].isTensor(), "alias io only supports tensor");
           allocated_outputs[entry.first] = inputs[entry.second].toTensor();
         }
@@ -504,9 +502,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (outputs.empty() || outputs.size() != fusion_.outputs().size()) {
       allocated_outputs = allocOutputs(expr_eval);
 
-      std::cout << "\nbefore run, alias indices: \n";
       for (const auto& entry : alias_indices) {
-        printf("    aliasing: %d->%d\n", entry.first, entry.second);
         TORCH_INTERNAL_ASSERT(inputs[entry.second].isTensor(), "alias io only supports tensor");
         allocated_outputs[entry.first] = inputs[entry.second].toTensor();
       }

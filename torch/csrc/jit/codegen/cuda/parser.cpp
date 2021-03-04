@@ -121,11 +121,6 @@ class IrParser {
       }
     }
     auto alias_indices = fusion->getInputAliasIndices();
-    std::cout << "after parsing, alias indices: ";
-    for (const auto& i : alias_indices) {
-      std::cout << i << ", ";
-    }
-    std::cout << std::endl;
 
     // mark output;
     for (auto jit_output : block->outputs()) {
