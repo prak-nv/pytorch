@@ -101,16 +101,23 @@ static void MagicScheduler_Reduction(benchmark::State& benchmark_state,
   if(reduction_params.value().cross_grid){
     ss << "/cross grid";
   }
+  if(reduction_params.value().loop_unroll > 1){
+    ss << "/Unroll " << reduction_params.value().loop_unroll;
+  }
+  ss << "/Launch (" << reduction_params.value().lparams.gdimy() << ", "
+     << reduction_params.value().lparams.bdimy() << ", "
+     << reduction_params.value().lparams.bdimx() << ")";
+
   benchmark_state.SetLabel(ss.str());
   
 
   FusionExecutor fe;
   fe.compileFusion(&fusion);
-
+  fe.setMeasureKernelTimeFlag(true);
   for (auto _ : benchmark_state) {
     CudaKernelTimer timer;
     auto cg_outputs = fe.runFusion({aten_input}, lparams);
-    benchmark_state.SetIterationTime(timer.elapsed() / 1000.0);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
   }
 
   benchmark_state.SetBytesProcessed(
@@ -140,19 +147,7 @@ BENCHMARK(MagicScheduler_fp32_Outer_Reduction)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-BENCHMARK(MagicScheduler_fp32_Inner_Reduction)
-    ->RangeMultiplier(8)
-    ->Ranges({{1, 1024 * 1024}, {160, 320}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
 BENCHMARK(MagicScheduler_fp16_Outer_Reduction)
-    ->RangeMultiplier(8)
-    ->Ranges({{1, 1024 * 1024}, {160, 320}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
-
-BENCHMARK(MagicScheduler_fp16_Inner_Reduction)
     ->RangeMultiplier(8)
     ->Ranges({{1, 1024 * 1024}, {160, 320}})
     ->Unit(benchmark::kMicrosecond)
@@ -165,18 +160,35 @@ BENCHMARK(MagicScheduler_fp32_Outer_Reduction)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-BENCHMARK(MagicScheduler_fp32_Inner_Reduction)
-    ->RangeMultiplier(4)
-    ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
 
+// TODO: flip dimensions below and retune
 BENCHMARK(MagicScheduler_fp16_Outer_Reduction)
     ->RangeMultiplier(4)
     ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
+BENCHMARK(MagicScheduler_fp32_Inner_Reduction)
+    ->RangeMultiplier(8)
+    ->Ranges({{1, 1024 * 1024}, {160, 320}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(MagicScheduler_fp16_Inner_Reduction)
+    ->RangeMultiplier(8)
+    ->Ranges({{1, 1024 * 1024}, {160, 320}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+
+// TODO: flip dimensions below and retune
+BENCHMARK(MagicScheduler_fp32_Inner_Reduction)
+    ->RangeMultiplier(4)
+    ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+// TODO: flip dimensions below and retune
 BENCHMARK(MagicScheduler_fp16_Inner_Reduction)
     ->RangeMultiplier(4)
     ->Ranges({{32768, 128 * 1024 * 1024}, {2, 16}})
