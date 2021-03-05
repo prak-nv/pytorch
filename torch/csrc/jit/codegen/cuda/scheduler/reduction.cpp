@@ -66,16 +66,10 @@ ReductionParams reductionHeuristic(
     } else {
       rparams.loop_unroll = 1;
     }
+    rparams.cross_block = true;
     bdimx = ceilDiv(num_elems_in_reduction, rparams.loop_unroll);
     bdimy = num_outputs_for_reduction;
   } else {
-    // if (num_outputs_for_reduction > 32) {
-    //   rparams.loop_unroll =
-    //       std::min(num_outputs_for_reduction / 32,
-    //       (int64_t)rparams.loop_unroll);
-    // } else {
-    //   rparams.loop_unroll = 1;
-    // }
     bdimx = num_outputs_for_reduction;
     bdimy = num_elems_in_reduction;
   }
@@ -111,17 +105,13 @@ ReductionParams reductionHeuristic(
 
   // 4. Distributing work across a block
 
-  // Magic numbers of calculations allowed per thread.
-  constexpr int kMinValuesPerThread = 16;
-  constexpr int kMaxValuesPerThread = 256;
-
   int64_t red_elems_per_thread = num_elems_in_reduction;
-
   int64_t outputs_produced_per_block_iter = 1;
 
   if (rparams.fastest_dim) {
     // Reduction is performed across warp threads (cross-thread reduction)
     red_elems_per_thread = ceilDiv(num_elems_in_reduction, bdimx);
+    red_elems_per_thread = ceilDiv(red_elems_per_thread, rparams.loop_unroll);
     // Don't set outputs_produced_per_block_iter = bdimy because we may decide
     // bdimy is used also for the reduction dim
   } else {
@@ -130,9 +120,15 @@ ReductionParams reductionHeuristic(
     outputs_produced_per_block_iter = bdimx;
   }
 
+  // Magic numbers of calculations allowed per thread.
+  constexpr int kMinValuesPerThread = 16;
+  constexpr int kMaxValuesPerThread = 256;
   // Decision to do a cross-warp reduction per block
   if (!rparams.fastest_dim ||
+      // If we used bdimy and still had 16 values per thread, then use bdimy for
+      // reduction (as well as bdimy if fastest_dim)
       red_elems_per_thread >= (bdimy * kMinValuesPerThread) ||
+      // If we have at least 256 reduction elements, do this anyways.
       red_elems_per_thread >= kMaxValuesPerThread) {
     // Use y dim of the block for the reduce if there are many reduction
     // elements
@@ -141,7 +137,11 @@ ReductionParams reductionHeuristic(
     rparams.multiple_reds_per_blk = false;
   } else {
     // Do multiple reductions per block
-    rparams.cross_block = false;
+    if (!rparams.fastest_dim) {
+      // If fastest dim reduction we always do cross block on bdimx so leave as
+      // true
+      rparams.cross_block = false;
+    }
     rparams.multiple_reds_per_blk = true;
     outputs_produced_per_block_iter *= bdimy;
   }
@@ -160,12 +160,15 @@ ReductionParams reductionHeuristic(
   // Setting the number of blocks based on the number of outputs
   gdimx = ceilDiv(num_outputs_for_reduction, outputs_produced_per_block_iter);
 
-  // Cross-grid reductions (if necessary)
-  if (rparams.cross_block && red_elems_per_thread >= kMaxValuesPerThread &&
-      gdimx <= target_grid_size) {
+  if (rparams.cross_block
+          // If we have more reduction elements per thread than we should
+          && (red_elems_per_thread >= kMaxValuesPerThread
+              // And our grid size is small
+              || gdimx <= target_grid_size)) {
+    // Try to do a cross grid reduction
     int blks_per_out_1 = ceilDiv(target_grid_size, gdimx);
     int blks_per_out_2 = ceilDiv(red_elems_per_thread, kMinValuesPerThread);
-    int blks_per_out_3 = ceilDiv(red_elems_per_thread, kMaxValuesPerThread);
+    int blks_per_out_3 = ceilDiv(red_elems_per_thread, 1);
     int blks_per_output =
         std::max(std::min(blks_per_out_1, blks_per_out_2), blks_per_out_3);
 
@@ -173,6 +176,7 @@ ReductionParams reductionHeuristic(
     // If a cross-grid reduction was generated
     if (blks_per_output > 1) {
       rparams.cross_grid = true;
+      gdimy = std::max(1, blks_per_output);
     }
   }
 
@@ -238,12 +242,15 @@ ReductionParams reductionHeuristic(
         gdimy = std::min(red_elems_per_thread, gdimy);
         // Let's bring in the max elems per thread a bit on outer reductions
         if (red_elems_per_thread > 32) {
-          gdimy = std::min(ceilDiv(red_elems_per_thread, 32), (int64_t)65535);
+          gdimy = ceilDiv(red_elems_per_thread, 32);
         }
       }
     }
   }
 
+  // Make sure we don't set gdimy too large
+  gdimy = std::min(gdimy, (int64_t)65535);
+  
   const char* debug_env = getenv("PYTORCH_NVFUSER_RED_SCHED_DEBUG");
   if (debug_env && atoi(debug_env)) {
     std::cout << "\n===== Reduction Parameters ========" << std::endl
@@ -564,7 +571,7 @@ void scheduleReduction(
         // Reduction Dimensions
         // rF-Remain, rf-Unswitch, rf-Unroll, r-TIDy, r-TIDx]
         // 1(-5)      2(-4)        3(-3)      4(-2)   5(-1)
-
+        // TODO: Evaluate
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
         red_tv->split(reduce_axis, rparams.loop_unroll);
@@ -636,38 +643,79 @@ void scheduleReduction(
   } else {
     if (rparams.cross_block) {
       if (rparams.cross_grid) {
-        // Reduction Splits
+        // Unrolling in this case could apply to the reduction dimension,
+        // however not enabled at this moment
+        //
         // Output Dimensions
         // [x-BIDx, x-TIDx,
         //  0         1
         //
         // Reduction Dimensions
-        // rF-Leftover, rF-Unroll, r-BIDy, r-TIDy]
-        // 2(-4)        3(-3)      4(-2)   5(-1)
+        // rF-Leftover, r-BIDy, r-TIDy, rf-Unswitch, rf-Unroll]
+        // 2(-5)        3(-4)   4(-3)   5(-2)        6(-1)
+        red_tv->split(1, rparams.loop_unroll);
+        red_tv->split(1, 1);
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::BIDy));
-        red_tv->split(1, kLoopUnrollSplit);
-
-        red_tv->reorder({{-1, -3}, {-3, -1}});
 
         red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
 
         auto red_tv_rf = scheduler_utils::rfactorHelper(
-            red_tv, {-4, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+            red_tv,
+            {-5, -2, -1}); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 
+        red_tv_rf->axis(-2)->parallelize(ParallelType::Unswitch);
         red_tv_rf->axis(-3)->parallelize(ParallelType::TIDy);
-        red_tv_rf->axis(-2)->parallelize(ParallelType::BIDy);
-        red_tv_rf->axis(-1)->parallelize(ParallelType::Unroll);
+        red_tv_rf->axis(-4)->parallelize(ParallelType::BIDy);
         red_tv_rf->axis(1)->parallelize(ParallelType::TIDx);
         red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
+        if (rparams.loop_unroll == 1) {
+          reference_tv = red_tv_rf;
+          reduction_tv = red_tv;
+        } else {
+          // Perform careful unrolling of inputs
+          std::vector<TensorView*> cached_inputs;
+          {
+            auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+            for (auto tv : in_tvs) {
+              auto cached_tv = tv->cache_after();
+              cached_inputs.emplace_back(cached_tv);
+            }
+          }
+          TransformPropagator::from(red_tv_rf);
+          // Inline rfactor into reduction
+          red_tv_rf->computeAt(red_tv, -1, ComputeAtMode::MostInlined);
 
-        TransformPropagator::from(red_tv_rf);
-        scheduler_utils::computeAtInputs(
-            red_tv, -1, ComputeAtMode::MostInlined);
-        scheduler_utils::computeWithOutputs(
-            red_tv, -1, ComputeAtMode::MostInlined);
-        scheduler_utils::parallelizeAllLike(
-            red_tv_rf, scheduler_utils::allTvs(fusion));
+          // Find unswitch position
+          int unswitch_axis = -1;
+          for (int i = 0; i < red_tv_rf->nDims(); i++) {
+            if (red_tv_rf->axis(i)->getParallelType() ==
+                ParallelType::Unswitch) {
+              unswitch_axis = i;
+            }
+          }
+          if (unswitch_axis != -1) {
+            unswitch_axis++;
+          }
+
+          // Input to cahced_input we want outside unswitched position
+          // Cached input to rfactor we want inlined
+          for (auto cached_input : cached_inputs) {
+            auto consumers_of_input_cache =
+                scheduler_utils::consumerTvsOf(cached_input);
+            for (auto consumer : consumers_of_input_cache) {
+              if (consumer != red_tv_rf) {
+                consumer->computeAt(red_tv_rf, -1, ComputeAtMode::MostInlined);
+              }
+              cached_input->computeAt(consumer, unswitch_axis);
+            }
+          }
+          scheduler_utils::computeWithOutputs(
+              red_tv, -1, ComputeAtMode::MostInlined);
+
+          scheduler_utils::parallelizeAllLike(
+              red_tv_rf, scheduler_utils::allTvs(fusion));
+        }
 
       } else {
         if (rparams.reduction_unroll || rparams.loop_unroll == 1) {
