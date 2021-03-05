@@ -41,7 +41,8 @@ struct ReductionParams {
         other.loop_unroll == loop_unroll &&
         other.batches_per_block == batches_per_block &&
         other.num_warps == num_warps &&
-        other.persistent_kernel == persistent_kernel;
+        other.persistent_kernel == persistent_kernel &&
+        other.reduction_unroll == reduction_unroll;
     return attr_equal;
   }
 };
@@ -57,7 +58,8 @@ class ReductionParamsHash {
         static_cast<size_t>(rp.multiple_reds_per_blk) << (bits - 4) |
         static_cast<size_t>(rp.batches_per_block) << (bits - 5) |
         static_cast<size_t>(rp.num_warps) << (bits - 6) |
-        static_cast<size_t>(rp.persistent_kernel) << (bits - 7);
+        static_cast<size_t>(rp.persistent_kernel) << (bits - 7) |
+        static_cast<size_t>(rp.reduction_unroll) << (bits - 8);
     return attr_hash;
   }
 };

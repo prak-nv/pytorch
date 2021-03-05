@@ -7015,82 +7015,91 @@ TEST(NVFuserTest, FusionReductionSchedulerNoODimShmoo_CUDA) {
 }
 
 TEST(NVFuserTest, FusionReductionSchedulerDimShmoo_CUDA) {
-  std::vector<DataType> dtypes = {
-      DataType::Double, DataType::Float, DataType::Half};
-  std::vector<int> red_axis = {1, 0};
-  std::vector<int> output_dims = {160, 320};
-  std::vector<int> red_dims;
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(DataType::Float))
+                     .device(at::kCUDA, 0);
 
-  // Tried to cut down the number iterations with just
-  // doing every other power of 2.
-  for (int i = 1; i <= 1024 * 1024; i <<= 1) {
-    red_dims.push_back(i);
+  auto A = at::randn({2, 32768}, options);
+  for (size_t i = 0; i < 100; i++) {
+    A = A.mul(2);
+    A.sum(1);
   }
+  // std::vector<DataType> dtypes = {
+  //     DataType::Double, DataType::Float, DataType::Half};
+  // std::vector<int> red_axis = {1, 0};
+  // std::vector<int> output_dims = {160, 320};
+  // std::vector<int> red_dims;
 
-  for (auto dtype : dtypes) {
-    at::ScalarType aten_dtype = data_type_to_aten(dtype);
-    for (auto& axis : red_axis) {
-      for (auto& odim : output_dims) {
-        for (auto& rdim : red_dims) {
-          Fusion fusion;
-          FusionGuard fg(&fusion);
+  // // Tried to cut down the number iterations with just
+  // // doing every other power of 2.
+  // for (int i = 1; i <= 1024 * 1024; i <<= 1) {
+  //   red_dims.push_back(i);
+  // }
 
-          bool is_fp16 = dtype == DataType::Half;
+  // for (auto dtype : dtypes) {
+  //   at::ScalarType aten_dtype = data_type_to_aten(dtype);
+  //   for (auto& axis : red_axis) {
+  //     for (auto& odim : output_dims) {
+  //       for (auto& rdim : red_dims) {
+  //         Fusion fusion;
+  //         FusionGuard fg(&fusion);
 
-          TensorView* tv0 = makeSymbolicTensor(2, dtype);
-          fusion.addInput(tv0);
+  //         bool is_fp16 = dtype == DataType::Half;
 
-          TensorView* tv0_cast = tv0;
-          if (is_fp16) {
-            tv0_cast = castOp(DataType::Float, tv0);
-          }
+  //         TensorView* tv0 = makeSymbolicTensor(2, dtype);
+  //         fusion.addInput(tv0);
 
-          TensorView* tv1 = sum(tv0_cast, {axis});
+  //         TensorView* tv0_cast = tv0;
+  //         if (is_fp16) {
+  //           tv0_cast = castOp(DataType::Float, tv0);
+  //         }
 
-          TensorView* tv1_cast = tv1;
-          if (is_fp16) {
-            tv1_cast = castOp(DataType::Half, tv1);
-          }
+  //         TensorView* tv1 = sum(tv0_cast, {axis});
 
-          fusion.addOutput(tv1_cast);
+  //         TensorView* tv1_cast = tv1;
+  //         if (is_fp16) {
+  //           tv1_cast = castOp(DataType::Half, tv1);
+  //         }
 
-          auto options =
-              at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
+  //         fusion.addOutput(tv1_cast);
 
-          at::Tensor aten_input =
-              (axis ? at::randn({odim, rdim}, options)
-                    : at::randn({rdim, odim}, options));
+  //         auto options =
+  //             at::TensorOptions().dtype(aten_dtype).device(at::kCUDA, 0);
 
-          std::vector<TensorView*> outputs_of_red;
-          if (is_fp16) {
-            outputs_of_red.push_back(tv1_cast);
-          }
+  //         at::Tensor aten_input =
+  //             (axis ? at::randn({odim, rdim}, options)
+  //                   : at::randn({rdim, odim}, options));
 
-          auto reduction_params =
-              getReductionHeuristics(&fusion, {aten_input}, tv1);
-          TORCH_CHECK(reduction_params.has_value(), "Reduction is not found!");
-          scheduleReduction(
-              &fusion, reduction_params.value(), tv1, outputs_of_red);
-          auto lparams = reduction_params.value().lparams;
+  //         std::vector<TensorView*> outputs_of_red;
+  //         if (is_fp16) {
+  //           outputs_of_red.push_back(tv1_cast);
+  //         }
 
-          FusionExecutor fe;
-          fe.compileFusion(&fusion);
+  //         auto reduction_params =
+  //             getReductionHeuristics(&fusion, {aten_input}, tv1);
+  //         TORCH_CHECK(reduction_params.has_value(), "Reduction is not
+  //         found!"); scheduleReduction(
+  //             &fusion, reduction_params.value(), tv1, outputs_of_red);
+  //         auto lparams = reduction_params.value().lparams;
 
-          auto cg_outputs = fe.runFusion({aten_input}, lparams);
-          auto aten_output = aten_input.to(at::kDouble).sum({axis});
-          testValidate(
-              &fusion,
-              cg_outputs,
-              {aten_input},
-              {aten_output},
-              __LINE__,
-              __FILE__,
-              "",
-              lparams);
-        }
-      }
-    }
-  }
+  //         FusionExecutor fe;
+  //         fe.compileFusion(&fusion);
+
+  //         auto cg_outputs = fe.runFusion({aten_input}, lparams);
+  //         auto aten_output = aten_input.to(at::kDouble).sum({axis});
+  //         testValidate(
+  //             &fusion,
+  //             cg_outputs,
+  //             {aten_input},
+  //             {aten_output},
+  //             __LINE__,
+  //             __FILE__,
+  //             "",
+  //             lparams);
+  //       }
+  //     }
+  //   }
+  // }
 }
 
 TEST(NVFuserTest, FusionCacheBefore_CUDA) {
