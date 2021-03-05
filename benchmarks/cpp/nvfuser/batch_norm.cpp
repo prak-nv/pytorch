@@ -136,16 +136,6 @@ static void MagicScheduler_BatchNorm_Welford(benchmark::State& benchmark_state) 
   const int kVecSize = 4;
 
   // Transform all tensorviews
-  for (auto tv : welford_tvs) {
-      auto outer_reorder = tv->reorder({{0, 1}, {1, 0}});
-
-      // merge inner reductions together
-      auto inner_merge = tv->merge(-2);
-
-      // [N, C, H*W] => [N, C, H*W / (TDX * V), TDX * V]
-      auto inner_split = inner_merge->split(-1, kNumThreads);
-  }
-
   for (auto tv : other_tvs) {
       auto outer_reorder = tv->reorder({{0, 1}, {1, 0}});
 
@@ -159,13 +149,27 @@ static void MagicScheduler_BatchNorm_Welford(benchmark::State& benchmark_state) 
       auto vec_split = inner_split->split(-1, kVecSize);
   }
 
+  for (auto tv : welford_tvs) {
+    auto outer_reorder = tv->reorder({{0, 1}, {1, 0}});
+
+    // merge inner reductions together
+    auto inner_merge = outer_reorder->merge(-2);
+
+    // [N, C, H*W] => [N, C, H*W / TDX, TDX]
+    auto inner_split = inner_merge->split(-1, kNumThreads);
+  }
+
+  auto first_rf = welford.rFactor({-2});
+  auto second_rf = welford.rFactor({-1});
+  input->computeAt(welford_tvs[0], 2);
+
   x_mean_sub->computeAt(norm_gamma_bias, -1);
 
   auto c1 = input->cache_after(x_mean_sub->definition());
   c1->computeAt(x_mean_sub, -2);
 
   auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
-  ca_loop_map_.build();
+  ca_loop_map_.build(&fusion);
 
   auto key_tv = x_mean_sub;
   ca_loop_map_.getConcreteMappedID(x_mean_sub->axis(0))
@@ -186,9 +190,13 @@ static void MagicScheduler_BatchNorm_Welford(benchmark::State& benchmark_state) 
   var_sum->axis(0)->parallelize(ParallelType::BIDx);
   num_features->axis(0)->parallelize(ParallelType::BIDx);
 
-  x_mean->axis(-1)->parallelize(ParallelType::TIDx);
-  var_sum->axis(-1)->parallelize(ParallelType::TIDx);
-  num_features->axis(-1)->parallelize(ParallelType::TIDx);
+  first_rf.avg->axis(-1)->parallelize(ParallelType::TIDx);
+  first_rf.var->axis(-1)->parallelize(ParallelType::TIDx);
+  first_rf.n->axis(-1)->parallelize(ParallelType::TIDx);
+
+  second_rf.avg->axis(-1)->parallelize(ParallelType::TIDx);
+  second_rf.var->axis(-1)->parallelize(ParallelType::TIDx);
+  second_rf.n->axis(-1)->parallelize(ParallelType::TIDx);
 
   // inputs
   at::manual_seed(0);
@@ -390,7 +398,7 @@ static void MagicScheduler_BatchNorm_New(benchmark::State& benchmark_state) {
   c3->computeAt(x_mean_sub, -2);
 
   auto ca_loop_map_ = ComputeAtMap(ComputeAtMap::MappingMode::LOOP);
-  ca_loop_map_.build();
+  ca_loop_map_.build(&fusion);
 
   for (auto rf : first_rfactor_tvs) {
     ca_loop_map_.getConcreteMappedID(rf->axis(0))
@@ -569,24 +577,24 @@ static void MagicScheduler_BatchNorm_Baseline(
 
 BENCHMARK(MagicScheduler_BatchNorm_Welford)
     ->RangeMultiplier(2)
-    ->Ranges({{64, 512}, {8, 64}})
+    ->Ranges({{64, 64}, {8, 512}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 BENCHMARK(MagicScheduler_BatchNorm_New)
     ->RangeMultiplier(2)
-    ->Ranges({{64, 512}, {8, 64}})
+    ->Ranges({{64, 64}, {8, 512}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 BENCHMARK(MagicScheduler_BatchNorm_Softmax)
     ->RangeMultiplier(2)
-    ->Ranges({{64, 512}, {8, 64}})
+    ->Ranges({{64, 64}, {8, 512}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 BENCHMARK(MagicScheduler_BatchNorm_Baseline)
     ->RangeMultiplier(2)
-    ->Ranges({{64, 512}, {8, 64}})
+    ->Ranges({{64, 64}, {8, 512}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
