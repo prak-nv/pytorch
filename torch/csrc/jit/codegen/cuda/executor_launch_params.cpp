@@ -88,14 +88,20 @@ bool LaunchParams::operator==(const LaunchParams& other) const {
 }
 
 void LaunchParams::print() const {
-  std::cout << "Launch Parameters \n"
-            << "BlockDim.x = " << bdimx() << "\n"
-            << "BlockDim.y = " << bdimy() << "\n"
-            << "BlockDim.z = " << bdimz() << "\n"
-            << "GridDim.x = " << gdimx() << "\n"
-            << "GridDim.y = " << gdimy() << "\n"
-            << "GridDim.z = " << gdimz() << "\n"
-            << "Smem Size = " << smem() << "\n";
+  std::cout << toString();
+}
+
+std::string LaunchParams::toString() const {
+  std::stringstream ss;
+  ss << "Launch Parameters \n"
+     << "BlockDim.x = " << bdimx() << "\n"
+     << "BlockDim.y = " << bdimy() << "\n"
+     << "BlockDim.z = " << bdimz() << "\n"
+     << "GridDim.x = " << gdimx() << "\n"
+     << "GridDim.y = " << gdimy() << "\n"
+     << "GridDim.z = " << gdimz() << "\n"
+     << "Smem Size = " << smem() << "\n";
+  return ss.str();
 }
 
 } // namespace cuda
