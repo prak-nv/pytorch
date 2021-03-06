@@ -167,6 +167,29 @@ ReductionParams innerReductionHeuristic(
     remainder_in_reduction = ceilDiv(remainder_in_reduction, gdimy);
   }
 
+  // Try to do some cleanup of ragged waves on device
+  // gdimx is a remainder of a split, so can only control bdimy
+  if (
+      // If we have less than 8 waves of blocks
+      gdimy * gdimx < device_multiprocessor_count * 8 &&
+      // And we don't have an even divisible number of blocks
+      (gdimy * gdimx) % device_multiprocessor_count != 0 &&
+      // And we have more than one wave
+      gdimy * gdimx > device_multiprocessor_count) {
+    // round waves down
+    auto waves =
+        std::max((gdimx * gdimy) / device_multiprocessor_count, (int64_t)1);
+    auto new_gdimy =
+        std::max((waves * device_multiprocessor_count) / gdimx, (int64_t)1);
+    if (
+        // If difference is less than 25% of the original gdimy
+        (new_gdimy - gdimy) * 4 < gdimy &&
+        // and difference is less than 25% of the original number of blocks
+        ((new_gdimy * gdimx) - (gdimy * gdimx)) * 4 < gdimy * gdimx) {
+      gdimy = new_gdimy;
+    }
+  }
+
   ReductionParams rparams;
   rparams.fastest_dim = true;
   rparams.cross_block = true;
@@ -396,8 +419,10 @@ ReductionParams OuterReductionHeuristic(
       // And we have more than one wave
       gdimy * gdimx > device_multiprocessor_count) {
     // round waves down
-    auto waves = (gdimx * gdimy) / device_multiprocessor_count;
-    auto new_gdimy = (waves * device_multiprocessor_count) / gdimx;
+    auto waves =
+        std::max((gdimx * gdimy) / device_multiprocessor_count, (int64_t)1);
+    auto new_gdimy =
+        std::max((waves * device_multiprocessor_count) / gdimx, (int64_t)1);
     if (
         // If difference is less than 25% of the original gdimy
         (new_gdimy - gdimy) * 4 < gdimy &&
