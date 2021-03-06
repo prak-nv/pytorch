@@ -13443,6 +13443,48 @@ TEST(NVFuserTest, FusionBlockWelfordInSerialLoop_CUDA) {
       &fusion, outputs, aten_inputs, {aten_M2, aten_avg}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionIOTensorTrivialReductionRepro_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 11;
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  std::vector<int> reduction_axes = {1};
+  std::vector<bool> broadcast_mask = {false, true};
+
+  auto tv0_bcast = broadcast(tv0, broadcast_mask);
+  auto path1_bcast = add(tv0_bcast, new Double(1.0));
+  auto path1 = sum(path1_bcast, reduction_axes);
+  fusion.addOutput(path1);
+
+#if true // set this to false to see the right result
+  auto p = path1->split(1, 1);
+  path1->axis(0)->parallelize(ParallelType::BIDx);
+  tv0->computeAt(path1, 1);
+#else
+  path1->axis(0)->parallelize(ParallelType::TIDx);
+  path1->axis(1)->parallelize(ParallelType::BIDx);
+  tv0->computeAt(path1, 1);
+#endif
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M}, options);
+  at::Tensor t0_ref = t0.clone();
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  // inplace op, we are adding t0 to itself
+  auto outputs = fe.runFusion(aten_inputs, {t0});
+
+  TORCH_CHECK(outputs[0].allclose(t0_ref.add(1)));
+}
+
 } // namespace jit
 } // namespace torch
 #endif // #if defined(USE_CUDA)
