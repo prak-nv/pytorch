@@ -583,7 +583,8 @@ std::unordered_set<SegmentedEdge*> SegmentCandidateFinder::disconnectGroup(
   return removed_edges;
 }
 
-void SegmentCandidateFinder::mergeNodes() {
+SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
+  SegmentedGroup* last_merged=nullptr;
   while (!to_merge_.empty()) {
     auto group1 = *to_merge_.begin();
     auto group2 = group1->merge_with_;
@@ -631,6 +632,7 @@ void SegmentCandidateFinder::mergeNodes() {
     }
 
     joined_group->setHeuristic(deriveHeuristic(joined_group));
+    last_merged = joined_group;
   }
 
   for (auto group : clean_up_groups_) {
@@ -667,6 +669,8 @@ void SegmentCandidateFinder::mergeNodes() {
 
   clean_up_edges_.clear();
   clean_up_groups_.clear();
+
+  return last_merged;
 }
 
 namespace {
@@ -743,6 +747,149 @@ c10::optional<ScheduleHeuristic> tryMerge(
   return SchedulerEntry::proposeHeuristics(fusion);
 }
 
+
+//! An utility class to compute and maintain the connection 
+//!   relationship in a segmented graph. Space heavy and should
+//!   avoid using on very large graphs
+class BackwardReachability{
+  using GroupSet = std::unordered_set<SegmentedGroup*>;
+  using GroupSetPtr = std::unique_ptr<GroupSet>;
+  using ReachMap = std::unordered_map<SegmentedGroup*,GroupSetPtr>;
+
+  public:
+    //! Populate backward reachability map from segmented fusion
+    explicit BackwardReachability(SegmentedFusion* segmented_fusion):
+      segmented_fusion_(segmented_fusion){
+        computeReachability();
+      }
+    
+    //! Does `g` have backward path to any group in `any`?
+    bool reachesAny(SegmentedGroup* g, const std::vector<SegmentedGroup*>& any){
+      auto& reachable_from_g = getSet(g);
+      for(const auto& to:any){
+        if(reachable_from_g->count(to)){
+          return true;
+        }
+      }
+      return false;
+    }
+
+    //! Update the map as the given two groups are now merged into ab
+    void mergeGroups(SegmentedGroup* a, SegmentedGroup* b, SegmentedGroup* ab){
+      // TODO: avoid re-hashing
+      auto& ab_set = getSet(ab);
+      unionInto(ab,a);
+      unionInto(ab,b);
+      ab_set->erase(a);
+      ab_set->erase(b);
+      reach_map_.erase(a);
+      reach_map_.erase(b);
+      for(auto &it: reach_map_){
+        if(it.second->count(a)||it.second->count(b)){
+          unionInto(it.first,ab);
+        }
+        it.second->erase(a);
+        it.second->erase(b);
+      }
+    }
+  
+  private:
+    //! Collect initial reachable info using
+    //!  a work list algorithm through forward traversal
+    void computeReachability(){
+      GroupSet completed;
+      GroupSet work_list;
+
+      // Collect source nodes, we are guaranteed
+      //  a source node on a DAG and thus we can 
+      //  be sure to make progress
+      std::copy_if(
+        segmented_fusion_->groups().begin(),
+        segmented_fusion_->groups().end(),
+        std::inserter(completed,completed.end()),
+        [](SegmentedGroup* g){
+          return g->producer_edges.empty();
+        }
+      );
+
+      // completed now only contain source nodes
+      //  they can go backward to nowhere
+      for(auto g:completed){
+        addConsumersToWorkList(g,work_list);
+      }
+
+      while(!work_list.empty()){
+        SegmentedGroup* to_update=nullptr;
+        for(auto g:work_list){
+          if(std::all_of(
+            g->consumer_edges.begin(),
+            g->consumer_edges.end(),
+            [&completed](SegmentedEdge* e){
+              return completed.count(e->from);
+            }
+          )){
+            //filter multi-edges
+            GroupSet producer_groups;
+            for(auto e:g->producer_edges){
+                producer_groups.insert(e->from);
+            }
+
+            //populate all possible paths 
+            // from producer backward, including
+            // the producer
+            for(auto p:producer_groups){
+                insert(g,p);
+                unionInto(g,p);
+            }
+            to_update = g;
+            completed.insert(g);
+            break;
+          }    
+        }
+        if(to_update){
+          addConsumersToWorkList(to_update,work_list);
+          work_list.erase(to_update);
+        }else{
+          TORCH_INTERNAL_ASSERT(false,"unreachable");
+        }
+      }
+    }
+
+    void addConsumersToWorkList(SegmentedGroup* completed, GroupSet& work_list){
+      for (auto e: completed->consumer_edges){
+        // A consumer wouldn't have been worked before any of its producer
+        work_list.insert(e->to);
+      }
+    }
+
+    // Compute the union of two reachable maps and store in 
+    //  in the entry of to
+    void unionInto(SegmentedGroup* to, SegmentedGroup* from){
+      auto& from_set = *getSet(from);
+      for(auto g:from_set){
+        insert(to,g);
+      }
+    }
+
+    //! Utility to access reachable map
+    GroupSetPtr& getSet(SegmentedGroup* key){
+      auto& ptr = reach_map_[key];
+      if(!ptr){
+        ptr = std::make_unique<GroupSet>();
+      }
+      return ptr;
+    }
+
+    void insert(SegmentedGroup* key, SegmentedGroup* value){
+      getSet(key)->insert(value);
+    }
+
+  private:
+    SegmentedFusion* segmented_fusion_;
+    ReachMap reach_map_;
+};
+
+
 } // namespace
 
 bool SegmentCandidateFinder::codeGenSupportedMerge(SegmentedEdge* edge) {
@@ -813,6 +960,8 @@ void SegmentCandidateFinder::findSegments() {
   }
 
   bool merged_nodes = true;
+
+  // Initial merge iteration
   while (merged_nodes) {
     // Reset stateful traversal details in SegmentedGroups
     resetTraversal();
@@ -856,6 +1005,52 @@ void SegmentCandidateFinder::findSegments() {
     mergeNodes();
   }
 
+  // Additional merging iteration, clean up the rest of 
+  //  the merging opportunities
+  BackwardReachability reachability(segmented_fusion_.get());
+
+  merged_nodes = true;
+  while(merged_nodes){
+    // One merge per iteration
+    for (auto g : groups()) {
+      //populate consumers
+      std::unordered_map<SegmentedGroup*,SegmentedEdge*> edge_map;
+      for(auto c: g->consumer_edges){
+        edge_map.insert({c->to,c});
+      }
+      std::vector<SegmentedGroup*> all_groups;
+      std::transform(
+        edge_map.begin(),
+        edge_map.end(),
+        std::back_inserter(all_groups),
+        [](auto& it){return it.first;}
+      );
+
+      for(auto c : all_groups){
+        if(!reachability.reachesAny(c,all_groups)){
+          to_merge_.emplace(g);
+          to_merge_.emplace(c);
+          g->merged_ = true;
+          g->merge_with_ = c;
+          g->merge_through_ = edge_map.at(c);
+          c->merged_ = true;
+          c->merge_with_ = g;
+          c->merge_through_ = g->merge_through_;
+          break;
+        }
+      }
+    }
+
+    if (to_merge_.empty()) {
+      merged_nodes = false;
+    }else{
+      TORCH_INTERNAL_ASSERT(to_merge_.size()==2, "merging more than 2 nodes in final iter");
+      auto merged_a = *to_merge_.begin();
+      auto merged_b = merged_a->merge_with_;
+      auto merged_ab = mergeNodes();
+      reachability.mergeGroups(merged_a,merged_b,merged_ab);
+    }    
+  }
   finalize();
 }
 
