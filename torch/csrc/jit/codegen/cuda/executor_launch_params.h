@@ -28,7 +28,10 @@ class TORCH_CUDA_CU_API LaunchParams {
 
   void assertValid() {
     TORCH_INTERNAL_ASSERT(
-        bdimx() * bdimz() * bdimz() > 0 && bdimx() * bdimz() * bdimz() < 1024,
+        bdimx() * bdimz() * bdimz() > 0 &&
+            bdimx() * bdimz() * bdimz() <
+                (int64_t)at::cuda::getCurrentDeviceProperties()
+                    ->maxThreadsPerMultiProcessor,
         "Selected invalid number of threads for cuda: ",
         bdimx() * bdimz() * bdimz());
     TORCH_INTERNAL_ASSERT(
