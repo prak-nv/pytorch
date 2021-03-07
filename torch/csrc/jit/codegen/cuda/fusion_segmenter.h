@@ -360,6 +360,10 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
     return segmented_fusion_->completeFusion();
   }
 
+  // Additional merging iteration, clean up the rest of
+  //  the merging opportunities
+  void finalMerge();
+
   void finalize();
 
   // Return the resulting heuristic corresponding to the merged
@@ -373,7 +377,7 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   std::unordered_set<SegmentedGroup*> clean_up_groups_;
   std::unordered_set<SegmentedEdge*> clean_up_edges_;
 
-  std::unordered_set<SegmentedGroup*> to_merge_;
+  std::vector<SegmentedGroup*> to_merge_;
 
   std::unique_ptr<SegmentedFusion> segmented_fusion_;
 };

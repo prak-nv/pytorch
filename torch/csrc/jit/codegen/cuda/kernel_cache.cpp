@@ -484,6 +484,7 @@ std::vector<at::Tensor> FusionSegmentRuntime::runSegmentWithInput(
     std::unique_ptr<Fusion> fusion_seg = segmented_fusion_->makeFusion(sg);
     CompileOptions options;
     options.device = c10::Device(DeviceType::CUDA, device_index);
+    FusionGuard fg(fusion_seg.get());
     scheduler_entry->schedule(fusion_seg.get());
     executors_[group_id].compileFusion(fusion_seg.get(), options);
   }

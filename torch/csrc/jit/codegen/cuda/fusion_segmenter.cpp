@@ -217,51 +217,6 @@ std::string toString(const SegmentedEdge* edge) {
 SegmentedFusion::SegmentedFusion(const Fusion* fusion)
     : fusion_(*fusion), impl_(this) {}
 
-namespace {
-
-// Utility function to list all expressions in a group
-void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
-  IrPrinter irp(os);
-  os << "g{"
-     << "(" << toString(group->heuristic()) << ")\n";
-  for (size_t i = 0; i < group->exprs().size(); i++) {
-    irp.handle(group->exprs()[i]);
-    if (i + 1 != group->exprs().size())
-      os << " , ";
-  }
-  os << "}\n\n";
-}
-
-} // namespace
-
-std::ostream& operator<<(
-    std::ostream& os,
-    const SegmentedFusion* segmented_fusion) {
-  os << "Segmented_Fusion{ \n";
-  for (const auto g : segmented_fusion->cgroups()) {
-    os << g << "\n";
-  }
-  for (const auto e : segmented_fusion->cedges()) {
-    os << e << "\n";
-  }
-  os << "group details:\n\n";
-  for (const auto g : segmented_fusion->cgroups()) {
-    detailGroupPrint(os, g);
-  }
-  os << "} //Segmented_Fusion\n";
-  return os;
-}
-
-void SegmentedFusion::print() const {
-  std::cout << this << "\n";
-}
-
-std::string toString(SegmentedFusion* segmented_fusion) {
-  std::stringstream ss;
-  ss << segmented_fusion;
-  return ss.str();
-}
-
 SegmentedGroup* SegmentedFusion::Impl::makeGroup() {
   groups_.emplace_back(std::make_unique<SegmentedGroup>());
   return groups_.back().get();
@@ -471,7 +426,59 @@ std::vector<Val*> getAllOutputs(
   return output_vals;
 }
 
+// Utility function to list all expressions in a group
+void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
+  IrPrinter irp(os);
+  os << "g{"
+     << "(" << toString(group->heuristic()) << ")\n";
+  os << "inputs: \n";
+  for (auto i : getAllInputs(group)) {
+    i->print();
+  }
+  os << "outputs: \n";
+  for (auto o : getAllOutputs(group)) {
+    o->print();
+  }
+
+  os << "\n\n";
+
+  for (size_t i = 0; i < group->exprs().size(); i++) {
+    irp.handle(group->exprs()[i]);
+    if (i + 1 != group->exprs().size())
+      os << " , ";
+  }
+  os << "}\n\n";
+}
+
 } // namespace
+
+std::ostream& operator<<(
+    std::ostream& os,
+    const SegmentedFusion* segmented_fusion) {
+  os << "Segmented_Fusion{ \n";
+  for (const auto g : segmented_fusion->cgroups()) {
+    os << g << "\n";
+  }
+  for (const auto e : segmented_fusion->cedges()) {
+    os << e << "\n";
+  }
+  os << "group details:\n\n";
+  for (const auto g : segmented_fusion->cgroups()) {
+    detailGroupPrint(os, g);
+  }
+  os << "} //Segmented_Fusion\n";
+  return os;
+}
+
+void SegmentedFusion::print() const {
+  std::cout << this << "\n";
+}
+
+std::string toString(SegmentedFusion* segmented_fusion) {
+  std::stringstream ss;
+  ss << segmented_fusion;
+  return ss.str();
+}
 
 std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   std::unique_ptr<Fusion> fusion_segment = std::make_unique<Fusion>();
@@ -584,12 +591,12 @@ std::unordered_set<SegmentedEdge*> SegmentCandidateFinder::disconnectGroup(
 }
 
 SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
-  SegmentedGroup* last_merged=nullptr;
-  while (!to_merge_.empty()) {
-    auto group1 = *to_merge_.begin();
-    auto group2 = group1->merge_with_;
-    to_merge_.erase(group1);
-    to_merge_.erase(group2);
+  SegmentedGroup* last_merged = nullptr;
+  auto it = to_merge_.begin();
+  TORCH_INTERNAL_ASSERT(to_merge_.size() % 2 == 0);
+  while (it != to_merge_.end()) {
+    auto group1 = *it++;
+    auto group2 = *it++;
 
     clean_up_groups_.emplace(group1);
     clean_up_groups_.emplace(group2);
@@ -635,6 +642,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
     last_merged = joined_group;
   }
 
+  to_merge_.clear();
   for (auto group : clean_up_groups_) {
     auto disconnected_edges = disconnectGroup(group);
     clean_up_edges_.insert(
@@ -747,148 +755,144 @@ c10::optional<ScheduleHeuristic> tryMerge(
   return SchedulerEntry::proposeHeuristics(fusion);
 }
 
-
-//! An utility class to compute and maintain the connection 
+//! An utility class to compute and maintain the connection
 //!   relationship in a segmented graph. Space heavy and should
 //!   avoid using on very large graphs
-class BackwardReachability{
+class BackwardReachability {
   using GroupSet = std::unordered_set<SegmentedGroup*>;
   using GroupSetPtr = std::unique_ptr<GroupSet>;
-  using ReachMap = std::unordered_map<SegmentedGroup*,GroupSetPtr>;
+  using ReachMap = std::unordered_map<SegmentedGroup*, GroupSetPtr>;
 
-  public:
-    //! Populate backward reachability map from segmented fusion
-    explicit BackwardReachability(SegmentedFusion* segmented_fusion):
-      segmented_fusion_(segmented_fusion){
-        computeReachability();
-      }
-    
-    //! Does `g` have backward path to any group in `any`?
-    bool reachesAny(SegmentedGroup* g, const std::vector<SegmentedGroup*>& any){
-      auto& reachable_from_g = getSet(g);
-      for(const auto& to:any){
-        if(reachable_from_g->count(to)){
-          return true;
-        }
-      }
-      return false;
-    }
+ public:
+  //! Populate backward reachability map from segmented fusion
+  explicit BackwardReachability(SegmentedFusion* segmented_fusion)
+      : segmented_fusion_(segmented_fusion) {
+    computeReachability();
+  }
 
-    //! Update the map as the given two groups are now merged into ab
-    void mergeGroups(SegmentedGroup* a, SegmentedGroup* b, SegmentedGroup* ab){
-      // TODO: avoid re-hashing
-      auto& ab_set = getSet(ab);
-      unionInto(ab,a);
-      unionInto(ab,b);
-      ab_set->erase(a);
-      ab_set->erase(b);
-      reach_map_.erase(a);
-      reach_map_.erase(b);
-      for(auto &it: reach_map_){
-        if(it.second->count(a)||it.second->count(b)){
-          unionInto(it.first,ab);
-        }
-        it.second->erase(a);
-        it.second->erase(b);
+  //! Does `g` have backward path to any group in `any`?
+  bool reachesAny(SegmentedGroup* g, const std::vector<SegmentedGroup*>& any) {
+    auto& reachable_from_g = getSet(g);
+    for (const auto& to : any) {
+      if (reachable_from_g->count(to)) {
+        return true;
       }
     }
-  
-  private:
-    //! Collect initial reachable info using
-    //!  a work list algorithm through forward traversal
-    void computeReachability(){
-      GroupSet completed;
-      GroupSet work_list;
+    return false;
+  }
 
-      // Collect source nodes, we are guaranteed
-      //  a source node on a DAG and thus we can 
-      //  be sure to make progress
-      std::copy_if(
+  //! Update the map as the given two groups are now merged into ab
+  void mergeGroups(SegmentedGroup* a, SegmentedGroup* b, SegmentedGroup* ab) {
+    // TODO: avoid re-hashing
+    auto& ab_set = getSet(ab);
+    unionInto(ab, a);
+    unionInto(ab, b);
+    ab_set->erase(a);
+    ab_set->erase(b);
+    reach_map_.erase(a);
+    reach_map_.erase(b);
+    for (auto& it : reach_map_) {
+      if (it.second->count(a) || it.second->count(b)) {
+        it.second->insert(ab);
+        unionInto(it.first, ab);
+      }
+      it.second->erase(a);
+      it.second->erase(b);
+    }
+  }
+
+ private:
+  //! Collect initial reachable info using
+  //!  a work list algorithm through forward traversal
+  //!  a backward DFS would do the same
+  void computeReachability() {
+    GroupSet completed;
+    GroupSet work_list;
+
+    // Collect source nodes, we are guaranteed
+    //  a source node on a DAG and thus we can
+    //  be sure to make progress
+    std::copy_if(
         segmented_fusion_->groups().begin(),
         segmented_fusion_->groups().end(),
-        std::inserter(completed,completed.end()),
-        [](SegmentedGroup* g){
-          return g->producer_edges.empty();
-        }
-      );
+        std::inserter(completed, completed.end()),
+        [](SegmentedGroup* g) { return g->producer_edges.empty(); });
 
-      // completed now only contain source nodes
-      //  they can go backward to nowhere
-      for(auto g:completed){
-        addConsumersToWorkList(g,work_list);
-      }
+    // completed now only contain source nodes
+    //  they can go backward to nowhere
+    for (auto g : completed) {
+      addConsumersToWorkList(g, work_list);
+    }
 
-      while(!work_list.empty()){
-        SegmentedGroup* to_update=nullptr;
-        for(auto g:work_list){
-          if(std::all_of(
-            g->consumer_edges.begin(),
-            g->consumer_edges.end(),
-            [&completed](SegmentedEdge* e){
-              return completed.count(e->from);
-            }
-          )){
-            //filter multi-edges
-            GroupSet producer_groups;
-            for(auto e:g->producer_edges){
-                producer_groups.insert(e->from);
-            }
+    while (!work_list.empty()) {
+      SegmentedGroup* to_update = nullptr;
+      for (auto g : work_list) {
+        if (std::all_of(
+                g->producer_edges.begin(),
+                g->producer_edges.end(),
+                [&completed](SegmentedEdge* e) {
+                  return completed.count(e->from);
+                })) {
+          // filter multi-edges
+          GroupSet producer_groups;
+          for (auto e : g->producer_edges) {
+            producer_groups.insert(e->from);
+          }
 
-            //populate all possible paths 
-            // from producer backward, including
-            // the producer
-            for(auto p:producer_groups){
-                insert(g,p);
-                unionInto(g,p);
-            }
-            to_update = g;
-            completed.insert(g);
-            break;
-          }    
-        }
-        if(to_update){
-          addConsumersToWorkList(to_update,work_list);
-          work_list.erase(to_update);
-        }else{
-          TORCH_INTERNAL_ASSERT(false,"unreachable");
+          // populate all possible paths
+          // from producer backward, including
+          // the producer
+          for (auto p : producer_groups) {
+            insert(g, p);
+            unionInto(g, p);
+          }
+          to_update = g;
+          break;
         }
       }
-    }
-
-    void addConsumersToWorkList(SegmentedGroup* completed, GroupSet& work_list){
-      for (auto e: completed->consumer_edges){
-        // A consumer wouldn't have been worked before any of its producer
-        work_list.insert(e->to);
+      if (to_update) {
+        addConsumersToWorkList(to_update, work_list);
+        work_list.erase(to_update);
+        completed.insert(to_update);
+      } else {
+        TORCH_INTERNAL_ASSERT(false, "unreachable");
       }
     }
+  }
 
-    // Compute the union of two reachable maps and store in 
-    //  in the entry of to
-    void unionInto(SegmentedGroup* to, SegmentedGroup* from){
-      auto& from_set = *getSet(from);
-      for(auto g:from_set){
-        insert(to,g);
-      }
+  void addConsumersToWorkList(SegmentedGroup* completed, GroupSet& work_list) {
+    for (auto e : completed->consumer_edges) {
+      // A consumer wouldn't have been worked before any of its producer
+      work_list.insert(e->to);
     }
+  }
 
-    //! Utility to access reachable map
-    GroupSetPtr& getSet(SegmentedGroup* key){
-      auto& ptr = reach_map_[key];
-      if(!ptr){
-        ptr = std::make_unique<GroupSet>();
-      }
-      return ptr;
+  // Compute the union of two reachable maps and store in
+  //  in the entry of to
+  void unionInto(SegmentedGroup* to, SegmentedGroup* from) {
+    auto& from_set = *getSet(from);
+    for (auto g : from_set) {
+      insert(to, g);
     }
+  }
 
-    void insert(SegmentedGroup* key, SegmentedGroup* value){
-      getSet(key)->insert(value);
+  //! Utility to access reachable map
+  GroupSetPtr& getSet(SegmentedGroup* key) {
+    auto& ptr = reach_map_[key];
+    if (!ptr) {
+      ptr = std::make_unique<GroupSet>();
     }
+    return ptr;
+  }
 
-  private:
-    SegmentedFusion* segmented_fusion_;
-    ReachMap reach_map_;
+  void insert(SegmentedGroup* key, SegmentedGroup* value) {
+    getSet(key)->insert(value);
+  }
+
+ private:
+  SegmentedFusion* segmented_fusion_;
+  ReachMap reach_map_;
 };
-
 
 } // namespace
 
@@ -986,8 +990,8 @@ void SegmentCandidateFinder::findSegments() {
         continue;
       }
 
-      to_merge_.emplace(group);
-      to_merge_.emplace(candidate_it->group);
+      to_merge_.emplace_back(group);
+      to_merge_.emplace_back(candidate_it->group);
 
       group->merged_ = true;
       group->merge_with_ = candidate_it->group;
@@ -1005,31 +1009,35 @@ void SegmentCandidateFinder::findSegments() {
     mergeNodes();
   }
 
-  // Additional merging iteration, clean up the rest of 
-  //  the merging opportunities
+  finalMerge();
+
+  finalize();
+}
+
+void SegmentCandidateFinder::finalMerge() {
   BackwardReachability reachability(segmented_fusion_.get());
 
-  merged_nodes = true;
-  while(merged_nodes){
+  bool merged_nodes = true;
+  while (merged_nodes) {
     // One merge per iteration
     for (auto g : groups()) {
-      //populate consumers
-      std::unordered_map<SegmentedGroup*,SegmentedEdge*> edge_map;
-      for(auto c: g->consumer_edges){
-        edge_map.insert({c->to,c});
+      // populate consumers
+      std::unordered_map<SegmentedGroup*, SegmentedEdge*> edge_map;
+      for (auto c : g->consumer_edges) {
+        edge_map.insert({c->to, c});
       }
-      std::vector<SegmentedGroup*> all_groups;
+      std::vector<SegmentedGroup*> all_consumers;
       std::transform(
-        edge_map.begin(),
-        edge_map.end(),
-        std::back_inserter(all_groups),
-        [](auto& it){return it.first;}
-      );
+          edge_map.begin(),
+          edge_map.end(),
+          std::back_inserter(all_consumers),
+          [](auto& it) { return it.first; });
 
-      for(auto c : all_groups){
-        if(!reachability.reachesAny(c,all_groups)){
-          to_merge_.emplace(g);
-          to_merge_.emplace(c);
+      for (auto c : all_consumers) {
+        if (!reachability.reachesAny(c, all_consumers) &&
+            codeGenSupportedMerge(edge_map.at(c))) {
+          to_merge_.emplace_back(g);
+          to_merge_.emplace_back(c);
           g->merged_ = true;
           g->merge_with_ = c;
           g->merge_through_ = edge_map.at(c);
@@ -1039,19 +1047,22 @@ void SegmentCandidateFinder::findSegments() {
           break;
         }
       }
+      if (!to_merge_.empty()) {
+        break;
+      }
     }
 
     if (to_merge_.empty()) {
       merged_nodes = false;
-    }else{
-      TORCH_INTERNAL_ASSERT(to_merge_.size()==2, "merging more than 2 nodes in final iter");
+    } else {
+      TORCH_INTERNAL_ASSERT(
+          to_merge_.size() == 2, "merging more than 2 nodes in final iter");
       auto merged_a = *to_merge_.begin();
       auto merged_b = merged_a->merge_with_;
       auto merged_ab = mergeNodes();
-      reachability.mergeGroups(merged_a,merged_b,merged_ab);
-    }    
+      reachability.mergeGroups(merged_a, merged_b, merged_ab);
+    }
   }
-  finalize();
 }
 
 void SegmentCandidateFinder::finalize() {

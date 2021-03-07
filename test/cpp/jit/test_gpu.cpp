@@ -13381,6 +13381,111 @@ TEST(NVFuserTest, FusionValidateParallelize5_CUDA) {
   fe.compileFusion(&fusion);
 }
 
+TEST(NVFuserTest, FusionEnsureMerging_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int batch = 4;
+  int c = 4;
+  int h = 4;
+  int w = 4;
+  int numDims = 4;
+
+  auto input = makeSymbolicTensor(numDims);
+  fusion.addInput(input);
+  auto weight = makeSymbolicTensor(1);
+  fusion.addInput(weight);
+  auto bias = makeSymbolicTensor(1);
+  fusion.addInput(bias);
+  auto running_mean = makeSymbolicTensor(1);
+  fusion.addInput(running_mean);
+  auto running_var = makeSymbolicTensor(1);
+  fusion.addInput(running_var);
+
+  // TODO: error set 1, runtime momentum;
+  Val* momentum_ptr = new Double(0.1);
+  Val* rev_momentum_ptr = new Double(1.0 - 0.1);
+  Val* eps_ptr = new Double(1e-5);
+
+  std::vector<int> reduction_axes;
+  std::vector<bool> broadcast_mask(numDims, false);
+  Val* num_features = new Double(1);
+  for (size_t axis = 0; axis < numDims; ++axis) {
+    if (axis != 1) {
+      reduction_axes.push_back(axis);
+      broadcast_mask[axis] = true;
+    }
+  }
+
+  auto get_num_features = [&input, numDims]() {
+    Val* num_features = new Double(1);
+    for (size_t axis = 0; axis < numDims; ++axis) {
+      if (axis != 1) {
+        num_features =
+            mul(num_features, input->domain()->domain()[axis]->extent());
+      }
+    }
+    return num_features;
+  };
+  // Algorithm
+  auto x_sum = sum(input, reduction_axes);
+  auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
+  auto x_mean = div(x_sum_bcast, get_num_features());
+
+  // updating running mean
+  auto current_mean_hat = mul(x_mean, momentum_ptr);
+  auto mean_hat = mul(running_mean, rev_momentum_ptr);
+  auto new_mean_hat = add(mean_hat, current_mean_hat);
+  fusion.addOutput(new_mean_hat);
+  // fusion->aliasOutputToInput(new_mean_hat, running_mean);
+
+  auto x_mean_sub = sub(input, x_mean);
+  auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
+  auto var_sum = sum(x_mean_sub_pow, reduction_axes);
+  auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
+  auto var = div(var_sum_bcast, get_num_features());
+
+  // updating running var
+  auto num_feature_decrement = sub(get_num_features(), new Int(1));
+  auto unbiased_var = div(var_sum, num_feature_decrement);
+  auto current_var_hat = mul(unbiased_var, momentum_ptr);
+  auto var_hat = mul(running_var, rev_momentum_ptr);
+  auto new_var_hat = add(var_hat, current_var_hat);
+  fusion.addOutput(new_var_hat);
+  // fusion->aliasOutputToInput(new_var_hat, running_var);
+
+  auto var_eps = add(var, eps_ptr);
+  auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
+  auto output = mul(x_mean_sub, invstd);
+
+  // Optional: norm * weight
+  if (weight) {
+    auto weight_bcast = broadcast(weight, broadcast_mask);
+    output = mul(output, weight_bcast);
+  }
+  if (bias) {
+    auto bias_bcast = broadcast(bias, broadcast_mask);
+    output = add(output, bias_bcast);
+  }
+  fusion.addOutput(output);
+  auto save_mean = sum(x_mean, reduction_axes);
+  fusion.addOutput(save_mean);
+  auto save_invstd = sum(invstd, reduction_axes);
+  fusion.addOutput(save_invstd);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input1 = at::randn({batch, c, h, w}, options);
+  at::Tensor input2 = at::randn({c}, options);
+  at::Tensor input3 = at::randn_like(input2);
+  at::Tensor input4 = at::randn_like(input2);
+  at::Tensor input5 = at::randn_like(input2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  std::vector<IValue> inputs = {input1, input2, input3, input4, input5};
+  auto outputs = fec.runFusionWithInputs(inputs);
+}
+
 } // namespace jit
 } // namespace torch
 #endif // #if defined(USE_CUDA)
