@@ -13443,6 +13443,101 @@ TEST(NVFuserTest, FusionBlockWelfordInSerialLoop_CUDA) {
       &fusion, outputs, aten_inputs, {aten_M2, aten_avg}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionBNBackwardRepro_CUDA) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int batch = 4;
+  int c = 4;
+  int h = 4;
+  int w = 4;
+  int numDims = 4;
+
+
+  auto input = makeSymbolicTensor(numDims);
+  fusion.addInput(input);
+  auto weight = makeSymbolicTensor(1);
+  fusion.addInput(weight);
+  auto running_mean = makeSymbolicTensor(1);
+  fusion.addInput(running_mean);
+  auto running_var = makeSymbolicTensor(1);
+  fusion.addInput(running_var);
+  auto save_mean = makeSymbolicTensor(1);
+  fusion.addInput(save_mean);
+  auto save_invstd = makeSymbolicTensor(1);
+  fusion.addInput(save_invstd);
+
+  auto grad_out_prev = makeSymbolicTensor(numDims);
+  fusion.addInput(grad_out_prev);
+  auto gt_0 = makeSymbolicTensor(numDims); // single tensor broadcasted is dangerous.
+  fusion.addInput(gt_0);
+
+  auto gt_bool = binaryOp(BinaryOpType::GT, gt_0, new Int(1));
+  auto gt_float = castOp(DataType::Float, gt_bool);
+
+  auto grad_out = mul(grad_out_prev, gt_float);
+
+  Val* eps_ptr = new Double(1e-5);
+
+  std::vector<int> outer_reduction_axes;
+  std::vector<bool> outer_broadcast_mask(numDims, false);
+  Val* N = new Double(1);
+  for (size_t axis = 0; axis < numDims; ++axis) {
+    if (axis != 1) {
+      outer_reduction_axes.push_back(axis);
+      outer_broadcast_mask[axis] = true;
+      N = mul(
+          N, input->domain()->domain()[axis]->extent());
+    }
+  }
+
+  Val* bcast_weight = broadcast(weight, outer_broadcast_mask);
+
+  auto bcast_rstd = broadcast(save_invstd, outer_broadcast_mask);
+  auto bcast_mean = broadcast(save_mean, outer_broadcast_mask);
+  auto x_hat = mul(sub(input, bcast_mean), bcast_rstd);
+  auto grad_x_hat = mul(grad_out, bcast_weight);
+
+  auto a = mul(N, grad_x_hat);
+
+  auto b = sum(grad_x_hat, outer_reduction_axes);
+  auto bcast_b = broadcast(b, outer_broadcast_mask);
+
+  auto c1 = mul(grad_x_hat, x_hat);
+  auto c2 = sum(c1, outer_reduction_axes);
+  auto bcast_c2 = broadcast(c2, outer_broadcast_mask);
+  auto c3 = mul(x_hat, bcast_c2);
+
+  auto inner = sub(sub(a, bcast_b), c3);
+
+  auto reciprocal_size = unaryOp(UnaryOpType::Reciprocal, N);
+  auto grad_in = mul(mul(reciprocal_size, bcast_rstd), inner);
+  fusion.addOutput(grad_in);
+
+  auto grad_weight =
+  sum(mul(grad_out, x_hat), outer_reduction_axes);
+  fusion.addOutput(grad_weight);
+
+  auto grad_bias = sum(grad_out, outer_reduction_axes);
+  fusion.addOutput(grad_bias);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({batch, c, h, w}, options);
+  at::Tensor input1 = at::randn({c}, options);
+  at::Tensor input2 = at::randn_like(input1);
+  at::Tensor input3 = at::randn_like(input1);
+  at::Tensor input4 = at::randn_like(input1);
+  at::Tensor input5 = at::randn_like(input1);
+  at::Tensor input6 = at::randn_like(input0);
+  at::Tensor input7 = at::randn_like(input0);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  std::vector<IValue> inputs = {input0, input1, input2, input3, input4, input5, input6, input7};
+  auto outputs = fec.runFusionWithInputs(inputs);
+}
+
 } // namespace jit
 } // namespace torch
 #endif // #if defined(USE_CUDA)
+
