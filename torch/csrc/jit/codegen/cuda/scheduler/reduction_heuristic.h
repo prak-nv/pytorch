@@ -2,6 +2,8 @@
 
 #include <torch/csrc/jit/codegen/cuda/executor_launch_params.h>
 
+#include <sstream>
+
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -44,6 +46,25 @@ struct ReductionParams {
         other.persistent_kernel == persistent_kernel &&
         other.reduction_unroll == reduction_unroll;
     return attr_equal;
+  }
+
+  std::string toString() {
+    std::stringstream ss;
+    ss << "\n===== Reduction Parameters ========\n"
+       << (fastest_dim ? "Red On Fastest Dim\n" : "Red On Slow Dim\n")
+       << "Reduction Characteristics:\n"
+       << (multiple_reds_per_blk ? "Multiple Reds Per Block\n" : "")
+       << (cross_block ? "Cross block reduction\n" : "")
+       << (cross_grid ? "Cross grid reduction\n" : "") << "Blocking:"
+       << "\n"
+       << " GridY: " << lparams.gdimy() << " BlckY: " << lparams.bdimy()
+       << " BlckX: " << lparams.bdimx() << "\n";
+    if (loop_unroll > 1) {
+      ss << (reduction_unroll ? "Unroll reduction dim: " : "Unroll iter dim: ")
+         << " Factor: " << loop_unroll;
+    }
+    ss << "====================================\n";
+    return ss.str();
   }
 };
 
