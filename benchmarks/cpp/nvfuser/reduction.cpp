@@ -163,7 +163,7 @@ BENCHMARK(MagicScheduler_fp32_Outer_Reduction)
 
 BENCHMARK(MagicScheduler_fp32_Outer_Reduction)
     ->RangeMultiplier(4)
-    ->Ranges({{4, 16}, {32768, 128 * 1024 * 1024}})
+    ->Ranges({{2, 16}, {32768, 128 * 1024 * 1024}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
