@@ -456,9 +456,11 @@ std::ostream& operator<<(
     std::ostream& os,
     const SegmentedFusion* segmented_fusion) {
   os << "Segmented_Fusion{ \n";
+  os << "groups: \n";
   for (const auto g : segmented_fusion->cgroups()) {
     os << g << "\n";
   }
+  os << "edges: \n";
   for (const auto e : segmented_fusion->cedges()) {
     os << e << "\n";
   }
@@ -961,6 +963,11 @@ void SegmentCandidateFinder::findSegments() {
         expr_group->output_vals.push_back(out);
       }
     }
+  }
+
+  // Set heuristics in case single reduction kernels were left out
+  for (auto g : groups()) {
+    g->setHeuristic(deriveHeuristic(g));
   }
 
   bool merged_nodes = true;

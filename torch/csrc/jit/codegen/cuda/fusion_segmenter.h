@@ -199,7 +199,7 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   explicit SegmentedFusion(const Fusion* fusion);
 
   //! Is the fusion segmented?
-  bool isSegmented() {
+  bool isSegmented() const {
     return !groups_.empty();
   }
 
@@ -362,6 +362,12 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
 
   // Additional merging iteration, clean up the rest of
   //  the merging opportunities
+  //  Herrmann et al. is a fast and safe algorithm for finding merge candidates
+  //  but can become too conservative in our use cases because we place
+  //  additional qualifiers on valid merges other than having to generate DAGs,
+  //  i.e. canSchedule. So we need a bruteforce final merging iteration as a
+  //  clean up pass. Cost isn't expected to be high since the graph at this
+  //  stage is already quite merged.
   void finalMerge();
 
   void finalize();

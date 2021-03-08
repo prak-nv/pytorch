@@ -13381,6 +13381,37 @@ TEST(NVFuserTest, FusionValidateParallelize5_CUDA) {
   fe.compileFusion(&fusion);
 }
 
+TEST(NVFuserTest, FusionDAGMerging_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(5);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Branch 0
+  auto tv2 = sum(tv0, {0}); // 0
+  auto tv3 = sum(tv2, {0}); // 1
+  auto tv4 = sum(tv3, {0}); // 2
+  auto tv5 = sum(tv4, {0}); // 3
+
+  // Branch 1
+  auto tv6 = add(tv1, new Double(1)); // 4
+
+  // Merge
+  auto tv7 = add(tv6, tv5); // 5
+
+  // Maximum expected output groups (can improve overtime):
+  //  {0}, {1}, {2}, {3,4,5}
+  //  without final merge would have been {0}, {1}, {2}, {3,4}, {5}
+
+  fusion.addOutput(tv7);
+
+  auto fusion_segments = fusion.segment();
+  TORCH_CHECK(fusion_segments->groups().size() <= 4);
+}
+
 TEST(NVFuserTest, FusionEnsureMerging_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
