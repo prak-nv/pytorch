@@ -9910,6 +9910,42 @@ TEST(NVFuserTest, FusionTrivialReduction3_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
+// Make sure trivial reductions are correctly detected even with
+// scheduling applied.
+TEST(NVFuserTest, FusionDetectTrivialReduction_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  tv2->split(1, 4);
+  tv0->computeAt(tv2, -1);
+
+  GpuLower gpulw(&fusion);
+
+  // No kir::ReductionOp should be generated as the reduction should
+  // be replaced with a unary set op.
+  for (const auto& kir_node : gpulw.kernel()->irNodes()) {
+    TORCH_CHECK(!kir_node->isA<kir::ReductionOp>());
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({100}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {t0}, __LINE__, __FILE__);
+}
+
 TEST(NVFuserTest, FusionInputsIdLookup_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({16, 8, 8}, options);
