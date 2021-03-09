@@ -50,6 +50,14 @@ class TORCH_CUDA_CU_API GpuLower {
     return ca_parallel_map_;
   }
 
+  const auto& trivialReductions() const {
+    return trivial_reductions_;
+  }
+
+  bool isTrivialReduction(IterDomain* id) const {
+    return trivialReductions().find(id) != trivialReductions().end();
+  }
+
  private:
   void lower();
 
