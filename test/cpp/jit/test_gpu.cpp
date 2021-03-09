@@ -3279,6 +3279,26 @@ TEST(NVFuserTest, FusionRootMappingTrivialReduction_CUDA) {
       map, tv2, tv2->getRootDomain()[0], tv4, tv4->getRootDomain()[0], true);
   checkIdMapped(
       map, tv2, tv2->getRootDomain()[0], tv3, tv3->getRootDomain()[0], true);
+
+  tv2->computeAt(tv4, -1);
+
+  fusion.printKernel();
+
+  const int x = 11;
+  const int y = 12;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({x}, options);
+  at::Tensor t1 = at::randn({y, x}, options);
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+
+  auto t3 = t0;
+  auto t4 = t0.unsqueeze(0).expand({y, x}) + t1;
+
+  testValidate(&fusion, outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
 }
 
 TEST(NVFuserTest, FusionComputeAtFailDueToRootMapping_CUDA) {
@@ -13503,6 +13523,75 @@ TEST(NVFuserTest, FusionBlockWelfordInSerialLoop_CUDA) {
   at::Tensor aten_avg = t0.mean({1, 2});
   testValidate(
       &fusion, outputs, aten_inputs, {aten_M2, aten_avg}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionIOTensorTrivialReductionRepro_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 11;
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  std::vector<int> reduction_axes = {1};
+  std::vector<bool> broadcast_mask = {false, true};
+
+  auto tv0_bcast = broadcast(tv0, broadcast_mask);
+  auto path1_bcast = add(tv0_bcast, new Double(1.0));
+  auto path1 = sum(path1_bcast, reduction_axes);
+  fusion.addOutput(path1);
+
+#if true // set this to false to see the right result
+  auto p = path1->split(1, 1);
+  path1->axis(0)->parallelize(ParallelType::BIDx);
+  path1->rFactor({1});
+  tv0->computeAt(path1, 1);
+#else
+  path1->axis(0)->parallelize(ParallelType::TIDx);
+  path1->axis(1)->parallelize(ParallelType::BIDx);
+  tv0->computeAt(path1, 1);
+#endif
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M}, options);
+  at::Tensor t0_ref = t0.clone();
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  // inplace op, we are adding t0 to itself
+  auto outputs = fe.runFusion(aten_inputs, {t0});
+
+  TORCH_CHECK(outputs[0].allclose(t0_ref.add(1)));
+}
+
+TEST(NVFuserTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 11;
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = add(tv2, new Double(1));
+  fusion.addOutput(tv3);
+
+  auto tv4 = add(tv2, tv1);
+  fusion.addOutput(tv4);
+
+  tv2->computeAt(tv4, -1);
+  
+  fusion.printKernel();
+
 }
 
 } // namespace jit
