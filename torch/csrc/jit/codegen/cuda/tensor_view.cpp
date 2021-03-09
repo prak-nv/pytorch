@@ -1052,6 +1052,19 @@ struct CreateExprProducer : public OptInDispatch {
         transpose_expr->out(), producer_, transpose_expr->new2old());
   }
 
+  void handle(WelfordOp* welford_expr) final {
+    new WelfordOp(
+        welford_expr->outVar(),
+        welford_expr->outAvg(),
+        welford_expr->outN(),
+        welford_expr->initVar(),
+        welford_expr->initAvg(),
+        welford_expr->initN(),
+        welford_expr->inVar(),
+        producer_,
+        welford_expr->inN());
+  }
+
  private:
   TensorView* current_ = nullptr;
   TensorView* producer_ = nullptr;
