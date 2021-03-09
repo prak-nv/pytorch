@@ -9942,8 +9942,7 @@ TEST(NVFuserTest, FusionDetectTrivialReduction_CUDA) {
   fe.compileFusion(&fusion);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST(NVFuserTest, FusionInputsIdLookup_CUDA) {
