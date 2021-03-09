@@ -9965,6 +9965,47 @@ TEST(NVFuserTest, FusionDetectTrivialReduction_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionDetectTrivialReduction2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = sum(tv1, {1});
+  fusion.addOutput(tv2);
+
+  tv2->split(1, 4);
+  tv2->split(1, 8);
+  auto tv3 = tv2->rFactor({-1});
+  auto tv4 = tv2->rFactor({-1});
+
+  fusion.printMath();
+
+  GpuLower gpulw(&fusion);
+
+  // tv0->computeAt(tv2, -1);
+
+  // No kir::ReductionOp should be generated as the reduction should
+  // be replaced with a unary set op.
+  for (const auto& kir_node : gpulw.kernel()->irNodes()) {
+    TORCH_CHECK(!kir_node->isA<kir::ReductionOp>());
+  }
+
+#if 0
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({100}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  testValidate(&fusion, cg_outputs, aten_inputs, {t0}, __LINE__, __FILE__);
+#endif
+}
+
 TEST(NVFuserTest, FusionInputsIdLookup_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({16, 8, 8}, options);
@@ -13566,32 +13607,6 @@ TEST(NVFuserTest, FusionIOTensorTrivialReductionRepro_CUDA) {
   auto outputs = fe.runFusion(aten_inputs, {t0});
 
   TORCH_CHECK(outputs[0].allclose(t0_ref.add(1)));
-}
-
-TEST(NVFuserTest, TMP) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  constexpr int M = 10;
-  constexpr int N = 11;
-
-  auto tv0 = makeSymbolicTensor(1);
-  fusion.addInput(tv0);
-
-  auto tv1 = makeSymbolicTensor(2);
-  fusion.addInput(tv1);
-
-  auto tv2 = broadcast(tv0, {false, true});
-  auto tv3 = add(tv2, new Double(1));
-  fusion.addOutput(tv3);
-
-  auto tv4 = add(tv2, tv1);
-  fusion.addOutput(tv4);
-
-  tv2->computeAt(tv4, -1);
-  
-  fusion.printKernel();
-
 }
 
 } // namespace jit

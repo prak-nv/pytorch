@@ -73,6 +73,7 @@ class TORCH_CUDA_CU_API GpuLower {
   ComputeAtMap ca_loop_map_;
   ComputeAtMap ca_index_map_;
   ComputeAtMap ca_parallel_map_;
+  std::unordered_set<IterDomain*> trivial_reductions_;
 
   Fusion* fusion_ = nullptr;
 };
