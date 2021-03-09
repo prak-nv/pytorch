@@ -369,6 +369,11 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   //!  clean up pass. Cost isn't expected to be high since the graph at this
   //!  stage is already quite merged. Example cf. test_gpu.cpp:
   //!  FusionDAGMerging_CUDA
+  //!
+  //!  This merging algorithm is based on Theorem 4.1 of Herrmann et al.,
+  //!   to check if a producer-consumer pair can be merged into one group,
+  //!   it's enough to check if any other consumer of the producer also
+  //!   produces the consumer.
   void finalMerge();
 
   void finalize();

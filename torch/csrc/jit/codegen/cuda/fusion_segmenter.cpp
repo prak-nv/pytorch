@@ -1045,7 +1045,7 @@ void SegmentCandidateFinder::finalMerge() {
     for (auto producer_group : groups()) {
       // Populate consumers and their corresponding consumer edges
       std::unordered_map<SegmentedGroup*, SegmentedEdge*> consumer_edge_map;
-      std::vector<SegmentedGroup*> all_consumers;
+      std::vector<SegmentedGroup*> all_consumers_of_producer_group;
       for (auto consumer : producer_group->consumer_edges) {
         consumer_edge_map.insert({consumer->to, consumer});
       }
@@ -1053,11 +1053,12 @@ void SegmentCandidateFinder::finalMerge() {
       std::transform(
           consumer_edge_map.begin(),
           consumer_edge_map.end(),
-          std::back_inserter(all_consumers),
+          std::back_inserter(all_consumers_of_producer_group),
           [](auto& it) { return it.first; });
 
-      for (auto consumer : all_consumers) {
-        if (!producer_check.isConsumerOfAny(consumer, all_consumers) &&
+      for (auto consumer : all_consumers_of_producer_group) {
+        if (!producer_check.isConsumerOfAny(
+                consumer, all_consumers_of_producer_group) &&
             codeGenSupportedMerge(consumer_edge_map.at(consumer))) {
           to_merge_.emplace_back(producer_group);
           to_merge_.emplace_back(consumer);
