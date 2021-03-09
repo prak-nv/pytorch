@@ -112,6 +112,7 @@ TORCH_CUDA_API void scheduleNormalization(
 
 TORCH_CUDA_API void scheduleTranspose(
     Fusion* fusion,
+    const at::ArrayRef<c10::IValue>& fusion_inputs,
     TensorView* transpose_tv);
 
 } // namespace cuda

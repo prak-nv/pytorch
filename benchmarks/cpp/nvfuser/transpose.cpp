@@ -121,7 +121,7 @@ std::unordered_map<int,int> getPermute4D(
   return {};
 }
 
-static void transposeHelper(benchmark::State& benchmark_state, size_t ndims, std::unordered_map<int,int> old2new) {
+void transposeHelper(benchmark::State& benchmark_state, size_t ndims, std::unordered_map<int,int> old2new) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -129,16 +129,22 @@ static void transposeHelper(benchmark::State& benchmark_state, size_t ndims, std
   for(int i=0;i<ndims;i++){
     input_shape[i] = benchmark_state.range(i);
   }
+
+  std::vector<bool> all_true(ndims,true);
    // setup fusion
   auto input = TensorViewBuilder()
                    .ndims(input_shape.size())
-                   .dtype(DataType::Float)
+                   .dtype(DataType::Float).contiguity(all_true)
                    .build();
 
   auto output = setupTranspose(&fusion,input,old2new);
 
-  scheduleTranspose(&fusion,output);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor at_x = at::randn(input_shape, options);
+  std::vector<c10::IValue> inputs({at_x});
 
+  scheduleTranspose(&fusion,inputs,output);
+  
   timeFusionRun(fusion,input_shape,benchmark_state);
 }
 
@@ -154,7 +160,7 @@ static void runTranspose(benchmark::State& benchmark_state, PERMUTE4D permute){
   transposeHelper(benchmark_state,4,getPermute4D(permute));
 }
 
-static void runSingleAdd(benchmark::State& benchmark_state, size_t ndims) {
+void runSingleAdd(benchmark::State& benchmark_state, size_t ndims) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -164,9 +170,10 @@ static void runSingleAdd(benchmark::State& benchmark_state, size_t ndims) {
   }
   
   // setup fusion
+  std::vector<bool> all_true(ndims,true);
   auto input = TensorViewBuilder()
                    .ndims(input_shape.size())
-                   .dtype(DataType::Float)
+                   .dtype(DataType::Float).contiguity(all_true)
                    .build();
   
   auto output = setupPointwise(&fusion, input);
@@ -243,3 +250,40 @@ BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose4DNHWC,PERMUTE4D::NHWC)
     ->Ranges({{32,64},{3,3},{16,32},{16,32}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
+
+BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose4DDEBUGNHWC,PERMUTE4D::NHWC)
+    ->Ranges({{64,64},{3,3},{32,32},{32,32}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK_CAPTURE(BenchmarkSingleAdd,ADD4DDEBUG,4)
+    ->Ranges({{64,64},{3,3},{32,32},{32,32}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+
+// BENCHMARK_CAPTURE(BenchmarkSingleAdd,ADD3DDEBUG,3)
+//     ->RangeMultiplier(2)
+//     ->Ranges({{512,512},{512,512},{8,8}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
+
+
+// BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose3DDEBUG,PERMUTE3D::IOM)
+//     ->RangeMultiplier(2)
+//     ->Ranges({{512,512},{512,512},{8,8}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
+
+// BENCHMARK_CAPTURE(BenchmarkSingleAdd,ADD2DDEBUG,2)
+//     ->RangeMultiplier(2)
+//     ->Ranges({{512*512,512*512},{8,8}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
+
+
+// BENCHMARK_CAPTURE(BenchmarkTranspose,Transpose2DDEBUG,PERMUTE2D::IO)
+//     ->RangeMultiplier(2)
+//     ->Ranges({{512*512,512*512},{8,8}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();

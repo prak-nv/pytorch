@@ -1655,15 +1655,38 @@ namespace{
 
 void scheduleTranspose(
     Fusion* fusion,
+    const at::ArrayRef<c10::IValue>& fusion_inputs,
     TensorView* transpose_tv){
+
+      auto evaluator = executor_utils::bindFusionInputs(fusion_inputs, fusion);
 
       auto transpose_op = transpose_tv->definition()->as<TransposeOp>();
       auto& new2old = transpose_op->new2old();
       auto inner = getInnerPose(new2old);
 
+      // if inner is not transposed, use pointwise
       if(inner == (new2old.size()-1)){
         scheduleFusion(fusion);
         return;
+      }
+
+      auto inner_dim = transpose_tv->getRootDomain()[inner];
+      auto inner_dim_size = evaluator.evaluate(inner_dim->rawExtent());
+      TORCH_INTERNAL_ASSERT(inner_dim_size.has_value());
+
+      size_t non_inner_dim = 1;
+      for(auto id: transpose_tv->getRootDomain()){
+        if(!inner_dim->sameAs(id)){
+          auto val = evaluator.evaluate(id->rawExtent());
+          TORCH_INTERNAL_ASSERT(val.has_value());
+          non_inner_dim*=val.value();
+        }
+      }
+
+      
+      if(inner_dim_size.value()<16&&non_inner_dim<=32768){
+       scheduleFusion(fusion);
+       return;
       }
 
       for(size_t i=0;i<inner;i++){
