@@ -989,15 +989,6 @@ void SegmentCandidateFinder::findSegments() {
     return edge->val->isScalar() && codeGenSupportedMerge(edge);
   });
 
-  const bool has_scalar_edges =
-      std::any_of(edges().begin(), edges().end(), [](SegmentedEdge* edge) {
-        return edge->val->isScalar();
-      });
-
-  TORCH_INTERNAL_ASSERT(
-      !has_scalar_edges,
-      "DAG has scalar edges that cannot be merged away, to fix please avoid multiple uses of scalars that are not inputs to complete fusion.");
-
   bool merged_nodes = true;
 
   // Initial merge iteration
@@ -1053,7 +1044,7 @@ void SegmentCandidateFinder::findSegments() {
 
 template <typename SUPPORTED_MERGE_PREDICATE>
 void SegmentCandidateFinder::bruteForceMerge(
-    SUPPORTED_MERGE_PREDICATE supported_merge_predicate) {
+    SUPPORTED_MERGE_PREDICATE supported_merge) {
   AllProducerGroups producer_check(segmented_fusion_.get());
 
   bool merged_nodes = true;
@@ -1077,7 +1068,7 @@ void SegmentCandidateFinder::bruteForceMerge(
       for (auto consumer : all_consumers_of_producer_group) {
         if (!producer_check.isConsumerOfAny(
                 consumer, all_consumers_of_producer_group) &&
-            supported_merge_predicate(consumer_edge_map.at(consumer))) {
+            supported_merge(consumer_edge_map.at(consumer))) {
           to_merge_.emplace_back(producer_group);
           to_merge_.emplace_back(consumer);
           producer_group->merged_ = true;
