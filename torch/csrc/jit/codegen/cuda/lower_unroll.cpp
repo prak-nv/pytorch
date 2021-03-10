@@ -32,6 +32,95 @@ kir::ForLoop* cloneLoopNest(const kir::ForLoop* for_loop, bool unroll = false) {
   return new_loop;
 }
 
+// Provide a new for loop matching the one provided
+void cloneVectorizeLoopNests(
+    kir::IfThenElse* parent_ite,
+    std::vector<const kir::ForLoop*> for_loops,
+    kir::Val* extent,
+    bool vectorize,
+    kir::Val* offset) {
+
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+
+  for (auto fl : for_loops) {
+    auto first_expr = fl->body().exprs().front();
+    bool vectorize =
+        (first_expr->isA<kir::UnaryOp>() &&
+         first_expr->as<kir::UnaryOp>()->operation() == UnaryOpType::Set);
+    TORCH_INTERNAL_ASSERT(!vectorize || fl->body().exprs().size() == 1);
+
+    const auto new_loop = ir_builder.create<kir::ForLoop>(
+      fl->index(), extent, fl->iter_domain());
+
+    for (auto expr : fl->body().exprs()) {
+      new_loop->body().push_back(expr);
+    }
+
+    parent_ite->thenBody().push_back(new_loop);
+  }
+
+}
+
+std::vector<const kir::ForLoop*> parseVectorizedForLoop(
+    const kir::ForLoop* for_loop,
+    kir::ForLoop* new_loop) {
+
+  std::vector<const kir::ForLoop*> loops;
+  for (const auto expr : for_loop->body().exprs()) {
+    if (const auto nested_for_loop = dynamic_cast<const kir::ForLoop*>(expr)) {
+      loops.push_back(nested_for_loop);
+    } else {
+      new_loop->body().push_back(expr);
+    }
+  }
+  return loops;
+}
+
+kir::ForLoop* handleMisalignedVectorization(const kir::ForLoop* for_loop) {
+  // body -> allocate, read, compute, write for-loops
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+  kir::Int* zero = ir_builder.create<kir::Int>(0);
+
+  const auto new_loop = ir_builder.create<kir::ForLoop>(
+      for_loop->index(), for_loop->extent(), for_loop->iter_domain());
+
+  auto child_loops = parseVectorizedForLoop(for_loop, new_loop);
+
+  auto first_expr = child_loops.front()->body().exprs().front();
+  auto first_tv = first_expr->outputs().front()->as<kir::TensorView>();
+
+  auto extent = first_tv->domain()->rootDomain().back()->extent();
+  auto vector_size = first_tv->domain()->domain().back()->extent()->as<kir::Int>();
+
+  // TODO: auto base_index = generateIndex(expr, for_loop);
+  auto base_index = zero;
+  auto lshift = ir_builder.modExpr(base_index, vector_size);
+  auto extent_start = ir_builder.subExpr(extent, lshift);
+  auto rshift = ir_builder.modExpr(extent_start, vector_size);
+  kir::Val* floor_extent = ir_builder.divExpr(extent, vector_size);
+
+  // Part A - Vectorize
+  kir::Val* vectorize_pred = ir_builder.ltExpr(for_loop->index(), floor_extent);
+  kir::IfThenElse* vectorize_ite = ir_builder.create<kir::IfThenElse>(vectorize_pred->as<kir::Bool>());
+  cloneVectorizeLoopNests(vectorize_ite, child_loops, vector_size, true, lshift);
+  new_loop->body().push_back(vectorize_ite);
+
+  // Part B - Pre
+  kir::Val* lshift_pred = ir_builder.eqExpr(for_loop->index(), zero);
+  kir::IfThenElse* pre_ite = ir_builder.create<kir::IfThenElse>(lshift_pred->as<kir::Bool>());
+  cloneVectorizeLoopNests(pre_ite, child_loops, lshift, false, nullptr);
+  new_loop->body().push_back(pre_ite);
+
+  // Part C - Post
+  kir::Val* rshift_pred = ir_builder.eqExpr(for_loop->index(), floor_extent);
+  kir::IfThenElse* post_ite = ir_builder.create<kir::IfThenElse>(rshift_pred->as<kir::Bool>());
+  cloneVectorizeLoopNests(post_ite, child_loops, rshift, false, lshift);
+  new_loop->body().push_back(post_ite);
+
+  return new_loop;
+
+}
+
 // Returns true if expr is an expression that initializes a reduction
 // buffer.
 bool isReductionInitExpr(const kir::Expr* expr) {
@@ -109,6 +198,19 @@ void UnrollPass::handle(kir::Expr* expr) {
   }
 }
 
+bool containsMisalignedVectorization(const kir::ForLoop* fl) {
+  for (auto expr : fl->body().exprs()) {
+    if (expr->isA<kir::ForLoop>()) {
+      auto child_fl = expr->as<kir::ForLoop>();
+      if (child_fl->iter_domain()->parallelType() ==
+          ParallelType::MisalignedVectorize) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // We should factor our actual predicate generation from unrolling but insering
 // IR nodes "unroll_pred" or "inline_pred", then generate those later.
 void UnrollPass::handle(kir::ForLoop* fl) {
@@ -125,8 +227,15 @@ void UnrollPass::handle(kir::ForLoop* fl) {
 
     // Make copy of exprs because we replace them inplace in fl
     const auto exprs_copy = fl->body().exprs();
-    for (auto expr : exprs_copy) {
-      handle(expr);
+
+    if (containsMisalignedVectorization(fl)) {
+      auto new_fl = handleMisalignedVectorization(fl);
+      loop_replacement_map_.insert({fl, new_fl});
+      return;
+    } else {
+      for (auto expr : exprs_copy) {
+        handle(expr);
+      }
     }
 
     for_loops_.pop_back();

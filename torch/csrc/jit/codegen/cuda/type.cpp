@@ -429,6 +429,8 @@ static const char* parallel_type2string(ParallelType t) {
       return "threadIdx.x";
     case ParallelType::Vectorize:
       return "V";
+    case ParallelType::MisalignedVectorize:
+      return "MV";
     case ParallelType::Unroll:
       return "UR";
     case ParallelType::Unswitch:
