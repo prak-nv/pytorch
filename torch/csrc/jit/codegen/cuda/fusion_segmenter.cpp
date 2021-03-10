@@ -984,6 +984,11 @@ void SegmentCandidateFinder::findSegments() {
     g->setHeuristic(deriveHeuristic(g));
   }
 
+  // Scalar merge iteration, merge all scalar edges
+  bruteForceMerge([this](SegmentedEdge* edge) {
+    return edge->val->isScalar() && codeGenSupportedMerge(edge);
+  });
+
   bool merged_nodes = true;
 
   // Initial merge iteration
@@ -1030,12 +1035,16 @@ void SegmentCandidateFinder::findSegments() {
     mergeNodes();
   }
 
-  finalMerge();
+  // final merge clean up all remaining merge opportunities
+  bruteForceMerge(
+      [this](SegmentedEdge* edge) { return codeGenSupportedMerge(edge); });
 
   finalize();
 }
 
-void SegmentCandidateFinder::finalMerge() {
+template <typename SUPPORTED_MERGE_PREDICATE>
+void SegmentCandidateFinder::bruteForceMerge(
+    SUPPORTED_MERGE_PREDICATE supported_merge) {
   AllProducerGroups producer_check(segmented_fusion_.get());
 
   bool merged_nodes = true;
@@ -1059,7 +1068,7 @@ void SegmentCandidateFinder::finalMerge() {
       for (auto consumer : all_consumers_of_producer_group) {
         if (!producer_check.isConsumerOfAny(
                 consumer, all_consumers_of_producer_group) &&
-            codeGenSupportedMerge(consumer_edge_map.at(consumer))) {
+            supported_merge(consumer_edge_map.at(consumer))) {
           to_merge_.emplace_back(producer_group);
           to_merge_.emplace_back(consumer);
           producer_group->merged_ = true;
