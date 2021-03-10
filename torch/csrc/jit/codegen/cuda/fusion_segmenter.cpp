@@ -931,10 +931,14 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
       [](Expr* expr) { return ir_utils::isScalarOp(expr); });
 
   if (!scalar_expr_set.empty()) {
-    exprs.erase(std::remove_if(
-        exprs.begin(), exprs.end(), [&scalar_expr_set](Expr* expr) {
-          return scalar_expr_set.count(expr);
-        }));
+    exprs.erase(
+        std::remove_if(
+            exprs.begin(),
+            exprs.end(),
+            [&scalar_expr_set](Expr* expr) {
+              return scalar_expr_set.count(expr);
+            }),
+        exprs.end());
     exprs.insert(exprs.end(), scalar_expr_set.begin(), scalar_expr_set.end());
   }
 }

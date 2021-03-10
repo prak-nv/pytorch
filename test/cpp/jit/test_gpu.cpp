@@ -13438,6 +13438,38 @@ TEST(NVFuserTest, FusionDAGMerging_CUDA) {
   TORCH_CHECK(fusion_segments->groups().size() <= 4);
 }
 
+TEST(NVFuserTest, FusionDAGScalarMerging_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = makeSymbolicTensor(1);
+  auto i0 = new Int();
+
+  fusion.addInput(tv0);
+  fusion.addInput(i0);
+  fusion.addInput(tv1);
+
+  auto i1 = add(i0, new Int(1));
+  auto i2 = mul(i1, i1);
+  auto i3 = add(i2, i1);
+
+  // Branch 0
+  auto tv2 = sum(tv0, {0}); // 0
+  auto tv3 = add(tv2, i2);
+  // Branch 1
+  auto tv4 = sum(tv3, {0}); // 1
+  auto tv5 = add(tv4, i3);
+
+  auto tv6 = add(tv5, i0);
+
+  fusion.addOutput(tv6);
+
+  auto fusion_segments = fusion.segment();
+  fusion_segments->print();
+  // TORCH_CHECK(fusion_segments->groups().size() <= 4);
+}
+
 TEST(NVFuserTest, FusionBlockReduceInSerialLoop_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
