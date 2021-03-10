@@ -360,23 +360,21 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
     return segmented_fusion_->completeFusion();
   }
 
-  //! Additional merging iteration, clean up the rest of
-  //!  the merging opportunities
-  //!  Herrmann et al. is a fast and safe algorithm for finding merge candidates
-  //!  but can become too conservative in our use cases because we place
-  //!  additional qualifiers on valid merges other than having to generate DAGs,
-  //!  i.e. canSchedule. So we need a bruteforce final merging iteration as a
-  //!  clean up pass. Cost isn't expected to be high since the graph at this
-  //!  stage is already quite merged. Example cf. test_gpu.cpp:
+  //! A merging iteration method that guarantees to apply all producer-consumer
+  //!  merges that satisfies supported_merge predicate and doesn't introduce a
+  //!  cycle Herrmann et al. is a fast and safe algorithm for finding merge
+  //!  candidates but can become too conservative in our use cases because we
+  //!  place additional qualifiers on valid merges other than having to generate
+  //!  DAGs, i.e. canSchedule. So we need a bruteforce merging iteration as a
+  //!  clean up pass. Example cf. test_gpu.cpp:
   //!  FusionDAGMerging_CUDA
   //!
   //!  This merging algorithm is based on Theorem 4.1 of Herrmann et al.,
   //!   to check if a producer-consumer pair can be merged into one group,
   //!   it's enough to check if any other consumer of the producer also
   //!   produces the consumer.
-  //!
   template <typename SUPPORTED_MERGE_PREDICATE>
-  void bruteForceMerge(SUPPORTED_MERGE_PREDICATE supported_merge);
+  void bruteForceMerge(SUPPORTED_MERGE_PREDICATE supported_merge_predicate);
 
   void finalize();
 
