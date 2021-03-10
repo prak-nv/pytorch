@@ -60,8 +60,8 @@ struct ReductionParams {
        << " GridY: " << lparams.gdimy() << " BlckY: " << lparams.bdimy()
        << " BlckX: " << lparams.bdimx() << "\n";
     if (loop_unroll > 1) {
-      ss << (reduction_unroll ? "Unroll reduction dim: " : "Unroll iter dim: ")
-         << " Factor: " << loop_unroll;
+      ss << (reduction_unroll ? "Unroll reduction dim, " : "Unroll iter dim, ")
+         << "Factor: " << loop_unroll << "\n";
     }
     ss << "====================================\n";
     return ss.str();
