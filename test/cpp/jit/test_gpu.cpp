@@ -13439,35 +13439,54 @@ TEST(NVFuserTest, FusionDAGMerging_CUDA) {
 }
 
 TEST(NVFuserTest, FusionDAGScalarMerging_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   auto tv0 = makeSymbolicTensor(3);
-  auto tv1 = makeSymbolicTensor(1);
-  auto i0 = new Int();
+  auto i0 = new Double();
 
-  fusion.addInput(tv0);
-  fusion.addInput(i0);
-  fusion.addInput(tv1);
+  fusion->addInput(tv0);
+  fusion->addInput(i0);
 
-  auto i1 = add(i0, new Int(1));
+  auto i1 = add(i0, new Double(1.0));
   auto i2 = mul(i1, i1);
   auto i3 = add(i2, i1);
 
   // Branch 0
-  auto tv2 = sum(tv0, {0}); // 0
-  auto tv3 = add(tv2, i2);
+  auto tv1 = sum(tv0, {0}); // 0
+  auto tv2 = add(tv1, i2);
   // Branch 1
-  auto tv4 = sum(tv3, {0}); // 1
-  auto tv5 = add(tv4, i3);
+  auto tv3 = sum(tv2, {0}); // 1
+  auto tv4 = add(tv3, i3);
 
-  auto tv6 = add(tv5, i0);
+  auto tv5 = add(tv4, i0);
 
-  fusion.addOutput(tv6);
+  fusion->addOutput(tv5);
 
-  auto fusion_segments = fusion.segment();
-  fusion_segments->print();
-  // TORCH_CHECK(fusion_segments->groups().size() <= 4);
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  TORCH_CHECK(executor_cache.isSegmented(), "segmentation didn't happen");
+  TORCH_CHECK(
+      executor_cache.fusionSegments()->groups().size() == 2,
+      "segmentation didn't happen as expected");
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({16, 16, 16}, options);
+  double s0 = 0.5;
+
+  auto s1 = s0 + 1.0;
+  auto s2 = s1 * s1;
+  auto s3 = s2 + s1;
+  auto t1 = t0.sum({0});
+  auto t2 = t1 + s2;
+  auto t3 = sum(t2, {0});
+  auto t4 = t3 + s3;
+  auto t5 = t4 + s0;
+
+  auto outputs = executor_cache.runFusionWithInputs({t0, s0});
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, s0}, {t5}, __LINE__, __FILE__);
 }
 
 TEST(NVFuserTest, FusionBlockReduceInSerialLoop_CUDA) {

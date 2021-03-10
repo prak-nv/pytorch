@@ -1159,18 +1159,19 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   // Record and append all missing scalar exprs at the end.
   std::vector<Expr*> exprs_to_add;
 
+  // Do a stack based traversal of the scalar ops to avoid
+  //  combinatorial duplication of exprs.
   while (!to_visit.empty()) {
     auto stack_top_val = to_visit.back();
-
-    // Visited case, do nothing
     if (visited.count(stack_top_val)) {
       to_visit.pop_back();
     } else if (stack_top_val->definition() == nullptr) {
-      // A scalar without def is either a constant or
-      //  a composite fusion input
-
+      // A scalar without def can be a scalar, a tensor dim,
+      //  or a composite fusion input
+      // The first two cases are handled in finalize(),
+      //  the last case needs to add new input_val to this group.
       visited.insert(stack_top_val);
-      // If this is a new composite fusion scalar input, add to this group
+      // If this is a composite fusion scalar input, make sure this group has it
       if (stack_top_val->isFusionInput() && !input_set.count(stack_top_val)) {
         group->input_vals.push_back(stack_top_val);
         input_set.insert(stack_top_val);
@@ -1189,7 +1190,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
       }
       // This node is ready to be visited
       if (all_inputs_visited) {
-        // Collect the defining expr
+        // Collect the defining expr to insert into group
         exprs_to_add.push_back(definition_expr);
         visited.insert(stack_top_val);
         to_visit.pop_back();
@@ -1253,8 +1254,6 @@ inline void inferGroupInputs(
       }
     } else if (v != nullptr && v->isAnInt()) {
       copyValue(v, ee, local_ee);
-    } else {
-      TORCH_INTERNAL_ASSERT(false, "unreachable");
     }
   }
 }
