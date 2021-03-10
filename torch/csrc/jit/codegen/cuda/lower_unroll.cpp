@@ -44,13 +44,13 @@ void cloneVectorizeLoopNests(
 
   for (auto fl : for_loops) {
     auto first_expr = fl->body().exprs().front();
-    bool vectorize =
+    bool vectorizeOp =
         (first_expr->isA<kir::UnaryOp>() &&
          first_expr->as<kir::UnaryOp>()->operation() == UnaryOpType::Set);
     TORCH_INTERNAL_ASSERT(!vectorize || fl->body().exprs().size() == 1);
 
     const auto new_loop = ir_builder.create<kir::ForLoop>(
-      fl->index(), extent, fl->iter_domain());
+      fl->index(), extent, fl->iter_domain(), false, vectorize && vectorizeOp);
 
     for (auto expr : fl->body().exprs()) {
       new_loop->body().push_back(expr);
@@ -252,6 +252,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
 
   unroll_ite->thenBody().push_back(unrolled_loop_nest);
   if (fl->iter_domain()->parallelType() == ParallelType::Vectorize) {
+    fl->setVectorize(true);
     loop_replacement_map_.insert({fl, unroll_ite});
     return;
   }

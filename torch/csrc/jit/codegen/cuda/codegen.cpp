@@ -301,10 +301,15 @@ class CudaKernelGenerator : private kir::IrVisitor {
     bool is_vector_op = false;
     size_t vector_word_size = 1;
 
-    if (node->out()->isA<kir::TensorIndex>()) {
+    if (vectorize_scope_ && node->out()->isA<kir::TensorIndex>()) {
       auto ti = node->out()->as<kir::TensorIndex>();
+
+      bool vectorize_op = false;
+      bool misaligned_op = false;
+
       for (auto id : ti->view()->fuserTv()->domain()->domain()) {
-        if (id->getParallelType() != ParallelType::Vectorize) {
+        if (id->getParallelType() != ParallelType::Vectorize &&
+            id->getParallelType() != ParallelType::MisalignedVectorize) {
           continue;
         }
 
@@ -313,19 +318,28 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
         TORCH_INTERNAL_ASSERT(
             vector_size_optional.has_value(),
-            "Could not evalualte constant value bound to vectorized dim.");
+            "Could not evaluate constant value bound to vectorized dim.");
 
         vector_word_size = vector_size_optional.value();
 
-        is_vector_op = true;
+        vectorize_op = id->getParallelType() == ParallelType::Vectorize;
+        misaligned_op = id->getParallelType() == ParallelType::MisalignedVectorize;
         break;
       }
 
-      if (is_vector_op) {
+      if (vectorize_op) {
         TORCH_INTERNAL_ASSERT(
             node->operation() == UnaryOpType::Set,
             "Cannot vectorize operations that are not sets. ",
             "Use cache_before and cache_after to store/load with vectorized reads into buffers.");
+        is_vector_op = true;
+      }
+
+      if (misaligned_op) {
+        is_vector_op = (node->operation() == UnaryOpType::Set);
+      }
+
+      if (is_vector_op) {
         TORCH_INTERNAL_ASSERT(
             node->out()->dtype() == node->in()->dtype(),
             "Vectorized store/load requires input and output datatypes match.");
@@ -864,8 +878,10 @@ class CudaKernelGenerator : private kir::IrVisitor {
   void visit(const kir::ForLoop* node) final {
     // TODO(kir): handle this during lowering
     if (node->iter_domain()->isThread() || node->iter_domain()->isBroadcast() ||
-        node->iter_domain()->parallelType() == ParallelType::Vectorize) {
+        node->vectorize()) {
+      vectorize_scope_ = true;
       handleScope(node->body());
+      vectorize_scope_ = false;
       return;
     }
 
@@ -973,6 +989,9 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
   // TODO(kir): replace with explicit assignment statements
   bool print_inline_ = false;
+
+  // Mark when we are inside of a vectorized for-loop
+  bool vectorize_scope_ = false;
 };
 
 } // namespace
