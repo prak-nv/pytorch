@@ -9932,7 +9932,7 @@ TEST(NVFuserTest, FusionTrivialReduction3_CUDA) {
 
 // Make sure trivial reductions are correctly detected even with
 // scheduling applied.
-TEST(NVFuserTest, FusionDetectTrivialReduction1_CUDA) {
+TEST(NVFuserTest, FusionDetectTrivialReduction_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
