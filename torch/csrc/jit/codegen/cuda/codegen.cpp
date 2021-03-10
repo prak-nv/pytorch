@@ -878,7 +878,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
 
     const auto gen_index = gen(node->index());
     const auto gen_start = genInline(node->iter_domain()->start());
-    const auto gen_extent = genInline(node->iter_domain()->extent());
+    const auto gen_extent = genInline(node->extent());
     if (!node->unroll()) {
       indent() << "#pragma unroll 1\n";
     }

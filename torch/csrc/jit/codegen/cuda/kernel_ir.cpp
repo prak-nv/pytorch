@@ -437,10 +437,12 @@ void Scope::clear() {
 ForLoop::ForLoop(
     Passkey passkey,
     Val* index,
+    Val* extent,
     IterDomain* iter_domain,
     bool unroll)
     : Expr(passkey),
       index_{index},
+      extent_(extent),
       iter_domain_{iter_domain},
       body_(this),
       unroll_(unroll) {
