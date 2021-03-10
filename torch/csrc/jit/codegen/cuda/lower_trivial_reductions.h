@@ -13,7 +13,12 @@ namespace jit {
 namespace fuser {
 namespace cuda {
 
-std::unordered_set<IterDomain*> detectTrivialReductions(Fusion* fusion);
+//! Detect all IterDomains that are derived only from trivial
+//! reductons, thus not necessary to appear in the final generated
+//! kernel. The returned set includes all domains from root to
+//! leaves. It also can include non-reduction, rfactor domains.
+std::unordered_set<IterDomain*> detectTrivialReductionDerivedDomains(
+    Fusion* fusion);
 
 } // namespace cuda
 } // namespace fuser

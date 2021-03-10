@@ -22,12 +22,15 @@ bool traverseToRFactorTensor(TensorView* tv, IterDomain* root_id) {
       root_id->definition() == nullptr, "Not root IterDomain: ", root_id);
 
   if (tv->definition() == nullptr) {
+    // This is an input tensor, so no rafactor tensor to traverse.
     return false;
   }
 
   const auto& inputs = tv->definition()->inputs();
 
-  if (inputs.size() != 1 || !inputs[0]->isA<TensorView>()) {
+  if (inputs.size() != 1 || !inputs[0]->isA<TensorView>() ||
+      tv->definition()->getExprType() != ExprType::ReductionOp) {
+    // No rfactor producer found
     return false;
   }
 
@@ -57,6 +60,9 @@ bool isDerivedFromTrivialReduction(TensorView* tv, IterDomain* id) {
     if (root_id->isReduction() && root_id->rawExtent()->isOneInt()) {
       continue;
     }
+    // If not possible to prove the root ID is trivial, see if the ID
+    // is derived from a rfactor tensor and, if so, continue the
+    // analysis at the rfactor tensor.
     if (!traverseToRFactorTensor(tv, root_id)) {
       return false;
     }
@@ -66,7 +72,8 @@ bool isDerivedFromTrivialReduction(TensorView* tv, IterDomain* id) {
 
 } // namespace
 
-std::unordered_set<IterDomain*> detectTrivialReductions(Fusion* fusion) {
+std::unordered_set<IterDomain*> detectTrivialReductionDerivedDomains(
+    Fusion* fusion) {
   auto used_vals = DependencyCheck::getAllValsBetween(
       {fusion->inputs().begin(), fusion->inputs().end()}, fusion->outputs());
 

@@ -3282,8 +3282,6 @@ TEST(NVFuserTest, FusionRootMappingTrivialReduction_CUDA) {
 
   tv2->computeAt(tv4, -1);
 
-  fusion.printKernel();
-
   const int x = 11;
   const int y = 12;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

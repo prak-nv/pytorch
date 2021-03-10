@@ -110,7 +110,7 @@ void GpuLower::lower() {
   validateIr(fusion_);
   replaceSymbolicSizes();
 
-  trivial_reductions_ = detectTrivialReductions(fusion_);
+  trivial_reductions_ = detectTrivialReductionDerivedDomains(fusion_);
   for (auto id : trivial_reductions_) {
     auto kir_trivial_id = lowerValue(id)->as<kir::IterDomain>();
     kir_trivial_reductions_.insert(kir_trivial_id);
