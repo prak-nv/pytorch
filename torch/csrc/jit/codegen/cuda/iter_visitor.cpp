@@ -364,17 +364,41 @@ namespace {
 // Looks for and returns all values in between dependencies and vals, including
 // them.
 struct Dependencies : public IterVisitor {
-  std::unordered_set<Val*> dependencies_;
+ private:
+  const std::unordered_set<Val*> dependencies_;
   std::unordered_set<Val*> vals_;
+  std::unordered_set<Expr*> dependent_exprs_;
 
   std::vector<Statement*> next(Val* v) override {
-    if (dependencies_.find(v) != dependencies_.end())
+    if (dependencies_.find(v) != dependencies_.end()) {
       return std::vector<Statement*>();
+    }
     return IterVisitor::next(v);
   }
 
   void handle(Val* val) override {
-    vals_.emplace(val);
+    // val is included if:
+    // 1. it is one of the dependencies, or
+    // 2. its defining expression is included in the dependent expr set
+    if (dependencies_.find(val) != dependencies_.end()) {
+      vals_.emplace(val);
+    } else {
+      auto def = val->definition();
+      if (def != nullptr &&
+          dependent_exprs_.find(def) != dependent_exprs_.end()) {
+        vals_.emplace(val);
+      }
+    }
+  }
+
+  void handle(Expr* expr) override {
+    // Track which expr is depedent on the dependencies_ exprs.
+    if (std::any_of(
+            expr->inputs().begin(), expr->inputs().end(), [&](Val* input_val) {
+              return vals_.find(input_val) != vals_.end();
+            })) {
+      dependent_exprs_.insert(expr);
+    }
   }
 
   Dependencies(
