@@ -242,9 +242,11 @@ void IndexCompute::handle(Split* split) {
   const bool inner_bcast = inner_id->isBroadcast();
 
   const bool outer_vect =
-      split->outer()->getParallelType() == ParallelType::Vectorize;
+      split->outer()->getParallelType() == ParallelType::Vectorize ||
+      split->outer()->getParallelType() == ParallelType::MisalignedVectorize;
   const bool inner_vect =
-      split->inner()->getParallelType() == ParallelType::Vectorize;
+      split->inner()->getParallelType() == ParallelType::Vectorize ||
+      split->inner()->getParallelType() == ParallelType::MisalignedVectorize;
 
   // We want to mark as zero merged in if we're working with shared or local
   // memory, and the dimension we're working with is not part of the allocation,
@@ -781,6 +783,9 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
     if (ref_id->getParallelType() == ParallelType::Vectorize) {
       p_id->parallelize(ParallelType::Vectorize);
     }
+    if (ref_id->getParallelType() == ParallelType::MisalignedVectorize) {
+      p_id->parallelize(ParallelType::MisalignedVectorize);
+    }
   }
 
   // Index into producer using reference indexing
@@ -1051,6 +1056,9 @@ kir::TensorIndex* Index::getProducerIndex_impl(
     auto p_id = entry.second;
     if (ref_id->getParallelType() == ParallelType::Vectorize) {
       p_id->parallelize(ParallelType::Vectorize);
+    }
+    if (ref_id->getParallelType() == ParallelType::MisalignedVectorize) {
+      p_id->parallelize(ParallelType::MisalignedVectorize);
     }
   }
 
