@@ -58,11 +58,11 @@ class TORCH_CUDA_CU_API GpuLower {
     return kir_trivial_reductions_;
   }
 
-  bool isTrivialReduction(IterDomain* id) const {
+  bool isDerivedFromTrivialReduction(IterDomain* id) const {
     return trivialReductions().find(id) != trivialReductions().end();
   }
 
-  bool isTrivialReduction(kir::IterDomain* id) const {
+  bool isDerivedFromTrivialReduction(kir::IterDomain* id) const {
     return kirTrivialReductions().find(id) != kirTrivialReductions().end();
   }
 

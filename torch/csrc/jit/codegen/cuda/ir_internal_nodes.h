@@ -425,7 +425,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   //! Check if IterDomain is a reduction axis with size of 1, i.e.
   //! a "squeeze" operator.
-  bool isTrivialReduction() const {
+  bool isDerivedFromTrivialReduction() const {
     return isReduction() && rawExtent()->isOneInt();
   }
 

@@ -9982,10 +9982,19 @@ TEST(NVFuserTest, FusionDetectTrivialReduction2_CUDA) {
   auto tv3 = tv2->rFactor({-1});
   auto tv4 = tv2->rFactor({-1});
 
-  tv0->computeAt(tv2, -1);
+  auto tv5 = broadcast(tv0, {true, false});
+  auto tv6 = add(tv5, new Double(1));
+  auto tv7 = sub(tv6, new Double(1));
+  auto tv8 = sum(tv7, {0});
+  fusion.addOutput(tv8);
 
-  fusion.printMath();
-  fusion.printKernel();
+  tv7->split(0, 4);
+
+  tv0->computeAt(tv2, -1);
+  tv0->computeAt(tv8, -1);
+
+  tv3->setMemoryType(MemoryType::Global);
+  tv8->setMemoryType(MemoryType::Global);
 
   GpuLower gpulw(&fusion);
 
@@ -10003,7 +10012,7 @@ TEST(NVFuserTest, FusionDetectTrivialReduction2_CUDA) {
   fe.compileFusion(&fusion);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, {t0, t0}, __LINE__, __FILE__);
 }
 
 TEST(NVFuserTest, FusionInputsIdLookup_CUDA) {

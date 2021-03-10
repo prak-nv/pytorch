@@ -15,7 +15,7 @@ namespace cuda {
 
 namespace {
 
-bool isTrivialReduction(TensorView* tv, IterDomain* id);
+bool isDerivedFromTrivialReduction(TensorView* tv, IterDomain* id);
 
 bool traverseToRFactorTensor(TensorView* tv, IterDomain* root_id) {
   TORCH_INTERNAL_ASSERT(
@@ -48,10 +48,10 @@ bool traverseToRFactorTensor(TensorView* tv, IterDomain* root_id) {
 
   auto producer_root_id = producer_id_it->second;
 
-  return isTrivialReduction(producer, producer_root_id);
+  return isDerivedFromTrivialReduction(producer, producer_root_id);
 }
 
-bool isTrivialReduction(TensorView* tv, IterDomain* id) {
+bool isDerivedFromTrivialReduction(TensorView* tv, IterDomain* id) {
   auto id_inputs = InputsOf::output(id->fusion(), id);
   for (auto root_id : ir_utils::filterByType<IterDomain>(id_inputs)) {
     if (root_id->isReduction() && root_id->rawExtent()->isOneInt()) {
@@ -74,7 +74,7 @@ std::unordered_set<IterDomain*> detectTrivialReductions(Fusion* fusion) {
 
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     for (auto id : tv->domain()->domain()) {
-      if (isTrivialReduction(tv, id)) {
+      if (isDerivedFromTrivialReduction(tv, id)) {
         // If id is a trivial reduction, all of its ancestor vals are
         // also trivial reductions.
         for (auto dep_id : DependencyCheck::getAllValsBetween(

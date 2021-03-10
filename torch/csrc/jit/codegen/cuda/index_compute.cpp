@@ -807,6 +807,12 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
     } else if (root_dom[i]->getIterType() == IterType::BroadcastWithStride) {
       stride_i++;
       continue;
+    } else if (gpu_lower->isDerivedFromTrivialReduction(root_dom[i])) {
+      // If the domain is derived from a trivial reduction, no indexing to
+      // create. Also, the domain at this branch must not be a
+      // reduction, so the stride index should be incremented.
+      stride_i++;
+      continue;
     }
 
     auto kir_root_dom_i =
@@ -1043,7 +1049,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   std::vector<kir::Val*> strided_inds;
   for (size_t i = 0; i < root_dom.size(); i++) {
     if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast() ||
-        gpu_lower->isTrivialReduction(root_dom[i])) {
+        gpu_lower->isDerivedFromTrivialReduction(root_dom[i])) {
       continue;
     }
 
@@ -1069,7 +1075,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
     kir::Val* stride = nullptr;
     for (size_t j = i + 1; j < root_dom.size(); j++) {
       if (root_dom[j]->isBroadcast() || root_dom[j]->isReduction() ||
-          gpu_lower->isTrivialReduction(root_dom[j])) {
+          gpu_lower->isDerivedFromTrivialReduction(root_dom[j])) {
         continue;
       }
 
@@ -1167,6 +1173,10 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
         root_dom[i]->getIterType() == IterType::BroadcastWithoutStride) {
       continue;
     } else if (root_dom[i]->getIterType() == IterType::BroadcastWithStride) {
+      stride_i++;
+      continue;
+    } else if (gpu_lower->isDerivedFromTrivialReduction(root_dom[i])) {
+      // See a comment in indexing to root domains in getGlobalProducerIndex.
       stride_i++;
       continue;
     }
@@ -1292,7 +1302,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   std::vector<kir::Val*> strided_inds;
   for (size_t i = 0; i < root_dom.size(); i++) {
     if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast() ||
-        gpu_lower->isTrivialReduction(root_dom[i])) {
+        gpu_lower->isDerivedFromTrivialReduction(root_dom[i])) {
       continue;
     }
 
@@ -1317,7 +1327,7 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
     kir::Val* stride = nullptr;
     for (size_t j = i + 1; j < root_dom.size(); j++) {
       if (root_dom[j]->isBroadcast() || root_dom[j]->isReduction() ||
-          gpu_lower->isTrivialReduction(root_dom[j])) {
+          gpu_lower->isDerivedFromTrivialReduction(root_dom[j])) {
         continue;
       }
 
@@ -1512,7 +1522,8 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
   std::vector<kir::Val*> root_inds(root_domain.size(), zero);
 
   for (size_t i = 0; i < root_domain.size(); i++) {
-    if (root_domain[i]->isBroadcast()) {
+    if (root_domain[i]->isBroadcast() ||
+        gpu_lower->isDerivedFromTrivialReduction(root_domain[i])) {
       continue;
     }
     const auto it = consumer_indexing.indexMap().find(root_domain[i]);

@@ -320,7 +320,6 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
                 return true;
               }
             })) {
-      std::cerr << "Trivial reduction detected: " << node << std::endl;
       const auto lowered_node = ir_builder_.create<kir::UnaryOp>(
           UnaryOpType::Set, lowerValue(node->out()), lowerValue(node->in()));
       TORCH_CHECK(

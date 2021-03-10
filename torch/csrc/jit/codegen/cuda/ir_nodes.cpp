@@ -1056,7 +1056,7 @@ bool TensorDomain::hasReduction(const std::vector<IterDomain*>& td) {
 
 bool TensorDomain::hasNontrivialReduction(const std::vector<IterDomain*>& td) {
   for (auto id : td) {
-    if (id->isReduction() && !id->isTrivialReduction()) {
+    if (id->isReduction() && !id->isDerivedFromTrivialReduction()) {
       return true;
     }
   }
