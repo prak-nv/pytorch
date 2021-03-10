@@ -13106,22 +13106,26 @@ TEST(NVFuserTest, FusionMisalignedVectorization1_CUDA) {
   auto tv2 = add(tv0, tv1);
   fusion.addOutput(tv2);
 
-  tv2->split(1, 64);
+  const int kTDX = 64;
+  const int kVecSize = 4;
+  const int kNumElems = kTDX * kVecSize;
 
-  tv2->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(1)->parallelize(ParallelType::TIDx);
+  tv2->split(1, kNumElems);
 
   auto c0 = tv0->cache_after();
   auto c1 = tv1->cache_after();
   auto c2 = tv2->cache_before();
 
-  tv2->split(-1, 4);
+  tv2->split(-1, kVecSize);
 
   c0->computeAt(tv2, -2);
   c1->computeAt(tv2, -2);
 
   c0->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
   c1->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
   tv2->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
 
   fusion.printMath();
