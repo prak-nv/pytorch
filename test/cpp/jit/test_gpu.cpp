@@ -13470,6 +13470,45 @@ TEST(NVFuserTest, FusionBlockWelfordInSerialLoop_CUDA) {
       &fusion, outputs, aten_inputs, {aten_M2, aten_avg}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionIssue728_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addOutput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addOutput(tv1);
+  auto tv2 = makeSymbolicTensor(1);
+  fusion.addOutput(tv2);
+
+  auto tv3 = add(tv0, new Double(1));
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = add(tv4, new Double(1));
+  auto tv6 = add(tv2, new Double(1));
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto all_vals_under_tv3 =
+      DependencyCheck::getAllValsBetween({tv3}, fusion.outputs());
+  std::unordered_set<Val*> included_tensors({tv3, tv4, tv5});
+  for (auto tv : included_tensors) {
+    TORCH_CHECK(
+        all_vals_under_tv3.find(tv) != all_vals_under_tv3.end(),
+        "TV",
+        tv->name(),
+        " not found");
+  }
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion.vals())) {
+    if (included_tensors.find(tv) == included_tensors.end()) {
+      TORCH_CHECK(
+          all_vals_under_tv3.find(tv) == all_vals_under_tv3.end(),
+          "TV",
+          tv->name(),
+          " should not be found");
+    }
+  }
+}
+
 } // namespace jit
 } // namespace torch
 #endif // #if defined(USE_CUDA)
