@@ -281,8 +281,19 @@ FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion>&& fusion)
   if (segmented) {
     fusion_segments_ = fusion_->segment();
     fusion_segment_runtime_cache_.initCache(fusion_segments_.get());
+    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+      fusion_segments_->print();
+    }
     return;
   }
+
+  // In the case that the fusion isn't segmented but user
+  //  wants segmented fusion in the debug print. Will
+  //  print math of the composite fusion as placeholder
+  if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+    fusion->printMath();
+  }
+
   // avoid putting `has_nontrivial_reduction_` in the initializer list
   has_nontrivial_reduction_ = fusion_->hasReduction();
 
