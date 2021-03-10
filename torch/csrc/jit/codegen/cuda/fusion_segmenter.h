@@ -374,9 +374,7 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   //!   to check if a producer-consumer pair can be merged into one group,
   //!   it's enough to check if any other consumer of the producer also
   //!   produces the consumer.
-  //!
-  template <typename SUPPORTED_MERGE_PREDICATE>
-  void bruteForceMerge(SUPPORTED_MERGE_PREDICATE supported_merge);
+  void finalMerge();
 
   void finalize();
 
