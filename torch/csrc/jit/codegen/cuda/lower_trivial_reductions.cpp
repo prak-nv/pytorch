@@ -75,7 +75,14 @@ std::unordered_set<IterDomain*> detectTrivialReductions(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     for (auto id : tv->domain()->domain()) {
       if (isTrivialReduction(tv, id)) {
-        trivial_reductions.insert(id);
+        // If id is a trivial reduction, all of its ancestor vals are
+        // also trivial reductions.
+        for (auto dep_id : DependencyCheck::getAllValsBetween(
+                 std::unordered_set<Val*>(
+                     tv->getRootDomain().begin(), tv->getRootDomain().end()),
+                 {id})) {
+          trivial_reductions.insert(dep_id->as<IterDomain>());
+        }
       }
     }
   }

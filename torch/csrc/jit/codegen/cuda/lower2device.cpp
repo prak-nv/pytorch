@@ -111,6 +111,10 @@ void GpuLower::lower() {
   replaceSymbolicSizes();
 
   trivial_reductions_ = detectTrivialReductions(fusion_);
+  for (auto id : trivial_reductions_) {
+    auto kir_trivial_id = lowerValue(id)->as<kir::IterDomain>();
+    kir_trivial_reductions_.insert(kir_trivial_id);
+  }
 
   // In the future we may directly use this map, but for now it will propagate
   // and validate (to some extent) the parallelization strategy.

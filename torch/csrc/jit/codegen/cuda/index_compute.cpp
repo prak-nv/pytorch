@@ -1042,7 +1042,8 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   auto root_dom = producer_tv->getMaybeRFactorDomain();
   std::vector<kir::Val*> strided_inds;
   for (size_t i = 0; i < root_dom.size(); i++) {
-    if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast()) {
+    if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast() ||
+        gpu_lower->isTrivialReduction(root_dom[i])) {
       continue;
     }
 
@@ -1067,7 +1068,8 @@ kir::TensorIndex* Index::getProducerIndex_impl(
     // Compute striding for this index.
     kir::Val* stride = nullptr;
     for (size_t j = i + 1; j < root_dom.size(); j++) {
-      if (root_dom[j]->isBroadcast() || root_dom[j]->isReduction()) {
+      if (root_dom[j]->isBroadcast() || root_dom[j]->isReduction() ||
+          gpu_lower->isTrivialReduction(root_dom[j])) {
         continue;
       }
 
@@ -1289,7 +1291,8 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
   auto root_dom = consumer_tv->getMaybeRFactorDomain();
   std::vector<kir::Val*> strided_inds;
   for (size_t i = 0; i < root_dom.size(); i++) {
-    if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast()) {
+    if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast() ||
+        gpu_lower->isTrivialReduction(root_dom[i])) {
       continue;
     }
 
@@ -1313,7 +1316,8 @@ kir::TensorIndex* Index::getConsumerIndex_impl(
     // Compute striding for this index.
     kir::Val* stride = nullptr;
     for (size_t j = i + 1; j < root_dom.size(); j++) {
-      if (root_dom[j]->isBroadcast() || root_dom[j]->isReduction()) {
+      if (root_dom[j]->isBroadcast() || root_dom[j]->isReduction() ||
+          gpu_lower->isTrivialReduction(root_dom[j])) {
         continue;
       }
 

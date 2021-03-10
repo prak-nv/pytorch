@@ -54,8 +54,16 @@ class TORCH_CUDA_CU_API GpuLower {
     return trivial_reductions_;
   }
 
+  const auto& kirTrivialReductions() const {
+    return kir_trivial_reductions_;
+  }
+
   bool isTrivialReduction(IterDomain* id) const {
     return trivialReductions().find(id) != trivialReductions().end();
+  }
+
+  bool isTrivialReduction(kir::IterDomain* id) const {
+    return kirTrivialReductions().find(id) != kirTrivialReductions().end();
   }
 
  private:
@@ -82,6 +90,7 @@ class TORCH_CUDA_CU_API GpuLower {
   ComputeAtMap ca_index_map_;
   ComputeAtMap ca_parallel_map_;
   std::unordered_set<IterDomain*> trivial_reductions_;
+  std::unordered_set<kir::IterDomain*> kir_trivial_reductions_;
 
   Fusion* fusion_ = nullptr;
 };

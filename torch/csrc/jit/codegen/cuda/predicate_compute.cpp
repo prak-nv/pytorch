@@ -7,6 +7,7 @@
 #include <torch/csrc/jit/codegen/cuda/instrumentation.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_builder.h>
+#include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
 
@@ -82,6 +83,8 @@ std::vector<kir::Bool*> PredicateCompute::computePredicates(
     const bool simple_ind = indices[i]->definition() == nullptr;
 
     if (root[i]->isBroadcast()) {
+      continue;
+    } else if (gpu_lower->isTrivialReduction(root[i])) {
       continue;
     } else if (simple_ind && !zero_ind) {
       extent = nullptr;
