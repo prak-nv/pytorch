@@ -26,7 +26,11 @@ static std::pair<TensorView*, TensorView*> setupReduction(
 
   bool is_fp16 = dtype == DataType::Half;
 
-  TensorView* tv0 = TensorViewBuilder().ndims(2).dtype(dtype).build();
+  TensorView* tv0 = TensorViewBuilder()
+                        .ndims(2)
+                        .dtype(dtype)
+                        .contiguity({true, true})
+                        .build();
   fusion->addInput(tv0);
 
   TensorView* tv0_cast = tv0;
