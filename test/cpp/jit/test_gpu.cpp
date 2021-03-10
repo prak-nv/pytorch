@@ -13488,6 +13488,11 @@ TEST(NVFuserTest, FusionIssue728_CUDA) {
   fusion.addOutput(tv5);
   fusion.addOutput(tv6);
 
+  // tv0 -> tv3 -+
+  // tv1 --------+-> tv4 -> tv5
+  //
+  // tv2 -> tv6
+
   auto all_vals_under_tv3 =
       DependencyCheck::getAllValsBetween({tv3}, fusion.outputs());
   std::unordered_set<Val*> included_tensors({tv3, tv4, tv5});
@@ -13507,6 +13512,20 @@ TEST(NVFuserTest, FusionIssue728_CUDA) {
           " should not be found");
     }
   }
+
+  auto no_dependency = DependencyCheck::getAllValsBetween({}, fusion.outputs());
+  TORCH_CHECK(no_dependency.empty(), "No val should be returned");
+
+  auto no_dep_path = DependencyCheck::getAllValsBetween({tv0, tv1}, {tv6});
+  TORCH_CHECK(no_dep_path.empty(), "No val should be returned");
+
+  auto no_dep_path2 = DependencyCheck::getAllValsBetween({tv2}, {tv5});
+  TORCH_CHECK(no_dep_path2.empty(), "No val should be returned");
+
+  auto just_tv3 = DependencyCheck::getAllValsBetween({tv3}, {tv3});
+  TORCH_CHECK(
+      just_tv3.size() == 1 && *(just_tv3.begin()) == tv3,
+      "Only tv3 should be included");
 }
 
 } // namespace jit
