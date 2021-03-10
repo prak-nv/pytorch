@@ -258,8 +258,8 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   //! original full fusion
   Fusion fusion_;
 
-  //! Count total exprs
-  size_t total_expr_count_ = 0;
+  //! Count total tensorview exprs
+  size_t total_tv_expr_count_ = 0;
 
   //! States representing segmentation
   std::vector<SegmentedEdge*> edges_;
@@ -375,6 +375,10 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   //!   it's enough to check if any other consumer of the producer also
   //!   produces the consumer.
   void finalMerge();
+
+  //! Duplicate and add all exprs producing the used
+  //!  scalar values in group
+  void resolveScalarsInGroup(SegmentedGroup* group);
 
   void finalize();
 

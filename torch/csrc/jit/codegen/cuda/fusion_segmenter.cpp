@@ -161,10 +161,13 @@ void SegmentedGroup::finalize() {
   insertUniquePredicated(
       input_vals, producer_edges, [](Val* v) { return !v->isFusionInput(); });
 
+  std::unordered_set<Val*> input_set(input_vals.begin(), input_vals.end());
+
   for (auto expr : exprs_) {
     for (auto i : expr->inputs()) {
       if (i->isAnInt() && i->definition() == nullptr && !i->isConstScalar() &&
-          !i->isFusionInput()) {
+          !i->isFusionInput() && !input_set.count(i)) {
+        input_set.insert(i);
         input_vals.push_back(i);
       }
     }
@@ -910,6 +913,32 @@ class AllProducerGroups {
   ReachMap producer_map_;
 };
 
+// This function is for cleanup and
+//  easier debugging. It shouldn't affect functionality
+//  since segmented fusions are compiled with fusion
+//  guard on the edges instead of actually looking
+//  at the exprs.
+void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
+  // Exprs in SegmentedGroup are not ordered
+  // so it is ok to insert them from unordered
+  // set
+  std::unordered_set<Expr*> scalar_expr_set;
+
+  std::copy_if(
+      exprs.begin(),
+      exprs.end(),
+      std::inserter(scalar_expr_set, scalar_expr_set.end()),
+      [](Expr* expr) { return ir_utils::isScalarOp(expr); });
+
+  if (!scalar_expr_set.empty()) {
+    exprs.erase(std::remove_if(
+        exprs.begin(), exprs.end(), [&scalar_expr_set](Expr* expr) {
+          return scalar_expr_set.count(expr);
+        }));
+    exprs.insert(exprs.end(), scalar_expr_set.begin(), scalar_expr_set.end());
+  }
+}
+
 } // namespace
 
 bool SegmentCandidateFinder::codeGenSupportedMerge(SegmentedEdge* edge) {
@@ -941,18 +970,25 @@ void SegmentCandidateFinder::findSegments() {
   std::unordered_map<Expr*, SegmentedGroup*> expr2group;
 
   // Initialize DAG, convert each expr to a segment group
-  size_t total_exprs = 0;
+  size_t total_tv_exprs = 0;
   auto exprs = completeFusion().exprs();
   for (auto expr : exprs) {
-    auto new_group = segmented_fusion_->newGroup(expr);
-    expr2group.insert(std::make_pair(expr, new_group));
-    total_exprs++;
+    if (!ir_utils::isScalarOp(expr)) {
+      auto new_group = segmented_fusion_->newGroup(expr);
+      expr2group.insert(std::make_pair(expr, new_group));
+      total_tv_exprs++;
+    }
   }
 
-  segmented_fusion_->total_expr_count_ = total_exprs;
+  segmented_fusion_->total_tv_expr_count_ = total_tv_exprs;
 
   // Create edges between the Exprs. Mark inputs and outputs of the fusion.
   for (auto expr : exprs) {
+    // No group created for scalar ops
+    if (ir_utils::isScalarOp(expr)) {
+      continue;
+    }
+
     auto expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
       if (inp->isFusionInput()) {
@@ -964,6 +1000,12 @@ void SegmentCandidateFinder::findSegments() {
       // isn't an "input" to the fusion. At least not one provided by an
       // external source.
       if (inp->definition() == nullptr) {
+        continue;
+      }
+
+      // No group created for scalar ops since they may need to be duplicated
+      //  to avoid scalar edges. They are handled in resolveScalarsInGroup
+      if (inp->isScalar()) {
         continue;
       }
 
@@ -979,9 +1021,11 @@ void SegmentCandidateFinder::findSegments() {
     }
   }
 
-  // Set heuristics in case single reduction kernels were left out
-  for (auto g : groups()) {
-    g->setHeuristic(deriveHeuristic(g));
+  for (auto group : groups()) {
+    // Add all the scalar inputs needed in the group
+    resolveScalarsInGroup(group);
+    // Set heuristics in case single reduction kernels were left out
+    group->setHeuristic(deriveHeuristic(group));
   }
 
   bool merged_nodes = true;
@@ -1091,21 +1135,92 @@ void SegmentCandidateFinder::finalMerge() {
   }
 }
 
+void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
+  std::vector<Val*> to_visit;
+  std::unordered_set<Val*> visited;
+
+  // Collect all scalar uses in the group
+  for (auto expr : group->exprs()) {
+    for (auto input : expr->inputs()) {
+      if (input->isScalar()) {
+        to_visit.push_back(input);
+      }
+    }
+  }
+
+  // Keep track of composite fusion inputs used in this group
+  std::unordered_set<Val*> input_set(
+      group->input_vals.begin(), group->input_vals.end());
+
+  // Record and append all missing scalar exprs at the end.
+  std::vector<Expr*> exprs_to_add;
+
+  while (!to_visit.empty()) {
+    auto stack_top_val = to_visit.back();
+
+    // Visited case, do nothing
+    if (visited.count(stack_top_val)) {
+      to_visit.pop_back();
+    } else if (stack_top_val->definition() == nullptr) {
+      // A scalar without def is either a constant or
+      //  a composite fusion input
+
+      visited.insert(stack_top_val);
+      // If this is a new composite fusion scalar input, add to this group
+      if (stack_top_val->isFusionInput() && !input_set.count(stack_top_val)) {
+        group->input_vals.push_back(stack_top_val);
+        input_set.insert(stack_top_val);
+      }
+      to_visit.pop_back();
+    } else {
+      // A scalar with an actual definition
+      auto definition_expr = stack_top_val->definition();
+      bool all_inputs_visited = true;
+      // If any of the inputs are not visited, visit them first
+      for (auto input : definition_expr->inputs()) {
+        if (!visited.count(input)) {
+          all_inputs_visited = false;
+          to_visit.push_back(input);
+        }
+      }
+      // This node is ready to be visited
+      if (all_inputs_visited) {
+        // Collect the defining expr
+        exprs_to_add.push_back(definition_expr);
+        visited.insert(stack_top_val);
+        to_visit.pop_back();
+      }
+    }
+  }
+
+  // Add all the defining expr to the group
+  for (auto expr : exprs_to_add) {
+    group->exprs_.push_back(expr);
+  }
+}
+
 void SegmentCandidateFinder::finalize() {
   // Remove unconnected groups
-  size_t total_expr = segmented_fusion_->total_expr_count_;
+  size_t total_expr = segmented_fusion_->total_tv_expr_count_;
   groups().erase(
       std::remove_if(
           groups().begin(),
           groups().end(),
           [total_expr](SegmentedGroup* sg) {
-            return !sg->isConnected() && sg->exprs_.size() != total_expr;
+            // count the number of tensor ops
+            const size_t expr_count = std::count_if(
+                sg->exprs_.begin(), sg->exprs_.end(), [](Expr* expr) {
+                  return !ir_utils::isScalarOp(expr);
+                });
+
+            return !sg->isConnected() && expr_count != total_expr;
           }),
       groups().end());
 
   // Add group labeling
   int i = 0;
   for (auto it = groups().begin(); it != groups().end(); it++, i++) {
+    deDuplicateScalarExprs((*it)->exprs_);
     (*it)->setID(i);
   }
 
