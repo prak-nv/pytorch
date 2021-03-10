@@ -3254,6 +3254,33 @@ TEST(NVFuserTest, FusionRootMappingBroadcast_CUDA) {
       {false, false, true});
 }
 
+// Reproducer of issue #723
+TEST(NVFuserTest, FusionRootMappingTrivialReduction_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  auto tv1 = makeSymbolicTensor(2);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false});
+  auto tv3 = sum(tv2, {0});
+  auto tv4 = add(tv2, tv1);
+
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  ComputeAtRootDomainMap map;
+  map.build();
+
+  checkIdMapped(
+      map, tv2, tv2->getRootDomain()[0], tv4, tv4->getRootDomain()[0], true);
+  checkIdMapped(
+      map, tv2, tv2->getRootDomain()[0], tv3, tv3->getRootDomain()[0], true);
+}
+
 TEST(NVFuserTest, FusionComputeAtFailDueToRootMapping_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -11178,9 +11205,9 @@ __global__ void kernel1(
     __shared__ long mem_N[512];
     float in=inp[threadIdx.x*inp.stride[0]+
                         threadIdx.y*inp.stride[1]];
-    float tmp_M2;
-    float tmp_avg;
-    long tmp_N;
+    float tmp_M2=0;
+    float tmp_avg=0;
+    long tmp_N=0;
     blockWelford<false,true,false>(
         tmp_M2,
         tmp_avg,
@@ -11265,9 +11292,9 @@ __global__ void kernel1(
     float in=inp[threadIdx.x*inp.stride[0]+
                         threadIdx.y*inp.stride[1]+
                         threadIdx.z*inp.stride[2]];
-    float tmp_M2;
-    float tmp_avg;
-    long tmp_N;
+    float tmp_M2=0;
+    float tmp_avg=0;
+    long tmp_N=0;
     blockWelford<false,true,true>(
         tmp_M2,
         tmp_avg,
@@ -11328,9 +11355,9 @@ __global__ void kernel1(
     __shared__ float shared_buf_M2[512];
     __shared__ float shared_buf_avg[512];
     __shared__ long shared_buf_N[512];
-    float tmp_M2;
-    float tmp_avg;
-    long tmp_N;
+    float tmp_M2=0;
+    float tmp_avg=0;
+    long tmp_N=0;
     float in = inp[ blockIdx.x  * inp.stride[0]+
                     blockIdx.y  * inp.stride[1]+
                     threadIdx.x * inp.stride[2]];
@@ -11750,7 +11777,6 @@ TEST(NVFuserTest, FusionWelfordShmoo_CUDA) {
           if (rdim > 32768 && dtype == DataType::Half) {
             continue;
           }
-
           testWelford(dtype, axis, odim, rdim);
         }
       }
@@ -13412,109 +13438,67 @@ TEST(NVFuserTest, FusionDAGMerging_CUDA) {
   TORCH_CHECK(fusion_segments->groups().size() <= 4);
 }
 
-TEST(NVFuserTest, FusionEnsureMerging_CUDA) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
+TEST(NVFuserTest, FusionBlockReduceInSerialLoop_CUDA) {
+  Fusion fusion;
   FusionGuard fg(&fusion);
 
-  int batch = 4;
-  int c = 4;
-  int h = 4;
-  int w = 4;
-  int numDims = 4;
+  constexpr int M = 10;
+  constexpr int N = 20;
+  constexpr int K = 20;
 
-  auto input = makeSymbolicTensor(numDims);
-  fusion.addInput(input);
-  auto weight = makeSymbolicTensor(1);
-  fusion.addInput(weight);
-  auto bias = makeSymbolicTensor(1);
-  fusion.addInput(bias);
-  auto running_mean = makeSymbolicTensor(1);
-  fusion.addInput(running_mean);
-  auto running_var = makeSymbolicTensor(1);
-  fusion.addInput(running_var);
+  auto tv0 = makeSymbolicTensor(3);
+  auto tv1 = sum(tv0, {{1, 2}});
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
 
-  // TODO: error set 1, runtime momentum;
-  Val* momentum_ptr = new Double(0.1);
-  Val* rev_momentum_ptr = new Double(1.0 - 0.1);
-  Val* eps_ptr = new Double(1e-5);
-
-  std::vector<int> reduction_axes;
-  std::vector<bool> broadcast_mask(numDims, false);
-  Val* num_features = new Double(1);
-  for (size_t axis = 0; axis < numDims; ++axis) {
-    if (axis != 1) {
-      reduction_axes.push_back(axis);
-      broadcast_mask[axis] = true;
-    }
-  }
-
-  auto get_num_features = [&input, numDims]() {
-    Val* num_features = new Double(1);
-    for (size_t axis = 0; axis < numDims; ++axis) {
-      if (axis != 1) {
-        num_features =
-            mul(num_features, input->domain()->domain()[axis]->extent());
-      }
-    }
-    return num_features;
-  };
-  // Algorithm
-  auto x_sum = sum(input, reduction_axes);
-  auto x_sum_bcast = broadcast(x_sum, broadcast_mask);
-  auto x_mean = div(x_sum_bcast, get_num_features());
-
-  // updating running mean
-  auto current_mean_hat = mul(x_mean, momentum_ptr);
-  auto mean_hat = mul(running_mean, rev_momentum_ptr);
-  auto new_mean_hat = add(mean_hat, current_mean_hat);
-  fusion.addOutput(new_mean_hat);
-  // fusion->aliasOutputToInput(new_mean_hat, running_mean);
-
-  auto x_mean_sub = sub(input, x_mean);
-  auto x_mean_sub_pow = mul(x_mean_sub, x_mean_sub);
-  auto var_sum = sum(x_mean_sub_pow, reduction_axes);
-  auto var_sum_bcast = broadcast(var_sum, broadcast_mask);
-  auto var = div(var_sum_bcast, get_num_features());
-
-  // updating running var
-  auto num_feature_decrement = sub(get_num_features(), new Int(1));
-  auto unbiased_var = div(var_sum, num_feature_decrement);
-  auto current_var_hat = mul(unbiased_var, momentum_ptr);
-  auto var_hat = mul(running_var, rev_momentum_ptr);
-  auto new_var_hat = add(var_hat, current_var_hat);
-  fusion.addOutput(new_var_hat);
-  // fusion->aliasOutputToInput(new_var_hat, running_var);
-
-  auto var_eps = add(var, eps_ptr);
-  auto invstd = unaryOp(UnaryOpType::Rsqrt, var_eps);
-  auto output = mul(x_mean_sub, invstd);
-
-  // Optional: norm * weight
-  if (weight) {
-    auto weight_bcast = broadcast(weight, broadcast_mask);
-    output = mul(output, weight_bcast);
-  }
-  if (bias) {
-    auto bias_bcast = broadcast(bias, broadcast_mask);
-    output = add(output, bias_bcast);
-  }
-  fusion.addOutput(output);
-  auto save_mean = sum(x_mean, reduction_axes);
-  fusion.addOutput(save_mean);
-  auto save_invstd = sum(invstd, reduction_axes);
-  fusion.addOutput(save_invstd);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input1 = at::randn({batch, c, h, w}, options);
-  at::Tensor input2 = at::randn({c}, options);
-  at::Tensor input3 = at::randn_like(input2);
-  at::Tensor input4 = at::randn_like(input2);
-  at::Tensor input5 = at::randn_like(input2);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N, K}, options);
+  std::vector<IValue> aten_inputs = {t0};
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  std::vector<IValue> inputs = {input1, input2, input3, input4, input5};
-  auto outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+  at::Tensor aten_output = t0.sum({1, 2});
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionBlockWelfordInSerialLoop_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int M = 10;
+  constexpr int N = 20;
+  constexpr int K = 20;
+
+  auto tv0 = makeSymbolicTensor(3);
+  auto tvs = Welford(tv0, {{1, 2}});
+  fusion.addInput(tv0);
+  auto tv_M2 = tvs.var;
+  auto tv_avg = tvs.avg;
+  auto tv_N = tvs.n;
+  fusion.addOutput(tv_M2);
+  fusion.addOutput(tv_avg);
+
+  tv_avg->axis(-1)->parallelize(ParallelType::TIDx);
+  tv_avg->axis(0)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({M, N, K}, options);
+  std::vector<IValue> aten_inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto outputs = fe.runFusion(aten_inputs);
+  at::Tensor aten_M2 = t0.var({1, 2}, false) * N * K;
+  at::Tensor aten_avg = t0.mean({1, 2});
+  testValidate(
+      &fusion, outputs, aten_inputs, {aten_M2, aten_avg}, __LINE__, __FILE__);
 }
 
 } // namespace jit
