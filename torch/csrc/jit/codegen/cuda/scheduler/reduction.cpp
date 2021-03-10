@@ -32,18 +32,11 @@ constexpr int64_t lastPow2(int64_t n) {
 ReductionParams innerReductionHeuristic(
     const int64_t num_elems_in_reduction,
     const int64_t num_outputs_for_reduction,
-    const size_t n_tensor_inputs,
-    const size_t max_input_size) {
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_size) {
   // Set some targets for parallelization
 
   const int64_t n_elems = num_elems_in_reduction * num_outputs_for_reduction;
-  const int64_t l2_cache_size =
-      at::cuda::getCurrentDeviceProperties()->l2CacheSize * 4;
-
-  const int64_t warp_size =
-      n_elems * max_input_size * n_tensor_inputs < l2_cache_size
-      ? (int64_t)32 / max_input_size
-      : 32;
 
   // WARNING: Current device for codegen may not be the target device
   const int64_t device_max_threads_per_multiprocessor =
@@ -59,26 +52,66 @@ ReductionParams innerReductionHeuristic(
       // Reduce unrolling if we have many inputs, start reduction at 2 inputs
       std::max((lastPow2((int64_t)n_tensor_inputs) >> 1), (int64_t)1));
 
+  // Conservative value, could be set to larger based on arch if necessary.
+  constexpr int64_t l1_cache = 32 * 1024;
+  // Could change per generation, but for l1 we want to consider active threads,
+  // not resident
+  constexpr int64_t active_threads = 1024;
+  // Check how many elements it would take per thread to start thrashing l1
+  // set that to minimum number we want to reduce per thread.
+  int64_t min_red_elems_per_thread = std::max(
+      l1_cache / (n_tensor_inputs * max_input_size * active_threads),
+      (int64_t)1);
+
+  // if data fits in l2 and we need more parallelization in the reduction dim,
+  // we can use a smaller warp size. While thread local data fits in l1, and
+  // reduction dim is really small, we can use <32 threads per warp.
+  const bool fits_in_l2 = n_elems * max_input_size * n_tensor_inputs <
+      at::cuda::getCurrentDeviceProperties()->l2CacheSize;
+
+  // If it fits in l2, we just want to make sure each thread uses 32Bytes.
+  const int64_t warp_size_based_on_l2 =
+      fits_in_l2 ? (int64_t)32 / max_input_size : 32;
+
+  const int64_t warp_size_based_on_l1 = std::min(
+      ceilDiv(num_elems_in_reduction, min_red_elems_per_thread), (int64_t)32);
+
+  // Take the smaller
+  const int64_t warp_size =
+      std::min(warp_size_based_on_l1, warp_size_based_on_l2);
+
+  // Initialization
   int64_t target_blocks = 1;
   int64_t target_unroll = 1;
-  int64_t target_threads = warp_size;
+  int64_t max_threads_in_block = std::min(
+      warp_size, ceilDiv(num_elems_in_reduction, min_red_elems_per_thread));
 
   // If we have one warp per block, how many blocks would that be?
-  target_blocks = ceilDiv(n_elems, warp_size);
+  target_blocks = ceilDiv(n_elems, warp_size * min_red_elems_per_thread);
 
   // If we have more than a wave, put parallelism into unrolling
   if (target_blocks > device_multiprocessor_count) {
     target_unroll = std::min(
         max_unroll, ceilDiv(target_blocks, device_multiprocessor_count));
-    target_blocks = ceilDiv(n_elems, warp_size * target_unroll);
+    target_blocks = ceilDiv(
+        n_elems, warp_size * std::max(target_unroll, min_red_elems_per_thread));
+  } else {
+    // Steal reduction elements from threads if it helps us get a wave of blocks
+    min_red_elems_per_thread = std::min(
+        min_red_elems_per_thread,
+        ceilDiv(
+            num_elems_in_reduction * num_outputs_for_reduction,
+            warp_size * device_multiprocessor_count));
   }
 
   // Cap target blocks to 4 waves
   target_blocks = std::min(target_blocks, device_multiprocessor_count * 4);
 
-  if (target_blocks * target_unroll * target_threads < n_elems) {
+  if (target_blocks * target_unroll *
+          std::max(target_unroll, min_red_elems_per_thread) <
+      n_elems) {
     // targetting 4 waves, so try to use a quarter of available threads
-    target_threads = std::min(
+    max_threads_in_block = std::min(
         ceilDiv(n_elems, target_blocks * target_unroll),
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4));
   }
@@ -113,9 +146,12 @@ ReductionParams innerReductionHeuristic(
   int64_t unroll_factor = 1;
 
   // Grab what we can out of reduction domain, but don't go over a warp size yet
+  // Assuming an L1 size of 32KiB, and 2048 max resident threads per SM (very
+  // conservative) then we can load 16B per thread without thrashing L1. So try
+  // to make sure each thread has at least 16B of data
   bdimx = std::min(num_elems_in_reduction, (int64_t)warp_size);
   // Put everything else in bdimy for now
-  bdimy = target_threads / bdimx > 0 ? target_threads / bdimx : 1;
+  bdimy = std::max(max_threads_in_block / bdimx, (int64_t)1);
 
   int64_t remainder_in_reduction = ceilDiv(num_elems_in_reduction, bdimx);
   int64_t remainder_in_output = ceilDiv(num_outputs_for_reduction, bdimy);
@@ -128,17 +164,17 @@ ReductionParams innerReductionHeuristic(
     unroll_factor = std::min(target_unroll, remainder_in_output);
     remainder_in_output =
         ceilDiv(num_outputs_for_reduction, unroll_factor * bdimy);
-    gdimx = std::min(remainder_in_output, target_blocks);
-    remainder_in_output =
-        ceilDiv(num_outputs_for_reduction, unroll_factor * bdimy * gdimx);
   } else {
     // If we have reduction elements left, re-adjust the block dims
-    bdimx = std::min(num_elems_in_reduction, target_threads);
-    remainder_in_reduction = ceilDiv(num_elems_in_reduction, bdimx);
+    bdimx = std::min(
+        ceilDiv(num_elems_in_reduction, min_red_elems_per_thread),
+        max_threads_in_block);
 
-    bdimy = target_threads / bdimx > 1 ? target_threads / bdimx : 1;
+    // Don't exceed target.
+    bdimy = std::max(max_threads_in_block / bdimx, (int64_t)1);
     remainder_in_output = ceilDiv(num_outputs_for_reduction, bdimy);
 
+    remainder_in_reduction = ceilDiv(num_elems_in_reduction, bdimx);
     unroll_factor = std::min(remainder_in_reduction, target_unroll);
     if (unroll_factor == 1) {
       // If we can't unroll reduction dim, unroll output dim
@@ -146,24 +182,35 @@ ReductionParams innerReductionHeuristic(
       unroll_factor = std::min(remainder_in_output, target_unroll);
       remainder_in_output =
           ceilDiv(num_outputs_for_reduction, bdimy * unroll_factor);
-    } else {
       remainder_in_reduction =
-          ceilDiv(num_elems_in_reduction, bdimx * unroll_factor);
+          ceilDiv(num_elems_in_reduction, bdimx * min_red_elems_per_thread);
+    } else {
+      remainder_in_reduction = ceilDiv(
+          num_elems_in_reduction,
+          bdimx * std::max(unroll_factor, min_red_elems_per_thread));
     }
-    gdimx = remainder_in_output;
   }
+
+  gdimx = remainder_in_output;
 
   // Cross grid reduction if we haven't hit our target blocks, and we have many
   // reduction elements.
-  if (gdimx < target_blocks && remainder_in_reduction > 4) {
-    gdimy =
-        std::min(ceilDiv(remainder_in_reduction, (int64_t)4), (int64_t)65535);
+  if (gdimx < target_blocks && remainder_in_reduction > 8 &&
+      remainder_in_reduction < 32) {
+    gdimy = ceilDiv(remainder_in_reduction, (int64_t)4);
     remainder_in_reduction = ceilDiv(
         num_elems_in_reduction,
-        bdimx * (unroll_reduction ? unroll_factor : 1) * gdimy);
-  } else if (remainder_in_reduction > 32) {
-    gdimy =
-        std::min(ceilDiv(remainder_in_reduction, (int64_t)32), (int64_t)65535);
+        bdimx *
+            std::max(
+                unroll_reduction ? unroll_factor : 1,
+                min_red_elems_per_thread) *
+            gdimy);
+  } else if (remainder_in_reduction >= 32) {
+    // Do at least 2 iterations of unrolling per thread before we go cross grid.
+    // Limit cross grid to a multiple of the block size so cleanup on the last
+    // block doesn't take too long.
+    gdimy = std::min(
+        ceilDiv(remainder_in_reduction, (int64_t)2), bdimx * bdimy * 8);
     remainder_in_reduction = ceilDiv(remainder_in_reduction, gdimy);
   }
 
@@ -217,8 +264,8 @@ ReductionParams innerReductionHeuristic(
 ReductionParams OuterReductionHeuristic(
     const int64_t num_elems_in_reduction,
     const int64_t num_outputs_for_reduction,
-    const size_t n_tensor_inputs,
-    const size_t max_input_size) {
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_size) {
   // Set some targets for parallelization
 
   const int64_t n_elems = num_elems_in_reduction * num_outputs_for_reduction;
@@ -232,7 +279,7 @@ ReductionParams OuterReductionHeuristic(
 
   int64_t target_blocks = 1;
   int64_t target_unroll = 1;
-  int64_t target_threads = warp_size;
+  int64_t max_threads_in_block = warp_size;
 
   // WARNING: Current device for codegen may not be the target device
   const int64_t device_max_threads_per_multiprocessor =
@@ -261,9 +308,9 @@ ReductionParams OuterReductionHeuristic(
   // Cap target blocks to 4 waves
   target_blocks = std::min(target_blocks, device_multiprocessor_count * 4);
 
-  if (target_blocks * target_unroll * target_threads < n_elems) {
+  if (target_blocks * target_unroll * max_threads_in_block < n_elems) {
     // targetting 4 waves, so try to use a quarter of available threads
-    target_threads = std::min(
+    max_threads_in_block = std::min(
         ceilDiv(n_elems, target_blocks * target_unroll),
         ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4));
   }
@@ -307,19 +354,20 @@ ReductionParams OuterReductionHeuristic(
     bdimx = std::min(lastPow2(num_outputs_for_reduction), (int64_t)warp_size);
   } else {
     bdimx = std::min(
-        target_threads, ceilDiv(num_outputs_for_reduction, target_blocks));
+        max_threads_in_block,
+        ceilDiv(num_outputs_for_reduction, target_blocks));
     bdimx = std::max(bdimx, (int64_t)warp_size);
   }
-  bdimy = ceilDiv(target_threads, bdimx);
+  bdimy = ceilDiv(max_threads_in_block, bdimx);
 
   remainder_in_output = ceilDiv(num_outputs_for_reduction, bdimx);
   remainder_in_reduction = ceilDiv(remainder_in_reduction, bdimy);
 
   if (num_outputs_for_reduction >=
-      device_multiprocessor_count * target_threads) {
+      device_multiprocessor_count * max_threads_in_block) {
     // If we easily saturate the GPU, don't use block dim y and unroll output
     // dimension, this could be a more gentle transition starting earlier
-    bdimx = target_threads;
+    bdimx = max_threads_in_block;
     remainder_in_output = ceilDiv(num_outputs_for_reduction, bdimx);
 
     bdimy = 1;
@@ -603,36 +651,70 @@ void scheduleReduction(
 
     // Do multiple reductions per block
     if (rparams.multiple_reds_per_blk) {
-      // Fastest dim, multiple reductions per block
-      // Output Dimensions
-      // [Out-BIDx, Out-TIDy
-      //  0         1
-      //
-      //  Reduction Dimensions
-      //  rF-Remain, rf-Unswitch, rf-Unroll, X-TIDx]
-      //  2 (-4)     3 (-3)       4 (-2)     5 (-1)
+      if (rparams.reduction_unroll) {
+        // Fastest dim, multiple reductions per block
+        // Output Dimensions
+        // [x-BIDx, x-TIDy
+        //  0       1
+        //
+        //  Reduction Dimensions
+        //  rF-Remain, rf-Unswitch, rf-Unroll, X-TIDx]
+        //  2 (-4)     3 (-3)       4 (-2)     5 (-1)
 
-      red_tv->split(
-          reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
-      red_tv->split(reduce_axis, rparams.loop_unroll);
-      red_tv->split(reduce_axis, 1);
+        red_tv->split(
+            reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
+        red_tv->split(reduce_axis, rparams.loop_unroll);
+        red_tv->split(reduce_axis, 1);
 
-      auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-4, -3, -2});
+        auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-4, -3, -2});
 
-      red_tv_rf->axis(-1)->parallelize(ParallelType::TIDx);
-      red_tv_rf->axis(-3)->parallelize(ParallelType::Unswitch);
+        red_tv_rf->axis(-1)->parallelize(ParallelType::TIDx);
+        red_tv_rf->axis(-3)->parallelize(ParallelType::Unswitch);
 
-      if (has_iter_axis) {
-        red_tv_rf->split(
-            iter_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
-        red_tv_rf->axis(1)->parallelize(ParallelType::TIDy);
-        red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
+        if (has_iter_axis) {
+          red_tv_rf->split(
+              iter_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
+          red_tv_rf->axis(1)->parallelize(ParallelType::TIDy);
+          red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
+        }
+
+        reference_tv = red_tv_rf;
+        reduction_tv = red_tv;
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            has_iter_axis,
+            "This scheduler requires an outer dim to the reduction.");
+        // Multiple reductions per block iter unroll
+        // Output Dimensions
+        // [x-BIDx, x-Unswitch, x-Unroll, x-TIDy
+        //  0       1           2         3
+        //
+        //  Reduction Dimensions
+        //  rF-Remain, r-TIDx]
+        //  4 (-2)     5 (-1)
+        red_tv->split(
+            reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
+
+        auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-2});
+        red_tv_rf->axis(-1)->parallelize(ParallelType::TIDx);
+
+        if (has_iter_axis) {
+          red_tv_rf->split(
+              iter_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
+          red_tv_rf->split(iter_axis, rparams.loop_unroll);
+          red_tv_rf->split(iter_axis, 1);
+
+          red_tv_rf->axis(3)->parallelize(ParallelType::TIDy);
+          red_tv_rf->axis(1)->parallelize(ParallelType::Unswitch);
+          red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
+
+          // [BIDx, 1, 8, TIDy, rf-outer, TIDx]
+          red_tv_rf->reorder({{-2, -3}, {2, -2}, {3, -1}});
+          // [BIDx, TIDy, TIDx, rf-outer, 1, 8]
+          reference_tv = red_tv_rf;
+          reduction_tv = red_tv;
+        }
       }
-
-      reference_tv = red_tv_rf;
-      reduction_tv = red_tv;
-
-      // Do a cross-warp reduction per block
     } else {
       if (rparams.cross_grid) {
         // Fastest dim, cross grid, cross block
@@ -848,7 +930,8 @@ void scheduleReduction(
 
     // Inline rfactor into reduction
     if (reference_tv != reduction_tv) {
-      reference_tv->computeAt(reduction_tv, -1, ComputeAtMode::MostInlined);
+      // Can we always do this?
+      reference_tv->computeWith(reduction_tv, -1, ComputeAtMode::BestEffort);
     }
 
     // Find unswitch position
@@ -858,10 +941,15 @@ void scheduleReduction(
         unswitch_axis = i;
       }
     }
-    if (unswitch_axis != -1) {
-      unswitch_axis++;
-    }
 
+    // TORCH_INTERNAL_ASSERT(
+    //     unswitch_axis >= 0,
+    //     "Error during unrolling, could not detect unroll axis.");
+    // if (!reference_tv->axis(unswitch_axis)->isReduction()) {
+    //   // Have to treat this case a bit special.
+    // }
+
+    unswitch_axis++;
     // Input to cahced_input we want outside unswitched position
     // Cached input to rfactor we want inlined
     for (auto cached_input : cached_inputs) {
@@ -869,7 +957,9 @@ void scheduleReduction(
           scheduler_utils::consumerTvsOf(cached_input);
       for (auto consumer : consumers_of_input_cache) {
         if (consumer != reference_tv) {
-          consumer->computeAt(reference_tv, -1, ComputeAtMode::MostInlined);
+          // consumer->computeAt(reference_tv, -1, ComputeAtMode::MostInlined);
+          scheduler_utils::computeWithOutputs(
+              consumer, -1, ComputeAtMode::MostInlined);
         }
         cached_input->computeAt(consumer, unswitch_axis);
       }
