@@ -76,7 +76,47 @@ std::vector<const kir::ForLoop*> parseVectorizedForLoop(
   return loops;
 }
 
-kir::ForLoop* handleMisalignedVectorization(const kir::ForLoop* for_loop) {
+kir::Expr* findVectorizedSet(
+  std::vector<kir::ForLoop*>& loop_structure,
+  const std::vector<const kir::ForLoop*> for_loops) {
+  for (auto fl : for_loops) {
+    auto first_expr = fl->body().exprs().front();
+    bool has_vectorize_op =
+        (first_expr->isA<kir::UnaryOp>() &&
+         first_expr->as<kir::UnaryOp>()->operation() == UnaryOpType::Set);
+    if (has_vectorize_op) {
+      auto vec_loop = const_cast<kir::ForLoop*>(fl);
+      vec_loop->setVectorize(true);
+      loop_structure.push_back(vec_loop);
+      return first_expr;
+    }
+  }
+  return nullptr;
+}
+
+kir::Val* generateBaseIndex(kir::TensorIndex* node) {
+  if (node->indices().size() == 1) {
+    return node->indices().front();
+  }
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+  auto result = node->indices().front();
+  for (size_t idx = 1; idx < node->indices().size(); ++idx) {
+    result = ir_builder.addExpr(result, node->indices()[idx]);
+  }
+  return result;
+}
+
+
+kir::Val* generateIndex(kir::TensorIndex* node) {
+  // index * stride
+  auto last_root_dim_index = node->indices().back();
+  auto def = last_root_dim_index->definition()->as<kir::BinaryOp>();
+  return def->lhs();
+}
+
+kir::ForLoop* handleMisalignedVectorization(
+    std::vector<kir::ForLoop*> loop_structure,
+    const kir::ForLoop* for_loop) {
   // body -> allocate, read, compute, write for-loops
   kir::IrBuilder ir_builder(GpuLower::current()->kernel());
   kir::Int* zero = ir_builder.create<kir::Int>(0);
@@ -86,39 +126,49 @@ kir::ForLoop* handleMisalignedVectorization(const kir::ForLoop* for_loop) {
 
   auto child_loops = parseVectorizedForLoop(for_loop, new_loop);
 
-  auto first_expr = child_loops.front()->body().exprs().front();
-  auto first_tv = first_expr->outputs().front()->as<kir::TensorView>();
+  auto vec_expr = findVectorizedSet(loop_structure, child_loops);
+  TORCH_INTERNAL_ASSERT(vec_expr != nullptr);
+  auto out_tv = vec_expr->outputs().front()->as<kir::TensorView>();
+  auto in_tv = vec_expr->inputs().front()->as<kir::TensorView>();
 
-  auto extent = first_tv->domain()->rootDomain().back()->extent();
-  auto vector_size = first_tv->domain()->domain().back()->extent()->as<kir::Int>();
+  kir::TensorView* vec_tv =
+      (out_tv->memoryType() == MemoryType::Local) ? out_tv : in_tv;
 
-  // TODO: auto base_index = generateIndex(expr, for_loop);
-  auto base_index = zero;
-  auto lshift = ir_builder.modExpr(base_index, vector_size);
+  auto extent = vec_tv->domain()->rootDomain().back()->extent();
+  auto vector_size = vec_tv->domain()->domain().back()->extent()->as<kir::Int>();
+
+  auto index = (out_tv->memoryType() == MemoryType::Global)
+      ? Index::getConsumerIndex(in_tv->fuserTv(), loop_structure)
+      : Index::getProducerIndex(
+            in_tv->fuserTv(), out_tv->fuserTv(), loop_structure);
+  loop_structure.back()->setVectorize(false);
+  auto base_address = generateBaseIndex(index);
+  auto last_dim_index = generateIndex(index);
+
+  auto lshift = ir_builder.modExpr(base_address, vector_size);
   auto extent_start = ir_builder.subExpr(extent, lshift);
   auto rshift = ir_builder.modExpr(extent_start, vector_size);
   kir::Val* floor_extent = ir_builder.divExpr(extent, vector_size);
 
   // Part A - Vectorize
-  kir::Val* vectorize_pred = ir_builder.ltExpr(for_loop->index(), floor_extent);
+  kir::Val* vectorize_pred = ir_builder.ltExpr(last_dim_index, floor_extent);
   kir::IfThenElse* vectorize_ite = ir_builder.create<kir::IfThenElse>(vectorize_pred->as<kir::Bool>());
   cloneVectorizeLoopNests(vectorize_ite, child_loops, vector_size, true, lshift);
   new_loop->body().push_back(vectorize_ite);
 
   // Part B - Pre
-  kir::Val* lshift_pred = ir_builder.eqExpr(for_loop->index(), zero);
+  kir::Val* lshift_pred = ir_builder.eqExpr(last_dim_index, zero);
   kir::IfThenElse* pre_ite = ir_builder.create<kir::IfThenElse>(lshift_pred->as<kir::Bool>());
   cloneVectorizeLoopNests(pre_ite, child_loops, lshift, false, nullptr);
   new_loop->body().push_back(pre_ite);
 
   // Part C - Post
-  kir::Val* rshift_pred = ir_builder.eqExpr(for_loop->index(), floor_extent);
+  kir::Val* rshift_pred = ir_builder.eqExpr(last_dim_index, floor_extent);
   kir::IfThenElse* post_ite = ir_builder.create<kir::IfThenElse>(rshift_pred->as<kir::Bool>());
   cloneVectorizeLoopNests(post_ite, child_loops, rshift, false, lshift);
   new_loop->body().push_back(post_ite);
 
   return new_loop;
-
 }
 
 // Returns true if expr is an expression that initializes a reduction
@@ -229,7 +279,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     const auto exprs_copy = fl->body().exprs();
 
     if (containsMisalignedVectorization(fl)) {
-      auto new_fl = handleMisalignedVectorization(fl);
+      auto new_fl = handleMisalignedVectorization(for_loops_, fl);
       loop_replacement_map_.insert({fl, new_fl});
       return;
     } else {
