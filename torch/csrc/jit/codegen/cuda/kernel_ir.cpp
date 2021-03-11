@@ -441,7 +441,7 @@ ForLoop::ForLoop(
     IterDomain* iter_domain,
     bool unroll,
     bool vectorize,
-    Val* offset)
+    Val* shift)
     : Expr(passkey),
       index_{index},
       extent_{extent},
@@ -449,7 +449,7 @@ ForLoop::ForLoop(
       body_(this),
       unroll_(unroll),
       vectorize_(vectorize),
-      offset_{offset} {
+      shift_{shift} {
   TORCH_INTERNAL_ASSERT(index->dtype() == DataType::Int);
   addInput(index);
   addInput(iter_domain);
