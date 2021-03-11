@@ -1495,24 +1495,24 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
 
   // If we are generating a predicate for initialization check if we should use
   // rfactor instead of root_dom
-  //bool use_rfactor = true;
-  bool buffer_init = true;
-  auto rfactor_dom = kir_consumer_tv->domain()->rfactorDomain();
-  for (auto rfactor_id : rfactor_dom) {
-    if (rfactor_id->isReduction()) {
-      if (consumer_indexing.indexMap().find(rfactor_id) !=
-          consumer_indexing.indexMap().end()) {
-        if (!consumer_indexing.indexMap().at(rfactor_id)->isZeroInt()) {
-          //use_rfactor = false;
-          buffer_init = false;
-          break;
+  bool use_rfactor = true;
+  if (kir_consumer_tv->domain()->hasRFactor()) {
+    auto rfactor_dom = kir_consumer_tv->domain()->rfactorDomain();
+    for (auto rfactor_id : rfactor_dom) {
+      if (rfactor_id->isReduction()) {
+        if (consumer_indexing.indexMap().find(rfactor_id) !=
+            consumer_indexing.indexMap().end()) {
+          if (!consumer_indexing.indexMap().at(rfactor_id)->isZeroInt()) {
+            use_rfactor = false;
+            break;
+          }
         }
       }
     }
   }
 
   const auto root_domain =
-      (buffer_init && kir_consumer_tv->domain()->hasRFactor())
+      (use_rfactor && kir_consumer_tv->domain()->hasRFactor())
       ? kir_consumer_tv->domain()->rfactorDomain()
       : kir_consumer_tv->domain()->rootDomain();
 
@@ -1530,7 +1530,7 @@ std::pair<std::vector<kir::Val*>, bool> Index::getConsumerRootPredIndices(
     }
   }
 
-  return {root_inds, buffer_init};
+  return {root_inds, use_rfactor};
 }
 
 } // namespace cuda
