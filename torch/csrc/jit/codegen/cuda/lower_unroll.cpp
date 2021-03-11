@@ -141,11 +141,12 @@ kir::ForLoop* handleMisalignedVectorization(
   auto extent_start = ir_builder.subExpr(extent, lshift);
   auto rshift = ir_builder.modExpr(extent_start, vector_size);
 
-  kir::Val* extent_sub_lshift = ir_builder.subExpr(extent, lshift);
+  kir::Val* threshold = ir_builder.subExpr(extent, vector_size);
+  kir::Val* threshold_sub_lshift = ir_builder.subExpr(threshold, lshift);
 
   // Part A - Vectorize
   kir::Val* vectorize_pred =
-      ir_builder.ltExpr(last_dim_index, extent_sub_lshift);
+      ir_builder.leExpr(last_dim_index, threshold_sub_lshift);
   kir::IfThenElse* vectorize_ite =
       ir_builder.create<kir::IfThenElse>(vectorize_pred->as<kir::Bool>());
   cloneVectorizeLoopNests(
@@ -160,7 +161,7 @@ kir::ForLoop* handleMisalignedVectorization(
   new_loop->body().push_back(pre_ite);
 
   // Part C - Post
-  kir::Val* rshift_pred = ir_builder.eqExpr(last_dim_index, extent_sub_lshift);
+  kir::Val* rshift_pred = ir_builder.gtExpr(last_dim_index, threshold_sub_lshift);
   kir::IfThenElse* post_ite =
       ir_builder.create<kir::IfThenElse>(rshift_pred->as<kir::Bool>());
   cloneVectorizeLoopNests(post_ite, child_loops, rshift, false, lshift);

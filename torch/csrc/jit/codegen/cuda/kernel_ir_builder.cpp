@@ -46,8 +46,16 @@ Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::Eq, lhs, rhs);
 }
 
+Val* IrBuilder::gtExpr(Val* lhs, Val* rhs) {
+  return newLogicExpr(BinaryOpType::GT, lhs, rhs);
+}
+
 Val* IrBuilder::ltExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::LT, lhs, rhs);
+}
+
+Val* IrBuilder::leExpr(Val* lhs, Val* rhs) {
+  return newLogicExpr(BinaryOpType::LE, lhs, rhs);
 }
 
 Val* IrBuilder::addExpr(Val* lhs, Val* rhs) {
