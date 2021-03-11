@@ -48,11 +48,11 @@ kir::IterDomain* getTermIterDomainInMap(
 std::vector<kir::Bool*> PredicateCompute::computePredicates(
     const kir::TensorView* tv,
     const std::vector<kir::Val*>& indices,
-    bool use_rfactor) {
+    bool buffer_init) {
   FUSER_PERF_SCOPE("computePredicates");
 
   const auto domain = tv->domain();
-  const auto& root = (use_rfactor && domain->hasRFactor())
+  const auto& root = (buffer_init && domain->hasRFactor())
       ? domain->rfactorDomain()
       : domain->rootDomain();
 
@@ -82,7 +82,7 @@ std::vector<kir::Bool*> PredicateCompute::computePredicates(
     const bool zero_ind = indices[i]->isZeroInt();
     const bool simple_ind = indices[i]->definition() == nullptr;
 
-    if (root[i]->isBroadcast() || (use_rfactor && root[i]->isReduction()) ||
+    if (root[i]->isBroadcast() || (buffer_init && root[i]->isReduction()) ||
         gpu_lower->isDerivedFromTrivialReduction(root[i])) {
       continue;
     } else if (simple_ind && !zero_ind) {
