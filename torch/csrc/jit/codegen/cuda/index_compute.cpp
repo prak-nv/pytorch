@@ -837,6 +837,8 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
     }
   }
 
+  auto vectorize_shift = loops.back()->shift();
+
   // Global striding
   int64_t stride_i = 0;
   std::vector<kir::Val*> strided_inds;
@@ -871,7 +873,12 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
     if (root_ind->isZeroInt()) {
       continue;
     } else {
-      strided_inds.push_back(ir_builder.mulExpr(root_ind, strides[i]));
+      auto strided_ind = ir_builder.mulExpr(root_ind, strides[i]);
+      if (i == root_dom.size() - 1 && vectorize_shift != nullptr) {
+        strided_inds.push_back(ir_builder.addExpr(strided_ind, vectorize_shift));
+      } else {
+        strided_inds.push_back(strided_ind);
+      }
     }
   }
 
@@ -919,7 +926,10 @@ std::unordered_map<kir::ForLoop*, kir::Val*> indexMapFromTV(
     } else if (
         (loop->iter_domain()->isBlockDim() && is_shared) ||
         (loop->iter_domain()->isThread() && is_local) ||
-        (loop->iter_domain()->parallelType() == ParallelType::Vectorize)) {
+        (loop->iter_domain()->parallelType() == ParallelType::Vectorize) ||
+        (loop->iter_domain()->parallelType() ==
+             ParallelType::MisalignedVectorize &&
+         loop->vectorize())) {
       idx = zero;
     } else {
       idx = loop->index();
@@ -1237,6 +1247,8 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
     }
   }
 
+  auto vectorize_shift = loops.back()->shift();
+
   int64_t stride_i = 0;
   std::vector<kir::Val*> strided_inds;
   for (size_t i = 0; i < root_dom.size(); i++) {
@@ -1269,7 +1281,12 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
     if (root_ind->isZeroInt()) {
       continue;
     } else {
-      strided_inds.push_back(ir_builder.mulExpr(root_ind, strides[i]));
+      auto strided_ind = ir_builder.mulExpr(root_ind, strides[i]);
+      if (i == root_dom.size() - 1 && vectorize_shift != nullptr) {
+        strided_inds.push_back(ir_builder.addExpr(strided_ind, vectorize_shift));
+      } else {
+        strided_inds.push_back(strided_ind);
+      }
     }
   }
 

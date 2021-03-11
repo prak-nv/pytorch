@@ -13098,8 +13098,8 @@ TEST(NVFuserTest, FusionMisalignedVectorization1_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2);
-  auto tv1 = makeSymbolicTensor(2);
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
 
@@ -13125,16 +13125,15 @@ TEST(NVFuserTest, FusionMisalignedVectorization1_CUDA) {
   c1->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
 
   tv2->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(2)->parallelize(ParallelType::TIDx);
+  tv2->axis(-2)->parallelize(ParallelType::TIDx);
   tv2->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
 
   fusion.printMath();
   fusion.printKernel();
 
-  /*
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 128;
-  const int by = 2048;
+  const int by = 457;
   at::Tensor t0 = at::randn({bx, by}, options);
   at::Tensor t1 = at::randn({bx, by}, options);
 
@@ -13147,7 +13146,6 @@ TEST(NVFuserTest, FusionMisalignedVectorization1_CUDA) {
   auto aten_output = t0 + t1;
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
-  */
 }
 
 TEST(NVFuserTest, FusionVectorization1_CUDA) {

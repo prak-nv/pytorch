@@ -86,7 +86,17 @@ class AllocateReuseModifier {
       const auto input_alloc = findCompatibleInputAllocate(
           tv->dtype(), SymbolicSizePrinter::printSize(output_alloc), def);
 
-      if (input_alloc != nullptr) {
+      auto output_tv = output_alloc->buffer()->as<kir::TensorView>();
+      bool isVectorize = false;
+      for (auto expr : output_tv->fuserTv()->uses()) {
+        auto expr_out = expr->output(0)->as<TensorView>();
+        auto iterDomain = expr_out->domain()->domain().back();
+        isVectorize |=
+            iterDomain->getParallelType() == ParallelType::Vectorize ||
+            iterDomain->getParallelType() == ParallelType::MisalignedVectorize;
+      }
+
+      if (input_alloc != nullptr && !isVectorize) {
         output_alloc->setAlias(input_alloc);
       }
     }

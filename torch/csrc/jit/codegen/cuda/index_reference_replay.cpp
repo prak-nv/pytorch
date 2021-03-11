@@ -216,7 +216,8 @@ TensorDomain* IndexReferenceReplay::computeReplay() {
             if (loop_id->getParallelType() == ParallelType::Vectorize) {
               replayed_id->parallelize(ParallelType::Vectorize);
             }
-            if (loop_id->getParallelType() == ParallelType::MisalignedVectorize) {
+            if (loop_id->getParallelType() ==
+                ParallelType::MisalignedVectorize) {
               replayed_id->parallelize(ParallelType::MisalignedVectorize);
             }
             return replayed_id;
@@ -265,10 +266,10 @@ IndexCompute getReferenceIndexing(
                           ->as<kir::IterDomain>();
     initial_index_map[lowered_id] = loop_structure[loop_i]->index();
     if (loop_structure[loop_i]->vectorize() &&
-      (loop_structure[loop_i]->iter_domain()->parallelType() ==
-            ParallelType::Vectorize ||
-        loop_structure[loop_i]->iter_domain()->parallelType() ==
-            ParallelType::MisalignedVectorize)) {
+        (loop_structure[loop_i]->iter_domain()->parallelType() ==
+             ParallelType::Vectorize ||
+         loop_structure[loop_i]->iter_domain()->parallelType() ==
+             ParallelType::MisalignedVectorize)) {
       initial_index_map[lowered_id] = ir_builder.create<kir::Int>(0);
     }
   }

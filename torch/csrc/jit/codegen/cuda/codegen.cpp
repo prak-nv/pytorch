@@ -323,7 +323,8 @@ class CudaKernelGenerator : private kir::IrVisitor {
         vector_word_size = vector_size_optional.value();
 
         vectorize_op = id->getParallelType() == ParallelType::Vectorize;
-        misaligned_op = id->getParallelType() == ParallelType::MisalignedVectorize;
+        misaligned_op =
+            id->getParallelType() == ParallelType::MisalignedVectorize;
         break;
       }
 

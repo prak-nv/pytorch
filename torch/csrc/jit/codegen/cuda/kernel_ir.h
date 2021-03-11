@@ -1214,7 +1214,8 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
       Val* extent,
       IterDomain* iter_domain,
       bool unroll = false,
-      bool vectorize = false);
+      bool vectorize = false,
+      Val* offset = nullptr);
 
   void accept(IrVisitor* visitor) const override {
     visitor->visit(this);
@@ -1240,6 +1241,14 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
     vectorize_ = vectorize;
   }
 
+  kir::Val* offset() const {
+    return offset_;
+  }
+
+  void setOffset(kir::Val* offset) {
+    offset_ = offset;
+  }
+
   IterDomain* iter_domain() const {
     return iter_domain_;
   }
@@ -1263,6 +1272,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
   Scope body_;
   bool unroll_ = false;
   bool vectorize_ = false;
+  Val* offset_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its

@@ -131,7 +131,9 @@ class AllocationInserter : public kir::MutableIrVisitor {
         std::stringstream ss;
         ss << id->parallelType();
         new_loop = ir_builder.create<kir::ForLoop>(
-            ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int), id->extent(), id);
+            ir_builder.create<kir::NamedScalar>(ss.str(), DataType::Int),
+            id->extent(),
+            id);
       } else {
         new_loop = ir_builder.create<kir::ForLoop>(
             ir_builder.create<kir::Int>(c10::nullopt), id->extent(), id);
