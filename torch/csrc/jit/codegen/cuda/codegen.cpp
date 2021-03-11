@@ -880,7 +880,7 @@ class CudaKernelGenerator : private kir::IrVisitor {
     // TODO(kir): handle this during lowering
     if (node->iter_domain()->isThread() || node->iter_domain()->isBroadcast() ||
         node->vectorize()) {
-      vectorize_scope_ = true;
+      vectorize_scope_ = node->vectorize();
       handleScope(node->body());
       vectorize_scope_ = false;
       return;
