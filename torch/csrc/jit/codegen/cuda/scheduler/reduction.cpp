@@ -17,6 +17,8 @@ namespace fuser {
 namespace cuda {
 
 namespace {
+constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
+constexpr int64_t y_grid_limit = 65535;
 // Largest Power of 2 less-than n
 constexpr int64_t lastPow2(int64_t n) {
   TORCH_INTERNAL_ASSERT(n >= 0);
@@ -128,9 +130,9 @@ ReductionParams innerReductionHeuristic(
 
   // TODO: Flip block y and x
   // Blocks for reductions
-  int64_t gdimy = 1;
+  int64_t grdim = 1;
   // Blocks for outputs
-  int64_t gdimx = 1;
+  int64_t godim = 1;
 
   // Threads for outputs
   int64_t bdimy = 1;
@@ -191,62 +193,75 @@ ReductionParams innerReductionHeuristic(
     }
   }
 
-  gdimx = remainder_in_output;
+  godim = remainder_in_output;
 
   // Cross grid reduction if we haven't hit our target blocks, and we have many
   // reduction elements.
-  if (gdimx < target_blocks && remainder_in_reduction > 8 &&
+  if (godim < target_blocks && remainder_in_reduction > 8 &&
       remainder_in_reduction < 32) {
-    gdimy = ceilDiv(remainder_in_reduction, (int64_t)4);
+    grdim = ceilDiv(remainder_in_reduction, (int64_t)4);
     remainder_in_reduction = ceilDiv(
         num_elems_in_reduction,
         bdimx *
             std::max(
                 unroll_reduction ? unroll_factor : 1,
                 min_red_elems_per_thread) *
-            gdimy);
+            grdim);
   } else if (remainder_in_reduction >= 32) {
     // Do at least 2 iterations of unrolling per thread before we go cross grid.
     // Limit cross grid to a multiple of the block size so cleanup on the last
     // block doesn't take too long.
-    gdimy = std::min(
+    grdim = std::min(
         ceilDiv(remainder_in_reduction, (int64_t)2), bdimx * bdimy * 8);
-    remainder_in_reduction = ceilDiv(remainder_in_reduction, gdimy);
+    remainder_in_reduction = ceilDiv(remainder_in_reduction, grdim);
   }
 
   // Try to do some cleanup of ragged waves on device
-  // gdimx is a remainder of a split, so can only control bdimy
+  // godim is a remainder of a split, so can only control bdimy
   if (
       // If we have less than 8 waves of blocks
-      gdimy * gdimx < device_multiprocessor_count * 8 &&
+      grdim * godim < device_multiprocessor_count * 8 &&
       // And we don't have an even divisible number of blocks
-      (gdimy * gdimx) % device_multiprocessor_count != 0 &&
+      (grdim * godim) % device_multiprocessor_count != 0 &&
       // And we have more than one wave
-      gdimy * gdimx > device_multiprocessor_count) {
+      grdim * godim > device_multiprocessor_count) {
     // round waves down
     auto waves =
-        std::max((gdimx * gdimy) / device_multiprocessor_count, (int64_t)1);
-    auto new_gdimy =
-        std::max((waves * device_multiprocessor_count) / gdimx, (int64_t)1);
+        std::max((godim * grdim) / device_multiprocessor_count, (int64_t)1);
+    auto new_grdim =
+        std::max((waves * device_multiprocessor_count) / godim, (int64_t)1);
     if (
-        // If difference is less than 25% of the original gdimy
-        (new_gdimy - gdimy) * 4 < gdimy &&
+        // If difference is less than 25% of the original grdim
+        (new_grdim - grdim) * 4 < grdim &&
         // and difference is less than 25% of the original number of blocks
-        ((new_gdimy * gdimx) - (gdimy * gdimx)) * 4 < gdimy * gdimx) {
-      gdimy = new_gdimy;
+        ((new_grdim * godim) - (grdim * godim)) * 4 < grdim * godim) {
+      grdim = new_grdim;
     }
   }
 
   ReductionParams rparams;
   rparams.fastest_dim = true;
   rparams.cross_block = true;
-  rparams.cross_grid = gdimy > 1;
+  rparams.cross_grid = grdim > 1;
   rparams.multiple_reds_per_blk = bdimy > 1;
   rparams.loop_unroll = unroll_factor;
   rparams.reduction_unroll = unroll_reduction;
 
+  // If we have a cross grid case we want to have gdimy assigned to godim and
+  // gdimx assigned to grdim. Otherwise it's helpful to pull godim into gdimx in
+  // case it's larger than gdimy can hold, as not doing so can thrash the cache.
+  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+  int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
+
+  if (rparams.cross_grid) {
+    gdimx = grdim;
+    rparams.split_grid_dim = gdimy > y_grid_limit;
+  } else {
+    rparams.split_grid_dim = gdimx > x_grid_limit;
+  }
+
   rparams.lparams = LaunchParams(
-      LaunchParams::UNINITIALIZED_VAL,
+      gdimx,
       gdimy,
       LaunchParams::UNINITIALIZED_VAL,
       bdimx,
@@ -431,7 +446,7 @@ ReductionParams OuterReductionHeuristic(
       // Don't do too many cross grid reductions if we have many of them
       // available
       gdimy = std::min(
-          ceilDiv(remainder_in_reduction, (int64_t)32), (int64_t)65535);
+          ceilDiv(remainder_in_reduction, (int64_t)32), (int64_t)y_grid_limit);
       // We don't want to have to do too many reductions after we go cross grid
       gdimy = std::min(gdimy, bdimx * bdimy * 2);
     }
@@ -675,7 +690,12 @@ void scheduleReduction(
           red_tv_rf->split(
               iter_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
           red_tv_rf->axis(1)->parallelize(ParallelType::TIDy);
-          red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
+          if (rparams.split_grid_dim) {
+            red_tv_rf->split(iter_axis, x_grid_limit);
+            red_tv_rf->axis(iter_axis + 1)->parallelize(ParallelType::BIDx);
+          } else {
+            red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
+          }
         }
 
         reference_tv = red_tv_rf;
@@ -684,7 +704,7 @@ void scheduleReduction(
         TORCH_INTERNAL_ASSERT(
             has_iter_axis,
             "This scheduler requires an outer dim to the reduction.");
-        // Multiple reductions per block iter unroll
+        // Fastest dim, Multiple reductions per block iter unroll
         // Output Dimensions
         // [x-BIDx, x-Unswitch, x-Unroll, x-TIDy
         //  0       1           2         3
@@ -706,11 +726,18 @@ void scheduleReduction(
 
           red_tv_rf->axis(3)->parallelize(ParallelType::TIDy);
           red_tv_rf->axis(1)->parallelize(ParallelType::Unswitch);
-          red_tv_rf->axis(0)->parallelize(ParallelType::BIDx);
 
           // [BIDx, 1, 8, TIDy, rf-outer, TIDx]
           red_tv_rf->reorder({{-2, -3}, {2, -2}, {3, -1}});
           // [BIDx, TIDy, TIDx, rf-outer, 1, 8]
+
+          if (rparams.split_grid_dim) {
+            red_tv_rf->split(iter_axis, x_grid_limit);
+            red_tv_rf->axis(iter_axis + 1)->parallelize(ParallelType::BIDx);
+          } else {
+            red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
+          }
+
           reference_tv = red_tv_rf;
           reduction_tv = red_tv;
         }
@@ -720,7 +747,7 @@ void scheduleReduction(
         // Fastest dim, cross grid, cross block
         //      [outputs,
         // Idx:     0
-        //   | rf-Remain, r-BIDy, r-TIDy, r-Unswitch, rf-Unroll, r-TIDx]
+        //   | rf-Remain, r-BIDx, r-TIDy, r-Unswitch, rf-Unroll, r-TIDx]
         //     1(-6)      2(-5)   3(-4)   4(-3)       5(-2)      6(-1)|
         //                Reduction Dimensions
         red_tv->split(
@@ -730,24 +757,29 @@ void scheduleReduction(
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
         red_tv->split(
-            reduce_axis, NamedScalar::getParallelDim(ParallelType::BIDy));
+            reduce_axis, NamedScalar::getParallelDim(ParallelType::BIDx));
 
         auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-6, -3, -2});
 
         red_tv_rf->axis(-1)->parallelize(ParallelType::TIDx);
         red_tv_rf->axis(-3)->parallelize(ParallelType::Unswitch);
         red_tv_rf->axis(-4)->parallelize(ParallelType::TIDy);
-        red_tv_rf->axis(-5)->parallelize(ParallelType::BIDy);
+        red_tv_rf->axis(-5)->parallelize(ParallelType::BIDx);
 
         if (has_iter_axis) {
-          red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
+          if (rparams.split_grid_dim) {
+            red_tv_rf->split(iter_axis, y_grid_limit);
+            red_tv_rf->axis(iter_axis + 1)->parallelize(ParallelType::BIDy);
+          } else {
+            red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDy);
+          }
         }
 
         reference_tv = red_tv_rf;
         reduction_tv = red_tv;
 
       } else {
-        // Reduction Splits
+        // Fastest dim, Reduction Splits
         // Output Dimensions
         // [BIDx
         //  0
@@ -769,7 +801,10 @@ void scheduleReduction(
         red_tv_rf->axis(-3)->parallelize(ParallelType::TIDy);
         red_tv_rf->axis(-4)->parallelize(ParallelType::Unswitch);
 
-        if (has_iter_axis) {
+        if (rparams.split_grid_dim) {
+          red_tv_rf->split(iter_axis, x_grid_limit);
+          red_tv_rf->axis(iter_axis + 1)->parallelize(ParallelType::BIDx);
+        } else {
           red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
         }
 
@@ -780,7 +815,7 @@ void scheduleReduction(
   } else {
     if (rparams.cross_block) {
       if (rparams.cross_grid) {
-        // Grid reduction
+        // Outer Dim, cross grid, cross block
 
         // Unrolling in this case can only be applied to the reduction dimension
         // since currently, grid reductions cannot be called multiple times
@@ -814,7 +849,7 @@ void scheduleReduction(
 
       } else {
         if (rparams.reduction_unroll || rparams.loop_unroll == 1) {
-          // Block reduction Unroll reduction dimension
+          // Outer Dim, cross block, unroll reduction dimension
 
           // Reduction Splits
           // Output Dimensions
@@ -842,7 +877,7 @@ void scheduleReduction(
           reduction_tv = red_tv;
 
         } else {
-          // Block reduction unroll iter axis
+          // Outer Dim, cross block, unroll iter dimension
 
           // Output Dimensions
           // [x-BIDx, x-Unswitch, x-Unroll, x-TIDx
@@ -873,7 +908,7 @@ void scheduleReduction(
       }
     } else {
       if (rparams.reduction_unroll) {
-        // No parallelization on reduction, unroll reduction axis
+        // Outer Dim, no parallelization on reduction, unroll reduction axis
         // Output Dimensions
         // [x-BIDx, x-TIDx
         //  0       1

@@ -33,6 +33,9 @@ struct ReductionParams {
   // Store input in shared memory or registers to reduce global memory reads
   bool persistent_kernel = false;
 
+  // Split grid dim in case it's too large for cuda
+  bool split_grid_dim = false;
+
   LaunchParams lparams;
 
   // Warning: Does not check launch parameters!
@@ -44,7 +47,8 @@ struct ReductionParams {
         other.batches_per_block == batches_per_block &&
         other.num_warps == num_warps &&
         other.persistent_kernel == persistent_kernel &&
-        other.reduction_unroll == reduction_unroll;
+        other.reduction_unroll == reduction_unroll &&
+        other.split_grid_dim == split_grid_dim;
     return attr_equal;
   }
 
@@ -80,7 +84,8 @@ class ReductionParamsHash {
         static_cast<size_t>(rp.batches_per_block) << (bits - 5) |
         static_cast<size_t>(rp.num_warps) << (bits - 6) |
         static_cast<size_t>(rp.persistent_kernel) << (bits - 7) |
-        static_cast<size_t>(rp.reduction_unroll) << (bits - 8);
+        static_cast<size_t>(rp.reduction_unroll) << (bits - 8) |
+        static_cast<size_t>(rp.split_grid_dim) << (bits - 9);
     return attr_hash;
   }
 };
