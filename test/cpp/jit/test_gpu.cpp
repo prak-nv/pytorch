@@ -13689,10 +13689,10 @@ TEST(NVFuserTest, FusionReductionPredicate_CUDA) {
 
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
   tv1->axis(2)->parallelize(ParallelType::Unroll);
-  tv0->computeAt(tv1, 3);
+  tv1->split(0, 10);
+  tv0->computeAt(tv1, 4);
 
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
-  tv2->axis(2)->parallelize(ParallelType::Unroll);
 
   int numel_x = 650;
   int numel_y = 102;
