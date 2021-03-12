@@ -359,6 +359,11 @@ class CudaKernelGenerator : private kir::IrVisitor {
       return;
     }
 
+    if (node->out()->isA<kir::NamedScalar>()) {
+      indent() << gen(node->out()) << " = " << genInline(node->in()) << ";\n";
+      return;
+    }
+
     if (!print_inline_) {
       indent() << gen(node->out());
       if (!node->out()->isScalar() && !node->in()->isScalar()) {

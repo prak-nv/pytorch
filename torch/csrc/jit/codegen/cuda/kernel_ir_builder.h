@@ -51,6 +51,7 @@ class TORCH_CUDA_CU_API IrBuilder {
 
   // Unary operations
   Val* negExpr(Val* val);
+  Val* namedSetExpr(const std::string& name, Val* val);
 
   // Binary operations
   Val* andExpr(Val* lhs, Val* rhs);

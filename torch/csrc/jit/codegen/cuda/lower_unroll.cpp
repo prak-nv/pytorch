@@ -117,6 +117,22 @@ kir::Val* generateBaseIndex(kir::TensorIndex* node) {
   return result;
 }
 
+kir::Val* setupNamedScalar(
+    kir::ForLoop* for_loop,
+    kir::Val* val,
+    const std::string& name) {
+  kir::IrBuilder ir_builder(GpuLower::current()->kernel());
+  kir::Int* one = ir_builder.create<kir::Int>(1);
+
+  auto namedScalar = ir_builder.namedSetExpr(name, val);
+  auto alloc =
+      ir_builder.create<kir::Allocate>(namedScalar, MemoryType::Local, one);
+  for_loop->body().push_back(alloc);
+  for_loop->body().push_back(namedScalar->definition());
+
+  return namedScalar;
+}
+
 kir::ForLoop* handleMisalignedVectorization(
     std::vector<kir::ForLoop*> loop_structure,
     const kir::ForLoop* for_loop) {
@@ -156,32 +172,31 @@ kir::ForLoop* handleMisalignedVectorization(
   // Disable vectorize flag in child For-Loop
   loop_structure.back()->setVectorize(false);
 
-  // TODO: NamedVal - base_address
-  auto base_address = generateBaseIndex(index);
+  auto base_address_val = generateBaseIndex(index);
+  auto base_address =
+      setupNamedScalar(new_loop, base_address_val, "base_address");
 
   auto a = ir_builder.ceilDivExpr(base_address, vector_size);
   auto b = ir_builder.mulExpr(a, vector_size);
-  // TODO: NamedVal - shift
-  auto shift = ir_builder.subExpr(b, base_address);
+  auto shift_val = ir_builder.subExpr(b, base_address);
+  auto shift = setupNamedScalar(new_loop, shift_val, "shift");
 
   auto remaining_extent = ir_builder.subExpr(extent, shift);
-  // TODO: NamedVal - remainder
-  auto remainder = ir_builder.modExpr(remaining_extent, vector_size);
+  auto remainder_val = ir_builder.modExpr(remaining_extent, vector_size);
+  auto remainder = setupNamedScalar(new_loop, remainder_val, "remainder");
 
   auto last_index = ir_builder.subExpr(extent, vector_size);
-  // TODO: NamedVal - threshold
-  auto threshold = ir_builder.subExpr(last_index, shift);
+  auto threshold_val = ir_builder.subExpr(last_index, shift);
+  auto threshold = setupNamedScalar(new_loop, threshold_val, "threshold");
 
-  // TODO: NamedVal - last_root_dim_index
-  auto last_root_dim_index = index->indices().back();
+  auto last_root_dim_index = setupNamedScalar(
+      new_loop, index->indices().back(), "last_root_dim_index");
 
   // Part A - Vectorize
-  kir::Val* vectorize_pred =
-      ir_builder.leExpr(last_root_dim_index, threshold);
+  kir::Val* vectorize_pred = ir_builder.leExpr(last_root_dim_index, threshold);
   kir::IfThenElse* vectorize_ite =
       ir_builder.create<kir::IfThenElse>(vectorize_pred->as<kir::Bool>());
-  cloneVectorizeLoopNests(
-      vectorize_ite, child_loops, vector_size, true, shift);
+  cloneVectorizeLoopNests(vectorize_ite, child_loops, vector_size, true, shift);
   new_loop->body().push_back(vectorize_ite);
 
   // Part B - Pre
@@ -192,8 +207,7 @@ kir::ForLoop* handleMisalignedVectorization(
   new_loop->body().push_back(pre_ite);
 
   // Part C - Post
-  kir::Val* rshift_pred =
-      ir_builder.gtExpr(last_root_dim_index, threshold);
+  kir::Val* rshift_pred = ir_builder.gtExpr(last_root_dim_index, threshold);
   kir::IfThenElse* post_ite =
       ir_builder.create<kir::IfThenElse>(rshift_pred->as<kir::Bool>());
   cloneVectorizeLoopNests(post_ite, child_loops, remainder, false, shift);

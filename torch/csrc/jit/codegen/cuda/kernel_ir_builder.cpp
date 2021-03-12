@@ -38,6 +38,12 @@ Val* IrBuilder::negExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::namedSetExpr(const std::string& name, Val* val) {
+  auto result = create<NamedScalar>(name, val->dtype());
+  create<UnaryOp>(UnaryOpType::Set, result, val);
+  return result;
+}
+
 Val* IrBuilder::andExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::And, lhs, rhs);
 }
