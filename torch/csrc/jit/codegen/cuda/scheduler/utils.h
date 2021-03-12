@@ -103,6 +103,10 @@ void computeWithOutputs(
     int pos,
     ComputeAtMode mode = ComputeAtMode::Standard);
 
+// returns all tensor views in fusion that are used between outputs and inputs.
+// Order is non-deterministic and non-repeating.
+// TODO: This would be good to have determinsitic and to put outside scheduling
+// as it's generally useful
 std::vector<TensorView*> allTvs(Fusion* fusion);
 
 } // namespace scheduler_utils

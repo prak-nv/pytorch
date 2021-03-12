@@ -669,6 +669,8 @@ void scheduleReduction(
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
         red_tv->split(reduce_axis, rparams.loop_unroll);
+        // Unswitch axis which gives us finer control on allocations with
+        // unrolling
         red_tv->split(reduce_axis, 1);
 
         auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-4, -3, -2});
@@ -712,6 +714,8 @@ void scheduleReduction(
           red_tv_rf->split(
               iter_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
           red_tv_rf->split(iter_axis, rparams.loop_unroll);
+          // Unswitch axis which gives us finer control on allocations with
+          // unrolling
           red_tv_rf->split(iter_axis, 1);
 
           red_tv_rf->axis(3)->parallelize(ParallelType::TIDy);
@@ -744,6 +748,8 @@ void scheduleReduction(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
         red_tv->split(reduce_axis, rparams.loop_unroll);
         red_tv->split(reduce_axis, 1);
+        // Unswitch axis which gives us finer control on allocations with
+        // unrolling
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
         red_tv->split(
@@ -783,6 +789,8 @@ void scheduleReduction(
         red_tv->split(reduce_axis, rparams.loop_unroll);
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
+        // Unswitch axis which gives us finer control on allocations with
+        // unrolling
         red_tv->split(reduce_axis, 1);
 
         auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-5, -4, -2});
@@ -818,6 +826,8 @@ void scheduleReduction(
         // rF-Leftover, r-BIDy, r-TIDy, rf-Unswitch, rf-Unroll]
         // 2(-5)        3(-4)   4(-3)   5(-2)        6(-1)
         red_tv->split(1, rparams.loop_unroll);
+        // Unswitch axis which gives us finer control on allocations with
+        // unrolling
         red_tv->split(1, 1);
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
         red_tv->split(1, NamedScalar::getParallelDim(ParallelType::BIDy));
@@ -850,6 +860,8 @@ void scheduleReduction(
           // rF-Leftover, r-TIDy, rf-Unswitch, rf-Unroll]
           // 2(-4)        3(-3)   4(-2)       5(-1)
           red_tv->split(1, rparams.loop_unroll);
+          // Unswitch axis which gives us finer control on allocations with
+          // unrolling
           red_tv->split(1, 1);
           red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
           red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
@@ -880,6 +892,8 @@ void scheduleReduction(
           red_tv->split(1, NamedScalar::getParallelDim(ParallelType::TIDy));
           red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
           red_tv->split(0, rparams.loop_unroll);
+          // Unswitch axis which gives us finer control on allocations with
+          // unrolling
           red_tv->split(0, 1);
 
           auto red_tv_rf = scheduler_utils::rfactorHelper(
@@ -907,6 +921,8 @@ void scheduleReduction(
         // rf-Leftover, rf-Unswitch, r-Unroll]
         // 2(-3)        3(-2)        4(-1)
         red_tv->split(1, rparams.loop_unroll);
+        // Unswitch axis which gives us finer control on allocations with
+        // unrolling
         red_tv->split(1, 1);
         red_tv->split(0, NamedScalar::getParallelDim(ParallelType::TIDx));
 
