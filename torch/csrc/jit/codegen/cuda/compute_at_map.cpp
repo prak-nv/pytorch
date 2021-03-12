@@ -43,8 +43,9 @@ class ConcreteInputCounter : public IterVisitor {
     // were traversed, so manually insert their count
     for (auto id : domain) {
       if (count_map.find(id) == count_map.end()) {
-        count_map[id] = (id->isBroadcast() ||
-                         (gpu_lower && gpu_lower->trivialReductionInfo().isDerived(id)))
+        count_map[id] =
+            (id->isBroadcast() ||
+             (gpu_lower && gpu_lower->trivialReductionInfo().isDerived(id)))
             ? 0
             : 1;
       }
