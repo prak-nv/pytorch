@@ -85,35 +85,35 @@ static void MagicScheduler_Reduction(benchmark::State& benchmark_state,
     outputs_of_reduction.push_back(out_of_reduction);
   }
 
-  scheduleReduction(
-      &fusion, reduction_params.value(), reduction_tv, outputs_of_reduction);
+  auto rparams = reduction_params.value();
+  auto lparams = rparams.lparams;
 
-  auto lparams = reduction_params.value().lparams;
+  scheduleReduction(
+      &fusion, rparams, reduction_tv, outputs_of_reduction);
 
   std::stringstream ss;
-  if(reduction_params.value().fastest_dim){
+  if(rparams.fastest_dim){
     ss << "Fastest dim";
   } else {
     ss << "Slow dim";
   }
-  if(reduction_params.value().cross_block){
+  if(rparams.cross_block){
     ss << "/cross block";
   }
-  if(reduction_params.value().multiple_reds_per_blk){
+  if(rparams.multiple_reds_per_blk){
     ss << "/multiple reductions per block ";
   }
-  if(reduction_params.value().cross_grid){
+  if(rparams.cross_grid){
     ss << "/cross grid";
   }
-  if(reduction_params.value().loop_unroll > 1){
+  if(rparams.loop_unroll > 1){
     ss << "/Unroll "
-       << (reduction_params.value().reduction_unroll ? "reduction dim "
+       << (rparams.reduction_unroll ? "reduction dim "
                                                      : "iter dim ")
-       << reduction_params.value().loop_unroll;
+       << rparams.loop_unroll;
   }
-  ss << "/Launch (" << reduction_params.value().lparams.gdimy() << ", "
-     << reduction_params.value().lparams.bdimy() << ", "
-     << reduction_params.value().lparams.bdimx() << ")";
+  ss << "/Launch (" << (rparams.fastest_dim ? lparams.gdimx() : lparams.gdimy())
+     << ", " << lparams.bdimy() << ", " << lparams.bdimx() << ")";
 
   benchmark_state.SetLabel(ss.str());
   
