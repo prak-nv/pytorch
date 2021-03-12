@@ -39,8 +39,8 @@ class ConcreteInputCounter : public IterVisitor {
     // were traversed, so manually insert their count
     for (auto id : domain) {
       if (count_map.find(id) == count_map.end()) {
-        count_map[id] =
-            (id->isBroadcast() || gpu_lower->isDerivedFromTrivialReduction(id))
+        count_map[id] = (id->isBroadcast() ||
+                         gpu_lower->trivialReductionInfo().isDerived(id))
             ? 0
             : 1;
       }
@@ -66,7 +66,7 @@ class ConcreteInputCounter : public IterVisitor {
               .emplace(std::make_pair(id, std::unordered_set<IterDomain*>()))
               .first;
       if (!id->isBroadcast() &&
-          !gpu_lower_->isDerivedFromTrivialReduction(id)) {
+          !gpu_lower_->trivialReductionInfo().isDerived(id)) {
         concrete_set_it->second.emplace(id);
       }
     }
