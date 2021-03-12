@@ -148,9 +148,6 @@ ReductionParams innerReductionHeuristic(
   int64_t unroll_factor = 1;
 
   // Grab what we can out of reduction domain, but don't go over a warp size yet
-  // Assuming an L1 size of 32KiB, and 2048 max resident threads per SM (very
-  // conservative) then we can load 16B per thread without thrashing L1. So try
-  // to make sure each thread has at least 16B of data
   bdimx = std::min(num_elems_in_reduction, (int64_t)warp_size);
   // Put everything else in bdimy for now
   bdimy = std::max(max_threads_in_block / bdimx, (int64_t)1);
@@ -285,7 +282,7 @@ ReductionParams OuterReductionHeuristic(
 
   const int64_t n_elems = num_elems_in_reduction * num_outputs_for_reduction;
   const int64_t l2_cache_size =
-      at::cuda::getCurrentDeviceProperties()->l2CacheSize * 4;
+      at::cuda::getCurrentDeviceProperties()->l2CacheSize;
 
   const int64_t warp_size =
       n_elems * max_input_size * n_tensor_inputs < l2_cache_size
@@ -366,14 +363,17 @@ ReductionParams OuterReductionHeuristic(
       device_multiprocessor_count) {
     // If we can't hit a full wave, leave bdimx as warp_size, and prioritize
     // bdimy
-    bdimx = std::min(lastPow2(num_outputs_for_reduction), (int64_t)warp_size);
+    bdimx = std::min(num_outputs_for_reduction, warp_size);
   } else {
     bdimx = std::min(
         max_threads_in_block,
         ceilDiv(num_outputs_for_reduction, target_blocks));
-    bdimx = std::max(bdimx, (int64_t)warp_size);
+    bdimx = std::max(bdimx, warp_size);
   }
-  bdimy = ceilDiv(max_threads_in_block, bdimx);
+
+  bdimy = std::min(
+      std::max(max_threads_in_block / bdimx, (int64_t)1),
+      num_elems_in_reduction);
 
   remainder_in_output = ceilDiv(num_outputs_for_reduction, bdimx);
   remainder_in_reduction = ceilDiv(remainder_in_reduction, bdimy);
@@ -393,69 +393,51 @@ ReductionParams OuterReductionHeuristic(
     unroll_factor = std::min(
         ceilDiv(remainder_in_output, device_multiprocessor_count * 2),
         target_unroll);
-    if (unroll_factor == 1) {
-      unroll_reduction = true;
-      unroll_factor = 1;
-      // TODO: Add to inner case
-      if (remainder_in_reduction > 1) {
-        unroll_factor = std::min(remainder_in_reduction, unroll_factor);
-        remainder_in_reduction = ceilDiv(remainder_in_reduction, unroll_factor);
+
+    if (unroll_factor == 1 && remainder_in_reduction > 1) {
+      // Try unrolling in reduction dimension
+      unroll_factor = std::min(remainder_in_reduction, unroll_factor);
+      remainder_in_reduction = ceilDiv(remainder_in_reduction, unroll_factor);
+      if (unroll_factor > 1) {
+        unroll_reduction = true;
       }
     } else {
-      remainder_in_output = ceilDiv(remainder_in_output, unroll_factor);
-      unroll_reduction = false;
+      remainder_in_output =
+          ceilDiv(num_outputs_for_reduction, bdimx * unroll_factor);
     }
+  } else {
+    // Not many output elements, so we want to try expand grid level parallelism
+    // first go after unrolling
+    unroll_factor = std::min(max_unroll, remainder_in_reduction);
+    if (unroll_factor > 1) {
+      unroll_reduction = true;
+    }
+
+    remainder_in_reduction =
+        ceilDiv(num_elems_in_reduction, bdimy * unroll_factor);
+
+    // Go cross grid
+    gdimy = ceilDiv(remainder_in_reduction, (int64_t)4);
+    remainder_in_reduction =
+        ceilDiv(num_elems_in_reduction, bdimy * unroll_factor * gdimy);
   }
 
-  gdimx = remainder_in_output;
-
-  // Expand in bdimy, unroll in the reduction dimension, and potentially reduce
-  // cross grid in gdimy.
-  if ((gdimx < device_multiprocessor_count && remainder_in_reduction > 1) ||
-      // If we haven't hit a full wave with gdimx, and we have reduction
-      // elements left
-      remainder_in_reduction > 256
-      // Or we just have a lot of reduction elements
-  ) {
-    // Reset unrolling
-    unroll_factor = 1;
-    unroll_reduction = true;
-    // Reset remainder in reduction (since unroll may have changed)
-    remainder_in_reduction = ceilDiv(num_elems_in_reduction, bdimy);
-    // Reset remainder in out (since unroll may have changed)
-    remainder_in_output = ceilDiv(num_outputs_for_reduction, bdimx);
-    gdimx = remainder_in_output;
-    remainder_in_output = ceilDiv(remainder_in_output, gdimx);
-
-    // Expand the bdimy dimension before we consider going cross grid upto a
-    // quarter of the SM capacity times max unroll
-    auto max_threads =
-        ceilDiv(device_max_threads_per_multiprocessor, (int64_t)4);
-    if (bdimy * bdimx < max_threads) {
-      bdimy = std::max(max_threads / bdimx, (int64_t)1);
-      remainder_in_reduction = ceilDiv(num_elems_in_reduction, bdimy);
-      if (remainder_in_reduction > 1) {
-        unroll_factor = std::min(max_unroll, remainder_in_reduction);
-        remainder_in_reduction =
-            ceilDiv(num_elems_in_reduction, bdimy * unroll_factor);
-      }
+  if (ceilDiv(num_elems_in_reduction, bdimy * unroll_factor) >= 32) {
+    // Many reduction elements, go cross grid
+    int64_t min_gdimy = 1;
+    if (gdimy > 1) {
+      // already cross grid, don't go below target or what was already set
+      min_gdimy = std::min(gdimy, ceilDiv(target_blocks, gdimx));
     }
-
-    gdimy = remainder_in_reduction;
-    if (gdimy > 32) {
-      // Don't do too many cross grid reductions if we have many of them
-      // available
-      gdimy = std::min(
-          ceilDiv(remainder_in_reduction, (int64_t)32), (int64_t)y_grid_limit);
-      // We don't want to have to do too many reductions after we go cross grid
-      gdimy = std::min(gdimy, bdimx * bdimy * 2);
-    }
-  }
-
-  // bdimx should never be > max threads, but do this anyways for safety
-  bdimx = std::min(device_max_threads_per_multiprocessor, bdimx);
-  if (bdimy * bdimx > device_max_threads_per_multiprocessor) {
-    bdimy = std::max(device_max_threads_per_multiprocessor / bdimx, (int64_t)1);
+    gdimy = std::max(
+        min_gdimy,
+        ceilDiv(
+            ceilDiv(num_elems_in_reduction, bdimy * unroll_factor),
+            (int64_t)16));
+    // Don't go too far above number of threads in a block since that's how many
+    // threads are available to do final reduction iteration
+    // This is good!
+    gdimy = std::min(gdimy, bdimx * bdimy * 8);
   }
 
   // Try to do some cleanup of ragged waves on device
@@ -488,6 +470,14 @@ ReductionParams OuterReductionHeuristic(
   rparams.multiple_reds_per_blk = bdimx > 1;
   rparams.loop_unroll = unroll_factor;
   rparams.reduction_unroll = unroll_reduction;
+
+  // WAR as it seems nvcc is doing some strange unrolling behavior in
+  // this scenario for fp16 small reduction dim large iter dim. Needs more
+  // investigation.
+  if (!rparams.cross_block && !rparams.cross_grid) {
+    rparams.loop_unroll = 1;
+    rparams.reduction_unroll = true;
+  }
 
   const char* debug_env = getenv("PYTORCH_NVFUSER_RED_SCHED_DEBUG");
   if (debug_env && atoi(debug_env)) {
