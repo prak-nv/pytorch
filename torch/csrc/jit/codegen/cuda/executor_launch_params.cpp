@@ -16,7 +16,7 @@ void LaunchParams::assertValid() {
       "Selected invalid number of threads for cuda: ",
       bdimx() * bdimz() * bdimz());
   TORCH_INTERNAL_ASSERT(
-      gdimx() > 0 && gdimx() < (std::uint64_t(1) << 32) - 1,
+      gdimx() > 0 && gdimx() < (std::int64_t(1) << 32) - 1,
       "Invalid number of blocks in x direction: ",
       gdimx());
   TORCH_INTERNAL_ASSERT(
@@ -25,7 +25,7 @@ void LaunchParams::assertValid() {
       gdimy());
   TORCH_INTERNAL_ASSERT(
       gdimz() > 0 && gdimz() <= 65535,
-      "Invalid number of blocks in y direction: ",
+      "Invalid number of blocks in z direction: ",
       gdimz());
 }
 

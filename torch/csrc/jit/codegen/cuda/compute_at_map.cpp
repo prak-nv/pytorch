@@ -12,9 +12,13 @@ namespace fuser {
 namespace cuda {
 namespace {
 
-// Class to figure out how many non-broadcast axes were used to produce an iter
-// domain. This is important for figuring out what the correct broadcasted
-// extent is of an iteration domain
+//! Class to figure out how many non-broadcast axes were used to produce an iter
+//! domain. This is important for figuring out what the correct broadcasted
+//! extent is of an iteration domain.
+//!
+//! When GpuLower is available, trivial reductions are not counted as
+//! concrete domains so that they should not be used to generate
+//! for-loops.
 class ConcreteInputCounter : public IterVisitor {
  public:
   // Returns number of non-braodcast non-reduction iteration domains used to
@@ -39,9 +43,9 @@ class ConcreteInputCounter : public IterVisitor {
     // were traversed, so manually insert their count
     for (auto id : domain) {
       if (count_map.find(id) == count_map.end()) {
-        count_map[id] = (id->isBroadcast() ||
-                         (gpu_lower != nullptr &&
-                          gpu_lower->isDerivedFromTrivialReduction(id)))
+        count_map[id] =
+            (id->isBroadcast() ||
+             (gpu_lower && gpu_lower->trivialReductionInfo().isDerived(id)))
             ? 0
             : 1;
       }
@@ -66,9 +70,8 @@ class ConcreteInputCounter : public IterVisitor {
           concrete_domain_set_
               .emplace(std::make_pair(id, std::unordered_set<IterDomain*>()))
               .first;
-      if (gpu_lower_ == nullptr ||
-          (!id->isBroadcast() &&
-           !gpu_lower_->isDerivedFromTrivialReduction(id))) {
+      if (!id->isBroadcast() &&
+          (gpu_lower_ && !gpu_lower_->trivialReductionInfo().isDerived(id))) {
         concrete_set_it->second.emplace(id);
       }
     }
