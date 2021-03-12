@@ -25,7 +25,7 @@ void LaunchParams::assertValid() {
       gdimy());
   TORCH_INTERNAL_ASSERT(
       gdimz() > 0 && gdimz() <= 65535,
-      "Invalid number of blocks in y direction: ",
+      "Invalid number of blocks in z direction: ",
       gdimz());
 }
 
