@@ -13128,9 +13128,6 @@ TEST(NVFuserTest, FusionMisalignedVectorization1_CUDA) {
   tv2->axis(-2)->parallelize(ParallelType::TIDx);
   tv2->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
 
-  fusion.printMath();
-  fusion.printKernel();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 128;
   const int by = 457;
@@ -13144,6 +13141,62 @@ TEST(NVFuserTest, FusionMisalignedVectorization1_CUDA) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   auto aten_output = t0 + t1;
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionMisalignedVectorizationRFactor_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+
+  auto tv3 = sum(tv2, {-1});
+
+  fusion.addOutput(tv3);
+
+  tv3->split(-1, 128 * 4);
+  tv3->split(-1, 4);
+  // Reduce outer dim first
+  auto tv4 = tv3->rFactor({-3, -1});
+  // Tv3 will reduce threads
+
+  tv0->computeAt(tv3, 1);
+  tv1->computeAt(tv3, 1);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+
+  tv0->computeAt(tv4, -2);
+  tv1->computeAt(tv4, -2);
+
+  auto tv6 = tv0->cache_after();
+  auto tv7 = tv1->cache_after();
+
+  tv6->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
+  tv7->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
+
+  tv4->axis(-2)->parallelize(ParallelType::TIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 128;
+  const int by = 2050;
+  at::Tensor t0 = at::randn({bx, by}, options);
+  at::Tensor t1 = at::randn({bx, by}, options);
+
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0.add(t1).sum(1);
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
