@@ -13711,6 +13711,34 @@ TEST(NVFuserTest, FusionReductionPredicate_CUDA) {
       &fusion, {cg_output}, {input}, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionDetectTrivialReduction2_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  auto tv2 = add(tv1, new Double(1));
+  fusion.addOutput(tv2);
+
+  tv1->split(1, 1);
+  auto tv3 = tv1->rFactor({-1});
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  GpuLower gpulw(&fusion);
+
+  // tv3's reduction axis is a trivial reduction. The only
+  // kir::ReductionOp should be for tv1.
+  for (const auto& kir_node : gpulw.kernel()->irNodes()) {
+    if (kir_node->isA<kir::ReductionOp>()) {
+      auto reduction_out = kir_node->as<kir::ReductionOp>()->outputs()[0]->as<kir::TensorView>();
+      TORCH_CHECK(reduction_out->fuserTv() == tv1);
+    }
+  }
+}
+
 } // namespace jit
 } // namespace torch
 #endif // #if defined(USE_CUDA)
