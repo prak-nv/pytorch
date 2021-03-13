@@ -390,10 +390,20 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   //! Part of a heuristic hack, need to be removed once
   //!  heuristics is ready, as well as the <random> header
   //!  see issue #744
+  static std::mt19937& getRNG(bool reset = false) {
+    const int seed = 1234; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+    static std::mt19937 rng(seed);
+    if (reset) {
+      rng = std::mt19937(seed);
+    }
+    return rng;
+  }
+
+  //! Part of a heuristic hack, need to be removed once
+  //!  heuristics is ready, as well as the <random> header
+  //!  see issue #744
   static int getRandomNumber(int fromZeroTo) {
-    static std::mt19937 rng_(
-        1234); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-    return rng_() % fromZeroTo;
+    return getRNG(false)() % fromZeroTo;
   }
 
  protected:

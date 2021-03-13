@@ -965,6 +965,8 @@ SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion) {
   // TODO: this is a heuristic hack, need to remove when actual heuristics are
   //       ready. see issue #744
   const int SEGMENTER_MAX_TRY = 10;
+  // Reset the rng
+  getRNG(true);
 
   std::unique_ptr<SegmentedFusion> best_solution;
   int best_number_of_kernels = -1;
