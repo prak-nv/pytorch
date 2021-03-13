@@ -10,29 +10,10 @@
 
 #include <cuda_runtime.h>
 
+#include "operators.h"
 #include "utils.h"
 
 using namespace torch::jit::fuser::cuda;
-
-static TensorView* setupSoftmax(
-    Fusion* fusion,
-    TensorView* input,
-    const int kNumberOfDims,
-    const int kReductionAxis) {
-  FusionGuard fg(fusion);
-
-  std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  broadcast_mask[kReductionAxis] = true;
-
-  auto max_val = max(input, {kReductionAxis});
-  auto bcast_max = broadcast(max_val, broadcast_mask);
-  auto x_max_sub = sub(input, bcast_max);
-  auto exp = unaryOp(UnaryOpType::Exp, x_max_sub);
-  auto sum_exp = sum(exp, {kReductionAxis});
-  auto bcast_sum = broadcast(sum_exp, broadcast_mask);
-  auto output = div(exp, bcast_sum);
-  return output;
-}
 
 //------------------------------------------------------------------------------
 
