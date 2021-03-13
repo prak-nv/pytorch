@@ -1074,10 +1074,36 @@ kir::TensorIndex* Index::getProducerIndex_impl(
   // Indices should now be mapped onto IterDomains in producer, so just grab
   // and use them.
   auto root_dom = producer_tv->getMaybeRFactorDomain();
+
+  // Figure out which root axes we don't need to index
+  std::unordered_set<IterDomain*> skip_indexing;
+
+  for (size_t root_i = 0; root_i < root_dom.size(); root_i++) {
+    // Already taken care of because we can detect no indexing required
+    if (root_dom[root_i]->isBroadcast() || root_dom[root_i]->isReduction() ||
+        gpu_lower->trivialReductionInfo().isDerived(root_dom[root_i])) {
+      skip_indexing.insert(root_dom[root_i]);
+      continue;
+    }
+
+    // Already an entry for this root domain, continue
+    if (index_map.find(
+            gpu_lower->lowerValue(root_dom[root_i])->as<kir::IterDomain>()) !=
+        index_map.end()) {
+      continue;
+    }
+
+    // Maps to consumers trivial reduction, don't index
+    if (p2c_map.find(root_dom[root_i]) != p2c_map.end() &&
+        gpu_lower->trivialReductionInfo().isDerived(
+            p2c_map.at(root_dom[root_i]))) {
+      skip_indexing.emplace(root_dom[root_i]);
+    }
+  }
+
   std::vector<kir::Val*> strided_inds;
   for (size_t i = 0; i < root_dom.size(); i++) {
-    if (root_dom[i]->isReduction() || root_dom[i]->isBroadcast() ||
-        gpu_lower->trivialReductionInfo().isDerived(root_dom[i])) {
+    if (skip_indexing.count(root_dom[i])) {
       continue;
     }
 
@@ -1102,8 +1128,7 @@ kir::TensorIndex* Index::getProducerIndex_impl(
     // Compute striding for this index.
     kir::Val* stride = nullptr;
     for (size_t j = i + 1; j < root_dom.size(); j++) {
-      if (root_dom[j]->isBroadcast() || root_dom[j]->isReduction() ||
-          gpu_lower->trivialReductionInfo().isDerived(root_dom[j])) {
+      if (skip_indexing.count(root_dom[j])) {
         continue;
       }
 
