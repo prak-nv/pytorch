@@ -389,7 +389,7 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
 
   //! Part of a heuristic hack, need to be removed once
   //!  heuristics is ready, as well as the <random> header
-  //!  see issue #
+  //!  see issue #744
   static int getRandomNumber(int fromZeroTo) {
     static std::mt19937 rng_(
         1234); // NOLINT(cppcoreguidelines-avoid-magic-numbers)

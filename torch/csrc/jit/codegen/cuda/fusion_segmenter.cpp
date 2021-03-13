@@ -963,7 +963,7 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 
 SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion) {
   // TODO: this is a heuristic hack, need to remove when actual heuristics are
-  //       ready. see issue #
+  //       ready. see issue #744
   const int SEGMENTER_MAX_TRY = 10;
 
   std::unique_ptr<SegmentedFusion> best_solution;
@@ -1072,7 +1072,7 @@ void SegmentCandidateFinder::findSegments() {
       }
 
       // TODO: once the candidate selection heuristics is
-      //       implemented, should remove this see issue #
+      //       implemented, should remove this see issue #744
       std::random_shuffle(
           candidates.begin(), candidates.end(), getRandomNumber);
 
@@ -1118,7 +1118,7 @@ void SegmentCandidateFinder::finalMerge() {
     //  can merge with one of its consumers
     for (auto producer_group : groups()) {
       // TODO: part of the heuristic hack, need to remove it once
-      //      actual heuristic is ready. see issue #
+      //      actual heuristic is ready. see issue #744
       std::vector<SegmentedGroup*> groups_to_visit(
           groups().begin(), groups().end());
       std::random_shuffle(
