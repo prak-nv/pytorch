@@ -1116,16 +1116,16 @@ void SegmentCandidateFinder::finalMerge() {
 
   bool merged_nodes = true;
   while (merged_nodes) {
+    // TODO: part of the heuristic hack, need to remove it once
+    //      actual heuristic is ready. see issue #744
+    std::vector<SegmentedGroup*> groups_to_visit(
+        groups().begin(), groups().end());
+    std::random_shuffle(
+        groups_to_visit.begin(), groups_to_visit.end(), getRandomNumber);
+
     // Iterate all groups and check if a group
     //  can merge with one of its consumers
-    for (auto producer_group : groups()) {
-      // TODO: part of the heuristic hack, need to remove it once
-      //      actual heuristic is ready. see issue #744
-      std::vector<SegmentedGroup*> groups_to_visit(
-          groups().begin(), groups().end());
-      std::random_shuffle(
-          groups_to_visit.begin(), groups_to_visit.end(), getRandomNumber);
-
+    for (auto producer_group : groups_to_visit) {
       // Populate consumers and their corresponding consumer edges
       std::unordered_map<SegmentedGroup*, SegmentedEdge*> consumer_edge_map;
       std::vector<SegmentedGroup*> all_consumers_of_producer_group;
