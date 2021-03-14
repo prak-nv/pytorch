@@ -146,8 +146,6 @@ static void MagicScheduler_DivMaxSoftDropFwd(benchmark::State& benchmark_state,
       std::back_inserter(other_tvs),
       [](TensorView* tv) { return !tv->hasReduction(); });
 
-fusion.printMath();
-
   at::manual_seed(0);
   auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
 
@@ -160,7 +158,6 @@ fusion.printMath();
   auto lparams = rparams.lparams;
 
   TORCH_CHECK(norm_params.has_value(), "Norm scheduler can't be used!");
-  
   scheduleNormalization(&fusion, rparams, reduction_tvs, other_tvs);
 
   FusionExecutor fe;
@@ -189,7 +186,7 @@ fusion.printMath();
         tensor.numel() * (int64_t) dataTypeSize(aten_to_data_type(tensor.scalar_type()));
   }
 
-  benchmark_state.SetBytesProcessed(bytes);
+  benchmark_state.SetBytesProcessed(bytes * int64_t(benchmark_state.iterations()) );
 }
 
 static void MagicScheduler_fp32_DivMaxSoftDropFwd(benchmark::State& benchmark_state) {
