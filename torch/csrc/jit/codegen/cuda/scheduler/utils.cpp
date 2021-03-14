@@ -2,9 +2,11 @@
 
 #include <torch/csrc/jit/codegen/cuda/arith.h>
 #include <torch/csrc/jit/codegen/cuda/compute_at_map.h>
+#include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
+#include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 
 namespace torch {
 namespace jit {
@@ -236,6 +238,7 @@ void setupSharedMemory(
 void organizeAxes(
     const std::vector<TensorView*>& reduction_tv,
     const std::vector<TensorView*>& all_tv) {
+  std::cout << "in" << std::endl;
   // Determine merged reduction axis position
   auto findMergedReductionAxis = [](TensorView* reduction_tv) {
     int merged_reduction_axis = -1;
@@ -300,6 +303,7 @@ void organizeAxes(
            {kInnerMostAxis, merged_reduction_axis}});
     }
   }
+  std::cout << "out" << std::endl;
 }
 
 // If tv is broadcasted (used in a broadcast op) return that op, otherwise
@@ -463,6 +467,89 @@ std::vector<TensorView*> allTvs(Fusion* fusion) {
 
   auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
   return uniqueEntries({used_tvs.begin(), used_tvs.end()});
+}
+
+PersistentBufferInfo persistentBuffers(Fusion* fusion) {
+  FusionGuard fg(fusion);
+
+  PersistentBufferInfo info;
+
+  ComputeAtRootDomainMap root_map;
+  root_map.build();
+
+  auto all_tvs = allTvs(fusion);
+
+  for (auto producer : all_tvs) {
+    bool mappable = true;
+    auto consumers = consumerTvsOf(producer);
+    if (consumers.empty()) {
+      continue;
+    }
+
+    auto mappable_roots = root_map.getMappableDims(
+        producer->domain(), consumers[0]->domain(), true);
+
+    auto p_root = producer->getMaybeRFactorDomain();
+
+    for (auto p_root_id : p_root) {
+      if (p_root_id->isReduction()) {
+        continue;
+      }
+      if (!mappable_roots.count(p_root_id)) {
+        mappable = false;
+        info.unmappable_dims.emplace(p_root_id);
+      }
+    }
+
+    if (!mappable) {
+      info.buffers.push_back(producer);
+    }
+  }
+  return info;
+}
+
+TvProperties getProperties(
+    Fusion* fusion,
+    ExpressionEvaluator& evaluator,
+    TensorView* tv) {
+  TvProperties properties;
+  FusionGuard fg(fusion);
+
+  auto red_root_dom = tv->getRootDomain();
+  for (size_t i = red_root_dom.size(); i > 0; i--) {
+    if (red_root_dom[i - 1]->isBroadcast()) {
+      continue;
+    } else if (red_root_dom[i - 1]->isReduction()) {
+      break;
+    } else {
+      properties.fastest_dim_reduction = false;
+      break;
+    }
+  }
+
+  bool hit_reduction = false;
+  auto root_dom = tv->getMaybeRFactorDomain();
+  for (auto it = root_dom.rbegin(); it != root_dom.rend(); ++it) {
+    auto id = *it;
+
+    auto inferred_val = evaluator.evaluate(id->rawExtent());
+    TORCH_INTERNAL_ASSERT(
+        inferred_val.has_value(), "Error inferring reduction size.");
+    if (id->isReduction()) {
+      hit_reduction = true;
+      properties.reduction_numel *= inferred_val.value();
+    } else {
+      auto dim_size = inferred_val.value();
+      properties.iteration_numel *= dim_size;
+      if (hit_reduction) {
+        properties.iter_outside_red *= dim_size;
+      } else {
+        properties.iter_inside_red *= dim_size;
+      }
+    }
+  }
+
+  return properties;
 }
 
 } // namespace scheduler_utils
