@@ -501,6 +501,8 @@ std::unordered_map<IterDomain*, IterDomain*> ComputeAtRootDomainMap::map(
   return id_map;
 }
 
+// TODO: I think producer_to_consumer flag does nothing, as we return all ids
+// that mapped
 std::unordered_set<IterDomain*> ComputeAtRootDomainMap::getMappableDims(
     const TensorDomain* producer,
     const TensorDomain* consumer,

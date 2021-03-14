@@ -537,20 +537,6 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getReductionHeuristics(
 
   FusionGuard fg(fusion);
 
-  auto red_root_dom = red_tv->getRootDomain();
-  bool fastest_dim_reduction = true;
-  for (size_t i = red_root_dom.size(); i > 0; i--) {
-    if (red_root_dom[i - 1]->isBroadcast()) {
-      continue;
-    } else if (red_root_dom[i - 1]->isReduction()) {
-      fastest_dim_reduction = true;
-      break;
-    } else {
-      fastest_dim_reduction = false;
-      break;
-    }
-  }
-
   TORCH_INTERNAL_ASSERT(
       red_tv != nullptr, "Reduction TensorView wasn't found.");
 
@@ -563,20 +549,6 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getReductionHeuristics(
           (red_expr->getExprType().value() == ExprType::ReductionOp ||
            red_expr->getExprType().value() == ExprType::WelfordOp),
       "TensorView doesn't have a reduction.");
-
-  int64_t num_outputs_for_reduction = 1;
-  int64_t red_elements = 1;
-
-  for (auto id : red_tv->getRootDomain()) {
-    auto inferred_val = evaluator.evaluate(id->rawExtent());
-    TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(), "Error inferring reduction size.");
-    if (id->isReduction()) {
-      red_elements *= inferred_val.value();
-    } else {
-      num_outputs_for_reduction *= inferred_val.value();
-    }
-  }
 
   size_t max_dtype_size = 1;
   size_t n_tensor_inputs = 0;
@@ -592,10 +564,12 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getReductionHeuristics(
       n_tensor_inputs > 0,
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
+  auto properties = scheduler_utils::getProperties(fusion, evaluator, red_tv);
+
   return reductionHeuristic(
-      red_elements,
-      num_outputs_for_reduction,
-      fastest_dim_reduction,
+      properties.reduction_numel,
+      properties.iteration_numel,
+      properties.fastest_dim_reduction,
       n_tensor_inputs,
       max_dtype_size);
 }
@@ -608,7 +582,6 @@ void scheduleReduction(
     std::vector<TensorView*> outs_of_red) {
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
-  constexpr int kLoopUnrollSplit = 4;
 
   // If either of these are nullptr at the end of this function don't do
   // anything. Otherwise Transform and parallize entire fusion based on

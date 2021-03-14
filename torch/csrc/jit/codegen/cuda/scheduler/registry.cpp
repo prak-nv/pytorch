@@ -2,6 +2,7 @@
 #include <torch/csrc/jit/codegen/cuda/ir_utils.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 #include <torch/csrc/jit/codegen/cuda/scheduler/registry.h>
+#include <torch/csrc/jit/codegen/cuda/scheduler/utils.h>
 
 namespace torch {
 namespace jit {
@@ -129,14 +130,12 @@ class PointWiseScheduler : public SchedulerEntry {
 };
 
 // duplicated from Benchmark/utils.h
+// TODO: Make containers plural
 static void analyzeFusion(
     Fusion* fusion,
     std::vector<TensorView*>& reduction_tv,
     std::vector<TensorView*>& other_tv) {
-  auto all_values = DependencyCheck::getAllValsBetween(
-      {fusion->inputs().begin(), fusion->inputs().end()}, fusion->outputs());
-
-  for (auto tv : ir_utils::filterByType<TensorView>(all_values)) {
+  for (auto tv : scheduler_utils::allTvs(fusion)) {
     if (tv->hasReduction() && !fusion->hasInput(tv)) {
       reduction_tv.push_back(tv);
     } else if (!fusion->hasInput(tv)) {
@@ -189,6 +188,7 @@ class NormalizationScheduler : public SchedulerEntry {
     // Another contraint normalization scheduler has is
     //  that all other TVs must have the same root domain width
     //  can consider relaxing later
+    // TODO: Remove constraint
     valid_axis_count = false;
     axis_count = 0;
 
@@ -219,6 +219,8 @@ class NormalizationScheduler : public SchedulerEntry {
         }
       }
     }
+
+    // TODO: End remove constraint
 
     for (auto red : reduction_tv) {
       if (!valid_axis_count) {
