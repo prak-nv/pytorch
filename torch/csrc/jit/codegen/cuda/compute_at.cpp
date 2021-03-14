@@ -7,6 +7,8 @@
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
 #include <torch/csrc/jit/codegen/cuda/transform_replay.h>
 
+#include <torch/csrc/jit/codegen/cuda/scheduler/utils.h>
+
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -63,9 +65,19 @@ bool validateDomain(TensorView* tv, TensorDomain* new_td) {
 unsigned int getReplayablePosPasC(
     TensorView* producer,
     TensorView* consumer,
-    const ComputeAtRootDomainMap& root_map_) {
-  auto mappable_roots =
-      root_map_.getMappableDims(producer->domain(), consumer->domain(), true);
+    const std::unordered_set<IterDomain*>& unmappable_root_dims) {
+  auto p2c = PairwiseRootDomainMap(producer, consumer)
+                 .mapProducerToConsumer(producer->domain(), consumer->domain());
+
+  auto p_root = producer->getMaybeRFactorDomain();
+  std::unordered_set<IterDomain*> unmappable_consumer_root_dims;
+  for (auto p_id : p_root) {
+    if (unmappable_root_dims.find(p_id) != unmappable_root_dims.end()) {
+      if (p2c.find(p_id) != p2c.end()) {
+        unmappable_consumer_root_dims.emplace(p2c.at(p_id));
+      }
+    }
+  }
 
   for (size_t consumer_pos = consumer->nDims(); consumer_pos > 0;
        consumer_pos--) {
@@ -76,10 +88,9 @@ unsigned int getReplayablePosPasC(
     if (std::any_of(
             root_dim.begin(),
             root_dim.end(),
-            [&mappable_roots](IterDomain* root_id) {
-              return mappable_roots.find(root_id) == mappable_roots.end() &&
-                  // TODO: Check replayablePosCasP and see if we need something
-                  // similar
+            [&unmappable_consumer_root_dims](IterDomain* root_id) {
+              return unmappable_consumer_root_dims.find(root_id) !=
+                  unmappable_consumer_root_dims.end() &&
                   !root_id->isBroadcast();
             })) {
       continue;
@@ -92,10 +103,7 @@ unsigned int getReplayablePosPasC(
 unsigned int getReplayablePosCasP(
     TensorView* consumer,
     TensorView* producer,
-    const ComputeAtRootDomainMap& root_map_) {
-  auto mappable_roots =
-      root_map_.getMappableDims(producer->domain(), consumer->domain(), false);
-
+    const std::unordered_set<IterDomain*>& unmappable_root_dims) {
   auto p_dom = producer->domain()->domain();
   auto first_reduction =
       std::find_if(p_dom.begin(), p_dom.end(), [](IterDomain* id) {
@@ -122,12 +130,14 @@ unsigned int getReplayablePosCasP(
     if (std::any_of(
             producer->getMaybeRFactorDomain().begin(),
             producer->getMaybeRFactorDomain().end(),
-            [&mappable_roots, &all_vals](IterDomain* root_id) {
+            [&unmappable_root_dims, &all_vals](IterDomain* root_id) {
               return all_vals.find(root_id) != all_vals.end() &&
-                  mappable_roots.find(root_id) == mappable_roots.end();
+                  unmappable_root_dims.find(root_id) !=
+                  unmappable_root_dims.end();
             })) {
       continue;
     }
+
     return producer_pos;
   }
   return 0;
@@ -206,10 +216,10 @@ unsigned int ComputeAt::backwardComputeAt_impl(
   if (mode_ == ComputeAtMode::BestEffort) {
     consumer_compute_at_pos = std::min(
         consumer_compute_at_pos,
-        getReplayablePosPasC(producer, consumer, root_map_));
+        getReplayablePosPasC(producer, consumer, unmappable_root_dims_));
   } else if (mode_ == ComputeAtMode::MostInlined) {
     consumer_compute_at_pos =
-        getReplayablePosPasC(producer, consumer, root_map_);
+        getReplayablePosPasC(producer, consumer, unmappable_root_dims_);
   }
 
   auto replay = TransformReplay::replayPasC(
@@ -274,10 +284,10 @@ unsigned int ComputeAt::forwardComputeAt_impl(
   if (mode_ == ComputeAtMode::BestEffort) {
     producer_compute_at_pos = std::min(
         producer_compute_at_pos,
-        getReplayablePosCasP(consumer, producer, root_map_));
+        getReplayablePosCasP(consumer, producer, unmappable_root_dims_));
   } else if (mode_ == ComputeAtMode::MostInlined) {
     producer_compute_at_pos =
-        getReplayablePosCasP(consumer, producer, root_map_);
+        getReplayablePosCasP(consumer, producer, unmappable_root_dims_);
   }
   auto replay = TransformReplay::replayCasP(
       consumer->domain(),
@@ -443,6 +453,30 @@ void ComputeAt::runPass() {
   traverseForward();
 }
 
+namespace ca_utils {
+
+std::vector<TensorView*> uniqueEntries(
+    const std::vector<TensorView*>& tv_deuqe) {
+  std::vector<TensorView*> unique_entries;
+  std::unordered_set<TensorView*> inserted;
+  for (auto tv_entry : tv_deuqe) {
+    if (inserted.emplace(tv_entry).second) {
+      unique_entries.emplace_back(tv_entry);
+    }
+  }
+  return unique_entries;
+}
+
+std::vector<TensorView*> allTvs(Fusion* fusion) {
+  auto used_vals = DependencyCheck::getAllValsBetween(
+      {fusion->inputs().begin(), fusion->inputs().end()}, fusion->outputs());
+
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+  return uniqueEntries({used_tvs.begin(), used_tvs.end()});
+}
+
+} // namespace ca_utils
+
 ComputeAt::ComputeAt(
     TensorView* _producer,
     TensorView* _consumer,
@@ -479,6 +513,10 @@ ComputeAt::ComputeAt(
   // consumer for all chains at or after the consumer specified in the computeAt
   // call.
   setCommonConsumer();
+
+  unmappable_root_dims_ =
+      scheduler_utils::persistentBuffers(FusionGuard::getCurFusion())
+          .unmappable_dims;
 
   root_map_.build();
 }

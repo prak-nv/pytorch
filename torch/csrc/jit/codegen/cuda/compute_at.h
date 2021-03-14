@@ -42,6 +42,7 @@ class ComputeAt {
   unsigned int reference_position_;
   unsigned int producer_position_ = 0;
   ComputeAtRootDomainMap root_map_;
+  std::unordered_set<IterDomain*> unmappable_root_dims_;
 
   ComputeAtMode mode_ = ComputeAtMode::Standard;
 
