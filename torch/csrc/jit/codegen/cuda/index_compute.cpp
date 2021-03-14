@@ -815,25 +815,35 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
   }
 
   kir::Val* cur_stride = ir_builder.create<kir::Int>(1);
-  for (size_t i = 0; i < root_dom.size(); i++) {
-    auto dim = root_dom.size() - i - 1;
-    if (root_dom[dim]->isReduction()) {
-      continue;
-    }
-    if (root_dom[dim]->isBroadcast()) {
-      continue;
-    }
-    if (producer_tv->domain()->contiguity()[dim]) {
-      strides[dim] = cur_stride;
-      cur_stride = ir_builder.mulExpr(
-          cur_stride, gpu_lower->lowerValue(root_dom[dim]->extent()));
-    } else {
-      cur_stride = strides[dim];
+  // if we have rfactor we can't simplify the indexing like this, we would need
+  // to fix contiguity size to be rfactor size not root size
+  if (root_dom.size() == producer_tv->domain()->contiguity().size()) {
+    for (size_t i = 0; i < root_dom.size(); i++) {
+      auto dim = root_dom.size() - i - 1;
+      if (root_dom[dim]->isReduction()) {
+        continue;
+      }
+      if (root_dom[dim]->isBroadcast()) {
+        continue;
+      }
+
+      kir::Val* root_ind = nullptr;
+      auto kir_root_dom =
+          gpu_lower->lowerValue(root_dom[dim])->as<kir::IterDomain>();
+      if (producer_indexing.indexMap().find(kir_root_dom) !=
+          producer_indexing.indexMap().end()) {
+        root_ind = producer_indexing.indexMap().at(kir_root_dom);
+      }
+
+      if (producer_tv->domain()->contiguity()[dim] && root_ind->isZeroInt()) {
+        strides[dim] = cur_stride;
+      } else {
+        cur_stride = strides[dim];
+      }
     }
   }
 
   // Global striding
-  int64_t stride_i = 0;
   std::vector<kir::Val*> strided_inds;
   for (size_t i = 0; i < root_dom.size(); i++) {
     if (root_dom[i]->isReduction() ||
@@ -845,7 +855,6 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
     } else if (
         root_dom[i]->getIterType() == IterType::BroadcastWithStride ||
         gpu_lower->trivialReductionInfo().isDerived(root_dom[i])) {
-      stride_i++;
       continue;
     }
 
@@ -1216,9 +1225,9 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
   auto root_dom = consumer_tv->getMaybeRFactorDomain();
 
   // TODO: Abstract stride logic to reuse with producer indexing
-  std::vector<kir::Val*> strides(root_dom.size(), nullptr);
+  auto zero = ir_builder.create<kir::Int>(0);
+  std::vector<kir::Val*> strides(root_dom.size(), zero);
   {
-    auto zero = ir_builder.create<kir::Int>(0);
     int stride_i = 0;
     for (size_t i = 0; i < root_dom.size(); i++) {
       if (root_dom[i]->isReduction() ||
@@ -1237,24 +1246,34 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
   }
 
   kir::Val* cur_stride = ir_builder.create<kir::Int>(1);
-  for (size_t i = 0; i < root_dom.size(); i++) {
-    auto dim = root_dom.size() - i - 1;
-    if (root_dom[dim]->isReduction()) {
-      continue;
-    }
-    if (root_dom[dim]->isBroadcast()) {
-      continue;
-    }
-    if (consumer_tv->domain()->contiguity()[dim]) {
-      strides[dim] = cur_stride;
-      cur_stride = ir_builder.mulExpr(
-          cur_stride, gpu_lower->lowerValue(root_dom[dim]->extent()));
-    } else {
-      cur_stride = strides[dim];
+  // if we have rfactor we can't simplify the indexing like this, we would need
+  // to fix contiguity size to be rfactor size not root size
+  if (root_dom.size() == consumer_tv->domain()->contiguity().size()) {
+    for (size_t i = 0; i < root_dom.size(); i++) {
+      auto dim = root_dom.size() - i - 1;
+      if (root_dom[dim]->isReduction()) {
+        continue;
+      }
+      if (root_dom[dim]->isBroadcast()) {
+        continue;
+      }
+
+      kir::Val* root_ind = nullptr;
+      auto kir_root_dom =
+          gpu_lower->lowerValue(root_dom[dim])->as<kir::IterDomain>();
+      if (consumer_indexing.indexMap().find(kir_root_dom) !=
+          consumer_indexing.indexMap().end()) {
+        root_ind = consumer_indexing.indexMap().at(kir_root_dom);
+      }
+
+      if (consumer_tv->domain()->contiguity()[dim] && root_ind->isZeroInt()) {
+        strides[dim] = cur_stride;
+      } else {
+        cur_stride = strides[dim];
+      }
     }
   }
 
-  int64_t stride_i = 0;
   std::vector<kir::Val*> strided_inds;
   for (size_t i = 0; i < root_dom.size(); i++) {
     if (root_dom[i]->isReduction() ||
@@ -1264,7 +1283,6 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
     } else if (
         root_dom[i]->getIterType() == IterType::BroadcastWithStride ||
         gpu_lower->trivialReductionInfo().isDerived(root_dom[i])) {
-      stride_i++;
       continue;
     }
 

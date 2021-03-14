@@ -212,9 +212,16 @@ TensorView* TensorView::computeAt(
   // means producer will be computed inline with consumer, hence the +1.
   if (position < 0)
     position += int(consumer->nDims()) + 1;
+
   TORCH_CHECK(
-      position >= 0 && (unsigned int)position < consumer->nDims() + 1,
+      (position >= 0 && (unsigned int)position < consumer->nDims() + 1) ||
+          mode == ComputeAtMode::BestEffort,
       "Compute at called on an position outside valid range.");
+
+  if (mode == ComputeAtMode::BestEffort) {
+    position = std::max(-1, position);
+    position = std::min((int)consumer->nDims(), position);
+  }
 
   ComputeAt::runAt(this, consumer, (unsigned int)position, mode);
 

@@ -681,7 +681,7 @@ void scheduleReduction(
         if (has_iter_axis) {
           red_tv_rf->split(
               iter_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
-          red_tv_rf->axis(1)->parallelize(ParallelType::TIDy);
+          red_tv_rf->axis(iter_axis + 1)->parallelize(ParallelType::TIDy);
           if (rparams.split_grid_dim) {
             red_tv_rf->split(iter_axis, x_grid_limit);
             red_tv_rf->axis(iter_axis + 1)->parallelize(ParallelType::BIDx);
@@ -689,7 +689,6 @@ void scheduleReduction(
             red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
           }
         }
-
         reference_tv = red_tv_rf;
         reduction_tv = red_tv;
       } else {
@@ -719,11 +718,11 @@ void scheduleReduction(
           red_tv_rf->split(iter_axis, 1);
 
           red_tv_rf->axis(3)->parallelize(ParallelType::TIDy);
-          red_tv_rf->axis(1)->parallelize(ParallelType::Unswitch);
+          // TODO: Re-enable unswitch in this case:
+          // https://github.com/csarofeen/pytorch/issues/748
+          // red_tv_rf->axis(1)->parallelize(ParallelType::Unswitch);
 
-          // [BIDx, 1, 8, TIDy, rf-outer, TIDx]
-          red_tv_rf->reorder({{-2, -3}, {2, -2}, {3, -1}});
-          // [BIDx, TIDy, TIDx, rf-outer, 1, 8]
+          // [BIDx, 1, 8, TIDy, rf-outer, r-TIDx]
 
           if (rparams.split_grid_dim) {
             red_tv_rf->split(iter_axis, x_grid_limit);
@@ -781,29 +780,27 @@ void scheduleReduction(
         //  0
         //
         // Reduction Dimensions
-        // rF-Remain, rf-Unswitch, rf-Unroll, r-TIDy, r-TIDx]
-        // 1(-5)      2(-4)        3(-3)      4(-2)   5(-1)
-        // TODO: Evaluate
+        // rF-Remain, rf-Unswitch, rf-Unroll, r-TIDx]
+        // 1(-4)      2(-3)        3(-2)      4(-1)
         red_tv->split(
             reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDx));
         red_tv->split(reduce_axis, rparams.loop_unroll);
-        red_tv->split(
-            reduce_axis, NamedScalar::getParallelDim(ParallelType::TIDy));
         // Unswitch axis which gives us finer control on allocations with
         // unrolling
         red_tv->split(reduce_axis, 1);
 
-        auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-5, -4, -2});
+        auto red_tv_rf = scheduler_utils::rfactorHelper(red_tv, {-4, -3, -2});
 
         red_tv_rf->axis(-1)->parallelize(ParallelType::TIDx);
-        red_tv_rf->axis(-3)->parallelize(ParallelType::TIDy);
-        red_tv_rf->axis(-4)->parallelize(ParallelType::Unswitch);
+        red_tv_rf->axis(-3)->parallelize(ParallelType::Unswitch);
 
-        if (rparams.split_grid_dim) {
-          red_tv_rf->split(iter_axis, x_grid_limit);
-          red_tv_rf->axis(iter_axis + 1)->parallelize(ParallelType::BIDx);
-        } else {
-          red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
+        if (has_iter_axis) {
+          if (rparams.split_grid_dim) {
+            red_tv_rf->split(iter_axis, x_grid_limit);
+            red_tv_rf->axis(iter_axis + 1)->parallelize(ParallelType::BIDx);
+          } else {
+            red_tv_rf->axis(iter_axis)->parallelize(ParallelType::BIDx);
+          }
         }
 
         reference_tv = red_tv_rf;
@@ -971,7 +968,6 @@ void scheduleReduction(
 
     // Inline rfactor into reduction
     if (reference_tv != reduction_tv) {
-      // Can we always do this?
       reference_tv->computeWith(reduction_tv, -1, ComputeAtMode::BestEffort);
     }
 
@@ -982,13 +978,6 @@ void scheduleReduction(
         unswitch_axis = i;
       }
     }
-
-    // TORCH_INTERNAL_ASSERT(
-    //     unswitch_axis >= 0,
-    //     "Error during unrolling, could not detect unroll axis.");
-    // if (!reference_tv->axis(unswitch_axis)->isReduction()) {
-    //   // Have to treat this case a bit special.
-    // }
 
     unswitch_axis++;
     // Input to cahced_input we want outside unswitched position
@@ -1002,7 +991,10 @@ void scheduleReduction(
           scheduler_utils::computeWithOutputs(
               consumer, -1, ComputeAtMode::MostInlined);
         }
-        cached_input->computeAt(consumer, unswitch_axis);
+        // TODO: Re-evaluate this based on SegmentReducePointwise, and other
+        // more complex reduction fusions
+        cached_input->computeAt(
+            consumer, unswitch_axis, ComputeAtMode::BestEffort);
       }
     }
 
