@@ -399,13 +399,6 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
     return rng;
   }
 
-  //! Part of a heuristic hack, need to be removed once
-  //!  heuristics is ready, as well as the <random> header
-  //!  see issue #744
-  static int getRandomNumber(int fromZeroTo) {
-    return getRNG(false)() % fromZeroTo;
-  }
-
  protected:
   std::deque<SegmentedGroup*> to_visit_;
   std::vector<SegmentedGroup*> next_to_visit_;

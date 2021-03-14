@@ -443,12 +443,10 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
     o->print();
   }
 
-  os << "\n\n";
+  os << "\nexpressions:\n";
 
   for (size_t i = 0; i < group->exprs().size(); i++) {
     irp.handle(group->exprs()[i]);
-    if (i + 1 != group->exprs().size())
-      os << " , ";
   }
   os << "}\n\n";
 }
@@ -1075,8 +1073,7 @@ void SegmentCandidateFinder::findSegments() {
 
       // TODO: once the candidate selection heuristics is
       //       implemented, should remove this see issue #744
-      std::random_shuffle(
-          candidates.begin(), candidates.end(), getRandomNumber);
+      std::shuffle(candidates.begin(), candidates.end(), getRNG(false));
 
       auto candidate_it = candidates.begin();
       while (candidate_it != candidates.end() &&
@@ -1120,8 +1117,7 @@ void SegmentCandidateFinder::finalMerge() {
     //      actual heuristic is ready. see issue #744
     std::vector<SegmentedGroup*> groups_to_visit(
         groups().begin(), groups().end());
-    std::random_shuffle(
-        groups_to_visit.begin(), groups_to_visit.end(), getRandomNumber);
+    std::shuffle(groups_to_visit.begin(), groups_to_visit.end(), getRNG(false));
 
     // Iterate all groups and check if a group
     //  can merge with one of its consumers
