@@ -102,7 +102,15 @@ unsigned int getReplayablePosCasP(
         return id->isReduction();
       });
 
+  auto block_bcast =
+      std::find_if(p_dom.begin(), p_dom.end(), [](IterDomain* id) {
+        return id->isBroadcast() && id->isThread();
+      });
+
   auto max_producer_pos = std::distance(p_dom.begin(), first_reduction);
+
+  max_producer_pos =
+      std::min(max_producer_pos, std::distance(p_dom.begin(), block_bcast));
 
   for (size_t producer_pos = max_producer_pos; producer_pos > 0;
        producer_pos--) {
