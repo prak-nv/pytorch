@@ -95,6 +95,9 @@ unsigned int getReplayablePosCasP(
     const ComputeAtRootDomainMap& root_map_) {
   auto mappable_roots =
       root_map_.getMappableDims(producer->domain(), consumer->domain(), false);
+  for(auto dim : mappable_roots){
+    std::cout<<dim<<", ";
+  }std::cout<<std::endl;
 
   auto p_dom = producer->domain()->domain();
   auto first_reduction =
@@ -128,6 +131,7 @@ unsigned int getReplayablePosCasP(
             })) {
       continue;
     }
+    std::cout<<"Poducer pos: "<<producer_pos<<std::endl;
     return producer_pos;
   }
   return 0;
@@ -210,6 +214,7 @@ unsigned int ComputeAt::backwardComputeAt_impl(
   } else if (mode_ == ComputeAtMode::MostInlined) {
     consumer_compute_at_pos =
         getReplayablePosPasC(producer, consumer, root_map_);
+    std::cout<<"Replay "<<producer<<" as "<<consumer<<" at "<<consumer_compute_at_pos<<std::endl;
   }
 
   auto replay = TransformReplay::replayPasC(
@@ -278,6 +283,8 @@ unsigned int ComputeAt::forwardComputeAt_impl(
   } else if (mode_ == ComputeAtMode::MostInlined) {
     producer_compute_at_pos =
         getReplayablePosCasP(consumer, producer, root_map_);
+    std::cout << "Replay " << consumer << " as " << producer << " at "
+              << producer_compute_at_pos << std::endl;
   }
   auto replay = TransformReplay::replayCasP(
       consumer->domain(),

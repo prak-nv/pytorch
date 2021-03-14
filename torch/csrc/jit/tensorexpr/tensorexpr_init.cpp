@@ -230,9 +230,11 @@ void initTensorExprBindings(PyObject* module) {
           "stmts",
           &tensorexpr::Block::stmts,
           py::return_value_policy::reference);
-  py::class_<ExternalCall, Stmt, std::unique_ptr<ExternalCall, py::nodelete>>(
-      te, "ExternalCall")
-      .def(py::init(&ExternalCall::make), py::return_value_policy::reference);
+  // py::class_<ExternalCall, Stmt, std::unique_ptr<ExternalCall,
+  // py::nodelete>>(
+  //     te, "ExternalCall")
+  //     .def(py::init(&ExternalCall::make),
+  //     py::return_value_policy::reference);
 
   py::class_<LoopNest>(te, "LoopNest")
       .def(py::init<const std::vector<Tensor*>&>())

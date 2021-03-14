@@ -42,6 +42,7 @@ static void setupDivMaxSoftmaxDropoutForward(
                         .build();
   fusion->addInput(tv1);
 
+  // TODO: should be input
   auto d16 = new Double(1.0);
 
   if (is_fp16) {
@@ -75,14 +76,14 @@ static void setupDivMaxSoftmaxDropoutForward(
 
 static void setupDivMaxSoftmaxDropoutBackward(
     Fusion* fusion,
-    DataType dtype,
-    int red_axis) {
+    DataType dtype) {
   TensorView* tv0 = TensorViewBuilder()
                         .ndims(4)
                         .dtype(dtype)
                         .contiguity({true, true, true, true})
                         .build();
   fusion->addInput(tv0);
+  // Strangely tv1 isn't used anywhere, need to come back to that...
   TensorView* tv1 = TensorViewBuilder()
                         .ndims(4)
                         .dtype(dtype)
@@ -97,14 +98,15 @@ static void setupDivMaxSoftmaxDropoutBackward(
   fusion->addInput(tv2);
   TensorView* tv3 = TensorViewBuilder()
                         .ndims(4)
-                        .dtype(dtype)
+                        .dtype(DataType::Bool)
                         .contiguity({true, true, true, true})
                         .build();
   fusion->addInput(tv3);
+  // TODO: should be inputs
   auto d32 = new Double(1.0);
-  fusion->addInput(d32);
+  // fusion->addInput(d32);
   auto d33 = new Double(2.0);
-  fusion->addInput(d33);
+  // fusion->addInput(d33);
 
   auto tv4 = mul(tv2, tv3);
   auto tv5 = mul(tv4, d33);
@@ -189,11 +191,98 @@ static void MagicScheduler_DivMaxSoftDropFwd(benchmark::State& benchmark_state,
   benchmark_state.SetBytesProcessed(bytes * int64_t(benchmark_state.iterations()) );
 }
 
+static void MagicScheduler_DivMaxSoftDropBwd(benchmark::State& benchmark_state,
+  DataType dtype) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto w = benchmark_state.range(0);
+  auto x = benchmark_state.range(1);
+  auto y = benchmark_state.range(2);
+  auto z = benchmark_state.range(3);
+
+  setupDivMaxSoftmaxDropoutBackward(&fusion, dtype);
+
+  auto tvs = scheduler_utils::allTvs(&fusion);
+
+  std::vector<TensorView*> reduction_tvs;
+  std::copy_if(
+      tvs.begin(),
+      tvs.end(),
+      std::back_inserter(reduction_tvs),
+      [](TensorView* tv) { return tv->hasReduction(); });
+
+  std::vector<TensorView*> other_tvs;
+  std::copy_if(
+      tvs.begin(),
+      tvs.end(),
+      std::back_inserter(other_tvs),
+      [](TensorView* tv) { return !tv->hasReduction(); });
+
+  at::manual_seed(0);
+  auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({w, x, y, z}, options);
+  at::Tensor t1 = at::randn({w, x, y, z}, options);
+  at::Tensor t2 = at::randn({w, x, y, z}, options);
+  at::Tensor t3 = at::randn({w, x, y, z}, options).round().to(at::kBool);
+
+  auto norm_params = getNormalizationHeuristics(&fusion, {t0, t1, t2, t3}, reduction_tvs);
+
+  auto rparams = norm_params.value();
+  auto lparams = rparams.lparams;
+
+  TORCH_CHECK(norm_params.has_value(), "Norm scheduler can't be used!");
+  scheduleNormalization(&fusion, rparams, reduction_tvs, other_tvs);
+
+// fusion.printMath();
+// fusion.printKernel();
+TORCH_INTERNAL_ASSERT(false);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  fe.setMeasureKernelTimeFlag(true);
+  // Sync everything up before we start
+  std::vector<at::Tensor> cg_outputs;
+  cudaDeviceSynchronize();
+  for (auto _ : benchmark_state) {
+    CudaKernelTimer timer;
+    cg_outputs = fe.runFusion({t0, t1, t2, t3}, lparams);
+    benchmark_state.SetIterationTime(fe.kernelTimeMs() / 1000.0);
+  }
+  // Sync everything up before we're finished, don't want to run ahead on the
+  // cpu while benchmarking.
+  cudaDeviceSynchronize();
+  
+  int64_t bytes = 0;
+  // Some reason t1 isn't used, ignore it.
+  for(auto tensor : std::vector<at::Tensor>({t0, t2, t3})){
+    bytes +=
+        tensor.numel() * (int64_t) dataTypeSize(aten_to_data_type(tensor.scalar_type()));
+  }
+
+  for(auto tensor : cg_outputs){
+    bytes +=
+        tensor.numel() * (int64_t) dataTypeSize(aten_to_data_type(tensor.scalar_type()));
+  }
+
+  benchmark_state.SetBytesProcessed(bytes * int64_t(benchmark_state.iterations()) );
+}
+
 static void MagicScheduler_fp32_DivMaxSoftDropFwd(benchmark::State& benchmark_state) {
   MagicScheduler_DivMaxSoftDropFwd(benchmark_state, DataType::Float);
 }
 
+static void MagicScheduler_fp32_DivMaxSoftDropBwd(benchmark::State& benchmark_state) {
+  MagicScheduler_DivMaxSoftDropBwd(benchmark_state, DataType::Float);
+}
+
 BENCHMARK(MagicScheduler_fp32_DivMaxSoftDropFwd)
+    ->RangeMultiplier(8)
+    ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+BENCHMARK(MagicScheduler_fp32_DivMaxSoftDropBwd)
     ->RangeMultiplier(8)
     ->Ranges({{8, 8}, {16, 16}, {128, 128}, {128, 128}})
     ->Unit(benchmark::kMicrosecond)

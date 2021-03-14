@@ -367,6 +367,16 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     // enter when we get a new input set. We need to search for compatible
     // entries in cached `FusionExecutor` or compile new one as needed.
 
+    // std::cout << "inputs: " << std::endl;
+    // for (auto inp : fusion_.get()->inputs()) {
+    //   std::cout << inp << std::endl;
+    // }
+    // std::cout << "outputs: " << std::endl;
+    // for (auto out : fusion_.get()->outputs()) {
+    //   std::cout << out << std::endl;
+    // }
+    // fusion_.get()->printMath();
+
     // caching strategy is different for pw-fusion and reduction-fusion.
     if (has_nontrivial_reduction_) {
       bool isNormalizationFusion = detect_normalization_fusion();
