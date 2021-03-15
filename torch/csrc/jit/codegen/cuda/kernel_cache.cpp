@@ -780,6 +780,10 @@ void FusionSegmentRuntimeCache::insertEntry(
 }
 
 bool GraphCache::requiresPermutation() {
+  if (!support_permutation_) {
+    return false;
+  }
+
   const size_t input_rank = input_permutation_.size();
   for (size_t i = 0; i < input_rank; i++) {
     if (input_permutation_[i] != (long)i) {
