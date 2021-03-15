@@ -977,7 +977,18 @@ SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion) {
     for (auto input : segmented_fusion_->inputs()) {
       if (input->uses().size() > 1) {
         if (auto input_tv = dynamic_cast<TensorView*>(input)) {
-          input_tv->cache_after();
+          bool to_insert = false;
+
+          for (auto use : input->uses()) {
+            for (auto output : use->outputs()) {
+              if (output->isFusionOutput()) {
+                to_insert = true;
+              }
+            }
+          }
+          if (to_insert) {
+            input_tv->cache_after();
+          }
         }
       }
     }
