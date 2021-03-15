@@ -552,6 +552,13 @@ TvProperties getProperties(
     }
   }
 
+  if (properties.reduction_numel == 1) {
+    properties.iter_outside_red =
+        properties.iter_outside_red * properties.iter_inside_red;
+    properties.iter_inside_red = 1;
+    properties.fastest_dim_reduction = true;
+  }
+
   return properties;
 }
 

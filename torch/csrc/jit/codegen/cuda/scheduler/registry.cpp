@@ -66,6 +66,11 @@ class SingleReductionScheduler : public SchedulerEntry {
       return false;
     }
 
+    auto persistent_buffers = scheduler_utils::persistentBuffers(fusion);
+    if (!persistent_buffers.buffers.empty()) {
+      return false;
+    }
+
     auto red_tv = red_ops[0]->out()->as<TensorView>();
 
     // Not allowing broadcasting reduction result to support

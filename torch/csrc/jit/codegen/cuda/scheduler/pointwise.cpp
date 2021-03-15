@@ -21,6 +21,17 @@ bool scheduleFusion(Fusion* fusion, const at::ArrayRef<c10::IValue> inputs) {
 
 bool scheduleFusion(Fusion* fusion) {
   FusionGuard fg(fusion);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  for (auto tv : scheduler_utils::allTvs(fusion)) {
+    if (tv->isFusionInput() || tv->isFusionOutput()) {
+      tv->setMemoryType(MemoryType::Global);
+    } else {
+      tv->setMemoryType(MemoryType::Local);
+    }
+  }
+
   // maybe has_reduction for scheduling should be done on a per output tensor
   // basis.
   TORCH_INTERNAL_ASSERT(

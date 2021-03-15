@@ -479,11 +479,6 @@ ReductionParams OuterReductionHeuristic(
     rparams.reduction_unroll = true;
   }
 
-  const char* debug_env = getenv("PYTORCH_NVFUSER_RED_SCHED_DEBUG");
-  if (debug_env && atoi(debug_env)) {
-    std::cerr << rparams.toString() << std::endl;
-  }
-
   rparams.lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       gdimy,
@@ -491,6 +486,11 @@ ReductionParams OuterReductionHeuristic(
       bdimx,
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
+
+  const char* debug_env = getenv("PYTORCH_NVFUSER_RED_SCHED_DEBUG");
+  if (debug_env && atoi(debug_env)) {
+    std::cerr << rparams.toString() << std::endl;
+  }
 
   return rparams;
 }
@@ -582,6 +582,16 @@ void scheduleReduction(
     std::vector<TensorView*> outs_of_red) {
   FUSER_PERF_SCOPE("scheduleReduction");
   FusionGuard fg(fusion);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  for (auto tv : scheduler_utils::allTvs(fusion)) {
+    if (tv->isFusionInput() || tv->isFusionOutput()) {
+      tv->setMemoryType(MemoryType::Global);
+    } else {
+      tv->setMemoryType(MemoryType::Local);
+    }
+  }
 
   // If either of these are nullptr at the end of this function don't do
   // anything. Otherwise Transform and parallize entire fusion based on

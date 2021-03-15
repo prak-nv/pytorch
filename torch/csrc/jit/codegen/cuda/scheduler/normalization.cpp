@@ -234,6 +234,8 @@ ReductionParams innerNormalizationHeuristic(
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
+  rparams.tag = "Inner normalization heuristic.\n";
+
   const char* debug_env = getenv("PYTORCH_NVFUSER_RED_SCHED_DEBUG");
   if (debug_env && atoi(debug_env)) {
     std::cerr << rparams.toString() << std::endl;
@@ -414,11 +416,6 @@ ReductionParams OuterNormalizationHeuristic(
     rparams.reduction_unroll = true;
   }
 
-  const char* debug_env = getenv("PYTORCH_NVFUSER_RED_SCHED_DEBUG");
-  if (debug_env && atoi(debug_env)) {
-    std::cerr << rparams.toString() << std::endl;
-  }
-
   rparams.lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
@@ -426,6 +423,13 @@ ReductionParams OuterNormalizationHeuristic(
       bdimx,
       persistence_required ? LaunchParams::UNINITIALIZED_VAL : bdimy,
       LaunchParams::UNINITIALIZED_VAL);
+
+  rparams.tag = "Outer normalization heuristic.\n";
+
+  const char* debug_env = getenv("PYTORCH_NVFUSER_RED_SCHED_DEBUG");
+  if (debug_env && atoi(debug_env)) {
+    std::cerr << rparams.toString() << std::endl;
+  }
 
   return rparams;
 }
@@ -495,10 +499,13 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getNormalizationHeuristics(
   bool fits_register_persistence = true;
 
   auto persistent_buffers = scheduler_utils::persistentBuffers(fusion);
-  requires_persistence = std::any_of(
-      persistent_buffers.buffers.begin(),
-      persistent_buffers.buffers.end(),
-      [](TensorView* tv) { return !tv->isFusionInput(); });
+
+  // TODO: Should we make input buffers persistent if we can?
+  requires_persistence = !persistent_buffers.buffers.empty();
+  // requires_persistence = std::any_of(
+  //     persistent_buffers.buffers.begin(),
+  //     persistent_buffers.buffers.end(),
+  //     [](TensorView* tv) { return !tv->isFusionInput(); });
 
   if (requires_persistence) {
     int64_t persistent_buffer_size = 0;
@@ -594,6 +601,16 @@ void schedulePersistentNormalization(
     TORCH_INTERNAL_ASSERT(
         rparams.fastest_dim,
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
+  }
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  for (auto tv : scheduler_utils::allTvs(fusion)) {
+    if (tv->isFusionInput() || tv->isFusionOutput()) {
+      tv->setMemoryType(MemoryType::Global);
+    } else {
+      tv->setMemoryType(MemoryType::Local);
+    }
   }
 
   // Make sure we don't make a cache of an input that would turn it into a
@@ -808,6 +825,15 @@ void schedulePersistentNormalization(
     }
   }
 
+  // For intermediate outputs, apply cache_fork
+  for (const auto output : fusion->outputs()) {
+    if (!output->uses().empty()) {
+      if (output->getValType().value() == ValType::TensorView) {
+        output->as<TensorView>()->cache_fork();
+      }
+    }
+  }
+
   bool rfactor = rfactor_tv != nullptr;
   auto reference_tv = rfactor ? rfactor_tv : reduction_tv;
   std::vector<TensorView*> rfactor_tvs;
@@ -974,6 +1000,16 @@ void scheduleMultiReduction(
     TORCH_INTERNAL_ASSERT(
         rparams.fastest_dim,
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
+  }
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  for (auto tv : scheduler_utils::allTvs(fusion)) {
+    if (tv->isFusionInput() || tv->isFusionOutput()) {
+      tv->setMemoryType(MemoryType::Global);
+    } else {
+      tv->setMemoryType(MemoryType::Local);
+    }
   }
 
   // Make sure we don't make a cache of an input that would turn it into a
@@ -1184,6 +1220,15 @@ void scheduleMultiReduction(
     } else {
       TORCH_INTERNAL_ASSERT(
           false, "Need to bind thread dimension for persistent kernels.");
+    }
+  }
+
+  // For intermediate outputs, apply cache_fork
+  for (const auto output : fusion->outputs()) {
+    if (!output->uses().empty()) {
+      if (output->getValType().value() == ValType::TensorView) {
+        output->as<TensorView>()->cache_fork();
+      }
     }
   }
 
