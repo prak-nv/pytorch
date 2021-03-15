@@ -363,11 +363,10 @@ bool isFusibleCudaFusionGroup(const Node* fusion, const Node* node) {
 
   // TODO: lift the restriction of not fusing producer containing reduction when
   //       we have proper scheduling.
-  if (isFusibleCudaFusionGroup(node)
-      // && (!hasNonElementWiseOperation(node) ||
-      //  isNonBroadcastElementWise(fusion)) &&
-      // !createTrickyBroadcast(fusion, node)
-  ) {
+  if (isFusibleCudaFusionGroup(node) &&
+      (!hasNonElementWiseOperation(node) ||
+       isNonBroadcastElementWise(fusion)) &&
+      !createTrickyBroadcast(fusion, node)) {
     // ensure if the node has a designated device, it's on the same device with
     // fusion.
     // TODO: is there a danger of us fusing operations that's supposed to be on
