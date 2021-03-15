@@ -443,12 +443,10 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
     o->print();
   }
 
-  os << "\n\n";
+  os << "\nexpressions:\n";
 
   for (size_t i = 0; i < group->exprs().size(); i++) {
     irp.handle(group->exprs()[i]);
-    if (i + 1 != group->exprs().size())
-      os << " , ";
   }
   os << "}\n\n";
 }
@@ -962,8 +960,31 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 }
 
 SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion) {
-  segmented_fusion_ = std::make_unique<SegmentedFusion>(fusion);
-  findSegments();
+  // TODO: this is a heuristic hack, need to remove when actual heuristics are
+  //       ready. see issue #744
+  const int SEGMENTER_MAX_TRY = 10;
+  // Reset the rng
+  getRNG(true);
+
+  std::unique_ptr<SegmentedFusion> best_solution;
+  int best_number_of_kernels = -1;
+
+  for (int i = 0; i < SEGMENTER_MAX_TRY; i++) {
+    segmented_fusion_ = std::make_unique<SegmentedFusion>(fusion);
+    findSegments();
+    int number_of_kernels = segmented_fusion_->groups().size();
+    if (best_number_of_kernels < 0 ||
+        number_of_kernels < best_number_of_kernels) {
+      best_number_of_kernels = number_of_kernels;
+      best_solution = std::move(segmented_fusion_);
+      // 2 is the best we can get if the fusion does get
+      //  segmented
+      if (best_number_of_kernels <= 2) {
+        break;
+      }
+    }
+  }
+  segmented_fusion_ = std::move(best_solution);
 }
 
 void SegmentCandidateFinder::findSegments() {
@@ -1050,6 +1071,10 @@ void SegmentCandidateFinder::findSegments() {
         continue;
       }
 
+      // TODO: once the candidate selection heuristics is
+      //       implemented, should remove this see issue #744
+      std::shuffle(candidates.begin(), candidates.end(), getRNG(false));
+
       auto candidate_it = candidates.begin();
       while (candidate_it != candidates.end() &&
              !codeGenSupportedMerge(candidate_it->edge)) {
@@ -1088,9 +1113,15 @@ void SegmentCandidateFinder::finalMerge() {
 
   bool merged_nodes = true;
   while (merged_nodes) {
+    // TODO: part of the heuristic hack, need to remove it once
+    //      actual heuristic is ready. see issue #744
+    std::vector<SegmentedGroup*> groups_to_visit(
+        groups().begin(), groups().end());
+    std::shuffle(groups_to_visit.begin(), groups_to_visit.end(), getRNG(false));
+
     // Iterate all groups and check if a group
     //  can merge with one of its consumers
-    for (auto producer_group : groups()) {
+    for (auto producer_group : groups_to_visit) {
       // Populate consumers and their corresponding consumer edges
       std::unordered_map<SegmentedGroup*, SegmentedEdge*> consumer_edge_map;
       std::vector<SegmentedGroup*> all_consumers_of_producer_group;

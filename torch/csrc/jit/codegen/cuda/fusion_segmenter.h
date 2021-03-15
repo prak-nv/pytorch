@@ -8,6 +8,7 @@
 
 #include <deque>
 #include <list>
+#include <random>
 #include <unordered_set>
 #include <vector>
 
@@ -382,9 +383,21 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
 
   void finalize();
 
-  // Return the resulting heuristic corresponding to the merged
-  //  group built by merging the two groups connected by edge
+  //! Return the resulting heuristic corresponding to the merged
+  //!  group built by merging the two groups connected by edge
   ScheduleHeuristic deriveHeuristic(SegmentedGroup* edge);
+
+  //! Part of a heuristic hack, need to be removed once
+  //!  heuristics is ready, as well as the <random> header
+  //!  see issue #744
+  static std::mt19937& getRNG(bool reset = false) {
+    const int seed = 1234; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+    static std::mt19937 rng(seed);
+    if (reset) {
+      rng = std::mt19937(seed);
+    }
+    return rng;
+  }
 
  protected:
   std::deque<SegmentedGroup*> to_visit_;
