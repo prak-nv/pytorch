@@ -387,6 +387,9 @@ std::vector<TensorView*> uniqueEntries(
 } // namespace
 
 std::vector<TensorView*> producerTvsOf(TensorView* tv) {
+  if (tv->definition() == nullptr) {
+    return {};
+  }
   auto producer_vals =
       ir_utils::filterByType<TensorView>(tv->definition()->inputs());
   return uniqueEntries({producer_vals.begin(), producer_vals.end()});
@@ -480,6 +483,10 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   auto all_tvs = allTvs(fusion);
 
   for (auto producer : all_tvs) {
+    if (producer->isFusionInput()) {
+      continue;
+    }
+
     bool mappable = true;
     auto consumers = consumerTvsOf(producer);
     if (consumers.empty()) {

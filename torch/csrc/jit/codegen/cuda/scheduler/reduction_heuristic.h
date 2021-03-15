@@ -52,7 +52,7 @@ struct ReductionParams {
     return attr_equal;
   }
 
-  std::string toString() {
+  std::string toString() const {
     std::stringstream ss;
     ss << "\n===== Reduction Parameters ========\n"
        << (fastest_dim ? "Red On Fastest Dim\n" : "Red On Slow Dim\n")
