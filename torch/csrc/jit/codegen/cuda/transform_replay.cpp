@@ -320,6 +320,13 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
   }
 
   unsigned int producer_compute_at_axis = new_IDs.size();
+  for (size_t i = 0; i < new_IDs.size(); i++) {
+    if (new_IDs[i]->isBroadcast() && new_IDs[i]->isThread()) {
+      producer_compute_at_axis = i;
+      break;
+    }
+  }
+
   // Add axes in (2)
   for (auto c_id : consumer->domain()) {
     auto it = replay_PasC.getReplay().find(c_id);
@@ -359,6 +366,7 @@ std::pair<TensorDomain*, unsigned int> TransformReplay::replayPasC(
       producer->getRFactorDomain(),
       new_IDs,
       producer->contiguity());
+
   return {replayed, producer_compute_at_axis};
 }
 
