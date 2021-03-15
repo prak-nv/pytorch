@@ -960,6 +960,17 @@ ScheduleHeuristic SegmentCandidateFinder::deriveHeuristic(
 }
 
 SegmentCandidateFinder::SegmentCandidateFinder(const Fusion* fusion) {
+  // Hack: add cache_after for multi-use inputs to provide more
+  //      fusing opportunity.
+  // TODO: We should handle this in the segmentation process
+  for (auto input : fusion->inputs()) {
+    if (input->uses().size() > 1) {
+      if (auto input_tv = dynamic_cast<TensorView*>(input)) {
+        input_tv->cache_after();
+      }
+    }
+  }
+
   // TODO: this is a heuristic hack, need to remove when actual heuristics are
   //       ready. see issue #744
   const int SEGMENTER_MAX_TRY = 10;
