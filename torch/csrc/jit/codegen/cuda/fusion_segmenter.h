@@ -53,7 +53,8 @@ class TORCH_CUDA_CU_API SegmentedGroup {
 
   //! Checks if this group is used any where in the segmented fusion
   bool isConnected() const {
-    return !producer_edges.empty() || !consumer_edges.empty() || !output_vals.empty();
+    return !producer_edges.empty() || !consumer_edges.empty() ||
+        !output_vals.empty();
   }
 
   //! returns the id assigned by segment pass

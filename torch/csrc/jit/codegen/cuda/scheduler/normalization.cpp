@@ -230,7 +230,7 @@ ReductionParams innerNormalizationHeuristic(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
+      persistence_required ? LaunchParams::UNINITIALIZED_VAL : bdimx,
       bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
@@ -424,7 +424,7 @@ ReductionParams OuterNormalizationHeuristic(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       bdimx,
-      bdimy,
+      persistence_required ? LaunchParams::UNINITIALIZED_VAL : bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
   return rparams;
@@ -495,7 +495,11 @@ TORCH_CUDA_CU_API c10::optional<ReductionParams> getNormalizationHeuristics(
   bool fits_register_persistence = true;
 
   auto persistent_buffers = scheduler_utils::persistentBuffers(fusion);
-  requires_persistence = !persistent_buffers.buffers.empty();
+  requires_persistence = std::any_of(
+      persistent_buffers.buffers.begin(),
+      persistent_buffers.buffers.end(),
+      [](TensorView* tv) { return !tv->isFusionInput(); });
+
   if (requires_persistence) {
     int64_t persistent_buffer_size = 0;
     for (auto tv : persistent_buffers.buffers) {
@@ -564,7 +568,7 @@ void schedulePersistentNormalization(
     const ReductionParams& rparams,
     const std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& other_tvs) {
-  FUSER_PERF_SCOPE("scheduleNormalization");
+  FUSER_PERF_SCOPE("schedulePersistentNormalization");
   // TODO: Pull reduction tvs from fusion in this function, remove argument
   // TODO: Remove other_tvs
   TORCH_INTERNAL_ASSERT(
@@ -594,21 +598,25 @@ void schedulePersistentNormalization(
 
   // Make sure we don't make a cache of an input that would turn it into a
   // persistent buffer. This gave invalid code.
-  // TODO: Figure out what it was invalid, as it should have just used more
+  // TODO: Figure out why it was invalid, as it should have just used more
   // buffers.
-  auto persistent_buffers = scheduler_utils::persistentBuffers(fusion).buffers;
-  auto producers_for_persistence =
-      scheduler_utils::producerTvsOf(persistent_buffers);
-  std::unordered_set<TensorView*> dont_cache(
-      producers_for_persistence.begin(), producers_for_persistence.end());
   std::vector<TensorView*> cached_inputs;
+  std::vector<TensorView*> not_cached_inputs;
   // If we're going to unroll, make a cache of the inputs
   if (rparams.loop_unroll > 1) {
+    auto persistent_buffers =
+        scheduler_utils::persistentBuffers(fusion).buffers;
+    auto producers_for_persistence =
+        scheduler_utils::producerTvsOf(persistent_buffers);
+    std::unordered_set<TensorView*> dont_cache(
+        producers_for_persistence.begin(), producers_for_persistence.end());
     auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
     for (auto tv : in_tvs) {
       if (dont_cache.find(tv) == dont_cache.end()) {
         auto cached_tv = tv->cache_after();
         cached_inputs.emplace_back(cached_tv);
+      } else {
+        not_cached_inputs.emplace_back(tv);
       }
     }
   }
@@ -864,6 +872,12 @@ void schedulePersistentNormalization(
       }
     }
 
+    // If we can't unroll an input, just compute at most inlined
+    for (auto not_cached_input : not_cached_inputs) {
+      scheduler_utils::computeWithOutputs(
+          not_cached_input, -1, ComputeAtMode::MostInlined);
+    }
+
     // These are lined up, inline rfactor tv's into reduction tvs.
     for (size_t red_i = 0;
          red_i < reduction_tvs.size() && red_i < rfactor_tvs.size();
@@ -934,7 +948,7 @@ void scheduleMultiReduction(
     const ReductionParams& rparams,
     const std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& other_tvs) {
-  FUSER_PERF_SCOPE("scheduleNormalization");
+  FUSER_PERF_SCOPE("scheduleMultiReduction");
   // TODO: Pull reduction tvs from fusion in this function, remove argument
   // TODO: Remove other_tvs
   TORCH_INTERNAL_ASSERT(
@@ -962,13 +976,24 @@ void scheduleMultiReduction(
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
 
+  // Make sure we don't make a cache of an input that would turn it into a
+  // persistent buffer and we can't handle that here.
   std::vector<TensorView*> cached_inputs;
+  std::vector<TensorView*> not_cached_inputs;
   // If we're going to unroll, make a cache of the inputs
   if (rparams.loop_unroll > 1) {
+    auto persistent_buffers =
+        scheduler_utils::persistentBuffers(fusion).buffers;
+    std::unordered_set<TensorView*> dont_cache(
+        persistent_buffers.begin(), persistent_buffers.end());
     auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
     for (auto tv : in_tvs) {
-      auto cached_tv = tv->cache_after();
-      cached_inputs.emplace_back(cached_tv);
+      if (dont_cache.find(tv) == dont_cache.end()) {
+        auto cached_tv = tv->cache_after();
+        cached_inputs.emplace_back(cached_tv);
+      } else {
+        not_cached_inputs.emplace_back(tv);
+      }
     }
   }
 
@@ -1001,12 +1026,14 @@ void scheduleMultiReduction(
         // Unswitch axis which gives us finer control on allocations with
         // unrolling
         reduction_tv->split(reduce_axis, 1);
+
         reduction_tv->reorder({{-1, -4}, {-4, -3}, {-3, -2}, {-2, -1}});
+
         rfactor_axes = {-3, -2, -1};
         rfactor_tv = scheduler_utils::rfactorHelper(reduction_tv, rfactor_axes);
 
         rfactor_tv->axis(-4)->parallelize(ParallelType::TIDx);
-        rfactor_tv->axis(-3)->parallelize(ParallelType::Unswitch);
+        rfactor_tv->axis(-2)->parallelize(ParallelType::Unswitch);
 
         if (has_iter_axis) {
           rfactor_tv->split(
@@ -1222,6 +1249,12 @@ void scheduleMultiReduction(
         cached_input->computeAt(
             consumer, unswitch_axis, ComputeAtMode::BestEffort);
       }
+    }
+
+    // If we can't unroll an input, just compute at most inlined
+    for (auto not_cached_input : not_cached_inputs) {
+      scheduler_utils::computeWithOutputs(
+          not_cached_input, -1, ComputeAtMode::MostInlined);
     }
 
     // These are lined up, inline rfactor tv's into reduction tvs.

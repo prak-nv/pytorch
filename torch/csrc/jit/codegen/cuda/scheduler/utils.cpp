@@ -483,10 +483,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   auto all_tvs = allTvs(fusion);
 
   for (auto producer : all_tvs) {
-    if (producer->isFusionInput()) {
-      continue;
-    }
-
     bool mappable = true;
     auto consumers = consumerTvsOf(producer);
     if (consumers.empty()) {
