@@ -195,6 +195,8 @@ UnmappableReductionDomains::UnmappableReductionDomains() {
 }
 
 namespace {
+
+//! Find all domains that a given domain is depeendent on
 class FindInputDomains : BackwardVisitor {
  private:
   FindInputDomains(TensorView* tv, const IterDomain* id) : tv_(tv) {
@@ -246,6 +248,7 @@ class FindInputDomains : BackwardVisitor {
     return FindInputDomains(tv, id).find();
   }
 };
+
 } // namespace
 
 void UnmappableReductionDomains::handle(ReductionOp* op) {

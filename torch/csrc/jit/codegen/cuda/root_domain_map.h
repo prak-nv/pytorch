@@ -190,7 +190,7 @@ class TORCH_CUDA_CU_API UnmappableReductionDomains : private IterVisitor {
  private:
   //! Map from Reduction output DomainKeys to consumer DomainKeys
   DomainKeyMap<DomainKeySet> reduction_domains_;
-  //! TODO
+  //! Map from Reduction output DomainKeys to producer DomainKeys
   DomainKeyMap<DomainKeySet> reduction_domain_inputs_;
 };
 
