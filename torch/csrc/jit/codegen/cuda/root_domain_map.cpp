@@ -283,11 +283,13 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
   for (const auto& kv : reduction_domains_) {
     const DomainKey& reduction_domain = kv.first;
     const DomainKeySet& incompatible_domains = kv.second;
+    DomainKey consumer_domain_with_reduction;
     bool reduction_found = false;
     const auto& input_keys = reduction_domain_inputs_.at(reduction_domain);
     for (const DomainKey& consumer_domain : consumer_domains) {
       for (const auto& input_key : input_keys) {
         if (input_key == consumer_domain) {
+          consumer_domain_with_reduction = consumer_domain;
           reduction_found = true;
           break;
         }
@@ -299,6 +301,9 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
     // Make sure no incompatible domains will be merged with the reduction
     // domain.
     for (const auto& consumer_domain : consumer_domains) {
+      if (consumer_domain == consumer_domain_with_reduction) {
+        continue;
+      }
       if (std::any_of(
               incompatible_domains.begin(),
               incompatible_domains.end(),
