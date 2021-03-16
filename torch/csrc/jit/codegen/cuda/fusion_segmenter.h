@@ -391,13 +391,49 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   //! Part of a heuristic hack, need to be removed once
   //!  heuristics is ready, as well as the <random> header
   //!  see issue #744
-  static std::mt19937& getRNG(bool reset = false) {
+  class LCGRandomNumberGen {
+   public:
+    LCGRandomNumberGen(size_t seed) : state_(seed) {}
+
+    void reset(size_t seed) {
+      state_ = seed;
+    }
+
+    size_t operator()() {
+      // formula from https://rosettacode.org/wiki/Linear_congruential_generator
+      state_ =
+          (214013 // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+               * state_ +
+           *2531011 // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+               *)&(0x7FFFFFFF); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+      return state_ >> 16; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+    }
+
+   private:
+    size_t state_;
+  };
+
+  //! Part of a heuristic hack, need to be removed once
+  //!  heuristics is ready, as well as the <random> header
+  //!  see issue #744
+  static LCGRandomNumberGen& getRNG(bool reset = false) {
     const int seed = 1234; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-    static std::mt19937 rng(seed);
+    static LCGRandomNumberGen rng(seed);
     if (reset) {
-      rng = std::mt19937(seed);
+      rng.reset(seed);
     }
     return rng;
+  }
+
+  //! Part of a heuristic hack, need to be removed once
+  //!  heuristics is ready, as well as the <random> header
+  //!  see issue #744
+  template <typename T>
+  void ShuffleCandidateContainer(T& container) {
+    size_t total_size = container.size();
+    for (size_t i = 0; i < total_size; i++) {
+      std::swap(container[i], container[getRNG(false)() % total_size]);
+    }
   }
 
  protected:

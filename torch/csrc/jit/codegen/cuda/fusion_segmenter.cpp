@@ -1095,7 +1095,7 @@ void SegmentCandidateFinder::findSegments() {
 
       // TODO: once the candidate selection heuristics is
       //       implemented, should remove this see issue #744
-      std::shuffle(candidates.begin(), candidates.end(), getRNG(false));
+      ShuffleCandidateContainer(candidates);
 
       auto candidate_it = candidates.begin();
       while (candidate_it != candidates.end() &&
@@ -1139,7 +1139,7 @@ void SegmentCandidateFinder::finalMerge() {
     //      actual heuristic is ready. see issue #744
     std::vector<SegmentedGroup*> groups_to_visit(
         groups().begin(), groups().end());
-    std::shuffle(groups_to_visit.begin(), groups_to_visit.end(), getRNG(false));
+    ShuffleCandidateContainer(groups_to_visit);
 
     // Iterate all groups and check if a group
     //  can merge with one of its consumers
