@@ -3070,34 +3070,46 @@ TEST(NVFuserTest, FusionRootMappingReductionDependency5_CUDA_CUDA) {
   fusion.addOutput(tv5);
 
   checkIdMapped(
-      tv0, tv0->getRootDomain(),
+      tv0,
+      tv0->getRootDomain(),
       {true, false},
-      tv1, tv1->getRootDomain(),
+      tv1,
+      tv1->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv1, tv1->getRootDomain(),
+      tv1,
+      tv1->getRootDomain(),
       {true, false},
-      tv2, tv2->getRootDomain(),
+      tv2,
+      tv2->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv2, tv2->getRootDomain(),
+      tv2,
+      tv2->getRootDomain(),
       {true, false},
-      tv3, tv3->getRootDomain(),
+      tv3,
+      tv3->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv3, tv3->getRootDomain(),
+      tv3,
+      tv3->getRootDomain(),
       {true, true},
-      tv4, tv4->getRootDomain(),
+      tv4,
+      tv4->getRootDomain(),
       {true, true});
   checkIdMapped(
-      tv0, tv0->getRootDomain(),
+      tv0,
+      tv0->getRootDomain(),
       {true, false},
-      tv4, tv4->getRootDomain(),
+      tv4,
+      tv4->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv4, tv4->getRootDomain(),
+      tv4,
+      tv4->getRootDomain(),
       {true, true},
-      tv5, tv5->getRootDomain(),
+      tv5,
+      tv5->getRootDomain(),
       {true, true});
 }
 
@@ -3119,44 +3131,60 @@ TEST(NVFuserTest, FusionRootMappingReductionDependency6_CUDA_CUDA) {
   auto tv6 = tv2->rFactor({-1});
 
   checkIdMapped(
-      tv0, tv0->getRootDomain(),
+      tv0,
+      tv0->getRootDomain(),
       {true, false},
-      tv1, tv1->getRootDomain(),
+      tv1,
+      tv1->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv1, tv1->getRootDomain(),
+      tv1,
+      tv1->getRootDomain(),
       {true, false},
-      tv6, tv6->getRootDomain(),
+      tv6,
+      tv6->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv6, tv6->getMaybeRFactorDomain(),
+      tv6,
+      tv6->getMaybeRFactorDomain(),
       {true, true, false},
-      tv2, tv2->getRootDomain(),
+      tv2,
+      tv2->getRootDomain(),
       {true, true});
   checkIdMapped(
-      tv1, tv1->getRootDomain(),
+      tv1,
+      tv1->getRootDomain(),
       {true, false},
-      tv2, tv2->getRootDomain(),
+      tv2,
+      tv2->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv2, tv2->getRootDomain(),
+      tv2,
+      tv2->getRootDomain(),
       {true, false},
-      tv3, tv3->getRootDomain(),
+      tv3,
+      tv3->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv3, tv3->getRootDomain(),
+      tv3,
+      tv3->getRootDomain(),
       {true, true},
-      tv4, tv4->getRootDomain(),
+      tv4,
+      tv4->getRootDomain(),
       {true, true});
   checkIdMapped(
-      tv0, tv0->getRootDomain(),
+      tv0,
+      tv0->getRootDomain(),
       {true, false},
-      tv4, tv4->getRootDomain(),
+      tv4,
+      tv4->getRootDomain(),
       {true, false});
   checkIdMapped(
-      tv4, tv4->getRootDomain(),
+      tv4,
+      tv4->getRootDomain(),
       {true, true},
-      tv5, tv5->getRootDomain(),
+      tv5,
+      tv5->getRootDomain(),
       {true, true});
 }
 

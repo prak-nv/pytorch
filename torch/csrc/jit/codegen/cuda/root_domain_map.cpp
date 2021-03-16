@@ -195,10 +195,9 @@ UnmappableReductionDomains::UnmappableReductionDomains() {
 }
 
 namespace {
-class FindInputDomains: BackwardVisitor {
+class FindInputDomains : BackwardVisitor {
  private:
-  FindInputDomains(TensorView* tv, const IterDomain* id):
-      tv_(tv) {
+  FindInputDomains(TensorView* tv, const IterDomain* id) : tv_(tv) {
     input_keys.insert(DomainKey(tv_->domain(), id));
   }
 
@@ -208,23 +207,23 @@ class FindInputDomains: BackwardVisitor {
   }
 
   void handle(Expr* expr) override {
-    for (auto output: expr->outputs()) {
+    for (auto output : expr->outputs()) {
       if (!output->isA<TensorView>()) {
         continue;
       }
-      for (auto input: expr->inputs()) {
+      for (auto input : expr->inputs()) {
         if (!input->isA<TensorView>()) {
           continue;
         }
-        propagate(input->as<TensorView>(),
-                  output->as<TensorView>());
+        propagate(input->as<TensorView>(), output->as<TensorView>());
       }
     }
   }
 
   void propagate(TensorView* in_tv, TensorView* out_tv) {
-    auto c2p = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer(out_tv->domain(), in_tv->domain());
-    for (auto root_dom: out_tv->getRootDomain()) {
+    auto c2p = PairwiseRootDomainMap(in_tv, out_tv)
+                   .mapConsumerToProducer(out_tv->domain(), in_tv->domain());
+    for (auto root_dom : out_tv->getRootDomain()) {
       DomainKey out_key({out_tv->domain(), root_dom});
       if (input_keys.find(out_key) == input_keys.end()) {
         continue;
@@ -233,8 +232,7 @@ class FindInputDomains: BackwardVisitor {
       if (input_id_it == c2p.end()) {
         continue;
       }
-      DomainKey input_key(in_tv->domain(),
-                          input_id_it->second);
+      DomainKey input_key(in_tv->domain(), input_id_it->second);
       input_keys.insert(input_key);
     }
   }
@@ -248,7 +246,7 @@ class FindInputDomains: BackwardVisitor {
     return FindInputDomains(tv, id).find();
   }
 };
-}
+} // namespace
 
 void UnmappableReductionDomains::handle(ReductionOp* op) {
   // Builds a map from reduction domains to consumer domains.
@@ -273,10 +271,9 @@ void UnmappableReductionDomains::handle(ReductionOp* op) {
       }
     }
   }
-  for (const auto& reduction_key: reduction_keys) {
+  for (const auto& reduction_key : reduction_keys) {
     reduction_domain_inputs_.insert(
-        {reduction_key,
-         FindInputDomains::find(out_tv, reduction_key.id())});
+        {reduction_key, FindInputDomains::find(out_tv, reduction_key.id())});
   }
 }
 
@@ -289,7 +286,7 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
     bool reduction_found = false;
     const auto& input_keys = reduction_domain_inputs_.at(reduction_domain);
     for (const DomainKey& consumer_domain : consumer_domains) {
-      for (const auto& input_key: input_keys) {
+      for (const auto& input_key : input_keys) {
         if (input_key == consumer_domain) {
           reduction_found = true;
           break;
