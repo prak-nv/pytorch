@@ -13742,6 +13742,42 @@ TEST(NVFuserTest, FusionReductionPredicate_CUDA) {
       &fusion, {cg_output}, {input}, {aten_output}, __LINE__, __FILE__);
 }
 
+TEST(NVFuserTest, FusionBCastIndexingRepro_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int X = 2;
+  constexpr int Y = 2;
+  constexpr int Z = 2;
+  constexpr int W = 2;
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = TensorViewBuilder().ndims(4).dtype(DataType::Float).contiguity({true, false, false, true}).build();
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({X, Y, Z, W}, options);
+  at::Tensor t1 = at::randn({X, Y, 1, W}, options);
+  at::Tensor t1_bcasted = t1.expand({X, Y, Z, W});
+  at::Tensor out = at::randn_like(t0);
+
+  std::vector<IValue> aten_inputs = {t0, t1_bcasted};
+
+  scheduleFusion(&fusion, aten_inputs);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  // inplace op, we are adding t0 to itself
+  auto outputs = fe.runFusion(aten_inputs, {out});
+
+  TORCH_CHECK(out.allclose(t0.add(t1_bcasted)));
+}
+
 } // namespace jit
 } // namespace torch
 #endif // #if defined(USE_CUDA)
