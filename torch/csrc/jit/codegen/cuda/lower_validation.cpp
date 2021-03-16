@@ -120,7 +120,8 @@ class VectorizeValidator : public OptInDispatch {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
     for (auto id : tv->domain()->domain()) {
-      if (id->getParallelType() == ParallelType::Vectorize) {
+      if (id->getParallelType() == ParallelType::Vectorize ||
+          id->getParallelType() == ParallelType::MisalignedVectorize) {
         TORCH_INTERNAL_ASSERT(
             v_id == nullptr,
             "Found two vectorized domains in ",
@@ -235,7 +236,7 @@ void validateVectorize(Fusion* fusion) {
       IterDomain* concrete_id =
           GpuLower::current()->caParallelMap().getConcreteMappedID(id);
 
-      if (concrete_id->getParallelType() == ParallelType::Vectorize) {
+      if (concrete_id->getParallelType() == ParallelType::Vectorize ) {
         // If we want to do this check up front we would have to do 2 things:
         // (1) Check that the tensor view with vectorize being set on it is
         // getting it set outside the local compute at position
@@ -245,6 +246,14 @@ void validateVectorize(Fusion* fusion) {
         TORCH_INTERNAL_ASSERT(
             i >= tv->getComputeAtPosition(),
             "IterDomains to the left of the compute at point cannot be vectorized.");
+        has_vectorize_dim = true;
+      }
+
+      if (concrete_id->getParallelType() == ParallelType::MisalignedVectorize) {
+        TORCH_INTERNAL_ASSERT(
+            !tv->hasComputeAt() ||
+            tv->getComputeAtPosition() == tv->nDims() - 1,
+            "Only allow misaligned vectorization in the -2 computeAt position.");
         has_vectorize_dim = true;
       }
     }

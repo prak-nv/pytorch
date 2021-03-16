@@ -13094,7 +13094,7 @@ TEST(NVFuserTest, FusionBroadcastAcrossComputeAt_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t3}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionMisalignedVectorization1_CUDA) {
+TEST(NVFuserTest, FusionVectorizationMisalignedPointwise_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -13145,7 +13145,7 @@ TEST(NVFuserTest, FusionMisalignedVectorization1_CUDA) {
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST(NVFuserTest, FusionMisalignedVectorizationRFactor_CUDA) {
+TEST(NVFuserTest, FusionVectorizationMisalignedRFactor_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -13175,14 +13175,16 @@ TEST(NVFuserTest, FusionMisalignedVectorizationRFactor_CUDA) {
   tv0->computeAt(tv4, -2);
   tv1->computeAt(tv4, -2);
 
-  auto tv6 = tv0->cache_after();
-  auto tv7 = tv1->cache_after();
+  auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
 
-  tv6->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
-  tv7->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
+  c0->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
+  c1->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
 
   tv4->axis(-2)->parallelize(ParallelType::TIDx);
   tv3->axis(1)->parallelize(ParallelType::TIDx);
+
+  tv2->computeAt(tv4, -1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   const int bx = 128;
@@ -13197,6 +13199,95 @@ TEST(NVFuserTest, FusionMisalignedVectorizationRFactor_CUDA) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   auto aten_output = t0.add(t1).sum(1);
+  testValidate(
+      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST(NVFuserTest, FusionVectorizationMisalignedWrongDimFail_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  tv2->split(1, 16);
+  tv2->split(1, 64);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(2)->parallelize(ParallelType::TIDx);
+
+  auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
+  auto c2 = tv2->cache_before();
+
+  c0->computeAt(tv2, -2);
+  c1->computeAt(tv2, -2);
+
+  std::vector<TensorView*> vectorized_tvs = {c0, c1, tv2};
+  for (auto tv : vectorized_tvs) {
+    tv->split(-1, 4);
+    // Vectorize the wrong dimension
+    tv->axis(-2)->parallelize(ParallelType::MisalignedVectorize);
+  }
+
+  FusionExecutor fe;
+  // Make sure compilation fails
+  ASSERT_ANY_THROW(fe.compileFusion(&fusion));
+}
+
+TEST(NVFuserTest, FusionVectorizationMisalignedStrideFail_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = makeSymbolicTensor(2);
+
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  const int kTDX = 64;
+  const int kVecSize = 4;
+  const int kNumElems = kTDX * kVecSize;
+
+  tv2->split(1, kNumElems);
+
+  auto c0 = tv0->cache_after();
+  auto c1 = tv1->cache_after();
+  auto c2 = tv2->cache_before();
+
+  tv2->split(-1, kVecSize);
+
+  c0->computeAt(tv2, -2);
+  c1->computeAt(tv2, -2);
+
+  c0->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
+  c1->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(-2)->parallelize(ParallelType::TIDx);
+  tv2->axis(-1)->parallelize(ParallelType::MisalignedVectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  const int bx = 128;
+  const int by = 2049;
+  at::Tensor t0 = at::randn({bx, by}, options).index({"...", Slice(4)});
+  at::Tensor t1 = at::randn({bx, by}, options).index({"...", Slice(4)});
+  std::vector<IValue> aten_inputs = {t0, t1};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto aten_output = t0 + t1;
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
 }

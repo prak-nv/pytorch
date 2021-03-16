@@ -50,7 +50,8 @@ void cloneVectorizeLoopNests(
     bool has_vectorize_op =
         (first_expr->isA<kir::UnaryOp>() &&
          first_expr->as<kir::UnaryOp>()->operation() == UnaryOpType::Set);
-    TORCH_INTERNAL_ASSERT(!vectorize || fl->body().exprs().size() == 1);
+
+    TORCH_INTERNAL_ASSERT(!has_vectorize_op || fl->body().exprs().size() == 1);
 
     const auto new_loop = ir_builder.create<kir::ForLoop>(
         fl->index(),
