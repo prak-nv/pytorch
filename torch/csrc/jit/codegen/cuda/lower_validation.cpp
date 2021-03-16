@@ -236,7 +236,7 @@ void validateVectorize(Fusion* fusion) {
       IterDomain* concrete_id =
           GpuLower::current()->caParallelMap().getConcreteMappedID(id);
 
-      if (concrete_id->getParallelType() == ParallelType::Vectorize ) {
+      if (concrete_id->getParallelType() == ParallelType::Vectorize) {
         // If we want to do this check up front we would have to do 2 things:
         // (1) Check that the tensor view with vectorize being set on it is
         // getting it set outside the local compute at position
@@ -252,7 +252,7 @@ void validateVectorize(Fusion* fusion) {
       if (concrete_id->getParallelType() == ParallelType::MisalignedVectorize) {
         TORCH_INTERNAL_ASSERT(
             !tv->hasComputeAt() ||
-            tv->getComputeAtPosition() == tv->nDims() - 1,
+                tv->getComputeAtPosition() == tv->nDims() - 1,
             "Only allow misaligned vectorization in the -2 computeAt position.");
         has_vectorize_dim = true;
       }

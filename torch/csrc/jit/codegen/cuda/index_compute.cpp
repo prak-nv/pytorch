@@ -875,7 +875,8 @@ kir::TensorIndex* Index::getGlobalProducerIndex(
     } else {
       auto strided_ind = ir_builder.mulExpr(root_ind, strides[i]);
       if (i == root_dom.size() - 1 && vectorize_shift != nullptr) {
-        strided_inds.push_back(ir_builder.addExpr(strided_ind, vectorize_shift));
+        strided_inds.push_back(
+            ir_builder.addExpr(strided_ind, vectorize_shift));
       } else {
         strided_inds.push_back(strided_ind);
       }
@@ -1283,7 +1284,8 @@ kir::TensorIndex* Index::getGlobalConsumerIndex(
     } else {
       auto strided_ind = ir_builder.mulExpr(root_ind, strides[i]);
       if (i == root_dom.size() - 1 && vectorize_shift != nullptr) {
-        strided_inds.push_back(ir_builder.addExpr(strided_ind, vectorize_shift));
+        strided_inds.push_back(
+            ir_builder.addExpr(strided_ind, vectorize_shift));
       } else {
         strided_inds.push_back(strided_ind);
       }
