@@ -5,10 +5,6 @@
 
 #include <sstream>
 
-namespace {
-bool _debug = false;
-}
-
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -212,7 +208,6 @@ class FindInputDomains: BackwardVisitor {
   }
 
   void handle(Expr* expr) override {
-    if (_debug) std::cerr << "Expr: " << expr << std::endl;
     for (auto output: expr->outputs()) {
       if (!output->isA<TensorView>()) {
         continue;
@@ -228,8 +223,6 @@ class FindInputDomains: BackwardVisitor {
   }
 
   void propagate(TensorView* in_tv, TensorView* out_tv) {
-    if (_debug) std::cerr << "Propagate: " << in_tv
-                          << " <- " << out_tv << std::endl;
     auto c2p = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer(out_tv->domain(), in_tv->domain());
     for (auto root_dom: out_tv->getRootDomain()) {
       DomainKey out_key({out_tv->domain(), root_dom});
@@ -243,7 +236,6 @@ class FindInputDomains: BackwardVisitor {
       DomainKey input_key(in_tv->domain(),
                           input_id_it->second);
       input_keys.insert(input_key);
-      if (_debug) std::cerr << "Input key: " << toString(input_key) << std::endl;
     }
   }
 
@@ -291,27 +283,13 @@ void UnmappableReductionDomains::handle(ReductionOp* op) {
 bool UnmappableReductionDomains::isReductionOutputMapped(
     const std::vector<DomainKey>& consumer_domains,
     const ComputeAtRootDomainMap& root_map) const {
-  if (_debug) {
-    for (auto d: consumer_domains) {
-      std::cerr << "consumer domain: " << toString(d) << std::endl;
-    }
-  }
   for (const auto& kv : reduction_domains_) {
     const DomainKey& reduction_domain = kv.first;
     const DomainKeySet& incompatible_domains = kv.second;
-    if (_debug) {
-      std::cerr << "reduction domain: " << toString(reduction_domain) << std::endl;
-      for (auto k: incompatible_domains) {
-        std::cerr << "incompatible domain: " << toString(k) << std::endl;
-      }
-    }
-    //DomainKey consumer_domain_with_reduction;
     bool reduction_found = false;
     const auto& input_keys = reduction_domain_inputs_.at(reduction_domain);
     for (const DomainKey& consumer_domain : consumer_domains) {
-      if (_debug) std::cerr << "consumer: " << toString(consumer_domain) << std::endl;
       for (const auto& input_key: input_keys) {
-        if (_debug) std::cerr << "reduction input: " << toString(input_key) << std::endl;
         if (input_key == consumer_domain) {
           reduction_found = true;
           break;
@@ -319,15 +297,11 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
       }
     }
     if (!reduction_found) {
-      if (_debug) {
-        std::cerr << "no reduction found\n";
-      }
       continue;
     }
     // Make sure no incompatible domains will be merged with the reduction
     // domain.
     for (const auto& consumer_domain : consumer_domains) {
-      if (_debug) std::cerr << "Checking incompatibility\n";
       if (std::any_of(
               incompatible_domains.begin(),
               incompatible_domains.end(),
@@ -338,13 +312,10 @@ bool UnmappableReductionDomains::isReductionOutputMapped(
                     incompatible_domain.td(),
                     incompatible_domain.id());
               })) {
-        if (_debug) std::cerr << "Incompatibile\n";
         return true;
       }
-      if (_debug) std::cerr << "Not incompatibile\n";
     }
   }
-  if (_debug) std::cerr << "Reduction not mapped\n";
   return false;
 }
 
@@ -821,7 +792,6 @@ void ComputeAtRootDomainMapBuilder::handle(TransposeOp* op) {
 
 bool ComputeAtRootDomainMapBuilder::mapAllConsumers(
     const DomainKey& producer_key) {
-  if (_debug) std::cerr << "mapAllConsumers: " << toString(producer_key) << std::endl;
   auto it = pending_map_.find(producer_key);
   if (it == pending_map_.end()) {
     return false;
@@ -830,7 +800,6 @@ bool ComputeAtRootDomainMapBuilder::mapAllConsumers(
   // All entries in key_set must be equivalent with each other.
   TORCH_INTERNAL_ASSERT(consumer_set.size() > 0);
   bool consistent = safeToMap(consumer_set);
-  if (_debug) std::cerr << "consistent: " << consistent << std::endl;
   if (consistent) {
     for (const auto pending_consumer : consumer_set) {
       setMapped(producer_key, pending_consumer);
@@ -842,8 +811,6 @@ bool ComputeAtRootDomainMapBuilder::mapAllConsumers(
 }
 
 void ComputeAtRootDomainMapBuilder::handle(TensorView* tv) {
-  if (_debug) std::cerr << "Builder handle TV" << tv->name()
-                        << ": " << tv->getRootDomain() << std::endl;
   const TensorDomain* td = tv->domain();
   const auto root = TensorDomain::noReductions(td->getMaybeRFactorDomain());
   for (auto id : root) {
@@ -910,7 +877,6 @@ bool ComputeAtRootDomainMapBuilder::safeToMap(const DomainKeySet& domains) {
       !map_through_reduction_) {
     return false;
   }
-  if (_debug) std::cerr << "safe to map\n";
   return true;
 }
 
