@@ -92,6 +92,46 @@ target_include_directories(
 add_subdirectory(test)
 add_subdirectory(benchmark)
 
+# ---[ Extra Tracy based profiling infrastructure
+if(${USE_TRACY_TELEMETRY})
+   file(GLOB C10_TELEMETRY_SRCS
+        telemetry/*.cpp
+   )
+   add_library(c10_tracy STATIC ${C10_TELEMETRY_SRCS})
+   target_sources(c10_tracy PRIVATE ${TRACY_CLIENT_SRCS})
+
+    target_compile_definitions(c10_tracy PRIVATE "-DTRACY_ENABLE")
+    # Don't scream on whole LAN we are profiling
+    target_compile_definitions(c10_tracy PRIVATE "-DTRACY_NO_BROADCAST")
+    # Enable tracy callstacks on supported platforms.
+    target_compile_definitions(c10_tracy PRIVATE "-DTRACY_CALLSTACK=1")
+   # Tracy has bit unfriendly directory structure for includes as
+   # there is no seperate include/tracy directory.
+   # We have to add whole third_party to include path.
+   target_include_directories(c10_tracy PRIVATE ${PROJECT_SOURCE_DIR}/third_party)
+
+   # NB: Versioning for that use-case is not stricly needed, but potentialy could be helpful
+   if(HAVE_SOVERSION)
+      set_target_properties(c10_tracy PROPERTIES
+         VERSION ${TORCH_VERSION} SOVERSION ${TORCH_SOVERSION})
+   endif()
+
+   # Add telemetry library as c10 public dependency, that makes it pulled in by basically
+   # everything we care about
+   target_link_libraries(c10 PUBLIC c10_tracy)
+
+   if(DISABLE_TRACY_HEAP_DEBUG)
+      target_compile_definitions(c10_tracy PRIVATE "-DC10_TRACY_TELEMETRY_NO_HEAP_DEBUG")
+   else()
+      target_link_options(c10 PUBLIC "-Wl,--wrap=aligned_alloc")
+      target_link_options(c10 PUBLIC "-Wl,--wrap=free")
+      target_link_options(c10 PUBLIC "-Wl,--wrap=memalign")
+      target_link_options(c10 PUBLIC "-Wl,--wrap=malloc")
+      target_link_options(c10 PUBLIC "-Wl,--wrap=posix_memalign")
+   endif()
+   install(TARGETS c10_tracy EXPORT Caffe2Targets DESTINATION lib)
+endif()
+
 if(USE_CUDA)
   add_subdirectory(cuda)
 endif()
@@ -101,6 +141,7 @@ if(USE_ROCM)
   # not checked in
   add_subdirectory(hip)
 endif()
+
 
 # ---[ Installation
 # Note: for now, we will put all export path into one single Caffe2Targets group

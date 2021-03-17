@@ -552,6 +552,12 @@ elseif(NOT TARGET XNNPACK AND USE_SYSTEM_XNNPACK)
   list(APPEND Caffe2_DEPENDENCY_LIBS XNNPACK)
 endif()
 
+# ---[ Tracy telemetry
+if(USE_TRACY_TELEMETRY)
+  set(TRACY_ROOT_DIR "${PROJECT_SOURCE_DIR}/third_party/tracy")
+  set(TRACY_CLIENT_SRCS "${TRACY_ROOT_DIR}/TracyClient.cpp")
+endif()
+
 # ---[ Vulkan deps
 if(USE_VULKAN)
   set(Vulkan_DEFINES)
