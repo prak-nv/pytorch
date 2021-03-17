@@ -37,7 +37,7 @@ __inline__ __device__ void blockWelford(
     TN& out_N,
     const T& in_M2,
     const T& in_avg,
-    const TN in_N,
+    const TN& in_N,
     const _dim3ti& thread_idx,
     const _dim3bd& block_dim,
     T* shared_mem_M2,
