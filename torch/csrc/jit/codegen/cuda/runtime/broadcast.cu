@@ -24,7 +24,11 @@ __host__ __device__ unsigned offset_of_source(
 // out: Per-thread output location
 //
 template <bool X_THREAD, bool Y_THREAD, bool Z_THREAD, typename T>
-__device__ void blockBroadcast(T& out, const T& inp_val, T* shared_mem, bool read_write_pred) {
+__device__ void blockBroadcast(
+    T& out,
+    const T& inp_val,
+    T* shared_mem,
+    bool read_write_pred) {
   const bool has_valid_data = (!X_THREAD || threadIdx.x == 0) &&
       (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0);
 
