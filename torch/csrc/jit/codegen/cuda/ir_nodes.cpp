@@ -210,11 +210,11 @@ bool TernaryOp::sameAs(const Statement* other) const {
   return Expr::sameAs(other);
 }
 
-BroadcastOp::BroadcastOp(Val* out, Val* in, std::vector<bool> is_broadcast_dims)
+BroadcastOp::BroadcastOp(Val* out, Val* in, BroadcastDimMask bcast_mask)
     : Expr(ExprType::BroadcastOp),
       out_(out),
       in_(in),
-      is_broadcast_dims_(std::move(is_broadcast_dims)) {
+      broadcast_dim_mask_(std::move(bcast_mask)) {
   // clang-tidy complains about out_ that it may be null.
   TORCH_INTERNAL_ASSERT(out_ != nullptr);
   TORCH_INTERNAL_ASSERT(in_ != nullptr);
@@ -263,7 +263,7 @@ BroadcastOp::BroadcastOp(Val* out, Val* in, std::vector<bool> is_broadcast_dims)
       continue;
     }
     TORCH_INTERNAL_ASSERT(
-        c_id->isBroadcast() && is_broadcast_dims_[i],
+        c_id->isBroadcast() && broadcast_dim_mask_[i],
         "Invalid broadcast op: ",
         c_id,
         ". Non-broadcasted output dim isn't matched from input.");
@@ -274,7 +274,7 @@ BroadcastOp::BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner)
     : Expr(src, ir_cloner),
       out_(ir_cloner->clone(src->out_)),
       in_(ir_cloner->clone(src->in_)),
-      is_broadcast_dims_(src->is_broadcast_dims_) {}
+      broadcast_dim_mask_(src->getBroadcastDimMask()) {} // XXX: functional
 
 bool BroadcastOp::sameAs(const Statement* other) const {
   if (this == other) {
@@ -284,7 +284,7 @@ bool BroadcastOp::sameAs(const Statement* other) const {
     return false;
   }
   const auto other_op = other->as<BroadcastOp>();
-  if (getBroadcastDimFlags() != other_op->getBroadcastDimFlags()) {
+  if (getBroadcastDimMask() != other_op->getBroadcastDimMask()) {
     return false;
   }
   return Expr::sameAs(other);

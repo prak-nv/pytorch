@@ -88,7 +88,7 @@ TORCH_CUDA_CU_API TensorView* neg(TensorView* v);
 // broadcasted dim. Number of false entires must match the number of input dims.
 TORCH_CUDA_CU_API TensorView* broadcast(
     TensorView* inp,
-    const std::vector<bool>& is_broadcast_dim);
+    const BroadcastDimMask& is_broadcast_dim);
 
 //! Transpose a tensor as specified by axis mappings.
 //!

@@ -650,7 +650,7 @@ class IrParser {
 
             const size_t kNumberOfDims = input->nDims();
             std::vector<int> reduction_axes;
-            std::vector<bool> broadcast_mask(kNumberOfDims, false);
+            BroadcastDimMask broadcast_mask(kNumberOfDims, false);
             Val* num_features = new Double(1);
             for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
               if (axis != 1) {
@@ -742,14 +742,14 @@ class IrParser {
             const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
             std::vector<int> outer_reduction_axes(kOuterNumDims);
-            std::vector<bool> outer_broadcast_mask(input->nDims(), false);
+            BroadcastDimMask outer_broadcast_mask(input->nDims(), false);
             for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
               outer_reduction_axes[idx] = idx;
               outer_broadcast_mask[idx] = true;
             }
 
             std::vector<int> inner_reduction_axes(kNormShapeNumDims);
-            std::vector<bool> inner_broadcast_mask(input->nDims(), false);
+            BroadcastDimMask inner_broadcast_mask(input->nDims(), false);
             Val* num_features = new Double(1);
             for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
@@ -836,14 +836,14 @@ class IrParser {
               const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
               std::vector<int> outer_reduction_axes(kOuterNumDims);
-              std::vector<bool> outer_broadcast_mask(input->nDims(), false);
+              BroadcastDimMask outer_broadcast_mask(input->nDims(), false);
               for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
                 outer_reduction_axes[idx] = idx;
                 outer_broadcast_mask[idx] = true;
               }
 
               std::vector<int> inner_reduction_axes(kNormShapeNumDims);
-              std::vector<bool> inner_broadcast_mask(input->nDims(), false);
+              BroadcastDimMask inner_broadcast_mask(input->nDims(), false);
               Val* num_features = new Double(1);
               for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
                 const size_t axis = input->nDims() - 1 - idx;
@@ -949,14 +949,14 @@ class IrParser {
             const size_t kOuterNumDims = input->nDims() - kNormShapeNumDims;
 
             std::vector<int> outer_reduction_axes(kOuterNumDims);
-            std::vector<bool> outer_broadcast_mask(input->nDims(), false);
+            BroadcastDimMask outer_broadcast_mask(input->nDims(), false);
             for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
               outer_reduction_axes[idx] = idx;
               outer_broadcast_mask[idx] = true;
             }
 
             std::vector<int> inner_reduction_axes(kNormShapeNumDims);
-            std::vector<bool> inner_broadcast_mask(input->nDims(), false);
+            BroadcastDimMask inner_broadcast_mask(input->nDims(), false);
             Val* num_features = new Double(1);
             for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
@@ -1042,7 +1042,7 @@ class IrParser {
               kReductionAxis += int(input->nDims());
             }
 
-            std::vector<bool> broadcast_mask(kNumberOfDims, false);
+            BroadcastDimMask broadcast_mask(kNumberOfDims, false);
             broadcast_mask[kReductionAxis] = true;
 
             auto* max_val = max(input, {kReductionAxis});
@@ -1093,7 +1093,7 @@ class IrParser {
               kReductionAxis += int(input->nDims());
             }
 
-            std::vector<bool> broadcast_mask(kNumberOfDims, false);
+            BroadcastDimMask broadcast_mask(kNumberOfDims, false);
             broadcast_mask[kReductionAxis] = true;
 
             auto* new_grad = mul(grad_output, output);

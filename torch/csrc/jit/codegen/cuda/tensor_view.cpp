@@ -997,7 +997,7 @@ struct CreateExprConsumer : public OptInDispatch {
     new BroadcastOp(
         consumer_,
         broadcast_expr->in(),
-        broadcast_expr->getBroadcastDimFlags());
+        broadcast_expr->getBroadcastDimMask());
   }
 
   void handle(TransposeOp* transpose_expr) final {
@@ -1115,7 +1115,7 @@ struct CreateExprProducer : public OptInDispatch {
     new BroadcastOp(
         broadcast_expr->out(),
         producer_,
-        broadcast_expr->getBroadcastDimFlags());
+        broadcast_expr->getBroadcastDimMask());
   }
 
   void handle(TransposeOp* transpose_expr) final {

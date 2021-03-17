@@ -5,6 +5,7 @@
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
 #include <torch/csrc/jit/codegen/cuda/ir_base_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_interface_nodes.h>
+#include <torch/csrc/jit/codegen/cuda/tensor_contiguity.h>
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the
@@ -88,14 +89,17 @@ class TORCH_CUDA_CU_API BinaryOp : public Expr {
   Val* const rhs_ = nullptr;
 };
 
-//! Broadcast in to match out. is_broadcast_dims are relative to out. Where
-//! is_broadcast_dims.size() == out->nDims().
+using BroadcastDimMask = MaskVector;
+
+//! Broadcast in to match out. broadcast_dim_mask are relative to out. Where
+//! broadcast_dim_mask.size() == out->nDims().
+
 class TORCH_CUDA_CU_API BroadcastOp : public Expr {
  public:
   //! \param out The output tensor
   //! \param in The input tensor
-  //! \param is_broadcast_dims True when output dim is a new broadcast domain
-  BroadcastOp(Val* out, Val* in, std::vector<bool> is_broadcast_dims);
+  //! \param broadcast_dim_mask Holds true when output dim is a new broadcast domain
+  BroadcastOp(Val* out, Val* in, BroadcastDimMask broadcast_dim_mask);
 
   BroadcastOp(const BroadcastOp* src, IrCloner* ir_cloner);
 
@@ -107,11 +111,11 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   }
 
   bool isBroadcastDim(size_t dim) const {
-    return is_broadcast_dims_.at(dim);
+    return broadcast_dim_mask_.at(dim);
   }
 
-  const std::vector<bool>& getBroadcastDimFlags() const {
-    return is_broadcast_dims_;
+  const BroadcastDimMask& getBroadcastDimMask() const {
+    return broadcast_dim_mask_;
   }
 
   bool sameAs(const Statement* other) const override;
@@ -126,7 +130,7 @@ class TORCH_CUDA_CU_API BroadcastOp : public Expr {
   //! that the output tensor may have other broadcast domains whose
   //! flags are false because the input tensor may already have
   //! broadcast domains.
-  const std::vector<bool> is_broadcast_dims_;
+  const BroadcastDimMask broadcast_dim_mask_;
 };
 
 //! Reduction operation. Out is first initialized to _init. Then

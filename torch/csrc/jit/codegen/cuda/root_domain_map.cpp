@@ -77,10 +77,10 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
         producer, consumer, root_dims_to_map, producer_to_consumer);
   }
 
-  std::vector<bool> broadcast_flags;
+  BroadcastDimMask broadcast_mask;
   if (BroadcastOp* bop =
           dynamic_cast<BroadcastOp*>(consumer_tv_->definition())) {
-    broadcast_flags = bop->getBroadcastDimFlags();
+    broadcast_mask = bop->getBroadcastDimMask();
   }
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
@@ -94,7 +94,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     // When the consumer ID is a new broadcast domain, there is no
     // mapping for it.
-    if (!broadcast_flags.empty() && broadcast_flags.at(itc)) {
+    if (!broadcast_mask.empty() && broadcast_mask.at(itc)) {
       TORCH_INTERNAL_ASSERT(consumer_id->isBroadcast());
       itc++;
       continue;
@@ -676,17 +676,17 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
   const TensorDomain* out_td = op->out()->as<TensorView>()->domain();
   const auto in_root = TensorDomain::noReductions(in_td->getRootDomain());
   const auto& out_root = out_td->getRootDomain();
-  const auto& bcast_dim_flags = op->getBroadcastDimFlags();
+  const auto& bcast_dim_mask = op->getBroadcastDimMask();
   TORCH_INTERNAL_ASSERT(
-      out_root.size() == bcast_dim_flags.size(),
-      "dim flags: ",
-      bcast_dim_flags,
+      out_root.size() == bcast_dim_mask.size(),
+      "dim mask: ",
+      bcast_dim_mask,
       ", out root: ",
       out_root);
   auto in_it = in_root.begin();
   auto out_it = out_root.begin();
   while (in_it != in_root.end() && out_it != out_root.end()) {
-    if (bcast_dim_flags.at(std::distance(out_root.begin(), out_it))) {
+    if (bcast_dim_mask.at(std::distance(out_root.begin(), out_it))) {
       // new broadcast dim. No matching dimension in the input
       // tensor.
       root_map_.new_broadcast_domains_.insert(DomainKey(out_td, *out_it));
@@ -709,7 +709,7 @@ void ComputeAtRootDomainMapBuilder::handle(BroadcastOp* op) {
   // and they must be new broadcast domains.
   for (; out_it != out_root.end(); ++out_it) {
     TORCH_INTERNAL_ASSERT(
-        bcast_dim_flags.at(std::distance(out_root.begin(), out_it)),
+        bcast_dim_mask.at(std::distance(out_root.begin(), out_it)),
         "Unmatched domain detected: ",
         *out_it,
         " of ",

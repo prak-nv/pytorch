@@ -111,11 +111,11 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
       auto tv = vals[i]->as<TensorView>();
       size_t tv_dims = TensorDomain::noReductions(tv->getRootDomain()).size();
       if (tv_dims < n_dims) {
-        std::vector<bool> bcast_flags(n_dims, false);
+        BroadcastDimMask bcast_mask(n_dims, false);
         for (size_t j = 0; j < n_dims - tv_dims; j++) {
-          bcast_flags[j] = true;
+          bcast_mask[j] = true;
         }
-        out_vals[i] = broadcast(tv, bcast_flags);
+        out_vals[i] = broadcast(tv, bcast_mask);
       } else {
         out_vals[i] = vals[i];
       }
@@ -587,7 +587,7 @@ TensorView* reductionOp(
 
   if (keep_dim) {
     auto tv_root = TensorDomain::noReductions(tv->getRootDomain());
-    std::vector<bool> is_broadcast(tv_root.size(), false);
+    BroadcastDimMask is_broadcast(tv_root.size(), false);
     for (int axis : axes) {
       is_broadcast[axis] = true;
     }
@@ -669,17 +669,17 @@ TensorView* min(
 
 TensorView* broadcast(
     TensorView* inp,
-    const std::vector<bool>& is_broadcast_dim) {
-  auto nBCastDims = is_broadcast_dim.size();
-  // Validate is_broadcast_dim
+    const BroadcastDimMask& broadcast_dim_mask) {
+  auto nBCastDims = broadcast_dim_mask.size();
+  // Validate broadcast_dim_mask
   unsigned int n_broadcasts = 0;
-  for (auto ent : is_broadcast_dim)
+  for (auto ent : broadcast_dim_mask)
     if (ent)
       n_broadcasts++;
   TORCH_CHECK(
       nBCastDims - n_broadcasts ==
           TensorDomain::noReductions(inp->getRootDomain()).size(),
-      "Invalid broadcast, number of false entries in is_broadcast_dim expected to be ",
+      "Invalid broadcast, number of false entries in broadcast_dim_mask expected to be ",
       TensorDomain::noReductions(inp->getRootDomain()).size(),
       " but received ",
       nBCastDims - n_broadcasts);
@@ -696,8 +696,8 @@ TensorView* broadcast(
   // Don't propagate reduction IDs through arith ops.
   auto inp_domain = TensorDomain::noReductions(inp->getRootDomain());
   size_t iinp = 0, ibdim = 0;
-  while (ibdim < is_broadcast_dim.size()) {
-    if (is_broadcast_dim[ibdim]) {
+  while (ibdim < broadcast_dim_mask.size()) {
+    if (broadcast_dim_mask[ibdim]) {
       out_domain.push_back(new IterDomain(
           new Int(0),
           new Int(1),
@@ -713,7 +713,7 @@ TensorView* broadcast(
   TensorView* out_tensor = new TensorView(
       new TensorDomain(out_domain, std::vector<bool>(out_domain.size(), true)),
       inp->getDataType().value());
-  new BroadcastOp(out_tensor, inp, is_broadcast_dim);
+  new BroadcastOp(out_tensor, inp, broadcast_dim_mask);
   return out_tensor;
 }
 
