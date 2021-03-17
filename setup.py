@@ -342,6 +342,7 @@ def check_submodules():
                                  'asmjit'), ['CMakeLists.txt'])
     check_for_files(os.path.join(third_party_path, 'onnx', 'third_party',
                                  'benchmark'), ['CMakeLists.txt'])
+    check_for_files(os.path.join(third_party_path, 'tracy'), ['Tracy.hpp'])
 
 
 # all the work we need to do _before_ setup runs

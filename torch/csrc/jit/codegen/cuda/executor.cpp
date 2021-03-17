@@ -100,6 +100,7 @@ void FusionExecutor::debugCompileFusionFromStr(
 }
 
 void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
+  FUSER_MARK_START_CGEN();
   FUSER_PERF_SCOPE("compileFusion");
 
   TORCH_INTERNAL_ASSERT(
@@ -170,6 +171,7 @@ void FusionExecutor::compileFusion(Fusion* fusion, CompileOptions options) {
       fusion_id_);
   TORCH_INTERNAL_ASSERT(
       fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
+  FUSER_MARK_END_CGEN();
 }
 
 namespace {
@@ -415,6 +417,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     const std::vector<at::Tensor>& outputs,
     const LaunchParams& launch_constraints,
     const c10::optional<size_t>& opt_code) {
+  FUSER_MARK_START_EXEC();
   FUSER_PERF_SCOPE("runFusion");
 
   TORCH_INTERNAL_ASSERT(
@@ -571,7 +574,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     cudaEventSynchronize(finish_event);
     cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event);
   }
-
+  FUSER_MARK_END_EXEC();
   return allocated_outputs;
 }
 
@@ -593,6 +596,7 @@ void FusionExecutor::compileRtc(
 void FusionExecutor::runRtc(
     const LaunchParams& launch_params,
     const std::vector<at::Tensor>& args) {
+  FUSER_MARK_START_EXEC();
   FUSER_PERF_SCOPE("runFusion");
 
   c10::DeviceGuard dg(options_.device);
@@ -612,6 +616,7 @@ void FusionExecutor::runRtc(
       stream,
       kernel_arguments.getBuffer(),
       nullptr));
+  FUSER_MARK_END_EXEC();
 }
 
 } // namespace cuda

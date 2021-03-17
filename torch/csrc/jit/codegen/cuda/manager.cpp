@@ -216,6 +216,7 @@ class CudaFusionManager {
 } // namespace
 
 void compileCudaFusionGroup(Node* fusion_node) {
+  FUSER_MARK_START_CGEN();
   FUSER_PERF_SCOPE("compileCudaFusionGroup");
 
   TORCH_CHECK(
@@ -254,9 +255,11 @@ void compileCudaFusionGroup(Node* fusion_node) {
   } else {
     compile_fusion();
   }
+  FUSER_MARK_END_CGEN();
 }
 
 void runCudaFusionGroup(const Node* fusion_node, Stack& stack) {
+  FUSER_MARK_START_EXEC();
   FUSER_PERF_SCOPE("runCudaFusionGroup");
 
   // Fallback to use if anything goes wrong
@@ -308,6 +311,7 @@ void runCudaFusionGroup(const Node* fusion_node, Stack& stack) {
   } else {
     run_fusion();
   }
+  FUSER_MARK_END_EXEC();
 }
 
 } // namespace cuda

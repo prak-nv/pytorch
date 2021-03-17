@@ -1,10 +1,13 @@
 #pragma once
 
 #include <torch/csrc/jit/codegen/cuda/utils.h>
+#include <torch/csrc/jit/codegen/cuda/telemetry/telemetry.h>
+
 
 #include <nvToolsExt.h>
 
-#include <stdio.h>
+#include <cstdio>
+#include <cstring>
 #include <chrono>
 
 namespace torch {
@@ -66,9 +69,14 @@ class Trace : public NonCopyable {
 
 //! \internal Automatic scope for a perf marker
 //!   (normally used through the FUSER_PERF_SCOPE macro)
-class TraceScope : public NonCopyable {
+class TraceScope : public NonCopyable, private telemetry::ZoneScope {
  public:
-  explicit TraceScope(const char* event_name) : event_name_(event_name) {
+  explicit TraceScope(const char* event_name, const char* file = "",
+		      const char* func = "", int line = -1):
+    telemetry::ZoneScope(line, file, std::strlen(file),
+                         func, std::strlen(func),
+                         event_name, std::strlen(event_name), true),
+                      event_name_(event_name) {
     Trace::instance()->beginEvent(event_name_);
   }
 
@@ -88,8 +96,9 @@ class TraceScope : public NonCopyable {
 //!
 //! \param name The name of the scope, normally a simple string literal
 //!
+// TODO: __FUNCSIG__/__PRETTY_FUNCTION__?
 #define FUSER_PERF_SCOPE(name) \
-  torch::jit::fuser::cuda::inst::TraceScope FUSER_ANONYMOUS(_perf_scope_)(name)
+  torch::jit::fuser::cuda::inst::TraceScope FUSER_ANONYMOUS(_perf_scope_)(name, __FILE__,  __func__, __LINE__)
 
 } // namespace inst
 } // namespace cuda
