@@ -9,6 +9,9 @@
 #include <torch/csrc/jit/codegen/cuda/transform_iter.h>
 #include <torch/csrc/jit/codegen/cuda/transform_rfactor.h>
 
+// XXX:
+#include <torch/csrc/jit/codegen/cuda/telemetry/telemetry.h>
+
 #include <sstream>
 
 namespace torch {
@@ -218,6 +221,8 @@ BroadcastOp::BroadcastOp(Val* out, Val* in, BroadcastDimMask bcast_mask)
   // clang-tidy complains about out_ that it may be null.
   TORCH_INTERNAL_ASSERT(out_ != nullptr);
   TORCH_INTERNAL_ASSERT(in_ != nullptr);
+
+  FUSER_PERF_TRACE_SIZE(broadcast_dim_mask_);
 
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();

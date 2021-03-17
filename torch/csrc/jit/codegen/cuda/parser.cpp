@@ -11,6 +11,9 @@
 #include <unordered_map>
 #include <utility>
 
+// XXX:
+#include <torch/csrc/jit/codegen/cuda/telemetry/telemetry.h>
+
 namespace torch {
 namespace jit {
 
@@ -651,6 +654,8 @@ class IrParser {
             const size_t kNumberOfDims = input->nDims();
             std::vector<int> reduction_axes;
             BroadcastDimMask broadcast_mask(kNumberOfDims, false);
+            FUSER_PERF_TRACE_SIZE(broadcast_mask);
+
             Val* num_features = new Double(1);
             for (size_t axis = 0; axis < kNumberOfDims; ++axis) {
               if (axis != 1) {
@@ -743,6 +748,7 @@ class IrParser {
 
             std::vector<int> outer_reduction_axes(kOuterNumDims);
             BroadcastDimMask outer_broadcast_mask(input->nDims(), false);
+            FUSER_PERF_TRACE_SIZE(outer_broadcast_mask);
             for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
               outer_reduction_axes[idx] = idx;
               outer_broadcast_mask[idx] = true;
@@ -750,6 +756,7 @@ class IrParser {
 
             std::vector<int> inner_reduction_axes(kNormShapeNumDims);
             BroadcastDimMask inner_broadcast_mask(input->nDims(), false);
+            FUSER_PERF_TRACE_SIZE(outer_broadcast_mask);
             Val* num_features = new Double(1);
             for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
               const size_t axis = input->nDims() - 1 - idx;
@@ -837,6 +844,7 @@ class IrParser {
 
               std::vector<int> outer_reduction_axes(kOuterNumDims);
               BroadcastDimMask outer_broadcast_mask(input->nDims(), false);
+              FUSER_PERF_TRACE_SIZE(outer_broadcast_mask);
               for (size_t idx = 0; idx < kOuterNumDims; ++idx) {
                 outer_reduction_axes[idx] = idx;
                 outer_broadcast_mask[idx] = true;
@@ -844,6 +852,7 @@ class IrParser {
 
               std::vector<int> inner_reduction_axes(kNormShapeNumDims);
               BroadcastDimMask inner_broadcast_mask(input->nDims(), false);
+              FUSER_PERF_TRACE_SIZE(inner_broadcast_mask);
               Val* num_features = new Double(1);
               for (size_t idx = 0; idx < kNormShapeNumDims; ++idx) {
                 const size_t axis = input->nDims() - 1 - idx;
@@ -1043,6 +1052,7 @@ class IrParser {
             }
 
             BroadcastDimMask broadcast_mask(kNumberOfDims, false);
+            FUSER_PERF_TRACE_SIZE(broadcast_mask);
             broadcast_mask[kReductionAxis] = true;
 
             auto* max_val = max(input, {kReductionAxis});
@@ -1095,6 +1105,7 @@ class IrParser {
 
             BroadcastDimMask broadcast_mask(kNumberOfDims, false);
             broadcast_mask[kReductionAxis] = true;
+            FUSER_PERF_TRACE_SIZE(broadcast_mask);
 
             auto* new_grad = mul(grad_output, output);
             auto* sum_new_grad = sum(new_grad, {kReductionAxis});

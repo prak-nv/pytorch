@@ -3,6 +3,9 @@
 #include <torch/csrc/jit/codegen/cuda/iter_visitor.h>
 #include <torch/csrc/jit/codegen/cuda/root_domain_map.h>
 
+// XXX:
+#include <torch/csrc/jit/codegen/cuda/telemetry/telemetry.h>
+
 #include <sstream>
 
 namespace torch {
@@ -82,6 +85,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
           dynamic_cast<BroadcastOp*>(consumer_tv_->definition())) {
     broadcast_mask = bop->getBroadcastDimMask();
   }
+  FUSER_PERF_TRACE_SIZE(broadcast_mask);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_root =

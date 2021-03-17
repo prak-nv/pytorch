@@ -6,6 +6,9 @@
 #include <torch/csrc/jit/codegen/cuda/type.h>
 #include <cfloat>
 
+// XXX:
+#include <torch/csrc/jit/codegen/cuda/telemetry/telemetry.h>
+
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -112,6 +115,7 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
       size_t tv_dims = TensorDomain::noReductions(tv->getRootDomain()).size();
       if (tv_dims < n_dims) {
         BroadcastDimMask bcast_mask(n_dims, false);
+        FUSER_PERF_TRACE_SIZE(bcast_mask);
         for (size_t j = 0; j < n_dims - tv_dims; j++) {
           bcast_mask[j] = true;
         }
@@ -588,6 +592,7 @@ TensorView* reductionOp(
   if (keep_dim) {
     auto tv_root = TensorDomain::noReductions(tv->getRootDomain());
     BroadcastDimMask is_broadcast(tv_root.size(), false);
+    FUSER_PERF_TRACE_SIZE(is_broadcast);
     for (int axis : axes) {
       is_broadcast[axis] = true;
     }
