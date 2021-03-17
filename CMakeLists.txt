@@ -260,13 +260,12 @@ option(USE_TENSORRT "Using Nvidia TensorRT library" OFF)
 cmake_dependent_option(
     USE_VALGRIND "Use Valgrind. Only available on Linux." ON
     "LINUX" OFF)
-
+option(USE_TRACY_TELEMETRY "Enable realtime telemetry with tracy" OFF)
 if(NOT DEFINED USE_VULKAN)
   cmake_dependent_option(
       USE_VULKAN "Use Vulkan GPU backend" ON
       "ANDROID" OFF)
 endif()
-
 option(USE_VULKAN_FP16_INFERENCE "Vulkan - Use fp16 inference even on fp32 tensors" OFF)
 option(USE_VULKAN_RELAXED_PRECISION "Vulkan - Use relaxed precision math in the kernels (mediump)" OFF)
 option(USE_VULKAN_SHADERC_RUNTIME "Vulkan - Use runtime shader compilation (needs libshaderc)" OFF)
@@ -356,6 +355,10 @@ if(USE_SYSTEM_LIBS)
   set(USE_SYSTEM_ONNX ON)
   set(USE_SYSTEM_XNNPACK ON)
 endif()
+
+# Toggel to avoid overriding global new/delete operators when profiling with tracy
+cmake_dependent_option(DISABLE_TRACY_HEAP_DEBUG "Disable heap debugging when using tracy" OFF USE_TRACY_TELEMETRY OFF)
+mark_as_advanced(DISABLE_TRACY_HEAP_DEBUG)
 
 # Used when building Caffe2 through setup.py
 option(BUILDING_WITH_TORCH_LIBS "Tell cmake if Caffe2 is being built alongside torch libs" ON)
