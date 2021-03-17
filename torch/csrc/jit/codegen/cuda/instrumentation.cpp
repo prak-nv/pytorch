@@ -4,6 +4,13 @@
 
 #ifdef _WIN32
 #include <c10/util/win32-headers.h>
+#elif defined(__linux__) || !defined(__ANDROID__)
+#ifndef _GNU_SOURCE
+#  define _GNU_SOURCE
+#endif
+#  include <pthread.h>
+#  include <unistd.h>
+#  include <sys/syscall.h>
 #else
 #include <pthread.h>
 #include <unistd.h>
@@ -49,8 +56,12 @@ void Trace::logEvent(char ph, const char* name, char sep) {
 #ifdef _WIN32
   const unsigned int pid = GetCurrentProcessId();
   const unsigned int tid = GetCurrentThreadId();
+// Let's not play the game 'Guess what google disabled in Android today' for now
+#elif defined(__linux__) && !defined(__ANDROID__)
+  const unsigned int pid = ::getpid();
+  const unsigned int tid = ::syscall(SYS_gettid);
 #else
-  const unsigned int pid = getpid();
+  const unsigned int pid = ::getpid();
   const unsigned int tid = std::hash<pthread_t>{}(pthread_self());
 #endif // _WIN32
 
