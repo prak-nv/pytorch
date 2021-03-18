@@ -1,6 +1,6 @@
 #if defined(TRACY_ENABLE)
 
-#include <torch/csrc/jit/codegen/cuda/telemetry/telemetry.h>
+#include <c10/telemetry/telemetry.h>
 
 #include "tracy/client/TracyProfiler.hpp"
 
@@ -9,11 +9,7 @@
 #include <chrono>
 #include <thread>
 
-
-namespace torch {
-namespace jit {
-namespace fuser {
-namespace cuda {
+namespace c10 {
 namespace telemetry {
 
 namespace {
@@ -56,7 +52,7 @@ void fusion_start(telemetry::frame_mark m) {
   // Little convinence, allows to start tracy after we lunched test payload.
   // to enable:
   // $ export NVFUSER_WAIT_FOR_TRACY=1
-  const char* wait_env_var = std::getenv("NVFUSER_WAIT_FOR_TRACY");
+  const char* wait_env_var = std::getenv("C10_WAIT_FOR_TRACY");
 
   if (wait_env_var != nullptr) {
     std::fprintf(stderr, "Warning! Waiting for tracy profiler, "
@@ -80,9 +76,6 @@ void trace_container_size(const char* name, std::size_t sz, const char* kind)
 }
 
 } // namespace telemetry
-} // namespace cuda
-} // namespace fuser
-} // namespace jit
-} // namespace torch
+} // namespace c10
 
 #endif

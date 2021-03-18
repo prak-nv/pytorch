@@ -1,8 +1,7 @@
 #pragma once
 
+#include <c10/telemetry/telemetry.h>
 #include <torch/csrc/jit/codegen/cuda/utils.h>
-#include <torch/csrc/jit/codegen/cuda/telemetry/telemetry.h>
-
 
 #include <nvToolsExt.h>
 
@@ -69,11 +68,11 @@ class Trace : public NonCopyable {
 
 //! \internal Automatic scope for a perf marker
 //!   (normally used through the FUSER_PERF_SCOPE macro)
-class TraceScope : public NonCopyable, private telemetry::ZoneScope {
+class TraceScope : public NonCopyable, private c10::telemetry::ZoneScope {
  public:
   explicit TraceScope(const char* event_name, const char* file = "",
 		      const char* func = "", int line = -1):
-    telemetry::ZoneScope(line, file, std::strlen(file),
+    c10::telemetry::ZoneScope(line, file, std::strlen(file),
                          func, std::strlen(func),
                          event_name, std::strlen(event_name), true),
                       event_name_(event_name) {

@@ -812,10 +812,6 @@ if(USE_ROCM)
 elseif(USE_CUDA)
   set(CUDA_LINK_LIBRARIES_KEYWORD PRIVATE)
 
-  if(USE_TRACY_TELEMETRY)
-    list(APPEND Caffe2_GPU_SRCS ${PROJECT_SOURCE_DIR}/third_party/tracy/TracyClient.cpp)
-  endif()
-
   if(CUDA_SEPARABLE_COMPILATION)
     # Separate compilation fails when kernels using `thrust::sort_by_key`
     # are linked with the rest of CUDA code. Workaround by linking them separately
@@ -850,19 +846,6 @@ elseif(USE_CUDA)
   elseif(USE_NCCL)
     target_link_libraries(torch_cuda PRIVATE __caffe2_nccl)
     target_compile_definitions(torch_cuda PRIVATE USE_NCCL)
-  endif()
-  # Toggle on telemetry data streaming
-  if(USE_TRACY_TELEMETRY)
-    target_compile_definitions(torch_cuda PRIVATE "-DTRACY_ENABLE")
-    # Add whole third_party directory to path so we can get tracy headers with tracy/ prefix
-    target_include_directories(torch_cuda PRIVATE ${PROJECT_SOURCE_DIR}/third_party)
-    # Don't scream on whole LAN we are profiling
-    target_compile_definitions(torch_cuda PRIVATE "-DTRACY_NO_BROADCAST")
-    # Enable tracy callstacks on supported platforms.
-    target_compile_definitions(torch_cuda PRIVATE "-DTRACY_CALLSTACK=1")
-    if(DISABLE_TRACY_HEAP_DEBUG)
-      target_compile_definitions(torch_cuda PRIVATE "-DNVFUSER_TRACY_TELEMETRY_NO_HEAP_DEBUG")
-    endif()
   endif()
 endif()
 

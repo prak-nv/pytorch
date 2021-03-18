@@ -16,26 +16,24 @@
 #  include <tracy/client/TracyScoped.hpp>
 #endif
 
-namespace torch {
-namespace jit {
-namespace fuser {
-namespace cuda {
+// TODO: refactor, so c10 interfaces are more generic and build ours on top of that
+namespace c10 {
 namespace telemetry {
 
 enum class frame_mark { codegen, exec };
 
 // TODO: remove and replace by check in FUSER_PERF_SCOPE for "runFusion"/"compileFusion"???
-#define FUSER_MARK_START_CGEN() ::torch::jit::fuser::cuda::telemetry::fusion_start(\
-  ::torch::jit::fuser::cuda::telemetry::frame_mark::codegen)
-#define FUSER_MARK_START_EXEC() ::torch::jit::fuser::cuda::telemetry::fusion_start(\
-  ::torch::jit::fuser::cuda::telemetry::frame_mark::exec)
+#define FUSER_MARK_START_CGEN() ::c10::telemetry::fusion_start(\
+  ::c10::telemetry::frame_mark::codegen)
+#define FUSER_MARK_START_EXEC() ::c10::telemetry::fusion_start(\
+  ::c10::telemetry::frame_mark::exec)
 
-#define FUSER_MARK_END_CGEN() ::torch::jit::fuser::cuda::telemetry::fusion_end(\
-  ::torch::jit::fuser::cuda::telemetry::frame_mark::codegen)
-#define FUSER_MARK_END_EXEC() ::torch::jit::fuser::cuda::telemetry::fusion_end(\
-  ::torch::jit::fuser::cuda::telemetry::frame_mark::exec)
+#define FUSER_MARK_END_CGEN() ::c10::telemetry::fusion_end(\
+  ::c10::telemetry::frame_mark::codegen)
+#define FUSER_MARK_END_EXEC() ::c10::telemetry::fusion_end(\
+  ::c10::telemetry::frame_mark::exec)
 
-#define FUSER_PERF_TRACE_SIZE(c) ::torch::jit::fuser::cuda::telemetry::trace_container_size(#c, c);
+#define FUSER_PERF_TRACE_SIZE(c) ::c10::telemetry::trace_container_size(#c, c);
 
 #if defined(TRACY_ENABLE)
 
@@ -87,7 +85,5 @@ void trace_container_size(const char* name, const Collection_& c) {(void)name, (
 #endif // TRACY_ENABLE
 
 } // namespace telemetry
-} // namespace cuda
-} // namespace fuser
-} // namespace jit
-} // namespace torch
+} // namespace c10
+
