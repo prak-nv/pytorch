@@ -4,6 +4,9 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
 #include <torch/csrc/jit/codegen/cuda/utils.h>
+#include "glfdc/eval.hh"
+#include "glfdc/expr.hh"
+
 
 #include <memory>
 #include <utility>
@@ -17,17 +20,25 @@ namespace kir {
 
 //! Summary of interesting facts about the kernel
 struct KernelSummary {
+  std::unique_ptr<glfdc::ExprDAG> memoized_dag;
+  std::vector<bool> expr_reuses;
+
   //! Count of WAR (write-after-read) hazard barriers
   int war_hazard_syncs_count = 0;
 
   //! List of global buffers
   std::vector<const kir::Allocate*> global_allocations;
+  std::vector<glfdc::ExprEvaluator> memoized_global_allocations;
+  std::vector<std::vector<glfdc::ExprEvaluator>> memoized_global_shapes;
 
   //! List of dynamic shared memory buffers
   std::vector<const kir::Allocate*> dynamic_smem_allocations;
+  std::vector<glfdc::ExprEvaluator> memoized_dynamic_smem_allocations;
 
   //! List of static shared memory buffers
   std::vector<const kir::Allocate*> static_smem_allocations;
+  //std::vector<glfdc::Expr> memoized_static_smem_allocations;
+  
 
   //! Indicate the need to generate random numbers
   bool is_stochastic = false;
@@ -126,6 +137,10 @@ class TORCH_CUDA_CU_API Kernel final : public NonCopyable {
   }
 
   const KernelSummary& summary() const {
+    return summary_;
+  }
+
+  KernelSummary& summary() {
     return summary_;
   }
 

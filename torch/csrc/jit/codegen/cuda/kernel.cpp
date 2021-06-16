@@ -4,6 +4,8 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 #include <torch/csrc/jit/codegen/cuda/lower2device.h>
 
+#include <torch/csrc/jit/codegen/cuda/shape_expr_memo.h>
+
 #include <iostream>
 #include <unordered_set>
 
@@ -25,8 +27,8 @@ class KernelIrScanner : private kir::IrVisitor {
     }
   }
 
-  const auto& summary() const {
-    return summary_;
+  auto take_summary() {
+    return std::move(summary_);
   }
 
  private:
@@ -231,6 +233,65 @@ class ValidateAllocation : private kir::IrVisitor {
   std::vector<std::vector<const Allocate*>> live_allocations_;
 };
 
+class MemoizeAllocations : kir::IrVisitor
+{
+ public:
+  static void memoizeAllocations(Kernel* kernel)
+  {
+    MemoizeAllocations(kernel, kernel->summary());
+  }
+
+ private:
+  MemoizeAllocations(const Kernel* kernel, KernelSummary& summary) : summary_(&summary)
+  {
+    TORCH_CHECK(summary_->memoized_dag == nullptr);
+    builder_visitor_.reset(new ExprBuilderVisitor(builder_, *kernel));
+    for (const auto& ir_node : kernel->irNodes())
+      ir_node->accept(this);
+
+    summary_->memoized_dag = builder_.takeDAG();
+    summary_->expr_reuses = builder_.reuses();
+  }
+
+  void memoizeGlobalAllocationShape(const kir::Allocate* allocate)
+  {
+    std::vector<glfdc::ExprEvaluator> shapes;
+
+    for (auto shape_expr : allocate->shape())
+    {
+      auto expr = builder_visitor_->build(shape_expr);
+      TORCH_CHECK(expr.has_value());
+      shapes.emplace_back(expr.value());
+    }
+    summary_->memoized_global_shapes.push_back(shapes);
+  }
+
+  void visit(const kir::Allocate* allocate) final {
+    switch (allocate->memoryType()) {
+      case MemoryType::Global: {
+          auto expr = builder_visitor_->build(allocate->size());
+          if (expr.has_value())
+            summary_->memoized_global_allocations.emplace_back(expr.value());
+          memoizeGlobalAllocationShape(allocate);
+        }
+        break;
+      case MemoryType::Shared:
+        if (!ExpressionEvaluator::isConst(allocate->size())) {
+          auto expr = builder_visitor_->build(allocate->size());
+          TORCH_CHECK(expr.has_value());
+          summary_->memoized_dynamic_smem_allocations.emplace_back(expr.value());
+        }
+        break;
+      case MemoryType::Local:
+        break;
+
+    }
+  }
+  glfdc::ExpressionBuilder builder_;
+  KernelSummary* summary_ = nullptr;
+  std::unique_ptr<ExprBuilderVisitor> builder_visitor_;
+};
+
 } // namespace
 
 // TODO(kir): Kernel IR validation
@@ -241,13 +302,21 @@ void Kernel::finalize(std::vector<kir::Expr*> top_level_exprs) {
       GpuLower::current()->threadPredMap());
   ValidateAllocation::validate(this);
   analyze();
+  MemoizeAllocations::memoizeAllocations(this);
+  #if 0
+  std::cout << "summary_.memoized_global_allocations " << summary_.memoized_global_allocations.size() << std::endl;
+  std::cout << "summary_.global_allocations " << summary_.global_allocations.size() << std::endl;
+
+  std::cout << "summary_.memoized_dynamic_smem_allocations " << summary_.memoized_dynamic_smem_allocations.size() << std::endl;
+  std::cout << "summary_.dynamic_smem_allocations " << summary_.dynamic_smem_allocations.size() << std::endl << std::endl;
+#endif
 }
 
 void Kernel::analyze() {
   FUSER_PERF_SCOPE("Kernel::analyze");
 
-  const KernelIrScanner ir_scanner(this);
-  summary_ = ir_scanner.summary();
+  KernelIrScanner ir_scanner(this);
+  summary_ = ir_scanner.take_summary();
 }
 
 void Kernel::print() const {

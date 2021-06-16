@@ -5,6 +5,8 @@
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_iostream.h>
 
+#include <torch/csrc/jit/codegen/cuda/glfdc/expr_builder.hh>
+
 #include <iostream>
 
 namespace torch {

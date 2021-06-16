@@ -29,6 +29,8 @@
 
 #include <fstream>
 
+#include "glfdc/eval.hh"
+
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -513,7 +515,9 @@ kir::ExpressionEvaluator bindKernelInputs(
       kernel->inputs().size() == aten_inputs.size(),
       "Something went wrong configuring launch. Inputs no longer match.");
 
-  kir::ExpressionEvaluator expr_eval;
+  auto mapping = glfdc::ReusedExprMapping::create_lazy_mapping(kernel->summary().expr_reuses);
+  std::unique_ptr<glfdc::EvalState> es{new glfdc::EvalState{mapping}};
+  kir::ExpressionEvaluator expr_eval{std::move(es)};
   const auto& inputs = kernel->inputs();
 
   for (size_t i = 0; i < inputs.size(); i++) {

@@ -240,6 +240,7 @@ namespace {
 at::Tensor inferAndAlloc(
     const kir::TensorView* tv,
     const std::vector<kir::Val*>& sizes,
+    //std::vector<glfdc::ExprEvaluator>& memoized_sizes,
     kir::ExpressionEvaluator& expr_eval,
     const CompileOptions& options,
     bool zero_init = false) {
@@ -274,6 +275,53 @@ at::Tensor inferAndAlloc(
   }
 }
 
+at::Tensor inferAndAlloc(
+    const kir::TensorView* tv,
+    const std::vector<kir::Val*>& sizes,
+    const std::vector<glfdc::ExprEvaluator>& memoized_sizes,
+    kir::ExpressionEvaluator& expr_eval,
+    const CompileOptions& options,
+    bool zero_init = false) {
+  FUSER_PERF_SCOPE("inferAndAlloc::memoized");
+
+  std::vector<int64_t> inferred_sizes;
+  TORCH_CHECK(sizes.size() == memoized_sizes.size());
+
+  std::size_t i = 0;
+  for (const auto size : sizes) {
+    #if 0
+    //const auto inferred_val = expr_eval.evaluate(size);
+    #endif
+    auto memo_inferred = expr_eval.evaluateMemoized(memoized_sizes[i]);
+    TORCH_INTERNAL_ASSERT(
+        memo_inferred.has_value(),
+        "Could not launch kernel as program could not infer ",
+        kir::toString(size),
+        " for the buffer ",
+        kir::toString(tv));
+    #if 0
+    TORCH_CHECK(inferred_val.value() == memo_inferred.value());
+    #endif
+    inferred_sizes.push_back(memo_inferred.value());
+    ++i;
+  }
+
+  const auto at_type = data_type_to_aten(tv->dtype());
+
+  if (zero_init) {
+    const auto tensor_options =
+        at::TensorOptions().dtype(at_type).device(options.device);
+    c10::IntArrayRef isizes(inferred_sizes);
+    return at::zeros(isizes, tensor_options);
+  } else {
+    c10::IntArrayRef isizes(inferred_sizes);
+    // Non Variable type guard for empty_cuda call
+    at::AutoNonVariableTypeMode non_variable_type_mode;
+    return at::native::empty_cuda(
+        isizes, at_type, c10::nullopt, options.device, c10::nullopt);
+  }
+}
+
 at::Tensor inferAndAllocOutput(
     const kir::TensorView* tv,
     kir::ExpressionEvaluator& expr_eval,
@@ -303,29 +351,68 @@ uint64_t FusionExecutor::computeSharedMemory(
     const std::vector<const kir::Allocate*>& buffers,
     bool align_padding,
     uint64_t total) {
-  FUSER_PERF_SCOPE("computeSharedMemory");
-  for (auto smem_alloc : buffers) {
-    // If this buffer aliases another buffer,
-    // then do not allocate memory for this buffer.
-    if (smem_alloc->alias() == nullptr) {
-      const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
-      if (inferred_val.has_value()) {
-        const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
-        // Add padding to align dynamic shared memory
-        if (align_padding) {
-          total = ceilDiv(total, data_size) * data_size;
-        }
-        total += inferred_val.value() * data_size;
-      } else {
-        TORCH_INTERNAL_ASSERT(
+
+    FUSER_PERF_SCOPE("computeSharedMemory::old");
+    for (auto smem_alloc : buffers) {
+      // If this buffer aliases another buffer,
+      // then do not allocate memory for this buffer.
+      if (smem_alloc->alias() == nullptr) {
+        const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
+        //const auto inferred_memoized;
+        if (inferred_val.has_value()) {
+          const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
+          // Add padding to align dynamic shared memory
+          if (align_padding) {
+            total = ceilDiv(total, data_size) * data_size;
+          }
+          total += inferred_val.value() * data_size;
+        } else {
+          TORCH_INTERNAL_ASSERT(
             false,
             "Failed to evaluate the size ",
             smem_alloc->size(),
             " of shared memory buffer - T",
             smem_alloc->buffer()->name());
+        }
       }
+    } 
+  return total;
+}
+
+uint64_t FusionExecutor::computeSharedMemory(
+    kir::ExpressionEvaluator& expr_eval,
+    const std::vector<const kir::Allocate*>& buffers,
+    const std::vector<glfdc::ExprEvaluator>& memoized,
+    bool align_padding,
+    uint64_t total) {
+ 
+    FUSER_PERF_SCOPE("computeSharedMemory::new");
+    size_t i =0;
+    for (auto smem_alloc : buffers) {
+      if (smem_alloc->alias() == nullptr) {
+        auto mem_inferred = expr_eval.evaluateMemoized(memoized[i]);
+        const auto inferred_val = expr_eval.evaluate(smem_alloc->size());
+        if (mem_inferred.has_value())
+        {
+          TORCH_INTERNAL_ASSERT(inferred_val.has_value());
+          const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
+          // Add padding to align dynamic shared memory
+          if (align_padding) {
+            total = ceilDiv(total, data_size) * data_size;
+          }
+          TORCH_CHECK(mem_inferred.value() == inferred_val.value());
+          total += mem_inferred.value() * data_size;
+        } else {
+          TORCH_INTERNAL_ASSERT(
+            false,
+            "Failed to evaluate the size ",
+            smem_alloc->size(),
+            " of shared memory buffer - T",
+            smem_alloc->buffer()->name());
+        }
+      }
+      ++i;
     }
-  }
   return total;
 }
 
@@ -427,6 +514,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   const uint64_t dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
+      kernel_summary.memoized_dynamic_smem_allocations,
       true,
       reduction_broadcast_workspace);
 
@@ -447,7 +535,10 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
   GlobalBuffers global_buffers;
   const auto kernel = lowered_.kernel();
   const auto& kernel_summary = lowered_.kernel()->summary();
+  std::size_t i = 0;
+  TORCH_INTERNAL_ASSERT(kernel_summary.global_allocations.size() == kernel_summary.memoized_global_shapes.size());
   for (auto alloc : kernel_summary.global_allocations) {
+    ++i;
     TORCH_INTERNAL_ASSERT(
         alloc->buffer()->isA<kir::TensorView>(),
         "Cannot allocate global buffers that are not tensors.");
@@ -457,10 +548,10 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
     }
     if (!alloc->zeroInit()) {
       global_buffers.empty_buffers.push_back(
-          inferAndAlloc(tv, alloc->shape(), expr_eval, options_, false));
+          inferAndAlloc(tv, alloc->shape(), kernel_summary.memoized_global_shapes[i-1], expr_eval, options_, false));
     } else {
       global_buffers.zero_buffers.push_back(
-          inferAndAlloc(tv, alloc->shape(), expr_eval, options_, true));
+          inferAndAlloc(tv, alloc->shape(), kernel_summary.memoized_global_shapes[i-1], expr_eval, options_, true));
     }
   }
 
