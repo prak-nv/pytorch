@@ -435,8 +435,15 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
   }
 
   void handle(const Int* node) final {
-    const auto lowered_node = ir_builder_.create<kir::Int>(node, false);
-    TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
+    if (node->isFusionInput()) {
+      // For fusion Int nodes that are arguments we create kir::NamedScalars, as those represent runtime substituted value.
+      // TODO: Other scalars?
+      const auto lowered_node = ir_builder_.create<kir::NamedScalar>(std::string("arg_") + std::to_string(node->name()), node->getDataType().value());
+      TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
+    } else {
+      const auto lowered_node = ir_builder_.create<kir::Int>(node, false);
+      TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
+    }
   }
 
   void handle(const NamedScalar* node) final {
