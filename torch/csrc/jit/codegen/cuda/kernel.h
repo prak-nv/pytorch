@@ -105,8 +105,16 @@ class TORCH_CUDA_CU_API Kernel final : public NonCopyable {
     return input_set_.find(val) != input_set_.end();
   }
 
+  bool isInput(const Val* val) const {
+    return input_set_.find(const_cast<Val*>(val)) != input_set_.end();
+  }
+
   bool isOutput(Val* val) const {
     return output_set_.find(val) != output_set_.end();
+  }
+
+  bool isOutput(const Val* val) const {
+    return output_set_.find(const_cast<Val*>(val)) != output_set_.end();
   }
 
   const auto& topLevelExprs() const {
