@@ -4,8 +4,8 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
 #include <torch/csrc/jit/codegen/cuda/utils.h>
-#include "glfdc/eval.hh"
-#include "glfdc/expr.hh"
+#include "glfdc/eval.h"
+#include "glfdc/expr.h"
 
 
 #include <memory>

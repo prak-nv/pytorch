@@ -1,7 +1,7 @@
-#include "eval.hh"
+#include "eval.h"
 
-#include "cfold.hh"
-#include "expr.hh"
+#include "cfold.h"
+#include "expr.h"
 
 using namespace glfdc;
 

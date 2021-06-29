@@ -1,1 +1,1 @@
-#include "cfold.hh"
+#include "cfold.h"

@@ -1,12 +1,11 @@
-#include "bitvector.hh"
-#include "expr.hh"
-#include "sexpr_cmp.hh"
+#include "bitvector.h"
+#include "expr.h"
+#include "sexpr_cmp.h"
 
 #include <memory>
 #include <unordered_map>
 
 #include "c10/util/Optional.h"
-#include "c10/util/flat_hash_map.h"
 
 namespace glfdc {
 

@@ -29,7 +29,7 @@
 
 #include <fstream>
 
-#include "glfdc/eval.hh"
+#include "glfdc/eval.h"
 
 namespace torch {
 namespace jit {

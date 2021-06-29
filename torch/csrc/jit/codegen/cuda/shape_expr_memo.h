@@ -3,8 +3,8 @@
 #include <torch/csrc/WindowsTorchApiMacro.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 
-#include "glfdc/expr_builder.hh"
-#include "glfdc/eval.hh"
+#include "glfdc/expr_builder.h"
+#include "glfdc/eval.h"
 
 #include <unordered_map>
 

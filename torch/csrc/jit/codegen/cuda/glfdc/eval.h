@@ -2,11 +2,11 @@
 
 // Expression evaluator
 
-#include "bitvector.hh"
-#include "expr.hh"
-#include "sexpr.hh"
-#include "sparse_map.hh"
-#include "stack.hh"
+#include "bitvector.h"
+#include "expr.h"
+#include "sexpr.h"
+#include "sparse_map.h"
+#include "stack.h"
 
 #include <algorithm>
 #include <functional>

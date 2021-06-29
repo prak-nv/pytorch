@@ -1,8 +1,6 @@
 #pragma once
 
-//
-
-#include "sexpr.hh"
+#include "sexpr.h"
 
 #include <cstring>
 #include <functional>

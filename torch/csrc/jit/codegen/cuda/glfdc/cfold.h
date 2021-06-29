@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sexpr.hh"
+#include "sexpr.h"
 
 #include <cassert>
 

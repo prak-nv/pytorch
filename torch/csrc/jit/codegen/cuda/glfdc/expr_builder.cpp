@@ -1,6 +1,6 @@
-#include "expr_builder.hh"
+#include "expr_builder.h"
 
-#include "cfold.hh"
+#include "cfold.h"
 
 #include <cstring>
 #include <tuple>

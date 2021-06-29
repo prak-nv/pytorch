@@ -10,7 +10,7 @@
 #include <torch/csrc/jit/codegen/cuda/utils.h>
 
 #include <c10/core/DeviceType.h>
-#include "glfdc/eval.hh"
+#include "glfdc/eval.h"
 
 namespace torch {
 namespace jit {
