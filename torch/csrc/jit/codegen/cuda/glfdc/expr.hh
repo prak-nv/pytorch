@@ -12,23 +12,21 @@ struct ExprDAG;
 
 // Expr - points at root of expression reduction tree
 // NB: Expr should not outlive ExprDAG, since stores index to;
-struct Expr
-{
-  const ExprDAG *dag_;
+struct Expr {
+  const ExprDAG* dag_;
   Operand subexpr_;
 };
 
 // Keeps DAG of all expressions reduction graphs
-struct ExprDAG
-{
-  std::map<uintptr_t, std::size_t> unbound_lookup_; // XXX: any mapping - rb-tree for now
+struct ExprDAG {
+  std::map<uintptr_t, std::size_t>
+      unbound_lookup_; // XXX: any mapping - rb-tree for now
   std::vector<uintptr_t> unbound_values_;
 
   std::vector<SExpr> subexpressions_; // List of subexpressions
 
-public:
-  SExprRef add_subexpr(SExpr expr)
-  {
+ public:
+  SExprRef add_subexpr(SExpr expr) {
     size_t new_idx = subexpressions_.size();
     subexpressions_.push_back(expr);
 
@@ -36,8 +34,7 @@ public:
   }
 
   // Returns expression for subexpression reference
-  SExpr fetch(SExprRef e) const noexcept
-  {
+  SExpr fetch(SExprRef e) const noexcept {
     assert(e.index_ < subexpressions_.size());
     return subexpressions_[e.index_];
   }
@@ -50,4 +47,3 @@ public:
 };
 
 } // namespace glfdc
-

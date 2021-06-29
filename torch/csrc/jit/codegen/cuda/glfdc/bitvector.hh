@@ -7,4 +7,3 @@ namespace glfdc {
 using bitvector_t = std::vector<bool>;
 
 } // namespace glfdc
-
