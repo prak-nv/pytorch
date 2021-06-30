@@ -384,7 +384,6 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
           TORCH_INTERNAL_ASSERT(kir_value->definition() == kir_def);
         }
       }
-
       return kir_value;
     }
   }
@@ -430,19 +429,33 @@ class GpuLower::KernelIrMapper : private OptInConstDispatch {
     TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
   }
 
+  template <typename KirT, typename FirT>
+  void handleInputOrScalar(const FirT* node) {
+    if (node->isFusionInput()) {
+      // For fusion scalar input nodes that are arguments we create
+      // kir::NamedScalars, as those represent runtime substituted value.
+      const auto lowered_node = ir_builder_.create<kir::NamedScalar>(
+
+          std::string("arg") + KirT::scalarTypePrefix() +
+              std::to_string(node->name()),
+          node->getDataType().value());
+      TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
+    } else {
+      const auto lowered_node = ir_builder_.create<KirT>(node);
+      TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
+    }
+  }
+
   void handle(const Bool* node) final {
-    const auto lowered_node = ir_builder_.create<kir::Bool>(node);
-    TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
+    handleInputOrScalar<kir::Bool>(node);
   }
 
   void handle(const Double* node) final {
-    const auto lowered_node = ir_builder_.create<kir::Double>(node);
-    TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
+    handleInputOrScalar<kir::Double>(node);
   }
 
   void handle(const Int* node) final {
-    const auto lowered_node = ir_builder_.create<kir::Int>(node);
-    TORCH_CHECK(gpu_lower_->kir_val_map_.insert({node, lowered_node}).second);
+    handleInputOrScalar<kir::Int>(node);
   }
 
   void handle(const NamedScalar* node) final {

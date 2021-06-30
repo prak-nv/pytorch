@@ -562,6 +562,10 @@ class TORCH_CUDA_CU_API Bool final : public Val {
     return maybe_value_;
   }
 
+  static const char* scalarTypePrefix() noexcept {
+    return "b";
+  }
+
  private:
   const c10::optional<bool> maybe_value_;
 };
@@ -596,6 +600,10 @@ class TORCH_CUDA_CU_API Double final : public Val {
 
   c10::optional<ScalarType> value() const {
     return maybe_value_;
+  }
+
+  static const char* scalarTypePrefix() noexcept {
+    return "d";
   }
 
  private:
@@ -646,6 +654,10 @@ class TORCH_CUDA_CU_API Int final : public Val {
 
   c10::optional<ScalarType> value() const {
     return maybe_value_;
+  }
+
+  static const char* scalarTypePrefix() noexcept {
+    return "i";
   }
 
  private:
