@@ -274,6 +274,47 @@ at::Tensor inferAndAlloc(
   }
 }
 
+at::Tensor inferAndAlloc(
+    const kir::TensorView* tv,
+    const std::vector<kir::Val*>& sizes,
+    const std::vector<glfdc::ExprEvaluator>& memoized_sizes,
+    kir::ExpressionEvaluator& expr_eval,
+    const CompileOptions& options,
+    bool zero_init = false) {
+  FUSER_PERF_SCOPE("inferAndAlloc::memoized");
+
+  std::vector<int64_t> inferred_sizes;
+  TORCH_CHECK(sizes.size() == memoized_sizes.size());
+
+  std::size_t i = 0;
+  for (const auto size : sizes) {
+    auto memo_inferred = expr_eval.evaluateMemoized(memoized_sizes[i]);
+    TORCH_INTERNAL_ASSERT(
+        memo_inferred.has_value(),
+        "Could not launch kernel as program could not infer ",
+        kir::toString(size),
+        " for the buffer ",
+        kir::toString(tv));
+    inferred_sizes.push_back(memo_inferred.value());
+    ++i;
+  }
+
+  const auto at_type = data_type_to_aten(tv->dtype());
+
+  if (zero_init) {
+    const auto tensor_options =
+        at::TensorOptions().dtype(at_type).device(options.device);
+    c10::IntArrayRef isizes(inferred_sizes);
+    return at::zeros(isizes, tensor_options);
+  } else {
+    c10::IntArrayRef isizes(inferred_sizes);
+    // Non Variable type guard for empty_cuda call
+    at::AutoNonVariableTypeMode non_variable_type_mode;
+    return at::native::empty_cuda(
+        isizes, at_type, c10::nullopt, options.device, c10::nullopt);
+  }
+}
+
 at::Tensor inferAndAllocOutput(
     const kir::TensorView* tv,
     kir::ExpressionEvaluator& expr_eval,
@@ -303,7 +344,7 @@ uint64_t FusionExecutor::computeSharedMemory(
     const std::vector<const kir::Allocate*>& buffers,
     bool align_padding,
     uint64_t total) {
-  FUSER_PERF_SCOPE("computeSharedMemory");
+  FUSER_PERF_SCOPE("computeSharedMemory::old");
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
     // then do not allocate memory for this buffer.
@@ -329,6 +370,38 @@ uint64_t FusionExecutor::computeSharedMemory(
   return total;
 }
 
+uint64_t FusionExecutor::computeSharedMemory(
+    kir::ExpressionEvaluator& expr_eval,
+    const std::vector<const kir::Allocate*>& buffers,
+    const std::vector<glfdc::ExprEvaluator>& memoized,
+    bool align_padding,
+    uint64_t total) {
+  FUSER_PERF_SCOPE("computeSharedMemory::new");
+  size_t i = 0;
+  for (auto smem_alloc : buffers) {
+    if (smem_alloc->alias() == nullptr) {
+      auto mem_inferred = expr_eval.evaluateMemoized(memoized[i]);
+      if (mem_inferred.has_value()) {
+        const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
+        // Add padding to align dynamic shared memory
+        if (align_padding) {
+          total = ceilDiv(total, data_size) * data_size;
+        }
+        total += mem_inferred.value() * data_size;
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false,
+            "Failed to evaluate the size ",
+            smem_alloc->size(),
+            " of shared memory buffer - T",
+            smem_alloc->buffer()->name());
+      }
+    }
+    ++i;
+  }
+  return total;
+}
+
 LaunchParams FusionExecutor::computeLaunchParams(
     const LaunchParams& launch_constraints,
     kir::ExpressionEvaluator& expr_eval) {
@@ -336,37 +409,23 @@ LaunchParams FusionExecutor::computeLaunchParams(
 
   LaunchParams launch_params;
 
-  // Lets collect all IterDomains that are bound to a thread binding
-  std::unordered_map<ParallelType, std::vector<const kir::Val*>, TypeHash>
-      parallel_iter_extents;
-  for (auto tv : getUsedTVs()) {
-    for (auto id : tv->domain()->domain()) {
-      if (id->isThread() && !id->isBroadcast()) {
-        // TODO(kir): we should rewrite this logic based on the Kernel object
-        auto kir_extent = lowered_.lowerValue(id->extent());
-        const auto it = parallel_iter_extents.find(id->getParallelType());
-        if (it != parallel_iter_extents.end()) {
-          it->second.push_back(kir_extent);
-        } else {
-          parallel_iter_extents[id->getParallelType()] = {kir_extent};
-        }
-      }
-    }
-  }
+  const auto kernel = lowered_.kernel();
+  const auto& kernel_summary = kernel->summary();
 
-  // If any dimension was set in launch constraints we need to run through
-  // IterDomains that have been parallelized, and bind those values. Or make
-  // sure if they could be inferred the inference matches what was set.
-  for (auto& entry : parallel_iter_extents) {
+  // Lets get through all memoized IterDomains that are bound to a thread
+  // binding If any dimension was set in launch constraints we need to run
+  // through IterDomains that have been parallelized, and bind those values. Or
+  // make sure if they could be inferred the inference matches what was set.
+  for (auto& entry : kernel_summary.memoized_parallel_iter_extents) {
     auto p_type = entry.first;
     if (launch_constraints.hasDim(p_type)) {
       auto parallel_extents = entry.second;
       for (auto extent : parallel_extents) {
-        auto inferred_val = expr_eval.evaluate(extent);
-        if (inferred_val.has_value()) {
+        auto inferred_val_m = expr_eval.evaluateMemoized(extent.second);
+        if (inferred_val_m.has_value()) {
           // This value could have been inferred, make sure it was set right.
           bool valid =
-              inferred_val.value() == launch_constraints.getDim(p_type) ||
+              inferred_val_m.value() == launch_constraints.getDim(p_type) ||
               launch_constraints.getRawVal(p_type) == -1;
           if (!useFallback() && !valid) {
             TORCH_WARN_ONCE(
@@ -375,7 +434,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
           }
         } else {
           // Bind the launch constraint into our evaluation context
-          expr_eval.bind(extent, launch_constraints.getDim(p_type));
+          expr_eval.bind(extent.first, launch_constraints.getDim(p_type));
           launch_params.bind(launch_constraints.getDim(p_type), p_type);
         }
       }
@@ -383,25 +442,23 @@ LaunchParams FusionExecutor::computeLaunchParams(
   }
 
   // Run through the rest of the parallel IterDomains and infer their size
-  for (auto& entry : parallel_iter_extents) {
+  for (auto& entry : kernel_summary.memoized_parallel_iter_extents) {
     auto p_type = entry.first;
     auto parallel_extents = entry.second;
     // Select the maxmimum value out of all the parallel extents
     int64_t maximum_value = std::numeric_limits<int64_t>::min();
-    for (auto extent : parallel_extents) {
-      const auto val = expr_eval.evaluate(extent);
+    for (const auto& extent : parallel_extents) {
+      const auto val = expr_eval.evaluateMemoized(extent.second);
       TORCH_INTERNAL_ASSERT(
           val.has_value(),
           "Tried to evaluate the extent of ",
           p_type,
           " to set launch bounds but could not.");
+
       maximum_value = std::max(maximum_value, *val);
     }
     launch_params.bind(maximum_value, p_type);
   }
-
-  const auto kernel = lowered_.kernel();
-  const auto& kernel_summary = kernel->summary();
 
   // Calculate Dynamic Shared Memory Size
   // Add workspace for reduction and broadcast
@@ -427,6 +484,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   const uint64_t dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
+      kernel_summary.memoized_dynamic_smem_allocations,
       true,
       reduction_broadcast_workspace);
 
@@ -447,21 +505,37 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
   GlobalBuffers global_buffers;
   const auto kernel = lowered_.kernel();
   const auto& kernel_summary = lowered_.kernel()->summary();
+  std::size_t i = 0;
+  TORCH_INTERNAL_ASSERT(
+      kernel_summary.global_allocations.size() ==
+      kernel_summary.memoized_global_shapes.size());
   for (auto alloc : kernel_summary.global_allocations) {
     TORCH_INTERNAL_ASSERT(
         alloc->buffer()->isA<kir::TensorView>(),
         "Cannot allocate global buffers that are not tensors.");
     auto tv = alloc->buffer()->as<kir::TensorView>();
     if (kernel->isOutput(tv)) {
+      ++i;
       continue;
     }
     if (!alloc->zeroInit()) {
-      global_buffers.empty_buffers.push_back(
-          inferAndAlloc(tv, alloc->shape(), expr_eval, options_, false));
+      global_buffers.empty_buffers.push_back(inferAndAlloc(
+          tv,
+          alloc->shape(),
+          kernel_summary.memoized_global_shapes[i],
+          expr_eval,
+          options_,
+          false));
     } else {
-      global_buffers.zero_buffers.push_back(
-          inferAndAlloc(tv, alloc->shape(), expr_eval, options_, true));
+      global_buffers.zero_buffers.push_back(inferAndAlloc(
+          tv,
+          alloc->shape(),
+          kernel_summary.memoized_global_shapes[i],
+          expr_eval,
+          options_,
+          true));
     }
+    ++i;
   }
 
   return global_buffers;

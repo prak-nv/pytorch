@@ -4,6 +4,8 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
 #include <torch/csrc/jit/codegen/cuda/utils.h>
+#include "glfdc/eval.h"
+#include "glfdc/expr.h"
 
 #include <memory>
 #include <utility>
@@ -15,19 +17,31 @@ namespace fuser {
 namespace cuda {
 namespace kir {
 
+class ExprBuilderVisitor;
+
 //! Summary of interesting facts about the kernel
 struct KernelSummary {
+  std::unique_ptr<glfdc::ExprDAG> memoized_dag;
+
   //! Count of WAR (write-after-read) hazard barriers
   int war_hazard_syncs_count = 0;
 
   //! List of global buffers
   std::vector<const kir::Allocate*> global_allocations;
 
+  std::vector<std::vector<glfdc::ExprEvaluator>> memoized_global_shapes;
+
   //! List of dynamic shared memory buffers
   std::vector<const kir::Allocate*> dynamic_smem_allocations;
+  std::vector<glfdc::ExprEvaluator> memoized_dynamic_smem_allocations;
 
   //! List of static shared memory buffers
   std::vector<const kir::Allocate*> static_smem_allocations;
+  std::unordered_map<
+      ParallelType,
+      std::vector<std::pair<const kir::Val*, glfdc::ExprEvaluator>>,
+      TypeHash>
+      memoized_parallel_iter_extents;
 
   //! Indicate the need to generate random numbers
   bool is_stochastic = false;
@@ -79,7 +93,7 @@ class TORCH_CUDA_CU_API Kernel final : public NonCopyable {
   //! At this point we have a complete kernel definition and we can
   //! run analysis passes to build a KernelSummary
   //!
-  void finalize(std::vector<kir::Expr*> top_level_exprs);
+  void finalize(std::vector<kir::Expr*> top_level_exprs, ExprBuilderVisitor&);
 
   //! Register input as an input of the kernel
   void addInput(Val* input) {
@@ -126,6 +140,10 @@ class TORCH_CUDA_CU_API Kernel final : public NonCopyable {
   }
 
   const KernelSummary& summary() const {
+    return summary_;
+  }
+
+  KernelSummary& summary() {
     return summary_;
   }
 

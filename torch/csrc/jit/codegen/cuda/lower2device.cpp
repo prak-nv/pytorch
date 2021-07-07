@@ -24,6 +24,9 @@
 // TODO: Move scheduler utils that are useful to ir_utils
 #include <torch/csrc/jit/codegen/cuda/scheduler/utils.h>
 
+#include <torch/csrc/jit/codegen/cuda/glfdc/expr_builder.h>
+#include <torch/csrc/jit/codegen/cuda/shape_expr_memo.h>
+
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
@@ -349,12 +352,54 @@ void GpuLower::lower() {
   const auto conditional_loops =
       generateConditionalFromPredicate(fusion_, indexed_loops);
 
+  glfdc::ExpressionBuilder builder;
+  kir::ExprBuilderVisitor builder_visitor(builder, *kernel_);
+
   // Insert fake zero updates to make sure nvrtc doesn't blow out register use
   // on index and predicate reuse
   const auto register_adjusted = insertMagicZero(conditional_loops);
 
   // We now have the lowered expressions, finalize the kernel IR
-  kernel_->finalize(register_adjusted);
+  kernel_->finalize(register_adjusted, builder_visitor);
+
+  memoizeParallelIterExtents(builder_visitor);
+
+  kernel_->summary().memoized_dag = builder_visitor.takeDAG();
+}
+
+void GpuLower::memoizeParallelIterExtents(kir::ExprBuilderVisitor& visitor) {
+  // Lets collect all IterDomains that are bound to a thread binding
+
+  auto used_vals = fusion_->usedMathVals();
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+
+  std::unordered_map<
+      ParallelType,
+      std::vector<std::pair<const kir::Val*, glfdc::ExprEvaluator>>,
+      TypeHash>
+      parallel_iter_extents;
+  for (auto tv : used_tvs) {
+    for (auto id : tv->domain()->domain()) {
+      if (id->isThread() && !id->isBroadcast()) {
+        // TODO(kir): we should rewrite this logic based on the Kernel object
+        auto kir_extent = this->lowerValue(id->extent());
+        const auto it = parallel_iter_extents.find(id->getParallelType());
+        auto expr = visitor.build(kir_extent);
+        if (it != parallel_iter_extents.end()) {
+          it->second.emplace_back(kir_extent, std::move(expr));
+        } else {
+          std::vector<std::pair<const kir::Val*, glfdc::ExprEvaluator>> extents(
+              1,
+              std::pair<const kir::Val*, glfdc::ExprEvaluator>(
+                  kir_extent, std::move(expr)));
+          parallel_iter_extents[id->getParallelType()] = std::move(extents);
+        }
+      }
+    }
+  }
+
+  kernel_->summary().memoized_parallel_iter_extents =
+      std::move(parallel_iter_extents);
 }
 
 kir::Kernel* GpuLower::kernel() const {

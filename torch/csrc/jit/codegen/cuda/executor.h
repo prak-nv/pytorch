@@ -10,6 +10,7 @@
 #include <torch/csrc/jit/codegen/cuda/utils.h>
 
 #include <c10/core/DeviceType.h>
+#include "glfdc/eval.h"
 
 namespace torch {
 namespace jit {
@@ -144,6 +145,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   uint64_t computeSharedMemory(
       kir::ExpressionEvaluator& expr_eval,
       const std::vector<const kir::Allocate*>& buffers,
+      bool align_padding = false,
+      uint64_t total = 0);
+
+  uint64_t computeSharedMemory(
+      kir::ExpressionEvaluator& expr_eval,
+      const std::vector<const kir::Allocate*>& buffers,
+      const std::vector<glfdc::ExprEvaluator>& memoized,
       bool align_padding = false,
       uint64_t total = 0);
 

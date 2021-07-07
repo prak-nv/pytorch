@@ -3,13 +3,47 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 
+#include "glfdc/eval.h"
+
 #include <iostream>
+
+namespace {
+
+using namespace torch::jit::fuser::cuda::kir;
+
+class KnownValuesCallback {
+  using hashmap_t = std::unordered_map<const Val*, Int::ScalarType>;
+
+ public:
+  c10::optional<Int::ScalarType> operator()(uintptr_t binding) {
+    auto it = known_values_->find(reinterpret_cast<const Val*>(binding));
+    if (it == known_values_->end())
+      return c10::nullopt;
+    return it->second;
+  }
+
+  explicit KnownValuesCallback(hashmap_t& values) : known_values_(&values) {}
+
+ private:
+  hashmap_t* known_values_ = nullptr;
+};
+
+} // namespace
 
 namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
 namespace kir {
+
+ExpressionEvaluator::ExpressionEvaluator(std::unique_ptr<glfdc::EvalState> es)
+    : eval_state_(std::move(es)) {}
+
+ExpressionEvaluator::~ExpressionEvaluator() = default;
+
+ExpressionEvaluator::ExpressionEvaluator(ExpressionEvaluator&&) = default;
+ExpressionEvaluator& ExpressionEvaluator::operator=(ExpressionEvaluator&&) =
+    default;
 
 void ExpressionEvaluator::bind(
     const Val* value,
@@ -23,9 +57,20 @@ void ExpressionEvaluator::bind(
   known_values_[value] = concrete_value;
 }
 
+c10::optional<Int::ScalarType> ExpressionEvaluator::evaluateMemoized(
+    const glfdc::ExprEvaluator& expr) {
+  FUSER_PERF_SCOPE("kir::ExpressionEvaluator::evaluateMemoized");
+
+  KnownValuesCallback cb{known_values_};
+  TORCH_INTERNAL_ASSERT(eval_state_ != nullptr);
+
+  return expr.evaluate(*eval_state_, cb);
+}
+
 c10::optional<Int::ScalarType> ExpressionEvaluator::evaluate(const Val* value) {
   FUSER_PERF_SCOPE("kir::ExpressionEvaluator::evaluate");
 
+  TORCH_CHECK(value != nullptr);
   TORCH_CHECK(value->isScalar());
   TORCH_CHECK(value->dtype() == DataType::Int);
 
@@ -34,12 +79,11 @@ c10::optional<Int::ScalarType> ExpressionEvaluator::evaluate(const Val* value) {
     return value->as<Int>()->value();
   }
 
-  // Is the value known (either explicit binding or memoized)?
+  // Is the value known (either explicit binding)?
   const auto pre_eval_it = known_values_.find(value);
   if (pre_eval_it != known_values_.end()) {
     return pre_eval_it->second;
   }
-
   value->accept(this);
 
   const auto post_eval_it = known_values_.find(value);

@@ -18,6 +18,18 @@ namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
+namespace kir {
+class ExprBuilderVisitor;
+}
+} // namespace cuda
+} // namespace fuser
+} // namespace jit
+} // namespace torch
+
+namespace torch {
+namespace jit {
+namespace fuser {
+namespace cuda {
 
 // TODO: we frequently use pairwise root mapping from consumers to producers.
 // This information is implicitly in the computeAtMaps, but there's no isolated
@@ -91,6 +103,8 @@ class TORCH_CUDA_CU_API GpuLower {
   // the kernel being fetched for shapes, we want to replace input and output
   // tensors to reference the runtime structure containing sizes.
   void replaceSymbolicSizes();
+
+  void memoizeParallelIterExtents(kir::ExprBuilderVisitor& visitor);
 
  private:
   // Lowered Kernel IR
