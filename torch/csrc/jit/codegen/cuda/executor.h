@@ -2,6 +2,7 @@
 #include <torch/csrc/jit/codegen/cuda/executor_launch_params.h>
 #include <torch/csrc/jit/codegen/cuda/executor_utils.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+#include <torch/csrc/jit/codegen/cuda/glfdc/eval.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/ir_cloner.h>
 #include <torch/csrc/jit/codegen/cuda/ir_printer.h>
@@ -152,6 +153,13 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   uint64_t computeSharedMemory(
       kir::ExpressionEvaluator& expr_eval,
       const std::vector<const kir::Allocate*>& buffers,
+      bool align_padding = false,
+      uint64_t total = 0);
+
+  uint64_t computeSharedMemory(
+      kir::ExpressionEvaluator& expr_eval,
+      const std::vector<const kir::Allocate*>& buffers,
+      const std::vector<glfdc::SymbolicExpr>& memoized,
       bool align_padding = false,
       uint64_t total = 0);
 

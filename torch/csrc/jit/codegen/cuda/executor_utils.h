@@ -11,6 +11,7 @@
 
 #include <torch/csrc/jit/codegen/cuda/expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/fusion.h>
+#include <torch/csrc/jit/codegen/cuda/glfdc/eval.h>
 #include <torch/csrc/jit/codegen/cuda/ir_all_nodes.h>
 #include <torch/csrc/jit/codegen/cuda/kernel.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
@@ -77,7 +78,6 @@ namespace caching {
 //! List of all the possible entry types in
 //!  `FusionExecutor` compile-time data cache.
 enum class CompileTimeEntryType {
-  PARALLEL_BINDING_ITERDOMAINS,
   PARALLEL_ITER_EXTENT_MAP,
   WARP_PADDED_PARALLEL_EXTENTS,
   VECTORIZED_TENSOR_VALIDATION,
@@ -89,26 +89,15 @@ enum class CompileTimeEntryType {
 //!  each class defines the data type for each entry type
 
 //! Compile-time info to be cached in each FusionExecutor:
-//!  ParallelBindingIterDomains:
-//!    Stores all the iterdomains that are parallelized
-//!    on the scheduled Fusion graph. They will be used
-//!    in launch param iteration and their extents may
-//!    come from launch constraints.
-class ParallelBindingIterDomains {
- public:
-  using DataType = std::vector<IterDomain*>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::PARALLEL_BINDING_ITERDOMAINS;
-};
-
-//! Compile-time info to be cached in each FusionExecutor:
 //!  ParallelIterExtentMap
 //!    Stores the symbolic extents of all the parallelized
 //!    iterdomains corresponding to each used parallel type.
 class ParallelIterExtentMap {
  public:
-  using DataType =
-      std::unordered_map<ParallelType, std::vector<const kir::Val*>, TypeHash>;
+  using DataType = std::unordered_map<
+      ParallelType,
+      std::vector<std::tuple<const kir::Val*, glfdc::SymbolicExpr>>,
+      TypeHash>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::PARALLEL_ITER_EXTENT_MAP;
 };
@@ -116,8 +105,8 @@ class ParallelIterExtentMap {
 //!  WarpPaddedExtentsInfo:
 //!    Auxiliary data type for entry class WarpPaddedParallelExtents
 struct WarpPaddedExtentsInfo {
-  std::unordered_set<const kir::Val*> warp_padded_extent_set;
-  std::unordered_map<const kir::Val*, int64_t> warp_padded_constant;
+  std::unordered_map<const kir::Val*, glfdc::SymbolicExpr>
+      symbolic_warp_padded_values;
 };
 
 //! Compile-time info to be cached in each FusionExecutor:
@@ -254,25 +243,20 @@ class ExecutorCompileTimeEntry {
 
 } // namespace caching
 
-//! Returns the vector of tensorviews that will be used to bind parallel
-//!  dimensions.
-std::vector<IterDomain*> getParallelBindingsIterDomains(
-    const std::vector<TensorView*>& used_tvs);
-
-using ParallelExtentMap =
-    std::unordered_map<ParallelType, std::vector<const kir::Val*>, TypeHash>;
+using ParallelExtentMap = std::unordered_map<
+    ParallelType,
+    std::vector<std::tuple<const kir::Val*, glfdc::SymbolicExpr>>,
+    TypeHash>;
 
 //! Returns the extents of all parallel binding iterdomains corresponding
 //!  to each parallel type.
 std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
-    GpuLower& lower,
-    std::vector<IterDomain*>& parallel_binding_ids);
+    const kir::ExtentSymbolicInfo&);
 
 //! Returns the symbolic or constant extetns of warp padded parallel
 //!  iterdomains in the given vector.
 std::unique_ptr<caching::WarpPaddedExtentsInfo> getWarpPaddedExtentsInfo(
-    GpuLower& lower,
-    std::vector<IterDomain*>& parallel_binding_ids);
+    const kir::ExtentSymbolicInfo&);
 
 //! Returns the position information of vectorized input/output tensors
 //!  in the given fusion.

@@ -12,6 +12,12 @@ namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
+
+namespace glfdc {
+class EvalState;
+class SymbolicExpr;
+} // namespace glfdc
+
 namespace kir {
 
 //! Calculate Kernel IR expressions
@@ -37,12 +43,19 @@ class TORCH_CUDA_CU_API ExpressionEvaluator : private IrVisitor {
 
   //! Try to evaluate a Kernel IR value
   c10::optional<Int::ScalarType> evaluate(const Val* value);
+  //! Try to evaluate memoized form of an expression
+  c10::optional<Int::ScalarType> evaluate(const glfdc::SymbolicExpr&);
 
   //! Returns true if `value` is known before binding kernel inputs
   static bool isConst(const Val* value);
 
   //! Debugging helper, prints all the currently known values
   void print() const;
+
+  explicit ExpressionEvaluator(std::unique_ptr<glfdc::EvalState> = nullptr);
+  ExpressionEvaluator(ExpressionEvaluator&&);
+  ExpressionEvaluator& operator=(ExpressionEvaluator&&);
+  ~ExpressionEvaluator();
 
  private:
   void unhandled(const void*) final;
@@ -53,6 +66,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator : private IrVisitor {
 
  private:
   std::unordered_map<const Val*, Int::ScalarType> known_values_;
+  std::unique_ptr<glfdc::EvalState> eval_state_;
 };
 
 } // namespace kir

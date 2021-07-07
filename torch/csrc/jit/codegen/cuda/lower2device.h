@@ -21,6 +21,18 @@ namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
+namespace kir {
+class ExprBuilderVisitor;
+}
+} // namespace cuda
+} // namespace fuser
+} // namespace jit
+} // namespace torch
+
+namespace torch {
+namespace jit {
+namespace fuser {
+namespace cuda {
 
 // TODO: we frequently use pairwise root mapping from consumers to producers.
 // This information is implicitly in the computeAtMaps, but there's no isolated
@@ -117,6 +129,23 @@ class TORCH_CUDA_CU_API GpuLower {
   //  the parallel dimensions that need to be padded to a multiples of
   //  warp size.
   void collectPaddedParallelDims();
+
+  // TODO: Comment
+  kir::ExtentSymbolicInfo symbolizeExtentExpressions(
+      kir::ExprBuilderVisitor& visitor);
+
+  // Collects all IterDomains that are bound to a thread binding as symbolic
+  // expressions
+  void symbolizeParallelIterExtents(
+      kir::ExtentSymbolicInfo& info,
+      kir::ExprBuilderVisitor& visitor,
+      const std::vector<IterDomain*>& parallel_binding_ids);
+
+  // Collect symbolic expression for padded warp extents
+  void symbolizePaddedWarpExtents(
+      kir::ExtentSymbolicInfo& info,
+      kir::ExprBuilderVisitor& visitor,
+      const std::vector<IterDomain*>& parallel_binding_ids);
 
  private:
   // Lowered Kernel IR

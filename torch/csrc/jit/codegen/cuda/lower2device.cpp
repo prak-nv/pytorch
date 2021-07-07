@@ -23,6 +23,9 @@
 #include <torch/csrc/jit/codegen/cuda/lower_validation.h>
 #include <torch/csrc/jit/codegen/cuda/lower_warp_reduce.h>
 
+#include <torch/csrc/jit/codegen/cuda/glfdc/expr_builder.h>
+#include <torch/csrc/jit/codegen/cuda/shape_expr_memo.h>
+
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
@@ -266,6 +269,22 @@ class KIRCleaner : public kir::MutableIrVisitor {
   bool is_nop_ = false;
 };
 
+//! Returns the vector of tensorviews that will be used to bind parallel
+//!  dimensions.
+std::vector<IterDomain*> getParallelBindingsIterDomains(
+    const std::vector<Val*>& used_vals) {
+  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
+  std::vector<IterDomain*> parallel_ids;
+  for (auto tv : used_tvs) {
+    for (auto id : tv->domain()->domain()) {
+      if (id->isThread() && !id->isBroadcast()) {
+        parallel_ids.push_back(id);
+      }
+    }
+  }
+  return parallel_ids;
+}
+
 } // namespace
 
 void GpuLower::replaceSymbolicSizes() {
@@ -507,8 +526,119 @@ void GpuLower::lower() {
 
   const auto cleaned_up_loops = KIRCleaner::cleanUp(register_adjusted);
 
+  glfdc::ExpressionBuilder builder;
+  kir::ExprBuilderVisitor builder_visitor(builder, *kernel_);
+
   // We now have the lowered expressions, finalize the kernel IR
-  kernel_->finalize(cleaned_up_loops);
+  kernel_->finalize(cleaned_up_loops, builder_visitor);
+
+  kir::ExtentSymbolicInfo extent_info =
+      symbolizeExtentExpressions(builder_visitor);
+
+  // Take away ownership of ExprDAG for symbolic expressions
+  extent_info.memoized_dag = builder_visitor.takeDAG();
+
+  extent_info.optimizeForEval();
+
+  // Optimize all memoized expressions (it is ok to do so at this moment,
+  // glfdc::ExprDAG won't change anymore)
+  for (auto& shape : kernel_->summary().memoized_global_shapes) {
+    for (auto& se : shape) {
+      se.optimize();
+    }
+  }
+
+  for (auto& se : kernel_->summary().memoized_dynamic_smem_allocations) {
+    se.optimize();
+  }
+
+  kernel_->setExtentSymbolicInfo(std::move(extent_info));
+}
+
+kir::ExtentSymbolicInfo GpuLower::symbolizeExtentExpressions(
+    kir::ExprBuilderVisitor& visitor) {
+  auto used_vals = fusion_->usedMathVals();
+  auto parallel_binding_ids = getParallelBindingsIterDomains(used_vals);
+
+  kir::ExtentSymbolicInfo extent_info;
+  // Create symbolic expressions for parallel extents
+  symbolizeParallelIterExtents(extent_info, visitor, parallel_binding_ids);
+  // Create symbolic expressions for warp padded extents
+  symbolizePaddedWarpExtents(extent_info, visitor, parallel_binding_ids);
+
+  return extent_info;
+}
+
+void GpuLower::symbolizeParallelIterExtents(
+    kir::ExtentSymbolicInfo& info,
+    kir::ExprBuilderVisitor& visitor,
+    const std::vector<IterDomain*>& parallel_binding_ids) {
+  using SymbolicExprEntry = std::tuple<const kir::Val*, glfdc::SymbolicExpr>;
+  using SymbolicExtentsVector = std::vector<SymbolicExprEntry>;
+  // Create symbolic expressions for all IterDomains that are bound to a thread
+  // binding
+  std::unordered_map<ParallelType, SymbolicExtentsVector, TypeHash>
+      parallel_iter_extents;
+  for (auto id : parallel_binding_ids) {
+    if (id->isThread() && !id->isBroadcast()) {
+      // TODO(kir): we should rewrite this logic based on the Kernel object
+      auto kir_extent = lowerValue(id->extent());
+      const auto it = parallel_iter_extents.find(id->getParallelType());
+      auto expr = visitor.build(kir_extent);
+      // Emplace at back of existing list or create new one.
+      if (it != parallel_iter_extents.end()) {
+        it->second.emplace_back(kir_extent, std::move(expr));
+      } else {
+        SymbolicExtentsVector extents(
+            1, SymbolicExprEntry(kir_extent, std::move(expr)));
+        parallel_iter_extents[id->getParallelType()] = std::move(extents);
+      }
+    }
+  }
+
+  info.symbolic_parallel_iter_extents = std::move(parallel_iter_extents);
+}
+
+void GpuLower::symbolizePaddedWarpExtents(
+    kir::ExtentSymbolicInfo& info,
+    kir::ExprBuilderVisitor& visitor,
+    const std::vector<IterDomain*>& parallel_binding_ids) {
+  // Lets collect all IterDomains that are bound to a thread binding
+  std::unordered_set<const kir::Val*> warp_padded_extent_set;
+  std::unordered_map<const kir::Val*, glfdc::SymbolicExpr> warp_padded_expr;
+
+  bool has_warp_reduction =
+      kernel_->getWarpPaddedParallelInfo().has_warp_reduction;
+
+  // Leave early if no extents to symbolize
+  if (!has_warp_reduction)
+    return;
+
+  for (auto id : parallel_binding_ids) {
+    // Apply warp padding only when there're warp reductions in
+    //  the kernel.
+    if (id->hasPaddingToMultipleOfWarp() ||
+        kernel_->isParallelTypePadded(id->getParallelType())) {
+      auto kir_extent = lowerValue(id->extent());
+
+      auto padded_value = id->getMaybeSizeAfterPadding();
+      // Check if the extent has const value
+      if (padded_value.has_value()) {
+        // If already specified padded to constant, need to check
+        //  runtime value not over the constant bound
+        warp_padded_expr.emplace(
+            kir_extent, visitor.build(padded_value.value()));
+      } else {
+        auto expr = visitor.build(kir_extent);
+        // If no specified constant, pad to the smallest multiple of warp
+        //  above the value ie.
+        // ((x + C10_WARP_SIZE - 1)/ C10_WARP_SIZE) * C10_WARP_SIZE
+        warp_padded_expr.emplace(kir_extent, visitor.buildPaddedWarp(expr));
+      }
+    }
+  }
+
+  info.symbolic_warp_padded_extents = std::move(warp_padded_expr);
 }
 
 kir::Kernel* GpuLower::kernel() const {

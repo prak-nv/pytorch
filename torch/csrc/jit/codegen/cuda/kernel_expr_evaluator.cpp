@@ -3,13 +3,53 @@
 #include <torch/csrc/jit/codegen/cuda/kernel_expr_evaluator.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir_printer.h>
 
+#include <torch/csrc/jit/codegen/cuda/glfdc/eval.h>
+
 #include <iostream>
+
+namespace {
+
+using namespace torch::jit::fuser::cuda::kir;
+
+using torch::jit::fuser::cuda::glfdc::SymbolicValueProviderBase;
+
+// KnownValuesCallback - SymbolicValue provider for retrieving binding runtime
+// values which are used to evaluate glfdc::SymbolicExpr
+class KnownValuesCallback : public SymbolicValueProviderBase<Val> {
+  using hashmap_t = std::unordered_map<const Val*, Int::ScalarType>;
+
+ public:
+  c10::optional<Int::ScalarType> getSymbolValue(
+      const Val* binding) const noexcept override {
+    auto it = known_values_->find(binding);
+    if (it == known_values_->end()) {
+      return c10::nullopt;
+    }
+    return it->second;
+  }
+
+  explicit KnownValuesCallback(hashmap_t& values) : known_values_(&values) {}
+
+ private:
+  hashmap_t* known_values_ = nullptr;
+};
+
+} // namespace
 
 namespace torch {
 namespace jit {
 namespace fuser {
 namespace cuda {
 namespace kir {
+
+ExpressionEvaluator::ExpressionEvaluator(std::unique_ptr<glfdc::EvalState> es)
+    : eval_state_(std::move(es)) {}
+
+ExpressionEvaluator::~ExpressionEvaluator() = default;
+
+ExpressionEvaluator::ExpressionEvaluator(ExpressionEvaluator&&) = default;
+ExpressionEvaluator& ExpressionEvaluator::operator=(ExpressionEvaluator&&) =
+    default;
 
 void ExpressionEvaluator::bind(
     const Val* value,
@@ -23,23 +63,33 @@ void ExpressionEvaluator::bind(
   known_values_[value] = concrete_value;
 }
 
+c10::optional<Int::ScalarType> ExpressionEvaluator::evaluate(
+    const glfdc::SymbolicExpr& expr) {
+  FUSER_PERF_SCOPE("kir::ExpressionEvaluator::evaluateMemoized");
+
+  KnownValuesCallback cb{known_values_};
+  TORCH_INTERNAL_ASSERT(eval_state_ != nullptr);
+
+  return expr.evaluate(*eval_state_, cb);
+}
+
 c10::optional<Int::ScalarType> ExpressionEvaluator::evaluate(const Val* value) {
   FUSER_PERF_SCOPE("kir::ExpressionEvaluator::evaluate");
 
-  TORCH_CHECK(value->isScalar());
-  TORCH_CHECK(value->dtype() == DataType::Int);
+  TORCH_INTERNAL_ASSERT(value != nullptr);
+  TORCH_INTERNAL_ASSERT(value->isScalar());
+  TORCH_INTERNAL_ASSERT(value->dtype() == DataType::Int);
 
   // Const scalar?
   if (value->isScalar() && value->isConst()) {
     return value->as<Int>()->value();
   }
 
-  // Is the value known (either explicit binding or memoized)?
+  // Is the value known (either explicit binding)?
   const auto pre_eval_it = known_values_.find(value);
   if (pre_eval_it != known_values_.end()) {
     return pre_eval_it->second;
   }
-
   value->accept(this);
 
   const auto post_eval_it = known_values_.find(value);

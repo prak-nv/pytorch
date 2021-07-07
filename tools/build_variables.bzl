@@ -543,6 +543,7 @@ libtorch_cuda_core_sources = [
     "torch/csrc/jit/codegen/cuda/scheduler/reduction.cpp",
     "torch/csrc/jit/codegen/cuda/scheduler/registry.cpp",
     "torch/csrc/jit/codegen/cuda/scheduler/utils.cpp",
+    "torch/csrc/jit/codegen/cuda/shape_expr_memo.cpp",
     "torch/csrc/jit/codegen/cuda/shape_inference.cpp",
     "torch/csrc/jit/codegen/cuda/fusion_segmenter.cpp",
     "torch/csrc/jit/codegen/cuda/tensor_view.cpp",

@@ -30,6 +30,8 @@
 
 #include <fstream>
 
+#include <torch/csrc/jit/codegen/cuda/glfdc/eval.h>
+
 namespace torch {
 namespace jit {
 namespace fuser {
@@ -466,7 +468,10 @@ kir::ExpressionEvaluator bindKernelInputs(
       kernel->inputs().size() == aten_inputs.size(),
       "Something went wrong configuring launch. Inputs no longer match.");
 
-  kir::ExpressionEvaluator expr_eval;
+  // TORCH_INTERNAL_ASSERT(kernel->summary().memoized_dag != nullptr);
+  auto es = glfdc::createEvalStateForDAG(
+      *kernel->getExtentSymbolicInfo().memoized_dag);
+  kir::ExpressionEvaluator expr_eval{std::move(es)};
   const auto& inputs = kernel->inputs();
 
   for (size_t i = 0; i < inputs.size(); i++) {
@@ -958,7 +963,6 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 }
 
 // Template instantiation
-template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<WarpPaddedParallelExtents>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
@@ -967,66 +971,22 @@ template class ExecutorCompileTimeEntry<OutputAliasIndices>;
 
 } // namespace caching
 
-std::vector<IterDomain*> getParallelBindingsIterDomains(
-    const std::vector<TensorView*>& used_tvs) {
-  std::vector<IterDomain*> parallel_ids;
-  for (auto tv : used_tvs) {
-    for (auto id : tv->domain()->domain()) {
-      if (id->isThread() && !id->isBroadcast()) {
-        parallel_ids.push_back(id);
-      }
-    }
-  }
-  return parallel_ids;
-}
-
 std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
-    GpuLower& lower,
-    std::vector<IterDomain*>& parallel_binding_ids) {
+    const kir::ExtentSymbolicInfo& info) {
   auto parallel_iter_extents_ptr = std::make_unique<ParallelExtentMap>();
-  for (auto id : parallel_binding_ids) {
-    // TODO(kir): we should rewrite this logic based on the Kernel object
-    auto kir_extent = lower.lowerValue(id->extent());
-    const auto it = parallel_iter_extents_ptr->find(id->getParallelType());
-    if (it != parallel_iter_extents_ptr->end()) {
-      it->second.push_back(kir_extent);
-    } else {
-      parallel_iter_extents_ptr->operator[](id->getParallelType()) = {
-          kir_extent};
-    }
-  }
+  *parallel_iter_extents_ptr = info.symbolic_parallel_iter_extents;
 
   return parallel_iter_extents_ptr;
 }
 
 std::unique_ptr<caching::WarpPaddedExtentsInfo> getWarpPaddedExtentsInfo(
-    GpuLower& lower,
-    std::vector<IterDomain*>& parallel_binding_ids) {
+    const kir::ExtentSymbolicInfo& info) {
+  auto warp_padded_values = info.symbolic_warp_padded_extents;
   auto warp_padded_extent_info_ptr =
       std::make_unique<caching::WarpPaddedExtentsInfo>();
-  auto& warp_padded_extent_set =
-      warp_padded_extent_info_ptr->warp_padded_extent_set;
-  auto& warp_padded_constant =
-      warp_padded_extent_info_ptr->warp_padded_constant;
-  auto kernel = lower.kernel();
-  bool has_warp_reduction =
-      kernel->getWarpPaddedParallelInfo().has_warp_reduction;
+  warp_padded_extent_info_ptr->symbolic_warp_padded_values =
+      std::move(warp_padded_values);
 
-  for (auto id : parallel_binding_ids) {
-    // Apply warp padding only when there're warp reductions in
-    //  the kernel.
-    if (has_warp_reduction) {
-      if (id->hasPaddingToMultipleOfWarp() ||
-          kernel->isParallelTypePadded(id->getParallelType())) {
-        auto kir_extent = lower.lowerValue(id->extent());
-        warp_padded_extent_set.insert(kir_extent);
-        auto padded_value = id->getMaybeSizeAfterPadding();
-        if (padded_value.has_value()) {
-          warp_padded_constant[kir_extent] = padded_value.value();
-        }
-      }
-    }
-  }
   return warp_padded_extent_info_ptr;
 }
 

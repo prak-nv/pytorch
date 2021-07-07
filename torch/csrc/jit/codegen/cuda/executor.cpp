@@ -235,9 +235,13 @@ void FusionExecutor::compileFusion(
 
 namespace {
 
+using OptMemoizedExpressions = c10::optional<
+    std::reference_wrapper<const std::vector<glfdc::SymbolicExpr>>>;
+
 at::Tensor inferAndAlloc(
     const kir::TensorView* tv,
     const std::vector<kir::Val*>& sizes,
+    OptMemoizedExpressions opt_memoized_sizes,
     kir::ExpressionEvaluator& expr_eval,
     const CompileOptions& options,
     bool zero_init = false) {
@@ -246,15 +250,41 @@ at::Tensor inferAndAlloc(
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   std::vector<int64_t> inferred_sizes;
 
-  for (const auto size : sizes) {
-    const auto inferred_val = expr_eval.evaluate(size);
-    TORCH_INTERNAL_ASSERT(
-        inferred_val.has_value(),
-        "Could not launch kernel as program could not infer ",
-        kir::toString(size),
-        " for the buffer ",
-        kir::toString(tv));
-    inferred_sizes.push_back(inferred_val.value());
+  if (opt_memoized_sizes.has_value()) {
+    FUSER_PERF_SCOPE("inferAndAlloc::memoized");
+    const auto& memoized_sizes = opt_memoized_sizes.value().get();
+    TORCH_INTERNAL_ASSERT(sizes.size() == memoized_sizes.size());
+    std::size_t i = 0;
+    for (const auto& size : memoized_sizes) {
+      auto inferred_val = expr_eval.evaluate(size);
+      TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
+          inferred_val == expr_eval.evaluate(sizes[i]),
+          "Wrong value calculated ",
+          inferred_val.value(),
+          " vs ",
+          expr_eval.evaluate(sizes[i]).value());
+      TORCH_INTERNAL_ASSERT(
+          inferred_val.has_value(),
+          "Could not launch kernel as program could not infer ",
+          kir::toString(sizes[i]),
+          " for the buffer ",
+          kir::toString(tv));
+      inferred_sizes.push_back(inferred_val.value());
+      ++i;
+    }
+  } else {
+    FUSER_PERF_SCOPE("inferAndAlloc::eager");
+
+    for (const auto size : sizes) {
+      const auto inferred_val = expr_eval.evaluate(size);
+      TORCH_INTERNAL_ASSERT(
+          inferred_val.has_value(),
+          "Could not launch kernel as program could not infer ",
+          kir::toString(size),
+          " for the buffer ",
+          kir::toString(tv));
+      inferred_sizes.push_back(inferred_val.value());
+    }
   }
 
   const auto at_type = data_type_to_aten(tv->dtype());
@@ -292,7 +322,7 @@ at::Tensor inferAndAllocOutput(
     sizes.push_back(id->extent());
   }
 
-  return inferAndAlloc(tv, sizes, expr_eval, options, zero_init);
+  return inferAndAlloc(tv, sizes, c10::nullopt, expr_eval, options, zero_init);
 }
 
 } // namespace
@@ -302,7 +332,7 @@ uint64_t FusionExecutor::computeSharedMemory(
     const std::vector<const kir::Allocate*>& buffers,
     bool align_padding,
     uint64_t total) {
-  FUSER_PERF_SCOPE("computeSharedMemory");
+  FUSER_PERF_SCOPE("computeSharedMemory::old");
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
     // then do not allocate memory for this buffer.
@@ -328,61 +358,90 @@ uint64_t FusionExecutor::computeSharedMemory(
   return total;
 }
 
+uint64_t FusionExecutor::computeSharedMemory(
+    kir::ExpressionEvaluator& expr_eval,
+    const std::vector<const kir::Allocate*>& buffers,
+    const std::vector<glfdc::SymbolicExpr>& memoized,
+    bool align_padding,
+    uint64_t total) {
+  FUSER_PERF_SCOPE("computeSharedMemory::new");
+  size_t i = 0;
+  for (auto smem_alloc : buffers) {
+    if (smem_alloc->alias() == nullptr) {
+      auto mem_inferred = expr_eval.evaluate(memoized[i]);
+      TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
+          mem_inferred == expr_eval.evaluate(smem_alloc->size()),
+          "Wrong value calculated ",
+          mem_inferred.value(),
+          " vs ",
+          expr_eval.evaluate(smem_alloc->size()).value());
+      if (mem_inferred.has_value()) {
+        const uint64_t data_size = dataTypeSize(smem_alloc->buffer()->dtype());
+        // Add padding to align dynamic shared memory
+        if (align_padding) {
+          total = ceilDiv(total, data_size) * data_size;
+        }
+        total += mem_inferred.value() * data_size;
+      } else {
+        TORCH_INTERNAL_ASSERT(
+            false,
+            "Failed to evaluate the size ",
+            smem_alloc->size(),
+            " of shared memory buffer - T",
+            smem_alloc->buffer()->name());
+      }
+    }
+    ++i;
+  }
+  return total;
+}
+
 LaunchParams FusionExecutor::computeLaunchParams(
     const LaunchParams& launch_constraints,
     kir::ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("FusionExecutor::ComputeLaunchParams");
 
   LaunchParams launch_params;
+  const auto& kernel_summary = kernel()->summary();
 
   auto data_cache = compileTimeDataCache();
-
-  auto& used_tvs = getUsedTVs();
-  auto parallel_binding_ids_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::ParallelBindingIterDomains>(
-          data_cache, [&used_tvs]() {
-            return std::make_unique<std::vector<IterDomain*>>(
-                executor_utils::getParallelBindingsIterDomains(used_tvs));
-          });
-  auto& parallel_binding_ids = parallel_binding_ids_entry.get();
-
   auto& lower = lowered_;
+  const auto& extent_info = kernel()->getExtentSymbolicInfo();
 
   auto parallel_iter_extent_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
           executor_utils::caching::ParallelIterExtentMap>(
-          data_cache, [&parallel_binding_ids, &lower]() {
-            return executor_utils::getParallelIterExtents(
-                lower, parallel_binding_ids);
+          data_cache, [&extent_info]() {
+            return executor_utils::getParallelIterExtents(extent_info);
           });
   auto& parallel_iter_extents = parallel_iter_extent_entry.get();
 
   auto warp_padded_parallel_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
           executor_utils::caching::WarpPaddedParallelExtents>(
-          data_cache, [&parallel_binding_ids, &lower]() {
-            return executor_utils::getWarpPaddedExtentsInfo(
-                lower, parallel_binding_ids);
+          data_cache, [&extent_info]() {
+            return executor_utils::getWarpPaddedExtentsInfo(extent_info);
           });
-  auto& warp_padded_extent_set =
-      warp_padded_parallel_entry.get().warp_padded_extent_set;
-  auto& warp_padded_constant =
-      warp_padded_parallel_entry.get().warp_padded_constant;
 
+  auto& warp_padded_values =
+      warp_padded_parallel_entry.get().symbolic_warp_padded_values;
   // If any dimension was set in launch constraints we need to run through
   // IterDomains that have been parallelized, and bind those values. Or make
   // sure if they could be inferred the inference matches what was set.
   for (auto& entry : parallel_iter_extents) {
     auto p_type = entry.first;
-    if (launch_constraints.hasDim(p_type)) {
-      auto parallel_extents = entry.second;
-      for (auto extent : parallel_extents) {
-        auto inferred_val = expr_eval.evaluate(extent);
-        if (inferred_val.has_value()) {
+    auto parallel_extents = entry.second;
+    for (auto extent : parallel_extents) {
+      auto kir_extent = std::get<0>(extent);
+
+      if (launch_constraints.hasDim(p_type)) {
+        auto inferred_val_m = expr_eval.evaluate(std::get<1>(extent));
+        TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
+            inferred_val_m == expr_eval.evaluate(kir_extent));
+        if (inferred_val_m.has_value()) {
           // This value could have been inferred, make sure it was set right.
           bool valid =
-              inferred_val.value() == launch_constraints.getDim(p_type) ||
+              inferred_val_m.value() == launch_constraints.getDim(p_type) ||
               launch_constraints.getRawVal(p_type) == -1;
           if (!useFallback() && !valid) {
             TORCH_WARN_ONCE(
@@ -391,7 +450,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
           }
         } else {
           // Bind the launch constraint into our evaluation context
-          expr_eval.bind(extent, launch_constraints.getDim(p_type));
+          expr_eval.bind(kir_extent, launch_constraints.getDim(p_type));
           launch_params.bind(launch_constraints.getDim(p_type), p_type);
         }
       }
@@ -404,41 +463,31 @@ LaunchParams FusionExecutor::computeLaunchParams(
     auto parallel_extents = entry.second;
     // Select the maxmimum value out of all the parallel extents
     int64_t maximum_value = std::numeric_limits<int64_t>::min();
-    for (auto extent : parallel_extents) {
-      auto val = expr_eval.evaluate(extent);
-      TORCH_INTERNAL_ASSERT(
-          val.has_value(),
-          "Tried to evaluate the extent of ",
-          p_type,
-          " to set launch bounds but could not.");
 
+    for (const auto& extent : parallel_extents) {
+      c10::optional<Int::ScalarType> val;
+      auto kir_extent = std::get<0>(extent);
+
+      auto it = warp_padded_values.find(kir_extent);
       // apply padding to the extent if needed
-      if (warp_padded_extent_set.count(extent)) {
-        // Check if the extent has const value
-        auto padded_constant_it = warp_padded_constant.find(extent);
-
-        if (padded_constant_it != warp_padded_constant.end()) {
-          // If already specified padded to constant, need to check
-          //  runtime value not over the constant bound
-          TORCH_INTERNAL_ASSERT(*val <= padded_constant_it->second);
-          *val = padded_constant_it->second;
-        } else {
-          // If no specified constant, pad to the smallest multiple of warp
-          //  above the value.
-          auto padded_number_of_warps =
-              (*val + C10_WARP_SIZE - 1) / C10_WARP_SIZE;
-          *val = C10_WARP_SIZE * padded_number_of_warps;
-        }
+      if (it != warp_padded_values.end()) {
+        auto it = warp_padded_values.find(kir_extent);
+        // If already specified padded to constant, it'll be padded to that
+        // value. Otherwise pad to the smallest multiple of warpabove the value.
+        val = expr_eval.evaluate(it->second);
         TORCH_INTERNAL_ASSERT(
             *val <= 1024, "padded dimension larger than max block size");
+
+      } else {
+        val = expr_eval.evaluate(std::get<1>(extent));
+        TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
+            val == expr_eval.evaluate(std::get<0>(extent)),
+            "glfdc symbolic value mismatch");
       }
       maximum_value = std::max(maximum_value, *val);
     }
     launch_params.bind(maximum_value, p_type);
   }
-
-  const auto kernel = lowered_.kernel();
-  const auto& kernel_summary = kernel->summary();
 
   // Calculate Dynamic Shared Memory Size
   // Add workspace for reduction and broadcast
@@ -465,6 +514,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   const uint64_t dynamic_smem_size = computeSharedMemory(
       expr_eval,
       kernel_summary.dynamic_smem_allocations,
+      kernel_summary.memoized_dynamic_smem_allocations,
       true,
       reduction_broadcast_workspace);
 
@@ -486,23 +536,30 @@ FusionExecutor::GlobalBuffers FusionExecutor::allocGlobalVals(
   GlobalBuffers global_buffers;
   const auto kernel = lowered_.kernel();
   const auto& kernel_summary = lowered_.kernel()->summary();
+  std::size_t i = 0;
+  TORCH_INTERNAL_ASSERT(
+      kernel_summary.global_allocations.size() ==
+      kernel_summary.memoized_global_shapes.size());
   for (auto alloc : kernel_summary.global_allocations) {
     TORCH_INTERNAL_ASSERT(
         alloc->buffer()->isA<kir::TensorView>(),
         "Cannot allocate global buffers that are not tensors.");
     auto tv = alloc->buffer()->as<kir::TensorView>();
     if (kernel->isOutput(tv)) {
+      ++i;
       continue;
     }
+    auto mshape_ref = std::cref(kernel_summary.memoized_global_shapes[i]);
     if (alloc->zeroInit()) {
-      global_buffers.buffers.push_back(
-          inferAndAlloc(tv, alloc->shape(), expr_eval, options_, true));
+      global_buffers.buffers.push_back(inferAndAlloc(
+          tv, alloc->shape(), mshape_ref, expr_eval, options_, true));
       global_buffers.zero_init.push_back(true);
     } else {
-      global_buffers.buffers.push_back(
-          inferAndAlloc(tv, alloc->shape(), expr_eval, options_, false));
+      global_buffers.buffers.push_back(inferAndAlloc(
+          tv, alloc->shape(), mshape_ref, expr_eval, options_, false));
       global_buffers.zero_init.push_back(false);
     }
+    ++i;
   }
 
   return global_buffers;
@@ -525,7 +582,8 @@ std::vector<at::Tensor> FusionExecutor::allocOutputs(
           inferAndAllocOutput(output, expr_eval, options_, false));
     } else {
       // aliasing to inputs, no need to allocate real output
-      outputs.push_back(inferAndAlloc(output, {}, expr_eval, options_, false));
+      outputs.push_back(
+          inferAndAlloc(output, {}, c10::nullopt, expr_eval, options_, false));
     }
   }
   return outputs;

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <torch/csrc/WindowsTorchApiMacro.h>
+#include <torch/csrc/jit/codegen/cuda/glfdc/eval.h>
+#include <torch/csrc/jit/codegen/cuda/glfdc/expr.h>
 #include <torch/csrc/jit/codegen/cuda/kernel_ir.h>
 #include <torch/csrc/jit/codegen/cuda/lower_thread_predicate.h>
 #include <torch/csrc/jit/codegen/cuda/lower_warp_reduce.h>
@@ -16,6 +18,8 @@ namespace fuser {
 namespace cuda {
 namespace kir {
 
+class ExprBuilderVisitor;
+
 //! Summary of interesting facts about the kernel
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 struct KernelSummary {
@@ -25,8 +29,15 @@ struct KernelSummary {
   //! List of global buffers
   std::vector<const kir::Allocate*> global_allocations;
 
+  //! List of global buffers shapes by allocation
+  std::vector<std::vector<torch::jit::fuser::cuda::glfdc::SymbolicExpr>>
+      memoized_global_shapes;
+
   //! List of dynamic shared memory buffers
   std::vector<const kir::Allocate*> dynamic_smem_allocations;
+
+  //! List of dynamic shared memory allocation size expressions in memoized form
+  std::vector<glfdc::SymbolicExpr> memoized_dynamic_smem_allocations;
 
   //! List of static shared memory buffers
   std::vector<const kir::Allocate*> static_smem_allocations;
@@ -66,6 +77,26 @@ struct KernelSummary {
   std::vector<const kir::Allocate*> dynamic_lmem_allocations;
 };
 
+class ExtentSymbolicInfo {
+  // TODO: getters
+ public:
+  //! DAG (Direct acyclic graph) of all memoized expressions
+  std::unique_ptr<torch::jit::fuser::cuda::glfdc::ExprDAG> memoized_dag;
+
+  //! Map of tensor extents as symbolic expressions
+  std::unordered_map<
+      ParallelType,
+      std::vector<std::tuple<const kir::Val*, glfdc::SymbolicExpr>>,
+      TypeHash>
+      symbolic_parallel_iter_extents;
+
+  //! Map of tensor warp padded extents as symbolic expressions
+  std::unordered_map<const kir::Val*, glfdc::SymbolicExpr>
+      symbolic_warp_padded_extents;
+
+  void optimizeForEval();
+};
+
 //! Container for a lowered Kernel IR
 //!
 //! TODO(kir): currently, it is just pointing to nodes owned
@@ -82,7 +113,7 @@ class TORCH_CUDA_CU_API Kernel final : public NonCopyable {
   //! At this point we have a complete kernel definition and we can
   //! run analysis passes to build a KernelSummary
   //!
-  void finalize(std::vector<kir::Expr*> top_level_exprs);
+  void finalize(std::vector<kir::Expr*> top_level_exprs, ExprBuilderVisitor&);
 
   //! Register input as an input of the kernel
   void addInput(Val* input) {
@@ -132,8 +163,20 @@ class TORCH_CUDA_CU_API Kernel final : public NonCopyable {
     return summary_;
   }
 
+  KernelSummary& summary() {
+    return summary_;
+  }
+
   const ThreadPredicateMap& predicateMap() const {
     return *predicate_map_;
+  }
+
+  void setExtentSymbolicInfo(ExtentSymbolicInfo extent_info) {
+    extent_symbolic_info_ = std::move(extent_info);
+  }
+
+  const ExtentSymbolicInfo& getExtentSymbolicInfo() const {
+    return extent_symbolic_info_;
   }
 
   //! Register a new Kernel IR node
@@ -192,6 +235,7 @@ class TORCH_CUDA_CU_API Kernel final : public NonCopyable {
   // TODO(kir): consider a simpler, kernel IR based version
   std::unique_ptr<ThreadPredicateMap> predicate_map_;
   WarpPaddedParallelInfo warp_padded_parallel_info_;
+  ExtentSymbolicInfo extent_symbolic_info_;
 };
 
 } // namespace kir
