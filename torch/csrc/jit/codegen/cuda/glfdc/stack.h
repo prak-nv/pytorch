@@ -49,7 +49,9 @@ class EvalStack : std::stack<Ty_, C_> {
   bool fill_gaps(
       const std::vector<binding_gap_t>& binding_gaps,
       BndFn_ fn) noexcept {
-    for (auto [idx, bind] : binding_gaps) {
+    for (auto binding_idx : binding_gaps) {
+      auto idx = binding_idx.first;
+      auto bind = binding_idx.second;
       assert(idx < this->c.size());
       assert(this->c[idx] == GAP_VALUE);
 
